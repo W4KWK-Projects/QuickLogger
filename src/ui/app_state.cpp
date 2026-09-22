@@ -313,6 +313,7 @@ namespace ql
             }
         }
         operator_station.callsign = state->operator_callsign;
+        BackfillCountyFromZip(state, &operator_station);
 
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
         state->db->RecordManualCheckInStation(operator_station, now);
@@ -467,6 +468,7 @@ namespace ql
             return false;
         }
 
+        BackfillCountyFromZip(state, &state->modal_station);
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
         state->db->RecordManualCheckInStation(state->modal_station, now);
 
@@ -726,6 +728,7 @@ namespace ql
             }
         }
 
+        BackfillCountyFromZip(state, &state->saved_station);
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
         if (already_saved)
         {
@@ -808,6 +811,21 @@ namespace ql
         for (const ZipCentroid& centroid : state->zip_centroids_cache)
         {
             state->zip_centroids_by_zip[centroid.zip] = centroid;
+        }
+    }
+
+    // Same rationale and lazy/self-correcting behavior as
+    // EnsureZipCentroidsCached above, for AppState::zip_county_by_zip.
+    static void EnsureZipCountiesCached(AppState* state)
+    {
+        if (!state->zip_county_by_zip.empty())
+        {
+            return;
+        }
+        std::vector<ZipCounty> zip_counties = state->db->GetAllZipCounties();
+        for (const ZipCounty& zip_county : zip_counties)
+        {
+            state->zip_county_by_zip[zip_county.zip] = zip_county.county;
         }
     }
 
@@ -936,6 +954,29 @@ namespace ql
             state->saved_station_suggestions[state->selected_saved_station_suggestion_index];
         state->saved_station_suggestions.clear();
         state->saved_station_suggestion_labels.clear();
+    }
+
+    void BackfillCountyFromZip(AppState* state, Station* station)
+    {
+        if (!station->county.empty() || station->zip.empty())
+        {
+            return;
+        }
+
+        // A handful of already-persisted stations predate uls_import.cpp's
+        // NormalizeZip5 fix and still carry a 9-digit ZIP+4 (e.g.
+        // "374152623") rather than a plain 5-digit ZIP -- zip_county_by_zip
+        // is keyed on the latter, so truncate defensively here too rather
+        // than only at import time.
+        std::string zip5 = station->zip.size() > 5 ? station->zip.substr(0, 5) : station->zip;
+
+        EnsureZipCountiesCached(state);
+        std::unordered_map<std::string, std::string>::const_iterator it =
+            state->zip_county_by_zip.find(zip5);
+        if (it != state->zip_county_by_zip.end())
+        {
+            station->county = it->second;
+        }
     }
 
 }  // namespace ql

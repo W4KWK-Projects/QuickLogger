@@ -32,12 +32,14 @@ int main()
     // Kick off a fresh FCC ULS import automatically if one has never run,
     // previously failed, is stuck "running" (only possible if a prior run
     // crashed, since a clean quit is blocked while one is active), the last
-    // completed run is more than a week old, or the ZIP-centroid geocode
-    // step specifically failed last time (which a fresh, still-recent `uls`
-    // row would otherwise mask for up to a week -- see ShouldRetryZipCentroids).
+    // completed run is more than a week old, or either auxiliary step (the
+    // ZIP-centroid geocode or the ZIP-to-county lookup) specifically failed
+    // last time (which a fresh, still-recent `uls` row would otherwise mask
+    // for up to a week -- see ShouldRetryAuxiliaryImport).
     std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
     if (ql::ShouldAutoStartUlsImport(db.GetImportRunStatus("uls"), now) ||
-        ql::ShouldRetryZipCentroids(db.GetImportRunStatus("zip_centroids")))
+        ql::ShouldRetryAuxiliaryImport(db.GetImportRunStatus("zip_centroids")) ||
+        ql::ShouldRetryAuxiliaryImport(db.GetImportRunStatus("zip_counties")))
     {
         ql::StartUlsImport(state.db_path, &state.uls_import_progress, &screen);
     }

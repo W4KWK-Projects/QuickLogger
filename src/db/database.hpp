@@ -184,6 +184,16 @@ namespace ql
         std::vector<ZipCentroid> GetAllZipCentroids();
         bool HasAnyZipCentroids();
 
+        // Which county each US ZIP code falls in (from the Census Bureau's
+        // ZCTA-to-county relationship file), used to backfill Station::county
+        // for a ULS-sourced station -- FCC's ULS data has no county field at
+        // all. Same loaded-once-and-cached rationale as the centroids above
+        // (see AppState::zip_county_by_zip); BulkUpsertZipCounties is a plain
+        // overwrite-on-conflict batch upsert.
+        void BulkUpsertZipCounties(const std::vector<ZipCounty>& batch);
+        std::vector<ZipCounty> GetAllZipCounties();
+        bool HasAnyZipCounties();
+
     private:
         void CreateSchema();
 

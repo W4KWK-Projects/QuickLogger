@@ -69,6 +69,13 @@ namespace ql
         std::vector<ZipCentroid> zip_centroids_cache;
         std::unordered_map<std::string, ZipCentroid> zip_centroids_by_zip;
 
+        // Same idea as the pair above, but for the ZIP-to-county lookup used
+        // by BackfillCountyFromZip to fill in Station::county for a
+        // ULS-sourced station (which has no county field in FCC's data at
+        // all). Maps straight to the county string since there's nothing
+        // else per-ZIP worth caching here.
+        std::unordered_map<std::string, std::string> zip_county_by_zip;
+
         // Net list page: the recurring nets a user can select and start.
         std::vector<Net> nets;
         std::vector<std::string> net_names;  // Kept in sync with `nets` by RefreshNets.
@@ -442,5 +449,16 @@ namespace ql
     // ApplySelectedCallsignSuggestion for the saved-station mini-form. Does
     // nothing if there are no suggestions.
     void ApplySelectedSavedStationSuggestion(AppState* state);
+
+    // Fills in `station->county` from AppState::zip_county_by_zip (lazily
+    // loading it from the database on first use) if it's currently blank and
+    // `station->zip` is known -- a no-op otherwise, so it's safe to call on
+    // every station about to be persisted regardless of where its data came
+    // from. This exists specifically because ULS has no county field at all
+    // in its data, so a ULS-sourced station's county would otherwise stay
+    // permanently blank; call this right before RecordManualCheckInStation/
+    // SaveNetStation for any Station that might be ULS-sourced (or just
+    // manually entered with a ZIP but no county).
+    void BackfillCountyFromZip(AppState* state, Station* station);
 
 }  // namespace ql

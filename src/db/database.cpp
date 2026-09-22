@@ -100,6 +100,11 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
     lat REAL NOT NULL,
     lon REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS zip_counties (
+    zip TEXT PRIMARY KEY,
+    county TEXT NOT NULL DEFAULT ''
+);
 )sql";
 
     // Adds `column` to `table` if it isn't already there, for evolving the
@@ -932,6 +937,45 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
             centroid.lat = statement.ColumnDouble(1);
             centroid.lon = statement.ColumnDouble(2);
             results.push_back(centroid);
+        }
+        return results;
+    }
+
+    void Database::BulkUpsertZipCounties(const std::vector<ZipCounty>& batch)
+    {
+        Statement statement(db_, R"sql(
+        INSERT INTO zip_counties (zip, county) VALUES (?, ?)
+        ON CONFLICT(zip) DO UPDATE SET county = excluded.county;
+    )sql");
+
+        sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+        for (const ZipCounty& zip_county : batch)
+        {
+            statement.Reset();
+            statement.BindText(0, zip_county.zip);
+            statement.BindText(1, zip_county.county);
+            statement.Step();
+        }
+        sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
+    }
+
+    bool Database::HasAnyZipCounties()
+    {
+        Statement statement(db_, "SELECT EXISTS(SELECT 1 FROM zip_counties LIMIT 1);");
+        statement.Step();
+        return statement.ColumnInt64(0) != 0;
+    }
+
+    std::vector<ZipCounty> Database::GetAllZipCounties()
+    {
+        Statement statement(db_, "SELECT zip, county FROM zip_counties;");
+        std::vector<ZipCounty> results;
+        while (statement.Step())
+        {
+            ZipCounty zip_county;
+            zip_county.zip = statement.ColumnText(0);
+            zip_county.county = statement.ColumnText(1);
+            results.push_back(zip_county);
         }
         return results;
     }

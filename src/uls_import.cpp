@@ -75,6 +75,18 @@ namespace ql
         return index < fields.size() ? fields[index] : std::string();
     }
 
+    // FCC's EN.dat zip field is sometimes a 9-digit ZIP+4 with no separator
+    // (e.g. "374152623" for "37415-2623") rather than a plain 5-digit ZIP --
+    // confirmed against a real downloaded l_amat.zip. Every consumer of
+    // Station::zip in this app (the zip_centroids/zip_counties lookups, the
+    // saved-station form's ULS proximity tier) keys off a plain 5-digit
+    // ZIP, so normalize once here at the source rather than in every
+    // consumer.
+    static std::string NormalizeZip5(const std::string& zip)
+    {
+        return zip.size() > 5 ? zip.substr(0, 5) : zip;
+    }
+
     static std::string LicenseClassFromCode(const std::string& code)
     {
         if (code == "T")
@@ -241,7 +253,7 @@ namespace ql
             entity.street_address = FieldOrEmpty(fields, kEnStreetAddress);
             entity.city = FieldOrEmpty(fields, kEnCity);
             entity.state = FieldOrEmpty(fields, kEnState);
-            entity.zip = FieldOrEmpty(fields, kEnZip);
+            entity.zip = NormalizeZip5(FieldOrEmpty(fields, kEnZip));
             result[FieldOrEmpty(fields, kEnUniqueSystemId)] = entity;
         }
         return result;
@@ -372,6 +384,20 @@ namespace ql
         "2023_Gaz_zcta_national.zip";
     static const char* kZipGazetteerFileName = "2023_Gaz_zcta_national.txt";
 
+    // Census Bureau ZCTA-to-county relationship file: which county(ies) each
+    // ZIP code overlaps, used to backfill Station::county for a ULS-sourced
+    // station (see BackfillCountyFromZip in app_state.cpp) -- FCC's ULS data
+    // has no county field anywhere in it (confirmed against a real
+    // downloaded l_amat.zip: EN.dat's 30 fields cover only street/city/
+    // state/zip, and the only other candidate file, CO.dat, turned out to be
+    // license status "Comments", not counties). Unlike the gazetteer above,
+    // this is served as a plain pipe-delimited text file, not zipped. County
+    // boundaries are effectively permanent, so -- like the centroids -- this
+    // is fetched once and never re-fetched.
+    static const char* kZctaCountyUrl =
+        "https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/"
+        "tab20_zcta520_county20_natl.txt";
+
     static std::vector<std::string> SplitTabDelimited(const std::string& line)
     {
         std::vector<std::string> fields;
@@ -490,6 +516,75 @@ namespace ql
         return true;
     }
 
+    static bool FetchAndLoadZipCounties(const std::string& cache_dir, Database* db,
+                                        std::string* error)
+    {
+        std::string txt_path = cache_dir + "/zcta_county.txt";
+        if (!DownloadFileNoProgress(kZctaCountyUrl, txt_path, error))
+        {
+            return false;
+        }
+
+        std::ifstream file(txt_path);
+        if (!file.good())
+        {
+            *error = "Failed to open the downloaded ZCTA-county file.";
+            return false;
+        }
+
+        std::string line;
+        std::getline(file, line);  // Header row.
+
+        // A ZCTA can span more than one county (see tab20_zcta520_county20_natl's
+        // format); keep whichever has the largest land-area overlap
+        // (AREALAND_PART, field 16) as that ZIP's county.
+        std::unordered_map<std::string, std::string> best_county_by_zip;
+        std::unordered_map<std::string, double> best_area_by_zip;
+        while (std::getline(file, line))
+        {
+            std::vector<std::string> fields = SplitPipeDelimited(line);
+            if (fields.size() < 17)
+            {
+                continue;
+            }
+            const std::string& zip = fields[1];
+            const std::string& county = fields[10];
+            if (zip.empty() || county.empty())
+            {
+                continue;
+            }
+            double area = 0.0;
+            try
+            {
+                area = std::stod(fields[16]);
+            }
+            catch (const std::exception&)
+            {
+                continue;
+            }
+
+            std::unordered_map<std::string, double>::const_iterator existing =
+                best_area_by_zip.find(zip);
+            if (existing == best_area_by_zip.end() || area > existing->second)
+            {
+                best_area_by_zip[zip] = area;
+                best_county_by_zip[zip] = county;
+            }
+        }
+
+        std::vector<ZipCounty> batch;
+        batch.reserve(best_county_by_zip.size());
+        for (const std::pair<const std::string, std::string>& entry : best_county_by_zip)
+        {
+            ZipCounty zip_county;
+            zip_county.zip = entry.first;
+            zip_county.county = entry.second;
+            batch.push_back(zip_county);
+        }
+        db->BulkUpsertZipCounties(batch);
+        return true;
+    }
+
     // Runs the whole fetch->extract->parse->import pipeline on whatever
     // thread calls operator()(). A named functor (not a lambda) per this
     // project's coding convention, spawned via std::thread(...).detach() by
@@ -563,6 +658,23 @@ namespace ql
                     geocode_status.status = geocode_ok ? "complete" : "failed";
                     geocode_status.last_error = geocode_ok ? "" : geocode_error;
                     db.UpsertImportRunStatus(geocode_status);
+                }
+                if (ok && !db.HasAnyZipCounties())
+                {
+                    // Same independent, best-effort treatment as the
+                    // centroid geocode step above, and for the same reason:
+                    // a failure here shouldn't fail the whole ULS import,
+                    // just leave Station::county unbackfilled for ULS-sourced
+                    // stations until the next retry.
+                    std::string county_error;
+                    bool county_ok = FetchAndLoadZipCounties(cache_dir, &db, &county_error);
+                    ImportRunStatus county_status;
+                    county_status.source = "zip_counties";
+                    county_status.started_at = started_at;
+                    county_status.completed_at = static_cast<std::int64_t>(std::time(nullptr));
+                    county_status.status = county_ok ? "complete" : "failed";
+                    county_status.last_error = county_ok ? "" : county_error;
+                    db.UpsertImportRunStatus(county_status);
                 }
                 status.completed_at = static_cast<std::int64_t>(std::time(nullptr));
                 status.records_imported = records_imported;
@@ -685,6 +797,14 @@ namespace ql
                            "); saved-station ULS matches are unavailable until this succeeds. "
                            "Press F3 to retry.";
             }
+            std::optional<ImportRunStatus> county_status =
+                state->db->GetImportRunStatus("zip_counties");
+            if (county_status.has_value() && county_status->status == "failed")
+            {
+                message += " ZIP-to-county data failed to load (" + county_status->last_error +
+                           "); County won't be filled in for ULS-sourced stations until this "
+                           "succeeds. Press F3 to retry.";
+            }
             return message;
         }
         return "ULS station database: never imported. Press F3 to import now (~1M+ records, "
@@ -711,7 +831,7 @@ namespace ql
         return true;
     }
 
-    bool ShouldRetryZipCentroids(const std::optional<ImportRunStatus>& status)
+    bool ShouldRetryAuxiliaryImport(const std::optional<ImportRunStatus>& status)
     {
         return status.has_value() && status->status == "failed";
     }

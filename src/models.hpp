@@ -133,4 +133,17 @@ namespace ql
         double lon = 0.0;
     };
 
+    // Which county a US ZIP code falls in, from the Census Bureau's ZCTA-to-
+    // county relationship file. A ZCTA can span more than one county; this
+    // is whichever county has the largest land-area overlap with it (see
+    // FetchAndLoadZipCounties). Used to backfill Station::county for a
+    // ULS-sourced station, which has no county field at all in FCC's data
+    // -- see BackfillCountyFromZip and AppState::zip_county_by_zip (loaded
+    // once, not queried live, same rationale as zip_centroids_cache).
+    struct ZipCounty
+    {
+        std::string zip;
+        std::string county;
+    };
+
 }  // namespace ql

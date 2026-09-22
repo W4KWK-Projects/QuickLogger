@@ -74,15 +74,16 @@ namespace ql
     // older than kUlsStalenessThresholdSeconds.
     bool ShouldAutoStartUlsImport(const std::optional<ImportRunStatus>& status, std::int64_t now);
 
-    // Whether the ZIP-centroid geocode step (a small, independent piece of
-    // StartUlsImport's pipeline -- see FetchAndLoadZipCentroids) needs
-    // retrying: it previously failed (e.g. a network hiccup fetching the
-    // Census gazetteer) and hasn't succeeded since. This is checked
-    // separately from ShouldAutoStartUlsImport because a `uls` row that's
-    // "complete" and fresh (<7 days) would otherwise mask a failed
-    // `zip_centroids` row for up to a week, silently leaving the
-    // saved-station form's proximity autocomplete with no ULS results at
-    // all and no way to notice short of manually pressing F3.
-    bool ShouldRetryZipCentroids(const std::optional<ImportRunStatus>& status);
+    // Whether one of StartUlsImport's small, independent auxiliary steps
+    // (the ZIP-centroid geocode -- see FetchAndLoadZipCentroids -- or the
+    // ZIP-to-county lookup -- see FetchAndLoadZipCounties) needs retrying:
+    // it previously failed (e.g. a network hiccup) and hasn't succeeded
+    // since. Checked separately from ShouldAutoStartUlsImport because a
+    // `uls` row that's "complete" and fresh (<7 days) would otherwise mask a
+    // failed `zip_centroids`/`zip_counties` row for up to a week, silently
+    // leaving the saved-station form's proximity autocomplete (or
+    // ULS-sourced County backfill) unavailable with no way to notice short
+    // of manually pressing F3.
+    bool ShouldRetryAuxiliaryImport(const std::optional<ImportRunStatus>& status);
 
 }  // namespace ql
