@@ -1,0 +1,17 @@
+BasedOnStyle: Google
+IndentWidth: 4
+AccessModifierOffset: -4
+ColumnLimit: 100
+PointerAlignment: Left
+ReferenceAlignment: Left
+DerivePointerAlignment: false
+BreakBeforeBraces: Allman
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortBlocksOnASingleLine: Never
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+NamespaceIndentation: All
+SpaceBeforeParens: ControlStatements
+IncludeBlocks: Preserve
+SortIncludes: false

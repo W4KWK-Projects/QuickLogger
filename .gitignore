@@ -1,0 +1,27 @@
+# CMake build directories
+build/
+cmake-build-*/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+
+# Local runtime database
+*.db
+*.db-wal
+*.db-shm
+
+# Local operator settings (callsign, QRZ credentials)
+settings.txt
+
+# Downloaded FCC ULS / Census gazetteer cache
+uls_cache/
+
+# IDE/tool-local config, not part of the project itself
+.idea/
+.claude/
