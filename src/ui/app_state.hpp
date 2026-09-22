@@ -26,13 +26,6 @@ namespace ql
     constexpr int kPageNetHistory = 7;
     constexpr int kPageEditNet = 8;
 
-    // Index into AppState::role_labels, and which NetInstance field an
-    // operator's callsign gets written into. Same reasoning as the page
-    // constants above: Radiobox's selector must be a plain int*.
-    constexpr int kRoleNetControl = 0;
-    constexpr int kRoleAlternateNetControl = 1;
-    constexpr int kRoleLogger = 2;
-
     // All mutable state shared across the app's pages. Every page-building
     // function and event-handler class receives a pointer to this rather than
     // capturing individual fields, since FTXUI's callbacks need to read and
@@ -129,6 +122,13 @@ namespace ql
         std::vector<Station> modal_callsign_suggestions;
         std::vector<std::string> modal_callsign_suggestion_labels;
         int selected_suggestion_index = 0;
+        // Optional "additional role" for this check-in (Alternate Net
+        // Control / Logger -- never the operator's own role, see
+        // NetInstance::operator_role). Index into `modal_role_choice_labels`;
+        // both are rebuilt by RoleChoiceLabels whenever the modal is opened.
+        // See ApplyCheckInRoleDesignation for how the choice is applied.
+        std::vector<std::string> modal_role_choice_labels;
+        int modal_role_choice_index = 0;
 
         // Edit Check-in modal, opened from the check-in list on the active-net
         // page. Callsign isn't editable here (that's a bigger structural change
@@ -143,6 +143,10 @@ namespace ql
         std::string edit_checkin_signal_report;
         std::string edit_checkin_remarks;
         std::string edit_checkin_comment;
+        // Same idea as modal_role_choice_labels/index above, for this
+        // already-logged check-in.
+        std::vector<std::string> edit_checkin_role_choice_labels;
+        int edit_checkin_role_choice_index = 0;
 
         // Net history page: past instances of AppState::nets[selected_net_index],
         // and which one is highlighted. The highlighted instance's check-ins
@@ -216,8 +220,41 @@ namespace ql
     // Deletes the highlighted check-in (AppState::selected_check_in_index)
     // from AppState::active_instance and refreshes the list. Does not
     // renumber other check-ins' sequence numbers (a gap is harmless). Sets
-    // AppState::form_error instead if there's nothing to remove.
+    // AppState::form_error instead if there's nothing to remove. If the
+    // check-in being removed held a designated role, that role's
+    // NetInstance callsign field is cleared too, rather than left pointing
+    // at a station that's no longer logged.
     void RemoveSelectedCheckIn(AppState* state);
+
+    // The "additional role" choices offered for a check-in on
+    // `state->active_instance`: "No additional role" plus whichever of
+    // Net Control/Alternate Net Control/Logger the operator did NOT already
+    // claim (NetInstance::operator_role) -- always 3 entries, since the
+    // operator claims exactly one of the three. Rebuild whenever a modal
+    // that shows this choice is opened.
+    std::vector<std::string> RoleChoiceLabels(const AppState* state);
+
+    // Maps a CheckIn::designated_role value to its index in the vector
+    // RoleChoiceLabels(state) returns, for preselecting an already-set
+    // choice (e.g. when opening Edit Check-in). kRoleNone maps to index 0.
+    int RoleChoiceIndexFromRole(const AppState* state, int role);
+
+    // The inverse of RoleChoiceIndexFromRole: maps a selected index back to
+    // a kRole* constant (or kRoleNone for index 0) for persisting.
+    int RoleFromRoleChoiceIndex(const AppState* state, int index);
+
+    // Applies a check-in's role designation change: clears whichever other
+    // check-in on this instance previously held `new_role` (only one
+    // check-in can hold a given role at a time), updates
+    // AppState::active_instance's corresponding role-callsign column (and
+    // blanks the one for `old_role`, if any) in the database, and refreshes
+    // AppState::active_instance from it. Does not touch the check-in's own
+    // `designated_role` field/row -- the caller persists that itself (it
+    // already has the whole CheckIn to save). A no-op if `new_role` equals
+    // `old_role`, or if `new_role` is the operator's own role -- the UI
+    // never offers that choice, this just refuses to apply it if asked.
+    void ApplyCheckInRoleDesignation(AppState* state, std::int64_t check_in_id, int old_role,
+                                     int new_role, const std::string& callsign);
 
     // Clears the New Station modal's input fields and any validation error.
     void ClearModalFields(AppState* state);
@@ -246,10 +283,18 @@ namespace ql
     std::string FormatCheckInRow(const CheckIn& check_in, const std::string& name,
                                  const std::string& member_id);
 
+    // The column-header line for a list of FormatCheckInRow rows -- same
+    // field widths as the row formatter (so it can't drift out of alignment
+    // with it), just with plain-English labels instead of data.
+    std::string FormatCheckInHeaderRow();
+
     // Formats a whole list of check-ins via FormatCheckInRow, looking up each
     // one's Station along the way. Shared by the active-net page and the net
     // history page so both display check-ins identically.
     std::vector<std::string> FormatCheckInRows(Database* db, const std::vector<CheckIn>& check_ins);
+
+    // The column-header line for a list of FormatNetInstanceRow rows.
+    std::string FormatNetInstanceHeaderRow();
 
     // Reloads AppState::history_instances/history_instance_labels from the
     // database for AppState::nets[selected_net_index]. Call before showing the
@@ -263,6 +308,12 @@ namespace ql
     // surface, capped to a handful of results. Clears the suggestions (rather
     // than matching everything) when the callsign field is empty.
     void RefreshCallsignSuggestions(AppState* state);
+
+    // The column-header line for a list of FormatCallsignSuggestion/
+    // FormatUlsSuggestion rows (both use the same Callsign/Name column
+    // widths) -- shared by the New Station modal's suggestion menu and the
+    // saved-station form's suggestion menu.
+    std::string FormatCallsignSuggestionHeaderRow();
 
     // Copies the highlighted entry of AppState::modal_callsign_suggestions
     // (AppState::selected_suggestion_index) into AppState::modal_station, pulls
@@ -286,6 +337,9 @@ namespace ql
     // Reloads AppState::edit_net_saved_stations/_labels for AppState::edit_net_id. Call
     // after opening the edit-net page and after any saved-station add/remove.
     void RefreshEditNetSavedStations(AppState* state);
+
+    // The column-header line for a list of FormatSavedStationRow rows.
+    std::string FormatSavedStationHeaderRow();
 
     // Saves AppState::saved_station (plus AppState::saved_station_remarks as its default
     // remarks) as a saved station for AppState::edit_net_id, then clears the

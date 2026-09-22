@@ -358,8 +358,8 @@ namespace ql
             ftxui::Element content = ftxui::vbox({
                 info_line,
                 ftxui::separator(),
-                ftxui::text("#   Callsign   Name                 Member ID  Sig    Remarks") |
-                    ftxui::bold | ftxui::color(ftxui::Color::Cyan),
+                ftxui::text(FormatCheckInHeaderRow()) | ftxui::bold |
+                    ftxui::color(ftxui::Color::Cyan),
                 (check_in_list | ftxui::border) | ftxui::flex,
                 ftxui::text("Enter or F3 to edit a highlighted check-in.") | ftxui::dim,
                 ErrorLine(state_->form_error),
@@ -388,13 +388,15 @@ namespace ql
         NewStationModalRenderer(AppState* state, StationFieldInputs inputs,
                                 ftxui::Component suggestion_menu,
                                 ftxui::Component input_signal_report,
-                                ftxui::Component input_remarks, ftxui::Component input_comment)
+                                ftxui::Component input_remarks, ftxui::Component input_comment,
+                                ftxui::Component role_choice_menu)
             : state_(state),
               inputs_(std::move(inputs)),
               suggestion_menu_(std::move(suggestion_menu)),
               input_signal_report_(std::move(input_signal_report)),
               input_remarks_(std::move(input_remarks)),
-              input_comment_(std::move(input_comment))
+              input_comment_(std::move(input_comment)),
+              role_choice_menu_(std::move(role_choice_menu))
         {
         }
 
@@ -406,7 +408,11 @@ namespace ql
                     : ftxui::vbox({
                           ftxui::text("Matches (Enter picks highlighted; Tab to browse):") |
                               ftxui::dim,
-                          suggestion_menu_->Render() | ftxui::border,
+                          (ftxui::vbox({
+                               ftxui::text(FormatCallsignSuggestionHeaderRow()) | ftxui::dim,
+                               suggestion_menu_->Render(),
+                           }) |
+                           ftxui::border),
                       });
 
             ftxui::Elements rows;
@@ -424,6 +430,8 @@ namespace ql
                 ftxui::hbox({FieldLabel("Signal Report: "), input_signal_report_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Remarks:       "), input_remarks_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
+            rows.push_back(FieldLabel("Additional Role (optional):"));
+            rows.push_back(role_choice_menu_->Render());
             rows.push_back(ftxui::separator());
             rows.push_back(KeyHintRow({{"F2", "New Station"}, {"Esc", "Close"}}));
             rows.push_back(ErrorLine(state_->form_error));
@@ -438,6 +446,7 @@ namespace ql
         ftxui::Component input_signal_report_;
         ftxui::Component input_remarks_;
         ftxui::Component input_comment_;
+        ftxui::Component role_choice_menu_;
     };
 
     // The Edit Check-in modal, shown on top of the active-net page. Callsign
@@ -448,12 +457,14 @@ namespace ql
     public:
         EditCheckInModalRenderer(AppState* state, StationFieldInputs inputs,
                                  ftxui::Component input_signal_report,
-                                 ftxui::Component input_remarks, ftxui::Component input_comment)
+                                 ftxui::Component input_remarks, ftxui::Component input_comment,
+                                 ftxui::Component role_choice_menu)
             : state_(state),
               inputs_(std::move(inputs)),
               input_signal_report_(std::move(input_signal_report)),
               input_remarks_(std::move(input_remarks)),
-              input_comment_(std::move(input_comment))
+              input_comment_(std::move(input_comment)),
+              role_choice_menu_(std::move(role_choice_menu))
         {
         }
 
@@ -473,6 +484,8 @@ namespace ql
                 ftxui::hbox({FieldLabel("Signal Report: "), input_signal_report_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Remarks:       "), input_remarks_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
+            rows.push_back(FieldLabel("Additional Role (optional):"));
+            rows.push_back(role_choice_menu_->Render());
             rows.push_back(ftxui::separator());
             rows.push_back(KeyHintRow({{"F2", "Save"}, {"Esc", "Cancel"}}));
 
@@ -485,6 +498,7 @@ namespace ql
         ftxui::Component input_signal_report_;
         ftxui::Component input_remarks_;
         ftxui::Component input_comment_;
+        ftxui::Component role_choice_menu_;
     };
 
     ftxui::Component BuildActiveNetPage(AppState* state)
@@ -519,6 +533,17 @@ namespace ql
             ftxui::Input(&state->modal_remarks, "Remarks", SingleLineInputOption());
         ftxui::Component input_comment =
             ftxui::Input(&state->modal_comment, "Comment", SingleLineInputOption());
+        // A Menu (not Radiobox) so arrow keys change the choice immediately --
+        // no separate "confirm with Space/Enter" step, and no internal hover
+        // cursor left dangling from a previous check-in. A Radiobox retains
+        // its own hovered-entry state across the component's whole lifetime
+        // (it's built once, like every other component in this app), so if
+        // this modal is reopened for a second check-in after resetting
+        // modal_role_choice_index to 0, the *hover* wouldn't reset with it --
+        // the next arrow-down would move relative to wherever it was left
+        // after the previous check-in, silently landing on the wrong role.
+        ftxui::Component role_choice_menu =
+            ftxui::Menu(&state->modal_role_choice_labels, &state->modal_role_choice_index);
 
         state->modal_callsign_input = input_callsign;
 
@@ -527,10 +552,12 @@ namespace ql
         modal_components.push_back(input_signal_report);
         modal_components.push_back(input_remarks);
         modal_components.push_back(input_comment);
+        modal_components.push_back(role_choice_menu);
         ftxui::Component modal_root = ftxui::Container::Vertical(modal_components);
         ftxui::Component modal_view = ftxui::Renderer(
-            modal_root, NewStationModalRenderer(state, modal_inputs, suggestion_menu,
-                                                input_signal_report, input_remarks, input_comment));
+            modal_root,
+            NewStationModalRenderer(state, modal_inputs, suggestion_menu, input_signal_report,
+                                    input_remarks, input_comment, role_choice_menu));
 
         StationFieldInputs edit_checkin_inputs =
             BuildStationFieldInputs(&state->edit_checkin_station, ftxui::Component());
@@ -540,16 +567,19 @@ namespace ql
             ftxui::Input(&state->edit_checkin_remarks, "Remarks", SingleLineInputOption());
         ftxui::Component edit_input_comment =
             ftxui::Input(&state->edit_checkin_comment, "Comment", SingleLineInputOption());
+        ftxui::Component edit_role_choice_menu = ftxui::Menu(
+            &state->edit_checkin_role_choice_labels, &state->edit_checkin_role_choice_index);
 
         ftxui::Components edit_modal_components = StationFieldComponents(edit_checkin_inputs);
         edit_modal_components.push_back(edit_input_signal_report);
         edit_modal_components.push_back(edit_input_remarks);
         edit_modal_components.push_back(edit_input_comment);
+        edit_modal_components.push_back(edit_role_choice_menu);
         ftxui::Component edit_modal_root = ftxui::Container::Vertical(edit_modal_components);
         ftxui::Component edit_modal_view = ftxui::Renderer(
-            edit_modal_root,
-            EditCheckInModalRenderer(state, edit_checkin_inputs, edit_input_signal_report,
-                                     edit_input_remarks, edit_input_comment));
+            edit_modal_root, EditCheckInModalRenderer(state, edit_checkin_inputs,
+                                                      edit_input_signal_report, edit_input_remarks,
+                                                      edit_input_comment, edit_role_choice_menu));
 
         ftxui::Component with_new_station_modal =
             ftxui::Modal(main_view, modal_view, &state->show_new_station_modal);
@@ -718,9 +748,8 @@ namespace ql
                     : instance_menu_->Render();
 
             ftxui::Elements detail_rows;
-            detail_rows.push_back(
-                ftxui::text("#   Callsign   Name                 Member ID  Sig    Remarks") |
-                ftxui::bold | ftxui::color(ftxui::Color::Cyan));
+            detail_rows.push_back(ftxui::text(FormatCheckInHeaderRow()) | ftxui::bold |
+                                  ftxui::color(ftxui::Color::Cyan));
             if (state_->history_instances.empty())
             {
                 detail_rows.push_back(ftxui::text("") | ftxui::dim);
@@ -745,9 +774,8 @@ namespace ql
             }
 
             ftxui::Element content = ftxui::vbox({
-                ftxui::text(
-                    "Date         Net Control      Alternate NC     Logger           Status") |
-                    ftxui::bold | ftxui::color(ftxui::Color::Cyan),
+                ftxui::text(FormatNetInstanceHeaderRow()) | ftxui::bold |
+                    ftxui::color(ftxui::Color::Cyan),
                 (instance_list | ftxui::border) | ftxui::flex,
                 ftxui::separator(),
                 (ftxui::vbox(detail_rows) | ftxui::border) | ftxui::flex,
@@ -807,7 +835,11 @@ namespace ql
                     : ftxui::vbox({
                           ftxui::text("Matches (Enter picks highlighted; Tab to browse):") |
                               ftxui::dim,
-                          saved_station_suggestion_menu_->Render() | ftxui::border,
+                          (ftxui::vbox({
+                               ftxui::text(FormatCallsignSuggestionHeaderRow()) | ftxui::dim,
+                               saved_station_suggestion_menu_->Render(),
+                           }) |
+                           ftxui::border),
                       });
 
             ftxui::Elements rows;
@@ -819,6 +851,7 @@ namespace ql
             rows.push_back(ftxui::separator());
             rows.push_back(ftxui::text("Saved Stations:") | ftxui::bold |
                            ftxui::color(ftxui::Color::Cyan));
+            rows.push_back(ftxui::text(FormatSavedStationHeaderRow()) | ftxui::dim);
             rows.push_back((saved_station_list | ftxui::border) | ftxui::flex);
             rows.push_back(ftxui::text("Enter picks a station and jumps to its fields below.") |
                            ftxui::dim);

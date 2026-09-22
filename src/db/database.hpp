@@ -106,6 +106,14 @@ namespace ql
         std::vector<NetInstance> GetNetInstancesForNet(std::int64_t net_id);
         std::optional<NetInstance> GetNetInstanceById(std::int64_t instance_id);
         void CloseNetInstance(std::int64_t instance_id, std::int64_t closed_at);
+        // Sets one of the instance's three role-callsign columns (kRoleNetControl/
+        // kRoleAlternateNetControl/kRoleLogger) to `callsign` -- `callsign` is
+        // "" to clear it. Used by ApplyCheckInRoleDesignation to keep these
+        // columns in sync with CheckIn::designated_role without a
+        // general-purpose "update the whole NetInstance" method. A no-op if
+        // `role` isn't one of the three (in particular, kRoleNone).
+        void SetNetInstanceRoleCallsign(std::int64_t instance_id, int role,
+                                        const std::string& callsign);
 
         // Check-ins (one station's check-in during one NetInstance).
         std::int64_t AddCheckIn(const CheckIn& check_in);
@@ -116,6 +124,12 @@ namespace ql
         // numbers -- a gap in the sequence is harmless, it's just a display
         // ordinal.
         void DeleteCheckIn(std::int64_t check_in_id);
+        // Clears designated_role back to kRoleNone on every check-in in
+        // `net_instance_id` currently holding `role`, except `except_check_in_id`
+        // -- so handing a role to one check-in takes it away from whoever had
+        // it, since only one check-in per instance can hold a given role.
+        void ClearCheckInRoleForInstance(std::int64_t net_instance_id, int role,
+                                         std::int64_t except_check_in_id);
 
         // Bulk-import bookkeeping (e.g. the FCC ULS station database import),
         // so a background import's ongoing/complete status survives page

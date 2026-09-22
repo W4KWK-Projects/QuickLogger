@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS net_instances (
     frequency TEXT NOT NULL DEFAULT '',
     location TEXT NOT NULL DEFAULT '',
     status INTEGER NOT NULL DEFAULT 0,
-    closed_at INTEGER NOT NULL DEFAULT 0
+    closed_at INTEGER NOT NULL DEFAULT 0,
+    operator_role INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_net_instances_net ON net_instances(net_id);
 
@@ -61,7 +62,8 @@ CREATE TABLE IF NOT EXISTS check_ins (
     signal_report TEXT NOT NULL DEFAULT '',
     remarks TEXT NOT NULL DEFAULT '',
     comment TEXT NOT NULL DEFAULT '',
-    checked_in_at INTEGER NOT NULL DEFAULT 0
+    checked_in_at INTEGER NOT NULL DEFAULT 0,
+    designated_role INTEGER NOT NULL DEFAULT -1
 );
 CREATE INDEX IF NOT EXISTS idx_check_ins_net_instance ON check_ins(net_instance_id);
 
@@ -178,6 +180,7 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
         instance.location = row.ColumnText(8);
         instance.status = static_cast<NetInstanceStatus>(row.ColumnInt64(9));
         instance.closed_at = row.ColumnInt64(10);
+        instance.operator_role = static_cast<int>(row.ColumnInt64(11));
         return instance;
     }
 
@@ -192,6 +195,7 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
         check_in.remarks = row.ColumnText(5);
         check_in.comment = row.ColumnText(6);
         check_in.checked_in_at = row.ColumnInt64(7);
+        check_in.designated_role = static_cast<int>(row.ColumnInt64(8));
         return check_in;
     }
 
@@ -229,6 +233,8 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
         EnsureColumnExists(db_, "stations", "street_address", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(db_, "net_saved_stations", "default_remarks",
                            "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(db_, "net_instances", "operator_role", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(db_, "check_ins", "designated_role", "INTEGER NOT NULL DEFAULT -1");
 
         // One-time migration for databases created before ULS import moved
         // to its own table (uls_stations): any leftover data_source=2 (kUls)
@@ -566,8 +572,8 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
         INSERT INTO net_instances
             (net_id, instance_date, net_control_callsign,
              alternate_net_control_callsign, logger_callsign, created_by,
-             frequency, location, status, closed_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?);
+             frequency, location, status, closed_at, operator_role)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?);
     )sql");
         statement.BindInt64(0, instance.net_id);
         statement.BindText(1, instance.instance_date);
@@ -579,6 +585,7 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
         statement.BindText(7, instance.location);
         statement.BindInt64(8, static_cast<std::int64_t>(instance.status));
         statement.BindInt64(9, instance.closed_at);
+        statement.BindInt64(10, instance.operator_role);
         statement.Step();
         return sqlite3_last_insert_rowid(db_);
     }
@@ -588,7 +595,7 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
         Statement statement(db_, R"sql(
         SELECT id, net_id, instance_date, net_control_callsign,
                alternate_net_control_callsign, logger_callsign, created_by,
-               frequency, location, status, closed_at
+               frequency, location, status, closed_at, operator_role
         FROM net_instances WHERE net_id = ? ORDER BY instance_date DESC;
     )sql");
         statement.BindInt64(0, net_id);
@@ -605,7 +612,7 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
         Statement statement(db_, R"sql(
         SELECT id, net_id, instance_date, net_control_callsign,
                alternate_net_control_callsign, logger_callsign, created_by,
-               frequency, location, status, closed_at
+               frequency, location, status, closed_at, operator_role
         FROM net_instances WHERE id = ?;
     )sql");
         statement.BindInt64(0, instance_id);
@@ -627,13 +634,39 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
         statement.Step();
     }
 
+    void Database::SetNetInstanceRoleCallsign(std::int64_t instance_id, int role,
+                                              const std::string& callsign)
+    {
+        const char* column = nullptr;
+        switch (role)
+        {
+            case kRoleNetControl:
+                column = "net_control_callsign";
+                break;
+            case kRoleAlternateNetControl:
+                column = "alternate_net_control_callsign";
+                break;
+            case kRoleLogger:
+                column = "logger_callsign";
+                break;
+            default:
+                return;
+        }
+
+        std::string sql = std::string("UPDATE net_instances SET ") + column + " = ? WHERE id = ?;";
+        Statement statement(db_, sql);
+        statement.BindText(0, ToUpperAscii(callsign));
+        statement.BindInt64(1, instance_id);
+        statement.Step();
+    }
+
     std::int64_t Database::AddCheckIn(const CheckIn& check_in)
     {
         Statement statement(db_, R"sql(
         INSERT INTO check_ins
             (net_instance_id, callsign, sequence_number, signal_report,
-             remarks, comment, checked_in_at)
-        VALUES (?,?,?,?,?,?,?);
+             remarks, comment, checked_in_at, designated_role)
+        VALUES (?,?,?,?,?,?,?,?);
     )sql");
         statement.BindInt64(0, check_in.net_instance_id);
         statement.BindText(1, ToUpperAscii(check_in.callsign));
@@ -642,6 +675,7 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
         statement.BindText(4, check_in.remarks);
         statement.BindText(5, check_in.comment);
         statement.BindInt64(6, check_in.checked_in_at);
+        statement.BindInt64(7, check_in.designated_role);
         statement.Step();
         return sqlite3_last_insert_rowid(db_);
     }
@@ -650,7 +684,7 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
     {
         Statement statement(db_, R"sql(
         SELECT id, net_instance_id, callsign, sequence_number, signal_report,
-               remarks, comment, checked_in_at
+               remarks, comment, checked_in_at, designated_role
         FROM check_ins WHERE net_instance_id = ? ORDER BY sequence_number;
     )sql");
         statement.BindInt64(0, net_instance_id);
@@ -667,7 +701,7 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
         Statement statement(db_, R"sql(
         UPDATE check_ins
         SET callsign = ?, sequence_number = ?, signal_report = ?,
-            remarks = ?, comment = ?, checked_in_at = ?
+            remarks = ?, comment = ?, checked_in_at = ?, designated_role = ?
         WHERE id = ?;
     )sql");
         statement.BindText(0, ToUpperAscii(check_in.callsign));
@@ -676,7 +710,8 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
         statement.BindText(3, check_in.remarks);
         statement.BindText(4, check_in.comment);
         statement.BindInt64(5, check_in.checked_in_at);
-        statement.BindInt64(6, check_in.id);
+        statement.BindInt64(6, check_in.designated_role);
+        statement.BindInt64(7, check_in.id);
         statement.Step();
     }
 
@@ -684,6 +719,19 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
     {
         Statement statement(db_, "DELETE FROM check_ins WHERE id = ?;");
         statement.BindInt64(0, check_in_id);
+        statement.Step();
+    }
+
+    void Database::ClearCheckInRoleForInstance(std::int64_t net_instance_id, int role,
+                                               std::int64_t except_check_in_id)
+    {
+        Statement statement(db_, R"sql(
+        UPDATE check_ins SET designated_role = -1
+        WHERE net_instance_id = ? AND designated_role = ? AND id != ?;
+    )sql");
+        statement.BindInt64(0, net_instance_id);
+        statement.BindInt64(1, role);
+        statement.BindInt64(2, except_check_in_id);
         statement.Step();
     }
 

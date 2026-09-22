@@ -29,31 +29,114 @@ namespace ql
         return true;
     }
 
+    // Column widths shared between every "list of stations/matches" row
+    // formatter below and its corresponding header-row builder, so a header
+    // can never drift out of alignment with the data under it the way the
+    // net-history list's did (its NC:/Alt:/Log: prefixes didn't leave the
+    // labels lined up with "Net Control"/"Alternate NC"/"Logger" above them).
+    // Every field using these widths is built with printf's *runtime* width
+    // and precision (the two `*`s in e.g. "%-*.*s", each consuming one int
+    // argument before the string) rather than baking a number into the
+    // format string literally -- that way a formatter and its header can't
+    // silently drift apart the way a hand-typed number could. The precision
+    // half also truncates a value longer than the column instead of
+    // overflowing it and pushing every later column on that row out of
+    // alignment -- plain "%-10s" only pads short values, it never shortens
+    // long ones.
+    static constexpr int kCallsignColumnWidth = 10;
+    static constexpr int kNameColumnWidth = 20;
+    static constexpr int kMemberIdColumnWidth = 10;
+    static constexpr int kSignalReportColumnWidth = 6;
+    static constexpr int kDateColumnWidth = 12;
+    // NC:/Alt:/Log: are literal prefixes baked into the row (not the header,
+    // which spells the labels out in full), so these three field widths were
+    // chosen specifically to make "Net Control"/"Alternate NC"/"Logger"/
+    // "Status" in FormatNetInstanceHeaderRow land in the same columns as the
+    // NC:/Alt:/Log:-prefixed values below them -- verified by direct
+    // computation, not hand-counted spaces. Changing the header text's
+    // wording (not just re-indenting it) requires recomputing these.
+    static constexpr int kNetControlColumnWidth = 13;
+    static constexpr int kAlternateNcColumnWidth = 12;
+    static constexpr int kLoggerColumnWidth = 12;
+    // The header-only "slot" widths below fold each row prefix ("NC:" etc.,
+    // 3-4 literal characters) plus its field width plus the one-space
+    // separator into a single number, since the header has no prefix of its
+    // own to budget around -- see FormatNetInstanceHeaderRow.
+    static constexpr int kNetControlHeaderSlotWidth = 3 + kNetControlColumnWidth + 1;
+    static constexpr int kAlternateNcHeaderSlotWidth = 4 + kAlternateNcColumnWidth + 1;
+    static constexpr int kLoggerHeaderSlotWidth = 4 + kLoggerColumnWidth + 1;
+
+    // Every header below sits above an ftxui::Menu, not a plain text list.
+    // Menu's default entry renderer always prepends a 2-character indicator
+    // ("> " for the focused row, "  " for every other one -- see
+    // DefaultOptionTransform in FTXUI's menu.cpp) to every row it renders, so
+    // without this same gutter a header's labels land two columns left of the
+    // data they're supposed to name, no matter how well the widths above line
+    // up on their own.
+    static constexpr int kMenuEntryIndicatorWidth = 2;
+
     static std::string FormatNetInstanceRow(const NetInstance& instance)
     {
         const char* status = instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed";
         char buffer[256];
-        std::snprintf(buffer, sizeof(buffer), "%-12s NC:%-11s Alt:%-11s Log:%-11s %s",
-                      instance.instance_date.c_str(), instance.net_control_callsign.c_str(),
-                      instance.alternate_net_control_callsign.c_str(),
-                      instance.logger_callsign.c_str(), status);
+        std::snprintf(
+            buffer, sizeof(buffer), "%-*.*s NC:%-*.*s Alt:%-*.*s Log:%-*.*s %s", kDateColumnWidth,
+            kDateColumnWidth, instance.instance_date.c_str(), kNetControlColumnWidth,
+            kNetControlColumnWidth, instance.net_control_callsign.c_str(), kAlternateNcColumnWidth,
+            kAlternateNcColumnWidth, instance.alternate_net_control_callsign.c_str(),
+            kLoggerColumnWidth, kLoggerColumnWidth, instance.logger_callsign.c_str(), status);
         return std::string(buffer);
+    }
+
+    std::string FormatNetInstanceHeaderRow()
+    {
+        // No literal separators between these specifiers (unlike the row
+        // formatter) -- each slot width already includes the gap before the
+        // next label. See the column-width comments above FormatNetInstanceRow.
+        char buffer[256];
+        std::snprintf(buffer, sizeof(buffer), "%-*.*s%-*.*s%-*.*s%-*.*s%s", kDateColumnWidth + 1,
+                      kDateColumnWidth + 1, "Date", kNetControlHeaderSlotWidth,
+                      kNetControlHeaderSlotWidth, "Net Control", kAlternateNcHeaderSlotWidth,
+                      kAlternateNcHeaderSlotWidth, "Alternate NC", kLoggerHeaderSlotWidth,
+                      kLoggerHeaderSlotWidth, "Logger", "Status");
+        return std::string(kMenuEntryIndicatorWidth, ' ') + buffer;
     }
 
     static std::string FormatCallsignSuggestion(const Station& station, bool is_this_net)
     {
         char buffer[128];
-        std::snprintf(buffer, sizeof(buffer), "%-10s %-20s %s", station.callsign.c_str(),
-                      station.name.c_str(), is_this_net ? "(this net)" : "(other net)");
+        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %s", kCallsignColumnWidth,
+                      kCallsignColumnWidth, station.callsign.c_str(), kNameColumnWidth,
+                      kNameColumnWidth, station.name.c_str(),
+                      is_this_net ? "(this net)" : "(other net)");
         return std::string(buffer);
+    }
+
+    std::string FormatCallsignSuggestionHeaderRow()
+    {
+        char buffer[128];
+        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %s", kCallsignColumnWidth,
+                      kCallsignColumnWidth, "Callsign", kNameColumnWidth, kNameColumnWidth, "Name",
+                      "Source");
+        return std::string(kMenuEntryIndicatorWidth, ' ') + buffer;
     }
 
     static std::string FormatSavedStationRow(const Station& station)
     {
         char buffer[128];
-        std::snprintf(buffer, sizeof(buffer), "%-10s %-20s %s", station.callsign.c_str(),
-                      station.name.c_str(), station.member_id.c_str());
+        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %s", kCallsignColumnWidth,
+                      kCallsignColumnWidth, station.callsign.c_str(), kNameColumnWidth,
+                      kNameColumnWidth, station.name.c_str(), station.member_id.c_str());
         return std::string(buffer);
+    }
+
+    std::string FormatSavedStationHeaderRow()
+    {
+        char buffer[128];
+        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %s", kCallsignColumnWidth,
+                      kCallsignColumnWidth, "Callsign", kNameColumnWidth, kNameColumnWidth, "Name",
+                      "Member ID");
+        return std::string(kMenuEntryIndicatorWidth, ' ') + buffer;
     }
 
     // `distance_miles` < 0 means "unknown" (the station's own ZIP has no
@@ -72,8 +155,9 @@ namespace ql
                           static_cast<int>(distance_miles));
         }
         char buffer[128];
-        std::snprintf(buffer, sizeof(buffer), "%-10s %-20s (ULS, %s)", station.callsign.c_str(),
-                      station.name.c_str(), distance_text);
+        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s (ULS, %s)", kCallsignColumnWidth,
+                      kCallsignColumnWidth, station.callsign.c_str(), kNameColumnWidth,
+                      kNameColumnWidth, station.name.c_str(), distance_text);
         return std::string(buffer);
     }
 
@@ -135,14 +219,61 @@ namespace ql
         state->form_error.clear();
     }
 
+    // Sequence numbers are numeric, not a string column, so unlike the other
+    // widths above they can't be truncated the same way a long name could --
+    // realistic check-in counts never approach 3 digits, so this is purely
+    // for lining "#" up with the row's %d field.
+    static constexpr int kSequenceColumnWidth = 3;
+    // Fits the longest abbreviation ("AltNC", 5 chars) plus one for padding.
+    static constexpr int kRoleColumnWidth = 6;
+
+    // Short tag for CheckIn::designated_role, shown in its own column so a
+    // station holding Alternate Net Control or Logger is visible straight
+    // from the check-in list, not just by opening it to edit. Blank (not
+    // "None") for kRoleNone, so an undesignated check-in's row doesn't look
+    // busier than one that's just never been looked at.
+    static std::string RoleAbbreviation(int role)
+    {
+        switch (role)
+        {
+            case kRoleNetControl:
+                return "NC";
+            case kRoleAlternateNetControl:
+                return "AltNC";
+            case kRoleLogger:
+                return "Log";
+            default:
+                return "";
+        }
+    }
+
     std::string FormatCheckInRow(const CheckIn& check_in, const std::string& name,
                                  const std::string& member_id)
     {
+        std::string role = RoleAbbreviation(check_in.designated_role);
         char buffer[256];
-        std::snprintf(buffer, sizeof(buffer), "%-3d %-10s %-20s %-10s %-6s %s",
-                      check_in.sequence_number, check_in.callsign.c_str(), name.c_str(),
-                      member_id.c_str(), check_in.signal_report.c_str(), check_in.remarks.c_str());
+        std::snprintf(buffer, sizeof(buffer), "%-*d %-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
+                      kSequenceColumnWidth, check_in.sequence_number, kCallsignColumnWidth,
+                      kCallsignColumnWidth, check_in.callsign.c_str(), kNameColumnWidth,
+                      kNameColumnWidth, name.c_str(), kMemberIdColumnWidth, kMemberIdColumnWidth,
+                      member_id.c_str(), kSignalReportColumnWidth, kSignalReportColumnWidth,
+                      check_in.signal_report.c_str(), kRoleColumnWidth, kRoleColumnWidth,
+                      role.c_str(), check_in.remarks.c_str());
         return std::string(buffer);
+    }
+
+    std::string FormatCheckInHeaderRow()
+    {
+        // Same field widths as FormatCheckInRow (with "#" standing in for
+        // the sequence number).
+        char buffer[256];
+        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
+                      kSequenceColumnWidth, kSequenceColumnWidth, "#", kCallsignColumnWidth,
+                      kCallsignColumnWidth, "Callsign", kNameColumnWidth, kNameColumnWidth, "Name",
+                      kMemberIdColumnWidth, kMemberIdColumnWidth, "Member ID",
+                      kSignalReportColumnWidth, kSignalReportColumnWidth, "Sig", kRoleColumnWidth,
+                      kRoleColumnWidth, "Role", "Remarks");
+        return std::string(kMenuEntryIndicatorWidth, ' ') + buffer;
     }
 
     std::vector<std::string> FormatCheckInRows(Database* db, const std::vector<CheckIn>& check_ins)
@@ -178,9 +309,112 @@ namespace ql
         }
 
         const CheckIn& selected = state->active_check_ins[state->selected_check_in_index];
+        if (selected.designated_role != kRoleNone)
+        {
+            state->db->SetNetInstanceRoleCallsign(state->active_instance.id,
+                                                  selected.designated_role, "");
+            std::optional<NetInstance> refreshed =
+                state->db->GetNetInstanceById(state->active_instance.id);
+            if (refreshed.has_value())
+            {
+                state->active_instance = *refreshed;
+            }
+        }
         state->db->DeleteCheckIn(selected.id);
         state->form_error.clear();
         RefreshActiveCheckIns(state);
+    }
+
+    // The two roles besides `operator_role`, in canonical order -- always
+    // exactly two, since the operator claims exactly one of the three.
+    static std::vector<int> AssignableCheckInRoles(int operator_role)
+    {
+        std::vector<int> roles;
+        if (operator_role != kRoleNetControl)
+        {
+            roles.push_back(kRoleNetControl);
+        }
+        if (operator_role != kRoleAlternateNetControl)
+        {
+            roles.push_back(kRoleAlternateNetControl);
+        }
+        if (operator_role != kRoleLogger)
+        {
+            roles.push_back(kRoleLogger);
+        }
+        return roles;
+    }
+
+    std::vector<std::string> RoleChoiceLabels(const AppState* state)
+    {
+        std::vector<std::string> labels{"No additional role"};
+        for (int role : AssignableCheckInRoles(state->active_instance.operator_role))
+        {
+            labels.push_back(state->role_labels[role]);
+        }
+        return labels;
+    }
+
+    int RoleChoiceIndexFromRole(const AppState* state, int role)
+    {
+        if (role == kRoleNone)
+        {
+            return 0;
+        }
+        std::vector<int> roles = AssignableCheckInRoles(state->active_instance.operator_role);
+        for (std::size_t i = 0; i < roles.size(); ++i)
+        {
+            if (roles[i] == role)
+            {
+                return static_cast<int>(i) + 1;
+            }
+        }
+        return 0;
+    }
+
+    int RoleFromRoleChoiceIndex(const AppState* state, int index)
+    {
+        if (index <= 0)
+        {
+            return kRoleNone;
+        }
+        std::vector<int> roles = AssignableCheckInRoles(state->active_instance.operator_role);
+        std::size_t choice = static_cast<std::size_t>(index - 1);
+        return choice < roles.size() ? roles[choice] : kRoleNone;
+    }
+
+    void ApplyCheckInRoleDesignation(AppState* state, std::int64_t check_in_id, int old_role,
+                                     int new_role, const std::string& callsign)
+    {
+        if (old_role == new_role)
+        {
+            return;
+        }
+        if (new_role != kRoleNone && new_role == state->active_instance.operator_role)
+        {
+            return;
+        }
+
+        if (old_role != kRoleNone)
+        {
+            state->db->SetNetInstanceRoleCallsign(state->active_instance.id, old_role, "");
+        }
+        if (new_role != kRoleNone)
+        {
+            // Only one check-in per instance can hold a given role -- handing
+            // it to this one silently takes it away from whichever check-in
+            // held it before.
+            state->db->ClearCheckInRoleForInstance(state->active_instance.id, new_role,
+                                                   check_in_id);
+            state->db->SetNetInstanceRoleCallsign(state->active_instance.id, new_role, callsign);
+        }
+
+        std::optional<NetInstance> refreshed =
+            state->db->GetNetInstanceById(state->active_instance.id);
+        if (refreshed.has_value())
+        {
+            state->active_instance = *refreshed;
+        }
     }
 
     void ClearModalFields(AppState* state)
@@ -192,6 +426,8 @@ namespace ql
         state->modal_callsign_suggestions.clear();
         state->modal_callsign_suggestion_labels.clear();
         state->selected_suggestion_index = 0;
+        state->modal_role_choice_labels = RoleChoiceLabels(state);
+        state->modal_role_choice_index = 0;
         state->form_error.clear();
     }
 
@@ -214,7 +450,14 @@ namespace ql
         check_in.remarks = state->modal_remarks;
         check_in.comment = state->modal_comment;
         check_in.checked_in_at = now;
-        state->db->AddCheckIn(check_in);
+        check_in.designated_role = RoleFromRoleChoiceIndex(state, state->modal_role_choice_index);
+        check_in.id = state->db->AddCheckIn(check_in);
+
+        if (check_in.designated_role != kRoleNone)
+        {
+            ApplyCheckInRoleDesignation(state, check_in.id, kRoleNone, check_in.designated_role,
+                                        check_in.callsign);
+        }
 
         RefreshActiveCheckIns(state);
         state->form_error.clear();
@@ -231,6 +474,9 @@ namespace ql
         state->edit_checkin_signal_report = check_in.signal_report;
         state->edit_checkin_remarks = check_in.remarks;
         state->edit_checkin_comment = check_in.comment;
+        state->edit_checkin_role_choice_labels = RoleChoiceLabels(state);
+        state->edit_checkin_role_choice_index =
+            RoleChoiceIndexFromRole(state, check_in.designated_role);
 
         state->form_error.clear();
         state->show_edit_checkin_modal = true;
@@ -242,11 +488,16 @@ namespace ql
         state->edit_checkin_station.callsign = state->edit_checkin_original.callsign;
         state->db->UpdateStationFields(state->edit_checkin_station, now);
 
+        int old_role = state->edit_checkin_original.designated_role;
+        int new_role = RoleFromRoleChoiceIndex(state, state->edit_checkin_role_choice_index);
+
         CheckIn check_in = state->edit_checkin_original;
         check_in.signal_report = state->edit_checkin_signal_report;
         check_in.remarks = state->edit_checkin_remarks;
         check_in.comment = state->edit_checkin_comment;
+        check_in.designated_role = new_role;
         state->db->UpdateCheckIn(check_in);
+        ApplyCheckInRoleDesignation(state, check_in.id, old_role, new_role, check_in.callsign);
 
         RefreshActiveCheckIns(state);
     }

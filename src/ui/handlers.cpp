@@ -349,6 +349,7 @@ namespace ql
         // falling back to that role-callsign if Settings hasn't been set up yet.
         instance.created_by = state_->settings.callsign.empty() ? state_->operator_callsign
                                                                 : state_->settings.callsign;
+        instance.operator_role = state_->selected_role_index;
         if (state_->selected_role_index == kRoleNetControl)
         {
             instance.net_control_callsign = state_->operator_callsign;

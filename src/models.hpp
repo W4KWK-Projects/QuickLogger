@@ -36,6 +36,18 @@ namespace ql
         std::int64_t last_updated = 0;  // Unix timestamp.
     };
 
+    // Which of a NetInstance's three role-callsign fields a callsign fills.
+    // Used both for the operator's own role (NetInstance::operator_role,
+    // chosen once when the net is started) and for a check-in's optional
+    // designation as one of the *other* two roles (CheckIn::designated_role,
+    // set from the New Station modal or later via Edit Check-in). kRoleNone
+    // only makes sense for the latter -- a NetInstance always has an
+    // operator, but a check-in usually holds no extra role at all.
+    constexpr int kRoleNetControl = 0;
+    constexpr int kRoleAlternateNetControl = 1;
+    constexpr int kRoleLogger = 2;
+    constexpr int kRoleNone = -1;
+
     // A recurring net definition, e.g. "Skywarn Net, Tuesdays 8pm ET".
     // Holds the defaults that seed each new NetInstance.
     struct Net
@@ -70,6 +82,11 @@ namespace ql
         std::string location;    // Overrides Net::default_location when set.
         NetInstanceStatus status = NetInstanceStatus::kOpen;
         std::int64_t closed_at = 0;  // Unix timestamp; 0 while still open.
+        // Which of the three role-callsign fields above the operator claimed
+        // when starting this net (kRoleNetControl/kRoleAlternateNetControl/
+        // kRoleLogger). A check-in can be designated as one of the *other*
+        // two roles (see CheckIn::designated_role) but never this one.
+        int operator_role = kRoleNetControl;
     };
 
     // One station's check-in during a specific NetInstance. Signal report
@@ -84,6 +101,12 @@ namespace ql
         std::string remarks;
         std::string comment;
         std::int64_t checked_in_at = 0;  // Unix timestamp.
+        // Optional: this check-in additionally serving as Alternate Net
+        // Control or Logger (never the operator's own role -- see
+        // NetInstance::operator_role). kRoleNone means no extra role. At
+        // most one check-in per NetInstance holds a given role at a time;
+        // see ApplyCheckInRoleDesignation.
+        int designated_role = kRoleNone;
     };
 
     // Persisted state of one bulk-import job (e.g. "uls"), so its ongoing/
