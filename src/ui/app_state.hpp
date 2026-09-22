@@ -299,10 +299,13 @@ namespace ql
     void SaveEditCheckInForm(AppState* state);
 
     // Formats one check-in as a single display line: sequence number,
-    // callsign, the station's name/member ID (not stored on CheckIn itself),
-    // signal report, and remarks.
+    // callsign, the station's name/member ID/county (not stored on CheckIn
+    // itself), its designated role, and remarks. Signal report is collected
+    // on the New Station/Edit Check-in forms but deliberately left out of
+    // this list -- there wasn't room to keep both it and County, and County
+    // is more useful here.
     std::string FormatCheckInRow(const CheckIn& check_in, const std::string& name,
-                                 const std::string& member_id);
+                                 const std::string& member_id, const std::string& county);
 
     // The column-header line for a list of FormatCheckInRow rows -- same
     // field widths as the row formatter (so it can't drift out of alignment
@@ -310,9 +313,9 @@ namespace ql
     // `above_menu = true` when this sits directly above an ftxui::Menu (its
     // rows get FTXUI's built-in "> "/"  " 2-column indicator prefix, so the
     // header needs the same-width gutter to still line up -- see
-    // kMenuEntryIndicatorWidth); pass `false` above a plain vbox of
-    // ftxui::text rows (e.g. the net-history page's read-only check-in
-    // detail pane), which has no such prefix.
+    // kMenuEntryIndicatorWidth); every current call site is above a Menu, but
+    // the parameter stays explicit rather than defaulted so a future
+    // non-Menu use has to consciously pass `false`.
     std::string FormatCheckInHeaderRow(bool above_menu);
 
     // Formats a whole list of check-ins via FormatCheckInRow, looking up each

@@ -50,7 +50,7 @@ namespace ql
     static constexpr int kCallsignColumnWidth = 10;
     static constexpr int kNameColumnWidth = 20;
     static constexpr int kMemberIdColumnWidth = 10;
-    static constexpr int kSignalReportColumnWidth = 6;
+    static constexpr int kCountyColumnWidth = 14;
     static constexpr int kDateColumnWidth = 12;
     // Sized to fit the longest header label that lands in each of these
     // columns ("Alternate NC", 12 chars) plus a little padding -- the row
@@ -239,7 +239,7 @@ namespace ql
     }
 
     std::string FormatCheckInRow(const CheckIn& check_in, const std::string& name,
-                                 const std::string& member_id)
+                                 const std::string& member_id, const std::string& county)
     {
         std::string role = RoleAbbreviation(check_in.designated_role);
         char buffer[256];
@@ -247,9 +247,8 @@ namespace ql
                       kSequenceColumnWidth, check_in.sequence_number, kCallsignColumnWidth,
                       kCallsignColumnWidth, check_in.callsign.c_str(), kNameColumnWidth,
                       kNameColumnWidth, name.c_str(), kMemberIdColumnWidth, kMemberIdColumnWidth,
-                      member_id.c_str(), kSignalReportColumnWidth, kSignalReportColumnWidth,
-                      check_in.signal_report.c_str(), kRoleColumnWidth, kRoleColumnWidth,
-                      role.c_str(), check_in.remarks.c_str());
+                      member_id.c_str(), kCountyColumnWidth, kCountyColumnWidth, county.c_str(),
+                      kRoleColumnWidth, kRoleColumnWidth, role.c_str(), check_in.remarks.c_str());
         return std::string(buffer);
     }
 
@@ -261,9 +260,9 @@ namespace ql
         std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
                       kSequenceColumnWidth, kSequenceColumnWidth, "#", kCallsignColumnWidth,
                       kCallsignColumnWidth, "Callsign", kNameColumnWidth, kNameColumnWidth, "Name",
-                      kMemberIdColumnWidth, kMemberIdColumnWidth, "Member ID",
-                      kSignalReportColumnWidth, kSignalReportColumnWidth, "Sig", kRoleColumnWidth,
-                      kRoleColumnWidth, "Role", "Remarks");
+                      kMemberIdColumnWidth, kMemberIdColumnWidth, "Member ID", kCountyColumnWidth,
+                      kCountyColumnWidth, "County", kRoleColumnWidth, kRoleColumnWidth, "Role",
+                      "Remarks");
         std::string prefix =
             above_menu ? std::string(kMenuEntryIndicatorWidth, ' ') : std::string();
         return prefix + buffer;
@@ -277,7 +276,8 @@ namespace ql
             std::optional<Station> station = db->FindStationByCallsign(check_in.callsign);
             std::string name = station.has_value() ? station->name : "";
             std::string member_id = station.has_value() ? station->member_id : "";
-            rows.push_back(FormatCheckInRow(check_in, name, member_id));
+            std::string county = station.has_value() ? station->county : "";
+            rows.push_back(FormatCheckInRow(check_in, name, member_id, county));
         }
         return rows;
     }
