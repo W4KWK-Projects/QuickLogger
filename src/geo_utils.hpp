@@ -13,7 +13,7 @@ namespace ql
 
     // Threshold for "known to this net's local area" ULS autocomplete
     // candidates -- see RefreshSavedStationSuggestions in app_state.cpp.
-    constexpr double kNearbyRadiusMiles = 50.0;
+    constexpr double kNearbyRadiusMiles = 70.0;
 
     // The distinct 3-digit ZIP prefixes among `centroids` whose centroid is
     // within kNearbyRadiusMiles of (origin_lat, origin_lon). This is a coarse,
