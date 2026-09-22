@@ -135,6 +135,7 @@ namespace ql
             return;
         }
         RefreshNetHistory(state_);
+        state_->form_error.clear();
         state_->page = kPageNetHistory;
     }
 
@@ -143,12 +144,23 @@ namespace ql
         state_->page = kPageNetList;
     }
 
+    void DeleteSelectedNetInstanceHandler::operator()() const
+    {
+        DeleteSelectedNetInstance(state_);
+    }
+
     bool NetHistoryKeyHandler::operator()(ftxui::Event event) const
     {
         if (event == ftxui::Event::Escape)
         {
             NetHistoryBackHandler back(state_);
             back();
+            return true;
+        }
+        if (event == ftxui::Event::F5)
+        {
+            DeleteSelectedNetInstanceHandler delete_instance(state_);
+            delete_instance();
             return true;
         }
         return false;

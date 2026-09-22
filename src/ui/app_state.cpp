@@ -554,6 +554,26 @@ namespace ql
         }
     }
 
+    void DeleteSelectedNetInstance(AppState* state)
+    {
+        if (state->history_instances.empty())
+        {
+            state->form_error = "No net instance to delete.";
+            return;
+        }
+
+        const NetInstance& selected = state->history_instances[state->selected_history_index];
+        if (selected.status == NetInstanceStatus::kOpen)
+        {
+            state->form_error = "Close this net (from the Active Net page) before deleting it.";
+            return;
+        }
+
+        state->db->DeleteNetInstance(selected.id);
+        state->form_error.clear();
+        RefreshNetHistory(state);
+    }
+
     void RefreshCallsignSuggestions(AppState* state)
     {
         state->modal_callsign_suggestions.clear();

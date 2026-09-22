@@ -634,6 +634,21 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
         statement.Step();
     }
 
+    void Database::DeleteNetInstance(std::int64_t instance_id)
+    {
+        sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+
+        Statement delete_check_ins(db_, "DELETE FROM check_ins WHERE net_instance_id = ?;");
+        delete_check_ins.BindInt64(0, instance_id);
+        delete_check_ins.Step();
+
+        Statement delete_instance(db_, "DELETE FROM net_instances WHERE id = ?;");
+        delete_instance.BindInt64(0, instance_id);
+        delete_instance.Step();
+
+        sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
+    }
+
     void Database::SetNetInstanceRoleCallsign(std::int64_t instance_id, int role,
                                               const std::string& callsign)
     {

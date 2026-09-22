@@ -331,7 +331,20 @@ namespace ql
         AppState* state_;
     };
 
-    // Global key handling for the net history page: Escape Back.
+    // F5 on the net history page: permanently deletes the highlighted net
+    // instance and its check-ins.
+    class DeleteSelectedNetInstanceHandler
+    {
+    public:
+        explicit DeleteSelectedNetInstanceHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // Global key handling for the net history page: Escape Back, F5 Delete.
     class NetHistoryKeyHandler
     {
     public:

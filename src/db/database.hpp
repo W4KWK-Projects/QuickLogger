@@ -114,6 +114,13 @@ namespace ql
         // `role` isn't one of the three (in particular, kRoleNone).
         void SetNetInstanceRoleCallsign(std::int64_t instance_id, int role,
                                         const std::string& callsign);
+        // Permanently removes one net instance (e.g. logged by mistake, or a
+        // test/practice run someone wants gone from history) and all of its
+        // check-ins -- check_ins.net_instance_id references net_instances(id)
+        // with foreign keys enforced, so the check-ins must go first. Wrapped
+        // in one transaction so a failure can't leave check-ins orphaned from
+        // a half-deleted instance.
+        void DeleteNetInstance(std::int64_t instance_id);
 
         // Check-ins (one station's check-in during one NetInstance).
         std::int64_t AddCheckIn(const CheckIn& check_in);

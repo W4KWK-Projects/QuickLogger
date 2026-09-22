@@ -322,6 +322,15 @@ namespace ql
     // net history page.
     void RefreshNetHistory(AppState* state);
 
+    // Permanently deletes the highlighted net instance
+    // (AppState::selected_history_index) and all of its check-ins, then
+    // refreshes the list. Refuses (setting AppState::form_error) if there's
+    // nothing highlighted, or if the instance is still open -- close it from
+    // the Active Net page first, since deleting an in-progress net out from
+    // under AppState::active_instance would leave that page pointing at a
+    // row that no longer exists.
+    void DeleteSelectedNetInstance(AppState* state);
+
     // Reloads AppState::modal_callsign_suggestions/_labels from
     // AppState::modal_station.callsign: tier 1 (SearchNetStationsByCallsignSubstring
     // against AppState::active_instance.net_id) first, then tier 2

@@ -812,9 +812,11 @@ namespace ql
                     ftxui::flex,
                 ftxui::separator(),
                 (ftxui::vbox(detail_rows) | ftxui::border) | ftxui::flex,
+                ErrorLine(state_->form_error),
             });
 
-            return PageChrome("History: " + net_name, content, {{"Esc", "Back"}});
+            return PageChrome("History: " + net_name, content,
+                              {{"F5", "Delete Instance"}, {"Esc", "Back"}});
         }
 
     private:
