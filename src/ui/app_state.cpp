@@ -293,6 +293,41 @@ namespace ql
         }
     }
 
+    void LogOperatorCheckIn(AppState* state)
+    {
+        Station operator_station;
+        operator_station.callsign = state->operator_callsign;
+
+        std::optional<Station> known = state->db->FindStationByCallsign(state->operator_callsign);
+        if (known.has_value())
+        {
+            operator_station = *known;
+        }
+        else
+        {
+            std::optional<Station> uls =
+                state->db->FindUlsStationByCallsign(state->operator_callsign);
+            if (uls.has_value())
+            {
+                operator_station = *uls;
+            }
+        }
+        operator_station.callsign = state->operator_callsign;
+
+        std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+        state->db->RecordManualCheckInStation(operator_station, now);
+
+        CheckIn check_in;
+        check_in.net_instance_id = state->active_instance.id;
+        check_in.callsign = state->operator_callsign;
+        check_in.sequence_number = 1;
+        check_in.checked_in_at = now;
+        check_in.designated_role = state->selected_role_index;
+        state->db->AddCheckIn(check_in);
+
+        RefreshActiveCheckIns(state);
+    }
+
     void RemoveSelectedCheckIn(AppState* state)
     {
         if (state->active_check_ins.empty())

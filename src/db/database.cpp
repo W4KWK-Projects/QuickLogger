@@ -855,6 +855,31 @@ CREATE TABLE IF NOT EXISTS zip_centroids (
         return results;
     }
 
+    std::optional<Station> Database::FindUlsStationByCallsign(const std::string& callsign)
+    {
+        Statement statement(db_, R"sql(
+        SELECT callsign, name, street_address, city, state, zip, license_class,
+               last_updated
+        FROM uls_stations WHERE callsign = ?;
+    )sql");
+        statement.BindText(0, ToUpperAscii(callsign));
+        if (!statement.Step())
+        {
+            return std::nullopt;
+        }
+        Station station;
+        station.callsign = statement.ColumnText(0);
+        station.name = statement.ColumnText(1);
+        station.street_address = statement.ColumnText(2);
+        station.city = statement.ColumnText(3);
+        station.state = statement.ColumnText(4);
+        station.zip = statement.ColumnText(5);
+        station.license_class = statement.ColumnText(6);
+        station.last_updated = statement.ColumnInt64(7);
+        station.data_source = StationDataSource::kUls;
+        return station;
+    }
+
     void Database::BulkUpsertZipCentroids(const std::vector<ZipCentroid>& batch)
     {
         Statement statement(db_, R"sql(

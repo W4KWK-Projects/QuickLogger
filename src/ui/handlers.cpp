@@ -366,8 +366,7 @@ namespace ql
 
         state_->active_instance = instance;
         state_->active_net_name = net.name;
-        state_->active_check_ins.clear();
-        state_->active_display_rows.clear();
+        LogOperatorCheckIn(state_);
         state_->form_error.clear();
         state_->page = kPageActiveNet;
     }

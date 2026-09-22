@@ -160,6 +160,10 @@ namespace ql
         // proximity-based autocomplete tier -- see uls_import.hpp's geo helpers.
         std::vector<Station> SearchUlsStationsByCallsignAndZip3Prefixes(
             const std::string& substring, const std::vector<std::string>& zip3_prefixes);
+        // Exact-callsign lookup against the ULS table, for resolving a
+        // specific operator's info (see LogOperatorCheckIn) rather than
+        // searching/ranking candidates.
+        std::optional<Station> FindUlsStationByCallsign(const std::string& callsign);
 
         // Approximate lat/lon centroids for US ZIP codes (from the Census
         // Bureau's ZCTA gazetteer), used to estimate distance for the

@@ -217,6 +217,21 @@ namespace ql
     // check-ins.
     void RefreshActiveCheckIns(AppState* state);
 
+    // Logs the operator (AppState::operator_callsign) as check-in #1 on the
+    // just-created AppState::active_instance, designated with whichever role
+    // they picked (AppState::selected_role_index) -- the same role already
+    // recorded on the instance itself (NetInstance::operator_role), so the
+    // check-in list's Role column shows it like any other designation. Station
+    // info is resolved the same way any other check-in's would be: a known
+    // station (Database::FindStationByCallsign) wins; failing that, an exact
+    // ULS match; failing that, just the bare callsign. Either way the result
+    // is promoted into `stations` (fill-blanks-only), same as
+    // RecordManualCheckInStation elsewhere. Call once, right after
+    // AppState::active_instance is set for a freshly-started net -- this is
+    // what puts the operator in their own log without making them type
+    // themselves into the New Station modal.
+    void LogOperatorCheckIn(AppState* state);
+
     // Deletes the highlighted check-in (AppState::selected_check_in_index)
     // from AppState::active_instance and refreshes the list. Does not
     // renumber other check-ins' sequence numbers (a gap is harmless). Sets
