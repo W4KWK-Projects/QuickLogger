@@ -23,6 +23,29 @@ namespace ql
         return ftxui::text(label) | ftxui::color(ftxui::Color::YellowLight);
     }
 
+    // Same as FTXUI's own DefaultOptionTransform (menu.cpp) -- the "> "/"  "
+    // prefix, inverted colors for the keyboard-focused entry -- minus the
+    // `| bold` it applies to the selected entry. Confirmed via a user
+    // screenshot: at least one real terminal (ZOC) renders bold glyphs
+    // measurably wider than regular ones, so bolding a long row in a
+    // column-aligned list (net-history instance list, check-in list, etc.)
+    // pushed every column after the bold run out from under its header --
+    // visible only on whichever row happened to be selected. The "> "
+    // prefix already marks the selection; bold added no information here,
+    // just an alignment bug in that terminal. Pass this as
+    // `MenuOption.entries_option.transform` for any Menu whose rows must
+    // stay lined up under a header.
+    static ftxui::Element AlignedMenuEntryTransform(const ftxui::EntryState& state)
+    {
+        std::string label = (state.active ? "> " : "  ") + state.label;
+        ftxui::Element element = ftxui::text(std::move(label));
+        if (state.focused)
+        {
+            element = element | ftxui::inverted;
+        }
+        return element;
+    }
+
     // The Input components for every editable Station field. Shared by the
     // New Station modal, the Edit Check-in modal, and the edit-net page's
     // saved-station form, since all three collect the same identity fields.
@@ -505,6 +528,7 @@ namespace ql
     {
         ftxui::MenuOption check_in_menu_option;
         check_in_menu_option.on_enter = EditSelectedCheckInHandler(state);
+        check_in_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component check_in_menu = ftxui::Menu(
             &state->active_display_rows, &state->selected_check_in_index, check_in_menu_option);
 
@@ -523,6 +547,7 @@ namespace ql
 
         ftxui::MenuOption suggestion_menu_option;
         suggestion_menu_option.on_enter = SelectCallsignSuggestionHandler(state);
+        suggestion_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component suggestion_menu =
             ftxui::Menu(&state->modal_callsign_suggestion_labels, &state->selected_suggestion_index,
                         suggestion_menu_option);
@@ -791,8 +816,10 @@ namespace ql
 
     ftxui::Component BuildNetHistoryPage(AppState* state)
     {
-        ftxui::Component instance_menu =
-            ftxui::Menu(&state->history_instance_labels, &state->selected_history_index);
+        ftxui::MenuOption instance_menu_option;
+        instance_menu_option.entries_option.transform = AlignedMenuEntryTransform;
+        ftxui::Component instance_menu = ftxui::Menu(
+            &state->history_instance_labels, &state->selected_history_index, instance_menu_option);
 
         ftxui::Component root = ftxui::Container::Vertical({instance_menu});
         return ftxui::Renderer(root, NetHistoryRenderer(state, instance_menu));
@@ -905,6 +932,7 @@ namespace ql
 
         ftxui::MenuOption saved_station_menu_option;
         saved_station_menu_option.on_enter = LoadSavedStationHandler(state);
+        saved_station_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component saved_station_menu =
             ftxui::Menu(&state->edit_net_saved_station_labels, &state->selected_saved_station_index,
                         saved_station_menu_option);
@@ -922,6 +950,7 @@ namespace ql
 
         ftxui::MenuOption saved_station_suggestion_menu_option;
         saved_station_suggestion_menu_option.on_enter = SelectSavedStationSuggestionHandler(state);
+        saved_station_suggestion_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component saved_station_suggestion_menu = ftxui::Menu(
             &state->saved_station_suggestion_labels,
             &state->selected_saved_station_suggestion_index, saved_station_suggestion_menu_option);
