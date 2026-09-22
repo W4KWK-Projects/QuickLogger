@@ -381,9 +381,13 @@ namespace ql
             ftxui::Element content = ftxui::vbox({
                 info_line,
                 ftxui::separator(),
-                ftxui::text(FormatCheckInHeaderRow(/*above_menu=*/true)) | ftxui::bold |
-                    ftxui::color(ftxui::Color::Cyan),
-                (check_in_list | ftxui::border) | ftxui::flex,
+                (ftxui::vbox({
+                     ftxui::text(FormatCheckInHeaderRow(/*above_menu=*/true)) | ftxui::bold |
+                         ftxui::color(ftxui::Color::Cyan),
+                     check_in_list,
+                 }) |
+                 ftxui::border) |
+                    ftxui::flex,
                 ftxui::text("Enter or F3 to edit a highlighted check-in.") | ftxui::dim,
                 ErrorLine(state_->form_error),
             });
@@ -799,9 +803,13 @@ namespace ql
             }
 
             ftxui::Element content = ftxui::vbox({
-                ftxui::text(FormatNetInstanceHeaderRow()) | ftxui::bold |
-                    ftxui::color(ftxui::Color::Cyan),
-                (instance_list | ftxui::border) | ftxui::flex,
+                (ftxui::vbox({
+                     ftxui::text(FormatNetInstanceHeaderRow()) | ftxui::bold |
+                         ftxui::color(ftxui::Color::Cyan),
+                     instance_list,
+                 }) |
+                 ftxui::border) |
+                    ftxui::flex,
                 ftxui::separator(),
                 (ftxui::vbox(detail_rows) | ftxui::border) | ftxui::flex,
             });
@@ -878,8 +886,12 @@ namespace ql
             rows.push_back(ftxui::separator());
             rows.push_back(ftxui::text("Saved Stations:") | ftxui::bold |
                            ftxui::color(ftxui::Color::Cyan));
-            rows.push_back(ftxui::text(FormatSavedStationHeaderRow()) | ftxui::dim);
-            rows.push_back((saved_station_list | ftxui::border) | ftxui::flex);
+            rows.push_back((ftxui::vbox({
+                                ftxui::text(FormatSavedStationHeaderRow()) | ftxui::dim,
+                                saved_station_list,
+                            }) |
+                            ftxui::border) |
+                           ftxui::flex);
             rows.push_back(ftxui::text("Enter picks a station and jumps to its fields below.") |
                            ftxui::dim);
             rows.push_back(ftxui::separator());
