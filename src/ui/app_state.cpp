@@ -552,6 +552,23 @@ namespace ql
         {
             state->selected_history_index = 0;
         }
+
+        RefreshHistoryCheckIns(state);
+    }
+
+    void RefreshHistoryCheckIns(AppState* state)
+    {
+        state->history_check_in_labels.clear();
+        state->selected_history_check_in_index = 0;
+
+        if (state->selected_history_index >= static_cast<int>(state->history_instances.size()))
+        {
+            return;
+        }
+
+        const NetInstance& selected = state->history_instances[state->selected_history_index];
+        std::vector<CheckIn> check_ins = state->db->GetCheckInsForNetInstance(selected.id);
+        state->history_check_in_labels = FormatCheckInRows(state->db, check_ins);
     }
 
     void DeleteSelectedNetInstance(AppState* state)

@@ -149,12 +149,18 @@ namespace ql
         int edit_checkin_role_choice_index = 0;
 
         // Net history page: past instances of AppState::nets[selected_net_index],
-        // and which one is highlighted. The highlighted instance's check-ins
-        // are queried fresh in the renderer rather than cached here, since
-        // that's simple and the data sets involved are small.
+        // and which one is highlighted.
         std::vector<NetInstance> history_instances;
         std::vector<std::string> history_instance_labels;  // Kept in sync by RefreshNetHistory.
         int selected_history_index = 0;
+        // The highlighted instance's check-ins, formatted for display in a
+        // real (scrollable) Menu below the instance list -- kept as an
+        // AppState member, not recomputed inline in the renderer, since the
+        // Menu binds to this vector by pointer and needs it to stay valid
+        // across frames. Refreshed by RefreshHistoryCheckIns, called both
+        // from RefreshNetHistory and whenever selected_history_index changes.
+        std::vector<std::string> history_check_in_labels;
+        int selected_history_check_in_index = 0;
 
         // Edit-net page: which Net is being edited, its field values (a
         // working copy, like settings_form), and the stations saved to it
@@ -318,9 +324,18 @@ namespace ql
     std::string FormatNetInstanceHeaderRow();
 
     // Reloads AppState::history_instances/history_instance_labels from the
-    // database for AppState::nets[selected_net_index]. Call before showing the
-    // net history page.
+    // database for AppState::nets[selected_net_index], then calls
+    // RefreshHistoryCheckIns. Call before showing the net history page.
     void RefreshNetHistory(AppState* state);
+
+    // Reloads AppState::history_check_in_labels from the database for
+    // whichever instance AppState::selected_history_index currently points
+    // at (or clears it if the index is out of range), and resets
+    // AppState::selected_history_check_in_index to 0. Called by
+    // RefreshNetHistory and wired as the history instance Menu's on_change,
+    // so the detail pane's check-in list -- and its scroll position -- stay
+    // in sync as the user moves between instances.
+    void RefreshHistoryCheckIns(AppState* state);
 
     // Permanently deletes the highlighted net instance
     // (AppState::selected_history_index) and all of its check-ins, then

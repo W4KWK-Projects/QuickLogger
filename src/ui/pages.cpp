@@ -364,9 +364,10 @@ namespace ql
         {
             std::string role_label = state_->role_labels[state_->selected_role_index];
 
-            ftxui::Element check_in_list = state_->active_display_rows.empty()
-                                               ? ftxui::text("No check-ins yet.") | ftxui::dim
-                                               : check_in_menu_->Render();
+            ftxui::Element check_in_list =
+                state_->active_display_rows.empty()
+                    ? ftxui::text("No check-ins yet.") | ftxui::dim
+                    : check_in_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element info_line = ftxui::hbox({
                 ftxui::text("Date: ") | ftxui::dim,
@@ -388,19 +389,38 @@ namespace ql
                  }) |
                  ftxui::border) |
                     ftxui::flex,
-                ftxui::text("Enter or F3 to edit a highlighted check-in.") | ftxui::dim,
+                state_->show_new_station_modal || state_->show_edit_checkin_modal
+                    ? ftxui::text("")
+                    : ftxui::text("Enter or F3 to edit a highlighted check-in.") | ftxui::dim,
                 ErrorLine(state_->form_error),
             });
 
             std::string page_title =
                 state_->active_net_name.empty() ? "Active Net" : state_->active_net_name;
-            return PageChrome(page_title, content,
-                              {
-                                  {"F2", "New Station"},
-                                  {"F3", "Edit Check-In"},
-                                  {"F4", "Close/Save Net"},
-                                  {"F5", "Remove Check-In"},
-                              });
+            // F3/F4/F5 only do anything when no modal is open (see
+            // ActiveNetKeyHandler) -- showing them while one is up would be a
+            // hint for a key that currently does nothing, so they're hidden
+            // then, and F2 (context-sensitive) is relabeled for whichever
+            // modal has focus instead.
+            std::vector<KeyHint> hints;
+            if (state_->show_edit_checkin_modal)
+            {
+                hints = {{"F2", "Save"}, {"Esc", "Cancel"}};
+            }
+            else if (state_->show_new_station_modal)
+            {
+                hints = {{"F2", "Log & Continue"}, {"Esc", "Log & Close"}};
+            }
+            else
+            {
+                hints = {
+                    {"F2", "New Station"},
+                    {"F3", "Edit Check-In"},
+                    {"F4", "Close/Save Net"},
+                    {"F5", "Delete Check-In"},
+                };
+            }
+            return PageChrome(page_title, content, hints);
         }
 
     private:
@@ -460,7 +480,7 @@ namespace ql
             rows.push_back(FieldLabel("Additional Role (optional):"));
             rows.push_back(role_choice_menu_->Render());
             rows.push_back(ftxui::separator());
-            rows.push_back(KeyHintRow({{"F2", "New Station"}, {"Esc", "Close"}}));
+            rows.push_back(KeyHintRow({{"F2", "Log & Continue"}, {"Esc", "Log & Close"}}));
             rows.push_back(ErrorLine(state_->form_error));
 
             return ftxui::vbox(rows) | ftxui::border | ftxui::color(ftxui::Color::Cyan);
@@ -758,8 +778,11 @@ namespace ql
     class NetHistoryRenderer
     {
     public:
-        NetHistoryRenderer(AppState* state, ftxui::Component instance_menu)
-            : state_(state), instance_menu_(std::move(instance_menu))
+        NetHistoryRenderer(AppState* state, ftxui::Component instance_menu,
+                           ftxui::Component checkin_menu)
+            : state_(state),
+              instance_menu_(std::move(instance_menu)),
+              checkin_menu_(std::move(checkin_menu))
         {
         }
 
@@ -774,33 +797,14 @@ namespace ql
             ftxui::Element instance_list =
                 state_->history_instances.empty()
                     ? ftxui::text("No past instances of this net yet.") | ftxui::dim
-                    : instance_menu_->Render();
+                    : instance_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
 
-            ftxui::Elements detail_rows;
-            detail_rows.push_back(ftxui::text(FormatCheckInHeaderRow(/*above_menu=*/false)) |
-                                  ftxui::bold | ftxui::color(ftxui::Color::Cyan));
-            if (state_->history_instances.empty())
-            {
-                detail_rows.push_back(ftxui::text("") | ftxui::dim);
-            }
-            else
-            {
-                const NetInstance& selected =
-                    state_->history_instances[state_->selected_history_index];
-                std::vector<CheckIn> check_ins = state_->db->GetCheckInsForNetInstance(selected.id);
-                std::vector<std::string> rows = FormatCheckInRows(state_->db, check_ins);
-                if (rows.empty())
-                {
-                    detail_rows.push_back(ftxui::text("No check-ins were logged.") | ftxui::dim);
-                }
-                else
-                {
-                    for (const std::string& row : rows)
-                    {
-                        detail_rows.push_back(ftxui::text(row));
-                    }
-                }
-            }
+            ftxui::Element checkin_list =
+                state_->history_check_in_labels.empty()
+                    ? ftxui::text(state_->history_instances.empty() ? ""
+                                                                    : "No check-ins were logged.") |
+                          ftxui::dim
+                    : checkin_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element content = ftxui::vbox({
                 (ftxui::vbox({
@@ -811,7 +815,13 @@ namespace ql
                  ftxui::border) |
                     ftxui::flex,
                 ftxui::separator(),
-                (ftxui::vbox(detail_rows) | ftxui::border) | ftxui::flex,
+                (ftxui::vbox({
+                     ftxui::text(FormatCheckInHeaderRow(/*above_menu=*/true)) | ftxui::bold |
+                         ftxui::color(ftxui::Color::Cyan),
+                     checkin_list,
+                 }) |
+                 ftxui::border) |
+                    ftxui::flex,
                 ErrorLine(state_->form_error),
             });
 
@@ -822,17 +832,25 @@ namespace ql
     private:
         AppState* state_;
         ftxui::Component instance_menu_;
+        ftxui::Component checkin_menu_;
     };
 
     ftxui::Component BuildNetHistoryPage(AppState* state)
     {
         ftxui::MenuOption instance_menu_option;
         instance_menu_option.entries_option.transform = AlignedMenuEntryTransform;
+        instance_menu_option.on_change = HistoryInstanceChangedHandler(state);
         ftxui::Component instance_menu = ftxui::Menu(
             &state->history_instance_labels, &state->selected_history_index, instance_menu_option);
 
-        ftxui::Component root = ftxui::Container::Vertical({instance_menu});
-        return ftxui::Renderer(root, NetHistoryRenderer(state, instance_menu));
+        ftxui::MenuOption checkin_menu_option;
+        checkin_menu_option.entries_option.transform = AlignedMenuEntryTransform;
+        ftxui::Component checkin_menu =
+            ftxui::Menu(&state->history_check_in_labels, &state->selected_history_check_in_index,
+                        checkin_menu_option);
+
+        ftxui::Component root = ftxui::Container::Vertical({instance_menu, checkin_menu});
+        return ftxui::Renderer(root, NetHistoryRenderer(state, instance_menu, checkin_menu));
     }
 
     // ---- Edit net page ---------------------------------------------------
@@ -864,7 +882,7 @@ namespace ql
             ftxui::Element saved_station_list =
                 state_->edit_net_saved_stations.empty()
                     ? ftxui::text("No saved stations yet.") | ftxui::dim
-                    : saved_station_menu_->Render();
+                    : saved_station_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element suggestions =
                 state_->saved_station_suggestions.empty()
@@ -914,7 +932,7 @@ namespace ql
                                   {"F3", "Save Station"},
                                   {"F4", "Remove"},
                                   {"F5", "Delete"},
-                                  {"Esc", "Back"},
+                                  {"Esc", "Cancel"},
                               });
         }
 

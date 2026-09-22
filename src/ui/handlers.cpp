@@ -139,6 +139,11 @@ namespace ql
         state_->page = kPageNetHistory;
     }
 
+    void HistoryInstanceChangedHandler::operator()() const
+    {
+        RefreshHistoryCheckIns(state_);
+    }
+
     void NetHistoryBackHandler::operator()() const
     {
         state_->page = kPageNetList;

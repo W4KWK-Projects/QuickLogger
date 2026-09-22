@@ -319,6 +319,20 @@ namespace ql
         AppState* state_;
     };
 
+    // on_change for the net history page's instance Menu: keeps the
+    // check-in detail pane (and its scroll position) in sync with whichever
+    // instance is now highlighted.
+    class HistoryInstanceChangedHandler
+    {
+    public:
+        explicit HistoryInstanceChangedHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
     // Escape on the net history page: returns to the net list.
     class NetHistoryBackHandler
     {
