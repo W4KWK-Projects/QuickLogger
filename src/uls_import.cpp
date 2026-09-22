@@ -516,6 +516,38 @@ namespace ql
         return true;
     }
 
+    // The relationship file's NAMELSAD_COUNTY_20 field spells out the full
+    // legal name (e.g. "Hamilton County"), but the app just wants the bare
+    // name to display (e.g. "Hamilton") -- the column header/context already
+    // says "County".
+    static std::string StripCountySuffix(const std::string& county)
+    {
+        const std::string suffix = " County";
+        if (county.size() > suffix.size() &&
+            county.compare(county.size() - suffix.size(), suffix.size(), suffix) == 0)
+        {
+            return county.substr(0, county.size() - suffix.size());
+        }
+        return county;
+    }
+
+    // A ZCTA that straddles a county line has its land area split across
+    // both counties' rows in the relationship file; FetchAndLoadZipCounties
+    // picks whichever split has the larger AREALAND_PART, which is right
+    // for the overwhelming majority of ZIPs but can disagree with the
+    // county the ZIP is actually associated with (its USPS-designated city,
+    // where its addresses/population actually are) when the split is close
+    // to even -- there's no population or address data in this file to
+    // break the tie correctly. Confirmed 2026-09-22: ZIP 37419 (Chattanooga,
+    // TN) splits ~52%/48% Marion/Hamilton by land area, but is a Hamilton
+    // County ZIP by every practical measure (a real user's own callsign is
+    // registered there). Rather than a general fix (would need real
+    // population-weighted data, e.g. HUD's USPS crosswalk, which requires
+    // registration), corrected by hand as each is found.
+    static const std::unordered_map<std::string, std::string> kZipCountyOverrides = {
+        {"37419", "Hamilton"},
+    };
+
     static bool FetchAndLoadZipCounties(const std::string& cache_dir, Database* db,
                                         std::string* error)
     {
@@ -578,7 +610,11 @@ namespace ql
         {
             ZipCounty zip_county;
             zip_county.zip = entry.first;
-            zip_county.county = entry.second;
+            std::unordered_map<std::string, std::string>::const_iterator override_it =
+                kZipCountyOverrides.find(entry.first);
+            zip_county.county = override_it != kZipCountyOverrides.end()
+                                    ? override_it->second
+                                    : StripCountySuffix(entry.second);
             batch.push_back(zip_county);
         }
         db->BulkUpsertZipCounties(batch);
