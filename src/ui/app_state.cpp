@@ -31,9 +31,13 @@ namespace ql
 
     // Column widths shared between every "list of stations/matches" row
     // formatter below and its corresponding header-row builder, so a header
-    // can never drift out of alignment with the data under it the way the
-    // net-history list's did (its NC:/Alt:/Log: prefixes didn't leave the
-    // labels lined up with "Net Control"/"Alternate NC"/"Logger" above them).
+    // can never drift out of alignment with the data under it (an earlier
+    // version of the net-history row baked literal "NC:"/"Alt:"/"Log:"
+    // prefixes into the row instead of relying on the header alone to name
+    // the column -- those prefixes ate into the column width unevenly and
+    // never actually lined up with "Net Control"/"Alternate NC"/"Logger"
+    // above them; removed rather than width-compensated for, since the
+    // header already says what the column is).
     // Every field using these widths is built with printf's *runtime* width
     // and precision (the two `*`s in e.g. "%-*.*s", each consuming one int
     // argument before the string) rather than baking a number into the
@@ -48,23 +52,13 @@ namespace ql
     static constexpr int kMemberIdColumnWidth = 10;
     static constexpr int kSignalReportColumnWidth = 6;
     static constexpr int kDateColumnWidth = 12;
-    // NC:/Alt:/Log: are literal prefixes baked into the row (not the header,
-    // which spells the labels out in full), so these three field widths were
-    // chosen specifically to make "Net Control"/"Alternate NC"/"Logger"/
-    // "Status" in FormatNetInstanceHeaderRow land in the same columns as the
-    // NC:/Alt:/Log:-prefixed values below them -- verified by direct
-    // computation, not hand-counted spaces. Changing the header text's
-    // wording (not just re-indenting it) requires recomputing these.
-    static constexpr int kNetControlColumnWidth = 13;
-    static constexpr int kAlternateNcColumnWidth = 12;
-    static constexpr int kLoggerColumnWidth = 12;
-    // The header-only "slot" widths below fold each row prefix ("NC:" etc.,
-    // 3-4 literal characters) plus its field width plus the one-space
-    // separator into a single number, since the header has no prefix of its
-    // own to budget around -- see FormatNetInstanceHeaderRow.
-    static constexpr int kNetControlHeaderSlotWidth = 3 + kNetControlColumnWidth + 1;
-    static constexpr int kAlternateNcHeaderSlotWidth = 4 + kAlternateNcColumnWidth + 1;
-    static constexpr int kLoggerHeaderSlotWidth = 4 + kLoggerColumnWidth + 1;
+    // Sized to fit the longest header label that lands in each of these
+    // columns ("Alternate NC", 12 chars) plus a little padding -- the row
+    // shows the bare callsign, no "NC:"/"Alt:"/"Log:" prefix, since the
+    // header above it already names the column.
+    static constexpr int kNetControlColumnWidth = 14;
+    static constexpr int kAlternateNcColumnWidth = 14;
+    static constexpr int kLoggerColumnWidth = 14;
 
     // Every header below sits above an ftxui::Menu, not a plain text list.
     // Menu's default entry renderer always prepends a 2-character indicator
@@ -79,26 +73,23 @@ namespace ql
     {
         const char* status = instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed";
         char buffer[256];
-        std::snprintf(
-            buffer, sizeof(buffer), "%-*.*s NC:%-*.*s Alt:%-*.*s Log:%-*.*s %s", kDateColumnWidth,
-            kDateColumnWidth, instance.instance_date.c_str(), kNetControlColumnWidth,
-            kNetControlColumnWidth, instance.net_control_callsign.c_str(), kAlternateNcColumnWidth,
-            kAlternateNcColumnWidth, instance.alternate_net_control_callsign.c_str(),
-            kLoggerColumnWidth, kLoggerColumnWidth, instance.logger_callsign.c_str(), status);
+        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %s", kDateColumnWidth,
+                      kDateColumnWidth, instance.instance_date.c_str(), kNetControlColumnWidth,
+                      kNetControlColumnWidth, instance.net_control_callsign.c_str(),
+                      kAlternateNcColumnWidth, kAlternateNcColumnWidth,
+                      instance.alternate_net_control_callsign.c_str(), kLoggerColumnWidth,
+                      kLoggerColumnWidth, instance.logger_callsign.c_str(), status);
         return std::string(buffer);
     }
 
     std::string FormatNetInstanceHeaderRow()
     {
-        // No literal separators between these specifiers (unlike the row
-        // formatter) -- each slot width already includes the gap before the
-        // next label. See the column-width comments above FormatNetInstanceRow.
+        // Same field widths as FormatNetInstanceRow.
         char buffer[256];
-        std::snprintf(buffer, sizeof(buffer), "%-*.*s%-*.*s%-*.*s%-*.*s%s", kDateColumnWidth + 1,
-                      kDateColumnWidth + 1, "Date", kNetControlHeaderSlotWidth,
-                      kNetControlHeaderSlotWidth, "Net Control", kAlternateNcHeaderSlotWidth,
-                      kAlternateNcHeaderSlotWidth, "Alternate NC", kLoggerHeaderSlotWidth,
-                      kLoggerHeaderSlotWidth, "Logger", "Status");
+        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %s", kDateColumnWidth,
+                      kDateColumnWidth, "Date", kNetControlColumnWidth, kNetControlColumnWidth,
+                      "Net Control", kAlternateNcColumnWidth, kAlternateNcColumnWidth,
+                      "Alternate NC", kLoggerColumnWidth, kLoggerColumnWidth, "Logger", "Status");
         return std::string(kMenuEntryIndicatorWidth, ' ') + buffer;
     }
 
@@ -262,7 +253,7 @@ namespace ql
         return std::string(buffer);
     }
 
-    std::string FormatCheckInHeaderRow()
+    std::string FormatCheckInHeaderRow(bool above_menu)
     {
         // Same field widths as FormatCheckInRow (with "#" standing in for
         // the sequence number).
@@ -273,7 +264,9 @@ namespace ql
                       kMemberIdColumnWidth, kMemberIdColumnWidth, "Member ID",
                       kSignalReportColumnWidth, kSignalReportColumnWidth, "Sig", kRoleColumnWidth,
                       kRoleColumnWidth, "Role", "Remarks");
-        return std::string(kMenuEntryIndicatorWidth, ' ') + buffer;
+        std::string prefix =
+            above_menu ? std::string(kMenuEntryIndicatorWidth, ' ') : std::string();
+        return prefix + buffer;
     }
 
     std::vector<std::string> FormatCheckInRows(Database* db, const std::vector<CheckIn>& check_ins)

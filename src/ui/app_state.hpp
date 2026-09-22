@@ -285,8 +285,14 @@ namespace ql
 
     // The column-header line for a list of FormatCheckInRow rows -- same
     // field widths as the row formatter (so it can't drift out of alignment
-    // with it), just with plain-English labels instead of data.
-    std::string FormatCheckInHeaderRow();
+    // with it), just with plain-English labels instead of data. Pass
+    // `above_menu = true` when this sits directly above an ftxui::Menu (its
+    // rows get FTXUI's built-in "> "/"  " 2-column indicator prefix, so the
+    // header needs the same-width gutter to still line up -- see
+    // kMenuEntryIndicatorWidth); pass `false` above a plain vbox of
+    // ftxui::text rows (e.g. the net-history page's read-only check-in
+    // detail pane), which has no such prefix.
+    std::string FormatCheckInHeaderRow(bool above_menu);
 
     // Formats a whole list of check-ins via FormatCheckInRow, looking up each
     // one's Station along the way. Shared by the active-net page and the net

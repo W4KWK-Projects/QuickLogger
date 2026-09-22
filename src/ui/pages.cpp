@@ -358,7 +358,7 @@ namespace ql
             ftxui::Element content = ftxui::vbox({
                 info_line,
                 ftxui::separator(),
-                ftxui::text(FormatCheckInHeaderRow()) | ftxui::bold |
+                ftxui::text(FormatCheckInHeaderRow(/*above_menu=*/true)) | ftxui::bold |
                     ftxui::color(ftxui::Color::Cyan),
                 (check_in_list | ftxui::border) | ftxui::flex,
                 ftxui::text("Enter or F3 to edit a highlighted check-in.") | ftxui::dim,
@@ -748,8 +748,8 @@ namespace ql
                     : instance_menu_->Render();
 
             ftxui::Elements detail_rows;
-            detail_rows.push_back(ftxui::text(FormatCheckInHeaderRow()) | ftxui::bold |
-                                  ftxui::color(ftxui::Color::Cyan));
+            detail_rows.push_back(ftxui::text(FormatCheckInHeaderRow(/*above_menu=*/false)) |
+                                  ftxui::bold | ftxui::color(ftxui::Color::Cyan));
             if (state_->history_instances.empty())
             {
                 detail_rows.push_back(ftxui::text("") | ftxui::dim);
