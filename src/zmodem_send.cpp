@@ -71,20 +71,31 @@ namespace ql
     }
 
     // Runs inside ScreenInteractive::WithRestoredIO's closure: forks and
-    // execs `sz -e path_` with the real terminal's stdin/stdout inherited
+    // execs `sz path_` with the real terminal's stdin/stdout inherited
     // (never redirected -- a ZMODEM-aware client needs to see the raw
     // protocol bytes in the same stream it's already reading), then waits
     // for it with a bounded timeout. Writes its outcome into `*ok_`/`*error_`
     // rather than returning one, since ftxui::Closure is a bare
     // std::function<void()>.
     //
-    // `-e`/`--escape` forces every control character (XON/XOFF, DLE, etc.)
-    // to be escaped rather than sent raw. Without it, a transfer through an
-    // SSH session's pty can get corrupted -- software flow control or other
-    // line-discipline processing along the path can intercept/mangle an
-    // unescaped 0x11/0x13 that happens to land in the file's byte stream,
-    // which is exactly the well-known "zmodem over ssh" failure mode. See
-    // the ZMODEM receive fix this comment was added alongside.
+    // Deliberately NOT passing `-e`/`--escape` here, unlike RunRzProcess: a
+    // real download regressed (CRC errors, "Garbage count exceeded", ZCAN)
+    // through the user's real terminal client (ZOC) after `-e` was added to
+    // both directions to fix a real upload-corruption bug -- even though
+    // sends had verified clean with that same real client both before that
+    // change and on files exported before it.
+    //
+    // Note this is the OPPOSITE of what a local test harness shows: bridging
+    // this process to a real standalone `rz` over a pair of local PTYs
+    // reliably FAILS without `-e` (rz's own XON/XOFF pacing bytes seem to
+    // desync the transfer without it) and reliably SUCCEEDS with `-e` added.
+    // That local result doesn't generalize here -- a python relay loop
+    // between two local ptys doesn't reproduce a real SSH channel's timing,
+    // and the one client that actually matters (ZOC) showed the reverse.
+    // Trust the real client's result over the local one if this needs
+    // revisiting: whatever ZOC's zmodem receiver does with a fully-escaped
+    // stream, it isn't the same as how it handles `sz`'s own normally-
+    // negotiated escaping.
     class RunSzProcess
     {
     public:
@@ -106,7 +117,7 @@ namespace ql
             }
             if (pid == 0)
             {
-                execlp("sz", "sz", "-e", path_.c_str(), static_cast<char*>(nullptr));
+                execlp("sz", "sz", path_.c_str(), static_cast<char*>(nullptr));
                 _exit(127);
             }
 
@@ -151,11 +162,15 @@ namespace ql
     // relative to wherever QuickLogger itself was launched from) so
     // whatever file arrives lands there under the name the sending client
     // gives it, then waits for it the same bounded way RunSzProcess does.
-    // `-e` matters even more here than for send: a real report showed an
-    // upload through an SSH pty racking up repeated "Transmission error
-    // corrected" retries and finally cancelling (ZCAN) on an 84KB file --
-    // classic flow-control corruption of unescaped control bytes on the
-    // receiving side. See RunSzProcess's comment for the general mechanism.
+    // `-e`/`--escape` forces every control character (XON/XOFF, DLE, etc.)
+    // to be escaped rather than sent raw -- fixes a real report where an
+    // upload through an SSH pty racked up repeated "Transmission error
+    // corrected" retries and finally cancelled (ZCAN) on an 84KB file, the
+    // well-known "zmodem over ssh" failure mode caused by an unescaped
+    // 0x11/0x13 landing in the file's byte stream and getting intercepted by
+    // flow control before `rz` ever saw it. Kept receive-only -- see
+    // RunSzProcess's comment for why the send side deliberately doesn't get
+    // the same flag.
     class RunRzProcess
     {
     public:
