@@ -17,10 +17,12 @@ FetchContent_MakeAvailable(ftxui)
 find_package(SQLite3 REQUIRED)
 find_package(CURL REQUIRED)
 find_package(Threads REQUIRED)
+find_package(libssh REQUIRED)
 
 add_executable(QuickLogger
     src/main.cpp
     src/interactive_session.cpp
+    src/ssh_server.cpp
     src/date_utils.cpp
     src/settings.cpp
     src/text_utils.cpp
@@ -44,4 +46,11 @@ target_link_libraries(QuickLogger
         SQLite3::SQLite3
         CURL::libcurl
         Threads::Threads
+        ssh
 )
+# openpty()/login_tty() (ssh_server.cpp) live in libutil on Linux and
+# FreeBSD, but are part of libSystem on macOS -- there's no separate
+# libutil to link there, and trying to would fail.
+if(NOT APPLE)
+    target_link_libraries(QuickLogger PRIVATE util)
+endif()

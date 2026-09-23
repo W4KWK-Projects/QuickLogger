@@ -19,6 +19,14 @@ _deps/
 # Local operator settings (callsign, QRZ credentials)
 settings.txt
 
+# Per-SSH-user settings (see ssh_server.hpp's PerUserSettingsPath) -- same
+# reasoning as settings.txt above, just one file per login user.
+settings/
+
+# SSH host key, generated on first run (see ssh_server.hpp) -- a private
+# key must never be committed.
+ssh_host_ed25519_key
+
 # Downloaded FCC ULS / Census gazetteer cache
 uls_cache/
 
