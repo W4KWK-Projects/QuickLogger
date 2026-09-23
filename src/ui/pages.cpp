@@ -566,6 +566,52 @@ namespace ql
         ftxui::Component role_choice_menu_;
     };
 
+    // Shown after a file's already been written to exports/ (see
+    // ExportLinesToFile) and before actually running `sz` -- the transfer
+    // hijacks the real terminal for its raw protocol bytes and can't show
+    // anything meaningful while in flight, so the operator needs to be told
+    // to get their client's receive dialog ready first, with a real chance
+    // to back out via Esc instead. Has no interactive fields of its own
+    // (F2/Enter/Esc are handled by whichever page's key handler is showing
+    // it, the same way every other modal here works -- see
+    // AppState::show_zmodem_confirm_modal), so it's a bare Renderer over an
+    // empty Container rather than a Container::Vertical with actual
+    // children.
+    class ZmodemConfirmModalRenderer
+    {
+    public:
+        explicit ZmodemConfirmModalRenderer(AppState* state) : state_(state) {}
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Elements rows;
+            rows.push_back(ftxui::text("ZMODEM Download") | ftxui::bold |
+                           ftxui::color(ftxui::Color::Cyan));
+            rows.push_back(ftxui::separator());
+            rows.push_back(ftxui::text("Ready to send:"));
+            rows.push_back(ftxui::text("  " + state_->zmodem_confirm_path) |
+                           ftxui::color(ftxui::Color::YellowLight));
+            rows.push_back(ftxui::text(""));
+            rows.push_back(
+                ftxui::text("Open your terminal's file-receive (ZMODEM) dialog now, then"));
+            rows.push_back(ftxui::text("press Enter to start. Gives up after about 25s if"));
+            rows.push_back(ftxui::text("nothing responds."));
+            rows.push_back(ftxui::separator());
+            rows.push_back(KeyHintRow({{"F2/Enter", "Send"}, {"Esc", "Skip"}}));
+
+            return ftxui::vbox(rows) | ftxui::border | ftxui::color(ftxui::Color::Cyan);
+        }
+
+    private:
+        AppState* state_;
+    };
+
+    static ftxui::Component BuildZmodemConfirmModal(AppState* state)
+    {
+        ftxui::Component root = ftxui::Container::Vertical({});
+        return ftxui::Renderer(root, ZmodemConfirmModalRenderer(state));
+    }
+
     ftxui::Component BuildActiveNetPage(AppState* state)
     {
         ftxui::MenuOption check_in_menu_option;
@@ -650,8 +696,10 @@ namespace ql
 
         ftxui::Component with_new_station_modal =
             ftxui::Modal(main_view, modal_view, &state->show_new_station_modal);
-        return ftxui::Modal(with_new_station_modal, edit_modal_view,
-                            &state->show_edit_checkin_modal);
+        ftxui::Component with_edit_checkin_modal =
+            ftxui::Modal(with_new_station_modal, edit_modal_view, &state->show_edit_checkin_modal);
+        return ftxui::Modal(with_edit_checkin_modal, BuildZmodemConfirmModal(state),
+                            &state->show_zmodem_confirm_modal);
     }
 
     // ---- Settings page ---------------------------------------------------
@@ -874,7 +922,10 @@ namespace ql
                         checkin_menu_option);
 
         ftxui::Component root = ftxui::Container::Vertical({instance_menu, checkin_menu});
-        return ftxui::Renderer(root, NetHistoryRenderer(state, instance_menu, checkin_menu));
+        ftxui::Component main_view =
+            ftxui::Renderer(root, NetHistoryRenderer(state, instance_menu, checkin_menu));
+        return ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
+                            &state->show_zmodem_confirm_modal);
     }
 
     // ---- Edit net page ---------------------------------------------------
@@ -1034,10 +1085,12 @@ namespace ql
 
         state->edit_net_name_input = input_name;
 
-        return ftxui::Renderer(
+        ftxui::Component main_view = ftxui::Renderer(
             root, EditNetRenderer(state, input_name, input_mode, input_frequency, input_location,
                                   input_recurrence, saved_station_menu, saved_station_inputs,
                                   saved_station_suggestion_menu, saved_station_remarks_input));
+        return ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
+                            &state->show_zmodem_confirm_modal);
     }
 
 }  // namespace ql

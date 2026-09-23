@@ -203,6 +203,23 @@ namespace ql
 
     bool NetHistoryKeyHandler::operator()(ftxui::Event event) const
     {
+        if (state_->show_zmodem_confirm_modal)
+        {
+            if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
+            {
+                ConfirmZmodemSendHandler confirm(state_);
+                confirm();
+                return true;
+            }
+            if (event == ftxui::Event::Escape)
+            {
+                CancelZmodemSendHandler cancel(state_);
+                cancel();
+                return true;
+            }
+            return true;
+        }
+
         if (event == ftxui::Event::Escape)
         {
             NetHistoryBackHandler back(state_);
@@ -315,6 +332,23 @@ namespace ql
 
     bool EditNetKeyHandler::operator()(ftxui::Event event) const
     {
+        if (state_->show_zmodem_confirm_modal)
+        {
+            if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
+            {
+                ConfirmZmodemSendHandler confirm(state_);
+                confirm();
+                return true;
+            }
+            if (event == ftxui::Event::Escape)
+            {
+                CancelZmodemSendHandler cancel(state_);
+                cancel();
+                return true;
+            }
+            return true;
+        }
+
         if (event == ftxui::Event::F2)
         {
             SaveEditNetHandler save(state_);
@@ -617,6 +651,23 @@ namespace ql
 
     bool ActiveNetKeyHandler::operator()(ftxui::Event event) const
     {
+        if (state_->show_zmodem_confirm_modal)
+        {
+            if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
+            {
+                ConfirmZmodemSendHandler confirm(state_);
+                confirm();
+                return true;
+            }
+            if (event == ftxui::Event::Escape)
+            {
+                CancelZmodemSendHandler cancel(state_);
+                cancel();
+                return true;
+            }
+            return true;
+        }
+
         bool modal_open = state_->show_new_station_modal || state_->show_edit_checkin_modal;
 
         if (event == ftxui::Event::F2)
@@ -746,6 +797,16 @@ namespace ql
             return true;
         }
         return false;
+    }
+
+    void ConfirmZmodemSendHandler::operator()() const
+    {
+        ConfirmZmodemSend(state_);
+    }
+
+    void CancelZmodemSendHandler::operator()() const
+    {
+        CancelZmodemSend(state_);
     }
 
     void QuitHandler::operator()() const

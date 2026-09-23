@@ -743,6 +743,35 @@ namespace ql
         AppState* state_;
     };
 
+    // F2/Enter on the ZMODEM confirmation modal (see
+    // AppState::show_zmodem_confirm_modal): runs the actual transfer. Shared
+    // by every page's key handler that can show this modal (active-net,
+    // net-history, edit-net), checked before that page's own F-key handling
+    // the same way each already checks its other modal flags.
+    class ConfirmZmodemSendHandler
+    {
+    public:
+        explicit ConfirmZmodemSendHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // Esc on the ZMODEM confirmation modal: declines the transfer, keeping
+    // the file that was already written locally.
+    class CancelZmodemSendHandler
+    {
+    public:
+        explicit CancelZmodemSendHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
     // Global key handling for the whole app: dispatches by AppState::page to
     // whichever per-page key handler applies. This wraps the outermost
     // Container::Tab in main.cpp, rather than each page individually, because

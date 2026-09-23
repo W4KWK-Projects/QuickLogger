@@ -46,6 +46,20 @@ namespace ql
         // the two is ever showing at a time.
         std::string status_message;
 
+        // ZMODEM send confirmation, shown after a file's already been
+        // written locally (see ExportLinesToFile) and before actually
+        // running `sz` -- the transfer itself hijacks the real terminal for
+        // its raw protocol bytes and can't show anything meaningful while
+        // it's in flight, so the operator needs to be told to get their
+        // client's receive dialog ready *first*, with a real chance to back
+        // out, rather than being dropped into it with no warning. Shared
+        // across every page that can trigger an export (active-net,
+        // net-history, edit-net) via one AppState-level flag/path rather
+        // than a per-page copy, since only one of those pages is ever
+        // showing at a time.
+        bool show_zmodem_confirm_modal = false;
+        std::string zmodem_confirm_path;
+
         // The operator's saved settings, and where they live on disk. `settings`
         // is the last-saved value (used elsewhere in the app, e.g. to prefill
         // and stamp "created by"); `settings_form` is the page's working copy,
@@ -393,25 +407,43 @@ namespace ql
     // under exports/ next to the database (see file_export.hpp), containing
     // exactly what's shown on screen for it: the net name, date, role
     // callsigns and status, then the same header/rows FormatCheckInHeaderRow/
-    // FormatCheckInRows already produce for the on-screen list. On success,
-    // sets AppState::status_message to a confirmation naming the file (and
-    // clears form_error); on failure, sets form_error instead (and clears
-    // status_message). Shared by the active-net page (the currently open
-    // instance, from AppState::active_check_ins) and the net-history page
-    // (a past instance, re-querying its check-ins fresh the same way
+    // FormatCheckInRows already produce for the on-screen list. On a
+    // failed write, sets AppState::form_error and stops there. On a
+    // successful write: if a ZMODEM sender is available, sets
+    // AppState::status_message to a "saved" confirmation and opens the
+    // ZMODEM confirmation modal (AppState::show_zmodem_confirm_modal) rather
+    // than sending immediately -- see ConfirmZmodemSend/CancelZmodemSend;
+    // if not, status_message says so and no modal appears. Shared by the
+    // active-net page (the currently open instance, from
+    // AppState::active_check_ins) and the net-history page (a past
+    // instance, re-querying its check-ins fresh the same way
     // RefreshHistoryCheckIns does) so both "download this net's log" entry
     // points produce identical output.
     void ExportNetLog(AppState* state, const std::string& net_name, const NetInstance& instance,
                       const std::vector<CheckIn>& check_ins);
 
     // Writes `net_name`'s saved-station list to a plain space-delimited text
-    // file the same way ExportNetLog does, containing exactly the
-    // Callsign/Name/Member ID columns the edit-net page's saved-station list
-    // shows on screen (not every field on the underlying Station record --
-    // this mirrors FormatSavedStationRow, which only ever showed those
-    // three).
+    // file the same way ExportNetLog does (including the same ZMODEM
+    // confirmation-modal behavior on a successful write), containing
+    // exactly the Callsign/Name/Member ID columns the edit-net page's
+    // saved-station list shows on screen (not every field on the underlying
+    // Station record -- this mirrors FormatSavedStationRow, which only ever
+    // showed those three).
     void ExportSavedStations(AppState* state, const std::string& net_name,
                              const std::vector<Station>& saved_stations);
+
+    // F2/Enter on the ZMODEM confirmation modal: runs the actual transfer
+    // (SendFileViaZmodem, which blocks for as long as it takes -- the
+    // operator was already told to get their client's receive dialog ready
+    // before this point, via the modal they just dismissed to get here),
+    // folds the outcome into AppState::status_message, and closes the
+    // modal.
+    void ConfirmZmodemSend(AppState* state);
+
+    // Esc on the ZMODEM confirmation modal: skips the transfer entirely --
+    // the file stays wherever ExportLinesToFile already wrote it, only the
+    // ZMODEM step is declined -- and closes the modal.
+    void CancelZmodemSend(AppState* state);
 
     // Reloads AppState::modal_callsign_suggestions/_labels from
     // AppState::modal_station.callsign: tier 1 (SearchNetStationsByCallsignSubstring

@@ -637,15 +637,43 @@ namespace ql
         }
 
         state->form_error.clear();
-        std::string zmodem_error;
-        if (SendFileViaZmodem(state->screen, path, &zmodem_error))
+        if (!ZmodemSendAvailable())
         {
-            state->status_message = "Saved to " + path + " and sent via ZMODEM.";
+            state->status_message =
+                "Saved to " + path + " (install 'sz'/lrzsz for ZMODEM download).";
+            return;
+        }
+
+        // Don't send yet -- the transfer hijacks the real terminal for its
+        // raw protocol bytes and can't show anything meaningful while it's
+        // in flight, so the operator needs a chance to get their client's
+        // receive dialog ready (or back out) *before* that happens, not be
+        // dropped into it with no warning. ConfirmZmodemSend/CancelZmodemSend
+        // (wired to the modal's F2/Enter and Esc) do the actual send.
+        state->status_message = "Saved to " + path + ".";
+        state->zmodem_confirm_path = path;
+        state->show_zmodem_confirm_modal = true;
+    }
+
+    void ConfirmZmodemSend(AppState* state)
+    {
+        state->show_zmodem_confirm_modal = false;
+        std::string error;
+        if (SendFileViaZmodem(state->screen, state->zmodem_confirm_path, &error))
+        {
+            state->status_message =
+                "Saved to " + state->zmodem_confirm_path + " and sent via ZMODEM.";
         }
         else
         {
-            state->status_message = "Saved to " + path + " (" + zmodem_error + ")";
+            state->status_message = "Saved to " + state->zmodem_confirm_path + " (" + error + ")";
         }
+    }
+
+    void CancelZmodemSend(AppState* state)
+    {
+        state->show_zmodem_confirm_modal = false;
+        state->status_message = "Saved to " + state->zmodem_confirm_path + " (ZMODEM skipped).";
     }
 
     void ExportNetLog(AppState* state, const std::string& net_name, const NetInstance& instance,
