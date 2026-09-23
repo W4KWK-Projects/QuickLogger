@@ -38,6 +38,13 @@ namespace ql
 
         int page = kPageNetList;
         std::string form_error;
+        // A non-error confirmation for an action that succeeded but has
+        // nothing else on screen to show for it (e.g. "Saved to
+        // exports/..."), rendered in a distinct color from form_error (see
+        // pages.cpp's StatusLine) so a success doesn't read as a failure.
+        // Handlers that set one should clear the other, so at most one of
+        // the two is ever showing at a time.
+        std::string status_message;
 
         // The operator's saved settings, and where they live on disk. `settings`
         // is the last-saved value (used elsewhere in the app, e.g. to prefill
@@ -382,6 +389,30 @@ namespace ql
     // row that no longer exists.
     void DeleteSelectedNetInstance(AppState* state);
 
+    // Writes `instance`'s check-ins to a plain space-delimited text file
+    // under exports/ next to the database (see file_export.hpp), containing
+    // exactly what's shown on screen for it: the net name, date, role
+    // callsigns and status, then the same header/rows FormatCheckInHeaderRow/
+    // FormatCheckInRows already produce for the on-screen list. On success,
+    // sets AppState::status_message to a confirmation naming the file (and
+    // clears form_error); on failure, sets form_error instead (and clears
+    // status_message). Shared by the active-net page (the currently open
+    // instance, from AppState::active_check_ins) and the net-history page
+    // (a past instance, re-querying its check-ins fresh the same way
+    // RefreshHistoryCheckIns does) so both "download this net's log" entry
+    // points produce identical output.
+    void ExportNetLog(AppState* state, const std::string& net_name, const NetInstance& instance,
+                      const std::vector<CheckIn>& check_ins);
+
+    // Writes `net_name`'s saved-station list to a plain space-delimited text
+    // file the same way ExportNetLog does, containing exactly the
+    // Callsign/Name/Member ID columns the edit-net page's saved-station list
+    // shows on screen (not every field on the underlying Station record --
+    // this mirrors FormatSavedStationRow, which only ever showed those
+    // three).
+    void ExportSavedStations(AppState* state, const std::string& net_name,
+                             const std::vector<Station>& saved_stations);
+
     // Reloads AppState::modal_callsign_suggestions/_labels from
     // AppState::modal_station.callsign: tier 1 (SearchNetStationsByCallsignSubstring
     // against AppState::active_instance.net_id) first, then tier 2
@@ -420,7 +451,11 @@ namespace ql
     void RefreshEditNetSavedStations(AppState* state);
 
     // The column-header line for a list of FormatSavedStationRow rows.
-    std::string FormatSavedStationHeaderRow();
+    // `above_menu` matches FormatCheckInHeaderRow's parameter of the same
+    // name: true prepends the 2-space gutter an ftxui::Menu's own "> "/"  "
+    // selection indicator needs the header to line up with; false (for a
+    // plain-text export, where nothing draws that indicator) omits it.
+    std::string FormatSavedStationHeaderRow(bool above_menu);
 
     // Saves AppState::saved_station (plus AppState::saved_station_remarks as its default
     // remarks) as a saved station for AppState::edit_net_id, then clears the

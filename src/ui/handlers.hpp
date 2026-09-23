@@ -261,6 +261,20 @@ namespace ql
         AppState* state_;
     };
 
+    // F6 on the active-net page (no modal open): writes the currently open
+    // instance's check-ins to a plain text file under exports/ (see
+    // ExportNetLog).
+    class ExportActiveNetLogHandler
+    {
+    public:
+        explicit ExportActiveNetLogHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
     // F2 inside the Edit Check-in modal: persists the edits and closes it.
     class SaveEditCheckInHandler
     {
@@ -375,7 +389,21 @@ namespace ql
         AppState* state_;
     };
 
-    // Global key handling for the net history page: Escape Back, F5 Delete.
+    // F2 on the net history page: writes the highlighted net instance's
+    // check-ins to a plain text file under exports/ (see ExportNetLog).
+    class ExportNetHistoryLogHandler
+    {
+    public:
+        explicit ExportNetHistoryLogHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // Global key handling for the net history page: Escape Back, F2 Export
+    // Log, F5 Delete.
     class NetHistoryKeyHandler
     {
     public:
@@ -448,6 +476,19 @@ namespace ql
     {
     public:
         explicit DeleteSelectedSavedStationHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // F7 on the edit-net page: writes this net's whole saved-station list to
+    // a plain text file under exports/ (see ExportSavedStations).
+    class ExportSavedStationsHandler
+    {
+    public:
+        explicit ExportSavedStationsHandler(AppState* state) : state_(state) {}
 
         void operator()() const;
 

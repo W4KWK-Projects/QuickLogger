@@ -18,6 +18,12 @@ namespace ql
                                : ftxui::text(message) | ftxui::color(ftxui::Color::Red);
     }
 
+    static ftxui::Element StatusLine(const std::string& message)
+    {
+        return message.empty() ? ftxui::text("")
+                               : ftxui::text(message) | ftxui::color(ftxui::Color::Green);
+    }
+
     static ftxui::Element FieldLabel(const std::string& label)
     {
         return ftxui::text(label) | ftxui::color(ftxui::Color::YellowLight);
@@ -405,6 +411,7 @@ namespace ql
                 state_->show_new_station_modal || state_->show_edit_checkin_modal
                     ? ftxui::text("")
                     : ftxui::text("Enter or F3 to edit a highlighted check-in.") | ftxui::dim,
+                StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
 
@@ -427,10 +434,8 @@ namespace ql
             else
             {
                 hints = {
-                    {"F2", "New Station"},
-                    {"F3", "Edit Check-In"},
-                    {"F4", "Close/Save Net"},
-                    {"F5", "Delete Check-In"},
+                    {"F2", "New Station"},     {"F3", "Edit Check-In"}, {"F4", "Close/Save Net"},
+                    {"F5", "Delete Check-In"}, {"F6", "Export Log"},
                 };
             }
             return PageChrome(page_title, content, hints);
@@ -840,11 +845,12 @@ namespace ql
                  }) |
                  ftxui::border) |
                     ftxui::flex,
+                StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
 
             return PageChrome("History: " + net_name, content,
-                              {{"F5", "Delete Instance"}, {"Esc", "Back"}});
+                              {{"F2", "Export Log"}, {"F5", "Delete Instance"}, {"Esc", "Back"}});
         }
 
     private:
@@ -924,12 +930,13 @@ namespace ql
             rows.push_back(ftxui::separator());
             rows.push_back(ftxui::text("Saved Stations:") | ftxui::bold |
                            ftxui::color(ftxui::Color::Cyan));
-            rows.push_back((ftxui::vbox({
-                                ftxui::text(FormatSavedStationHeaderRow()) | ftxui::dim,
-                                saved_station_list,
-                            }) |
-                            ftxui::border) |
-                           ftxui::flex);
+            rows.push_back(
+                (ftxui::vbox({
+                     ftxui::text(FormatSavedStationHeaderRow(/*above_menu=*/true)) | ftxui::dim,
+                     saved_station_list,
+                 }) |
+                 ftxui::border) |
+                ftxui::flex);
             rows.push_back(ftxui::text("Enter picks a station and jumps to its fields below.") |
                            ftxui::dim);
             rows.push_back(ftxui::separator());
@@ -942,6 +949,7 @@ namespace ql
             }
             rows.push_back(ftxui::hbox(
                 {FieldLabel("Default Remarks: "), saved_station_remarks_input_->Render()}));
+            rows.push_back(StatusLine(state_->status_message));
             rows.push_back(ErrorLine(state_->form_error));
 
             return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(rows),
@@ -951,6 +959,7 @@ namespace ql
                                   {"F4", "Remove"},
                                   {"F5", "Delete"},
                                   {"F6", "Add Station"},
+                                  {"F7", "Export Stations"},
                                   {"Esc", "Cancel"},
                               });
         }

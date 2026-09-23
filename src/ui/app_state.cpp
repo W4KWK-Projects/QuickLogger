@@ -8,6 +8,7 @@
 
 #include <ftxui/component/component_base.hpp>
 
+#include "../file_export.hpp"
 #include "../geo_utils.hpp"
 #include "../text_utils.hpp"
 
@@ -124,13 +125,15 @@ namespace ql
         return std::string(buffer);
     }
 
-    std::string FormatSavedStationHeaderRow()
+    std::string FormatSavedStationHeaderRow(bool above_menu)
     {
         char buffer[128];
         std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %s", kCallsignColumnWidth,
                       kCallsignColumnWidth, "Callsign", kNameColumnWidth, kNameColumnWidth, "Name",
                       "Member ID");
-        return std::string(kMenuEntryIndicatorWidth, ' ') + buffer;
+        std::string prefix =
+            above_menu ? std::string(kMenuEntryIndicatorWidth, ' ') : std::string();
+        return prefix + buffer;
     }
 
     // `distance_miles` < 0 means "unknown" (the station's own ZIP has no
@@ -319,7 +322,16 @@ namespace ql
         BackfillCountyFromZip(state, &operator_station);
 
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
-        state->db->RecordManualCheckInStation(operator_station, now);
+        // SaveNetStation (rather than a bare RecordManualCheckInStation) so
+        // logging a check-in also associates the station with this net --
+        // otherwise it only ever showed up in future autocomplete for this
+        // net (SearchNetStationsByCallsignSubstring also matches on real
+        // check-in history), never in the edit-net page's saved-station
+        // list or its export, which both query net_saved_stations only.
+        std::string existing_remarks = state->db->GetSavedNetStationRemarks(
+            state->active_instance.net_id, operator_station.callsign);
+        state->db->SaveNetStation(state->active_instance.net_id, operator_station, existing_remarks,
+                                  now);
 
         CheckIn check_in;
         check_in.net_instance_id = state->active_instance.id;
@@ -473,7 +485,13 @@ namespace ql
 
         BackfillCountyFromZip(state, &state->modal_station);
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
-        state->db->RecordManualCheckInStation(state->modal_station, now);
+        // SaveNetStation (rather than a bare RecordManualCheckInStation) so
+        // logging a check-in also associates the station with this net, the
+        // same reasoning as LogOperatorCheckIn above -- and this check-in's
+        // own remarks become the saved station's new default remarks,
+        // prefilled next time it's picked via autocomplete for this net.
+        state->db->SaveNetStation(state->active_instance.net_id, state->modal_station,
+                                  state->modal_remarks, now);
 
         CheckIn check_in;
         check_in.net_instance_id = state->active_instance.id;
@@ -596,6 +614,64 @@ namespace ql
         RefreshNetHistory(state);
     }
 
+    static void ApplyExportResult(AppState* state, bool ok, const std::string& path,
+                                  const std::string& error)
+    {
+        if (ok)
+        {
+            state->form_error.clear();
+            state->status_message = "Saved to " + path;
+        }
+        else
+        {
+            state->status_message.clear();
+            state->form_error = error;
+        }
+    }
+
+    void ExportNetLog(AppState* state, const std::string& net_name, const NetInstance& instance,
+                      const std::vector<CheckIn>& check_ins)
+    {
+        std::vector<std::string> lines;
+        lines.push_back("Net: " + net_name);
+        lines.push_back("Date: " + instance.instance_date);
+        lines.push_back("Net Control: " + instance.net_control_callsign);
+        lines.push_back("Alternate NC: " + instance.alternate_net_control_callsign);
+        lines.push_back("Logger: " + instance.logger_callsign);
+        lines.push_back(std::string("Status: ") +
+                        (instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed"));
+        lines.push_back("");
+        lines.push_back(FormatCheckInHeaderRow(/*above_menu=*/false));
+        std::vector<std::string> rows = FormatCheckInRows(state->db, check_ins);
+        lines.insert(lines.end(), rows.begin(), rows.end());
+
+        std::string path = ExportsDir(state->db_path) + "/" + SanitizeFilenameComponent(net_name) +
+                           "_" + SanitizeFilenameComponent(instance.instance_date) + "_log.txt";
+        std::string error;
+        bool ok = WriteExportFile(path, lines, &error);
+        ApplyExportResult(state, ok, path, error);
+    }
+
+    void ExportSavedStations(AppState* state, const std::string& net_name,
+                             const std::vector<Station>& saved_stations)
+    {
+        std::vector<std::string> lines;
+        lines.push_back("Net: " + net_name);
+        lines.push_back("Saved Stations:");
+        lines.push_back("");
+        lines.push_back(FormatSavedStationHeaderRow(/*above_menu=*/false));
+        for (const Station& station : saved_stations)
+        {
+            lines.push_back(FormatSavedStationRow(station));
+        }
+
+        std::string path = ExportsDir(state->db_path) + "/" + SanitizeFilenameComponent(net_name) +
+                           "_saved_stations.txt";
+        std::string error;
+        bool ok = WriteExportFile(path, lines, &error);
+        ApplyExportResult(state, ok, path, error);
+    }
+
     void RefreshCallsignSuggestions(AppState* state)
     {
         state->modal_callsign_suggestions.clear();
@@ -667,6 +743,7 @@ namespace ql
         state->saved_station = Station();
         state->saved_station_remarks.clear();
         state->form_error.clear();
+        state->status_message.clear();
         state->saved_station_suggestions.clear();
         state->saved_station_suggestion_labels.clear();
 

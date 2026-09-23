@@ -163,6 +163,7 @@ namespace ql
         }
         RefreshNetHistory(state_);
         state_->form_error.clear();
+        state_->status_message.clear();
         state_->page = kPageNetHistory;
     }
 
@@ -181,12 +182,37 @@ namespace ql
         DeleteSelectedNetInstance(state_);
     }
 
+    void ExportNetHistoryLogHandler::operator()() const
+    {
+        if (state_->selected_history_index >= static_cast<int>(state_->history_instances.size()))
+        {
+            state_->status_message.clear();
+            state_->form_error = "No net instance to export.";
+            return;
+        }
+
+        const NetInstance& instance = state_->history_instances[state_->selected_history_index];
+        std::vector<CheckIn> check_ins = state_->db->GetCheckInsForNetInstance(instance.id);
+        std::string net_name;
+        if (state_->selected_net_index < static_cast<int>(state_->nets.size()))
+        {
+            net_name = state_->nets[state_->selected_net_index].name;
+        }
+        ExportNetLog(state_, net_name, instance, check_ins);
+    }
+
     bool NetHistoryKeyHandler::operator()(ftxui::Event event) const
     {
         if (event == ftxui::Event::Escape)
         {
             NetHistoryBackHandler back(state_);
             back();
+            return true;
+        }
+        if (event == ftxui::Event::F2)
+        {
+            ExportNetHistoryLogHandler export_log(state_);
+            export_log();
             return true;
         }
         if (event == ftxui::Event::F5)
@@ -231,6 +257,11 @@ namespace ql
     void DeleteSelectedSavedStationHandler::operator()() const
     {
         DeleteSelectedSavedStationCompletely(state_);
+    }
+
+    void ExportSavedStationsHandler::operator()() const
+    {
+        ExportSavedStations(state_, state_->edit_net_name, state_->edit_net_saved_stations);
     }
 
     void SavedStationCallsignChangeHandler::operator()() const
@@ -312,6 +343,12 @@ namespace ql
         {
             AddNewSavedStationHandler add_station(state_);
             add_station();
+            return true;
+        }
+        if (event == ftxui::Event::F7)
+        {
+            ExportSavedStationsHandler export_stations(state_);
+            export_stations();
             return true;
         }
         if (event == ftxui::Event::Escape)
@@ -435,6 +472,7 @@ namespace ql
         state_->active_net_name = net.name;
         LogOperatorCheckIn(state_);
         state_->form_error.clear();
+        state_->status_message.clear();
         state_->page = kPageActiveNet;
     }
 
@@ -571,6 +609,12 @@ namespace ql
         RemoveSelectedCheckIn(state_);
     }
 
+    void ExportActiveNetLogHandler::operator()() const
+    {
+        ExportNetLog(state_, state_->active_net_name, state_->active_instance,
+                     state_->active_check_ins);
+    }
+
     bool ActiveNetKeyHandler::operator()(ftxui::Event event) const
     {
         bool modal_open = state_->show_new_station_modal || state_->show_edit_checkin_modal;
@@ -610,6 +654,12 @@ namespace ql
         {
             RemoveSelectedCheckInHandler remove_selected(state_);
             remove_selected();
+            return true;
+        }
+        if (event == ftxui::Event::F6 && !modal_open)
+        {
+            ExportActiveNetLogHandler export_log(state_);
+            export_log();
             return true;
         }
         if (event == ftxui::Event::Escape)
