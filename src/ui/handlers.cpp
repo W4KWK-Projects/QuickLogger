@@ -903,6 +903,56 @@ namespace ql
         StartUlsImport(state_->db_path, &state_->uls_import_progress, state_->screen);
     }
 
+    void ShowManageUsersPageHandler::operator()() const
+    {
+        RefreshUsers(state_);
+        state_->new_user_username.clear();
+        state_->new_user_public_key.clear();
+        state_->form_error.clear();
+        state_->status_message.clear();
+        state_->page = kPageManageUsers;
+    }
+
+    void AddUserHandler::operator()() const
+    {
+        AddUserFromForm(state_);
+    }
+
+    void RemoveUserHandler::operator()() const
+    {
+        RemoveSelectedUser(state_);
+    }
+
+    void ManageUsersBackHandler::operator()() const
+    {
+        state_->form_error.clear();
+        state_->status_message.clear();
+        state_->page = kPageSettings;
+    }
+
+    bool ManageUsersKeyHandler::operator()(ftxui::Event event) const
+    {
+        if (event == ftxui::Event::F2)
+        {
+            AddUserHandler add_user(state_);
+            add_user();
+            return true;
+        }
+        if (event == ftxui::Event::F3)
+        {
+            RemoveUserHandler remove_user(state_);
+            remove_user();
+            return true;
+        }
+        if (event == ftxui::Event::Escape)
+        {
+            ManageUsersBackHandler back(state_);
+            back();
+            return true;
+        }
+        return false;
+    }
+
     bool SettingsKeyHandler::operator()(ftxui::Event event) const
     {
         if (event == ftxui::Event::F2)
@@ -915,6 +965,12 @@ namespace ql
         {
             StartUlsImportHandler start_import(state_);
             start_import();
+            return true;
+        }
+        if (event == ftxui::Event::F4 && state_->is_console_session)
+        {
+            ShowManageUsersPageHandler show_manage_users(state_);
+            show_manage_users();
             return true;
         }
         if (event == ftxui::Event::Escape)
@@ -1012,6 +1068,11 @@ namespace ql
         if (state_->page == kPageImportNet)
         {
             ImportNetKeyHandler handler(state_);
+            return handler(event);
+        }
+        if (state_->page == kPageManageUsers)
+        {
+            ManageUsersKeyHandler handler(state_);
             return handler(event);
         }
         return false;

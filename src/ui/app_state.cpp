@@ -730,6 +730,70 @@ namespace ql
         state->show_delete_net_confirm_modal = false;
     }
 
+    static std::string FormatUserLabel(const User& user)
+    {
+        std::string last_login = "never logged in";
+        if (user.last_login_at > 0)
+        {
+            std::time_t time_value = static_cast<std::time_t>(user.last_login_at);
+            struct tm local_time;
+            localtime_r(&time_value, &local_time);
+            char buffer[32];
+            std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M %p", &local_time);
+            last_login = std::string("last login ") + buffer;
+        }
+        return user.username + "  (" + last_login + ")";
+    }
+
+    void RefreshUsers(AppState* state)
+    {
+        state->manage_users = state->db->ListUsers();
+        state->manage_users_labels.clear();
+        for (const User& user : state->manage_users)
+        {
+            state->manage_users_labels.push_back(FormatUserLabel(user));
+        }
+        if (state->selected_user_index >= static_cast<int>(state->manage_users.size()))
+        {
+            state->selected_user_index = 0;
+        }
+    }
+
+    void AddUserFromForm(AppState* state)
+    {
+        if (state->new_user_username.empty() || state->new_user_public_key.empty())
+        {
+            state->status_message.clear();
+            state->form_error = "Username and public key are both required.";
+            return;
+        }
+
+        User user;
+        user.username = state->new_user_username;
+        user.public_key = state->new_user_public_key;
+        user.created_at = static_cast<std::int64_t>(std::time(nullptr));
+        state->db->CreateUser(user);
+
+        state->new_user_username.clear();
+        state->new_user_public_key.clear();
+        RefreshUsers(state);
+        state->form_error.clear();
+        state->status_message = "Added \"" + user.username + "\".";
+    }
+
+    void RemoveSelectedUser(AppState* state)
+    {
+        if (state->manage_users.empty())
+        {
+            return;
+        }
+        std::string username = state->manage_users[state->selected_user_index].username;
+        state->db->DeleteUser(username);
+        RefreshUsers(state);
+        state->form_error.clear();
+        state->status_message = "Removed \"" + username + "\".";
+    }
+
     void ExportNetLog(AppState* state, const std::string& net_name, const NetInstance& instance,
                       const std::vector<CheckIn>& check_ins)
     {

@@ -70,6 +70,7 @@ namespace ql
         ftxui::Component net_history_page = ql::BuildNetHistoryPage(&state);
         ftxui::Component edit_net_page = ql::BuildEditNetPage(&state);
         ftxui::Component import_net_page = ql::BuildImportNetPage(&state);
+        ftxui::Component manage_users_page = ql::BuildManageUsersPage(&state);
 
         ftxui::Component tab = ftxui::Container::Tab(
             {
@@ -83,6 +84,7 @@ namespace ql
                 net_history_page,
                 edit_net_page,
                 import_net_page,
+                manage_users_page,
             },
             &state.page);
 

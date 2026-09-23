@@ -1,5 +1,6 @@
 #include "ssh_server.hpp"
 
+#include <cerrno>
 #include <csignal>
 #include <cstdio>
 #include <cstring>
@@ -367,6 +368,26 @@ namespace ql
 
             if (!state.authenticated)
             {
+                // Known, currently-unresolved intermittent issue: roughly
+                // 30-60% of individual connection *attempts* fail right
+                // here -- key exchange above succeeds, but the socket then
+                // reports disconnected before any auth packet ever arrives,
+                // via this exact path (not the 60s deadline; ssh_is_connected
+                // turns false almost immediately). Confirmed via extensive
+                // live testing this is NOT caused by concurrency (fails with
+                // connections fully sequential, one at a time), connection
+                // spacing (fails with 1.5s+ gaps too), or server/process age
+                // (fails on a freshly-started server's very first
+                // connection). Always fails cleanly -- no crash, no
+                // corruption, no orphaned processes -- and a retry has a
+                // good chance of succeeding. Once past this point,
+                // connections are 100% reliable. Root cause not yet found;
+                // revisit with strace/packet-capture-level tools if this
+                // proves painful in real use.
+                std::fprintf(stderr,
+                             "SSH: a connection attempt failed during authentication "
+                             "(this is a known intermittent issue -- retrying usually "
+                             "works).\n");
                 ssh_event_free(event);
                 ssh_disconnect(session);
                 ssh_free(session);
@@ -413,7 +434,13 @@ namespace ql
 
                 int status = 0;
                 pid_t reaped = waitpid(state.child_pid, &status, WNOHANG);
-                if (reaped == state.child_pid)
+                // SIGCHLD is ignored process-wide (see SshAcceptLoop), which
+                // auto-reaps children at the kernel level -- if that already
+                // happened before this call, waitpid correctly reports
+                // ECHILD ("no such child") rather than the pid, since there's
+                // nothing left to wait for. Both outcomes mean the same
+                // thing here: the child is gone.
+                if (reaped == state.child_pid || (reaped == -1 && errno == ECHILD))
                 {
                     break;
                 }
@@ -467,6 +494,22 @@ namespace ql
 
             void operator()() const
             {
+                // Ignoring SIGCHLD (rather than leaving the default
+                // disposition) auto-reaps every descendant at the kernel
+                // level, so nothing here needs its own zombie-reaping logic.
+                // Tried as a fix for a real intermittent issue (see the
+                // "known, currently-unresolved" comment on the auth-wait
+                // block in HandleConnection below) since a documented libssh
+                // issue describes ssh_bind_accept/ssh_event_dopoll being
+                // interruptible by an unrelated SIGCHLD -- it did not
+                // resolve that issue (confirmed: still reproduces even with
+                // this in place, and even with connections fully sequential,
+                // never overlapping), but it's still worth keeping as
+                // correct, harmless process hygiene. Set before any forking
+                // happens so it's inherited by every descendant this process
+                // creates, not just the ones forked after this line.
+                std::signal(SIGCHLD, SIG_IGN);
+
                 if (!EnsureHostKeyExists(HostKeyPath()))
                 {
                     return;
@@ -512,7 +555,10 @@ namespace ql
 
                     // The parent doesn't touch this connection again --
                     // HandleConnection took full ownership of `session` in
-                    // the child's own address space.
+                    // the child's own address space. Matches libssh's own
+                    // ssh_server_fork.c example exactly (ssh_disconnect then
+                    // ssh_free).
+                    ssh_disconnect(session);
                     ssh_free(session);
                 }
             }

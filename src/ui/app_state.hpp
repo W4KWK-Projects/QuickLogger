@@ -26,6 +26,7 @@ namespace ql
     constexpr int kPageNetHistory = 7;
     constexpr int kPageEditNet = 8;
     constexpr int kPageImportNet = 9;
+    constexpr int kPageManageUsers = 10;
 
     // Which ZMODEM operation the confirmation modal (AppState::
     // show_zmodem_confirm_modal) is currently about to run -- see
@@ -98,6 +99,17 @@ namespace ql
         // which one is highlighted. Refreshed by RefreshImportNetFiles.
         std::vector<std::string> import_net_files;
         int selected_import_file_index = 0;
+
+        // Manage Users page (console-only -- see kPageManageUsers and
+        // AppState::is_console_session): the current SSH login roster and
+        // which one is highlighted, refreshed by RefreshUsers. `new_user_*`
+        // are the add-user mini-form's working fields, cleared after a
+        // successful add.
+        std::vector<User> manage_users;
+        std::vector<std::string> manage_users_labels;
+        int selected_user_index = 0;
+        std::string new_user_username;
+        std::string new_user_public_key;
 
         // The operator's saved settings, and where they live on disk. `settings`
         // is the last-saved value (used elsewhere in the app, e.g. to prefill
@@ -532,6 +544,22 @@ namespace ql
     // Esc on the delete-net confirmation modal: closes it without deleting
     // anything.
     void CancelDeleteNet(AppState* state);
+
+    // Reloads AppState::manage_users/_labels from Database::ListUsers. Call
+    // when opening the Manage Users page and after any add/remove.
+    void RefreshUsers(AppState* state);
+
+    // F2 on the Manage Users page: creates (or overwrites the public key
+    // of, if the username already exists -- see Database::CreateUser) a
+    // user from AppState::new_user_username/new_user_public_key, then
+    // clears the form and refreshes the list. Sets AppState::form_error
+    // instead if either field is blank.
+    void AddUserFromForm(AppState* state);
+
+    // F3 on the Manage Users page: deletes the highlighted user
+    // (AppState::manage_users[selected_user_index]) and refreshes the list.
+    // A no-op if the list is empty.
+    void RemoveSelectedUser(AppState* state);
 
     // Reloads AppState::modal_callsign_suggestions/_labels from
     // AppState::modal_station.callsign: tier 1 (SearchNetStationsByCallsignSubstring

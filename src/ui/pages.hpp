@@ -17,5 +17,6 @@ namespace ql
     ftxui::Component BuildNetHistoryPage(AppState* state);
     ftxui::Component BuildEditNetPage(AppState* state);
     ftxui::Component BuildImportNetPage(AppState* state);
+    ftxui::Component BuildManageUsersPage(AppState* state);
 
 }  // namespace ql

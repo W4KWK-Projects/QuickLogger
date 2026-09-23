@@ -806,8 +806,73 @@ namespace ql
         AppState* state_;
     };
 
+    // F4 on the settings page, console sessions only (see
+    // AppState::is_console_session -- Manage Users is never reachable over
+    // SSH, deliberately, to avoid needing an admin/permission concept):
+    // loads the user roster and switches to the Manage Users page.
+    class ShowManageUsersPageHandler
+    {
+    public:
+        explicit ShowManageUsersPageHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // F2 on the Manage Users page: adds/updates a user from the working
+    // form fields.
+    class AddUserHandler
+    {
+    public:
+        explicit AddUserHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // F3 on the Manage Users page: removes the highlighted user.
+    class RemoveUserHandler
+    {
+    public:
+        explicit RemoveUserHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // Escape on the Manage Users page: returns to the settings page.
+    class ManageUsersBackHandler
+    {
+    public:
+        explicit ManageUsersBackHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // Global key handling for the Manage Users page: F2 Add, F3 Remove,
+    // Escape Back.
+    class ManageUsersKeyHandler
+    {
+    public:
+        explicit ManageUsersKeyHandler(AppState* state) : state_(state) {}
+
+        bool operator()(ftxui::Event event) const;
+
+    private:
+        AppState* state_;
+    };
+
     // Global key handling for the settings page: F2 Save, F3 Import ULS
-    // database, Escape Cancel.
+    // database, F4 Manage Users (console sessions only), Escape Cancel.
     class SettingsKeyHandler
     {
     public:

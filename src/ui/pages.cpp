@@ -764,8 +764,13 @@ namespace ql
                 ErrorLine(state_->form_error),
             });
 
-            return PageChrome("Settings", content,
-                              {{"F2", "Save"}, {"F3", "Import ULS"}, {"Esc", "Cancel"}});
+            std::vector<KeyHint> hints = {{"F2", "Save"}, {"F3", "Import ULS"}};
+            if (state_->is_console_session)
+            {
+                hints.push_back({"F4", "Manage Users"});
+            }
+            hints.push_back({"Esc", "Cancel"});
+            return PageChrome("Settings", content, hints);
         }
 
     private:
@@ -1210,6 +1215,72 @@ namespace ql
         ftxui::Component main_view = ftxui::Renderer(root, ImportNetRenderer(state, file_menu));
         return ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
                             &state->show_zmodem_confirm_modal);
+    }
+
+    // ---- Manage users page --------------------------------------------------
+
+    // Console-only (see AppState::is_console_session) -- reached from
+    // Settings' F4, never over SSH. Lists who's allowed to SSH in and lets
+    // the console operator add/remove entries; there's no admin/permission
+    // concept to check here precisely because an SSH session can never
+    // reach this page at all, regardless of whose key it authenticated
+    // with (see ShowManageUsersPageHandler's doc comment).
+    class ManageUsersRenderer
+    {
+    public:
+        ManageUsersRenderer(AppState* state, ftxui::Component user_menu,
+                            ftxui::Component input_username, ftxui::Component input_public_key)
+            : state_(state),
+              user_menu_(std::move(user_menu)),
+              input_username_(std::move(input_username)),
+              input_public_key_(std::move(input_public_key))
+        {
+        }
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Element user_list =
+                state_->manage_users.empty()
+                    ? ftxui::text("No SSH users yet.") | ftxui::dim
+                    : user_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
+
+            ftxui::Element content = ftxui::vbox({
+                ftxui::text("SSH Users:") | ftxui::bold | ftxui::color(ftxui::Color::Cyan),
+                (user_list | ftxui::border) | ftxui::flex,
+                ftxui::separator(),
+                ftxui::hbox({FieldLabel("Username:    "), input_username_->Render()}),
+                ftxui::hbox({FieldLabel("Public Key:  "), input_public_key_->Render()}),
+                ftxui::text("Paste a full authorized_keys-style line, e.g. from "
+                            "~/.ssh/id_ed25519.pub -- \"ssh-ed25519 AAAA... comment\".") |
+                    ftxui::dim,
+                StatusLine(state_->status_message),
+                ErrorLine(state_->form_error),
+            });
+
+            return PageChrome("Manage Users", content,
+                              {{"F2", "Add"}, {"F3", "Remove"}, {"Esc", "Back"}});
+        }
+
+    private:
+        AppState* state_;
+        ftxui::Component user_menu_;
+        ftxui::Component input_username_;
+        ftxui::Component input_public_key_;
+    };
+
+    ftxui::Component BuildManageUsersPage(AppState* state)
+    {
+        ftxui::Component user_menu =
+            ftxui::Menu(&state->manage_users_labels, &state->selected_user_index);
+        ftxui::Component input_username =
+            ftxui::Input(&state->new_user_username, "Username", SingleLineInputOption());
+        ftxui::Component input_public_key = ftxui::Input(
+            &state->new_user_public_key, "ssh-ed25519 AAAA... comment", SingleLineInputOption());
+
+        ftxui::Component root =
+            ftxui::Container::Vertical({user_menu, input_username, input_public_key});
+        return ftxui::Renderer(
+            root, ManageUsersRenderer(state, user_menu, input_username, input_public_key));
     }
 
 }  // namespace ql
