@@ -207,13 +207,13 @@ namespace ql
         {
             if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
             {
-                ConfirmZmodemSendHandler confirm(state_);
+                ConfirmZmodemActionHandler confirm(state_);
                 confirm();
                 return true;
             }
             if (event == ftxui::Event::Escape)
             {
-                CancelZmodemSendHandler cancel(state_);
+                CancelZmodemActionHandler cancel(state_);
                 cancel();
                 return true;
             }
@@ -336,13 +336,13 @@ namespace ql
         {
             if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
             {
-                ConfirmZmodemSendHandler confirm(state_);
+                ConfirmZmodemActionHandler confirm(state_);
                 confirm();
                 return true;
             }
             if (event == ftxui::Event::Escape)
             {
-                CancelZmodemSendHandler cancel(state_);
+                CancelZmodemActionHandler cancel(state_);
                 cancel();
                 return true;
             }
@@ -394,8 +394,44 @@ namespace ql
         return false;
     }
 
+    void ExportNetSliceHandler::operator()() const
+    {
+        if (state_->selected_net_index >= static_cast<int>(state_->nets.size()))
+        {
+            state_->status_message.clear();
+            state_->form_error = "No net selected to export.";
+            return;
+        }
+        ExportNetSlice(state_, state_->nets[state_->selected_net_index]);
+    }
+
+    void ShowImportNetPageHandler::operator()() const
+    {
+        RefreshImportNetFiles(state_);
+        state_->form_error.clear();
+        state_->status_message.clear();
+        state_->page = kPageImportNet;
+    }
+
     bool NetListKeyHandler::operator()(ftxui::Event event) const
     {
+        if (state_->show_zmodem_confirm_modal)
+        {
+            if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
+            {
+                ConfirmZmodemActionHandler confirm(state_);
+                confirm();
+                return true;
+            }
+            if (event == ftxui::Event::Escape)
+            {
+                CancelZmodemActionHandler cancel(state_);
+                cancel();
+                return true;
+            }
+            return true;
+        }
+
         if (event == ftxui::Event::F2)
         {
             ShowCreateNetPageHandler show_create(state_);
@@ -432,10 +468,79 @@ namespace ql
             show_edit();
             return true;
         }
+        if (event == ftxui::Event::F8)
+        {
+            ExportNetSliceHandler export_net(state_);
+            export_net();
+            return true;
+        }
+        if (event == ftxui::Event::F9)
+        {
+            ShowImportNetPageHandler show_import(state_);
+            show_import();
+            return true;
+        }
         if (event == ftxui::Event::F10)
         {
             QuitHandler quit(state_);
             quit();
+            return true;
+        }
+        return false;
+    }
+
+    void ImportSelectedNetSliceHandler::operator()() const
+    {
+        ImportSelectedNetSlice(state_);
+    }
+
+    void StartZmodemReceiveHandler::operator()() const
+    {
+        StartZmodemReceive(state_);
+    }
+
+    void ImportNetBackHandler::operator()() const
+    {
+        state_->form_error.clear();
+        state_->status_message.clear();
+        state_->page = kPageNetList;
+    }
+
+    bool ImportNetKeyHandler::operator()(ftxui::Event event) const
+    {
+        if (state_->show_zmodem_confirm_modal)
+        {
+            if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
+            {
+                ConfirmZmodemActionHandler confirm(state_);
+                confirm();
+                return true;
+            }
+            if (event == ftxui::Event::Escape)
+            {
+                CancelZmodemActionHandler cancel(state_);
+                cancel();
+                return true;
+            }
+            return true;
+        }
+
+        if (event == ftxui::Event::F2)
+        {
+            ImportSelectedNetSliceHandler import_slice(state_);
+            import_slice();
+            return true;
+        }
+        if (event == ftxui::Event::F3)
+        {
+            StartZmodemReceiveHandler start_receive(state_);
+            start_receive();
+            return true;
+        }
+        if (event == ftxui::Event::Escape)
+        {
+            ImportNetBackHandler back(state_);
+            back();
             return true;
         }
         return false;
@@ -655,13 +760,13 @@ namespace ql
         {
             if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
             {
-                ConfirmZmodemSendHandler confirm(state_);
+                ConfirmZmodemActionHandler confirm(state_);
                 confirm();
                 return true;
             }
             if (event == ftxui::Event::Escape)
             {
-                CancelZmodemSendHandler cancel(state_);
+                CancelZmodemActionHandler cancel(state_);
                 cancel();
                 return true;
             }
@@ -799,14 +904,14 @@ namespace ql
         return false;
     }
 
-    void ConfirmZmodemSendHandler::operator()() const
+    void ConfirmZmodemActionHandler::operator()() const
     {
-        ConfirmZmodemSend(state_);
+        ConfirmZmodemAction(state_);
     }
 
-    void CancelZmodemSendHandler::operator()() const
+    void CancelZmodemActionHandler::operator()() const
     {
-        CancelZmodemSend(state_);
+        CancelZmodemAction(state_);
     }
 
     void QuitHandler::operator()() const
@@ -865,6 +970,11 @@ namespace ql
         if (state_->page == kPageEditNet)
         {
             EditNetKeyHandler handler(state_);
+            return handler(event);
+        }
+        if (state_->page == kPageImportNet)
+        {
+            ImportNetKeyHandler handler(state_);
             return handler(event);
         }
         return false;

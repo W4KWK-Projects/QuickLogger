@@ -16,5 +16,6 @@ namespace ql
     ftxui::Component BuildAdHocNetPage(AppState* state);
     ftxui::Component BuildNetHistoryPage(AppState* state);
     ftxui::Component BuildEditNetPage(AppState* state);
+    ftxui::Component BuildImportNetPage(AppState* state);
 
 }  // namespace ql

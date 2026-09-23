@@ -1,7 +1,9 @@
 #include "file_export.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 
 namespace ql
@@ -12,6 +14,40 @@ namespace ql
         std::string::size_type slash = db_path.find_last_of('/');
         std::string dir = slash == std::string::npos ? std::string(".") : db_path.substr(0, slash);
         return dir + "/exports";
+    }
+
+    std::string ImportsDir(const std::string& db_path)
+    {
+        std::string::size_type slash = db_path.find_last_of('/');
+        std::string dir = slash == std::string::npos ? std::string(".") : db_path.substr(0, slash);
+        return dir + "/imports";
+    }
+
+    std::vector<std::string> ListFilesWithExtension(const std::string& dir,
+                                                    const std::string& extension)
+    {
+        std::vector<std::string> names;
+        std::error_code error;
+        if (!std::filesystem::is_directory(dir, error))
+        {
+            return names;
+        }
+        for (const std::filesystem::directory_entry& entry :
+             std::filesystem::directory_iterator(dir, error))
+        {
+            if (!entry.is_regular_file())
+            {
+                continue;
+            }
+            std::string name = entry.path().filename().string();
+            if (name.size() >= extension.size() &&
+                name.compare(name.size() - extension.size(), extension.size(), extension) == 0)
+            {
+                names.push_back(name);
+            }
+        }
+        std::sort(names.begin(), names.end());
+        return names;
     }
 
     bool WriteExportFile(const std::string& path, const std::vector<std::string>& lines,

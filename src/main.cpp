@@ -66,6 +66,7 @@ int main()
     ftxui::Component ad_hoc_net_page = ql::BuildAdHocNetPage(&state);
     ftxui::Component net_history_page = ql::BuildNetHistoryPage(&state);
     ftxui::Component edit_net_page = ql::BuildEditNetPage(&state);
+    ftxui::Component import_net_page = ql::BuildImportNetPage(&state);
 
     ftxui::Component tab = ftxui::Container::Tab(
         {
@@ -78,6 +79,7 @@ int main()
             ad_hoc_net_page,
             net_history_page,
             edit_net_page,
+            import_net_page,
         },
         &state.page);
 

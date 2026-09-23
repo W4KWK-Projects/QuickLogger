@@ -28,6 +28,11 @@ namespace ql
         return std::system("command -v sz > /dev/null 2>&1") == 0;
     }
 
+    bool ZmodemReceiveAvailable()
+    {
+        return std::system("command -v rz > /dev/null 2>&1") == 0;
+    }
+
     // Waits up to `timeout_seconds` for `pid` to exit on its own, polling
     // rather than blocking so a stuck child doesn't hang this call forever.
     // Sends SIGTERM (then SIGKILL if it's still alive after a short grace
@@ -128,6 +133,78 @@ namespace ql
 
         bool ok = false;
         ftxui::Closure run = screen->WithRestoredIO(RunSzProcess(path, &ok, error));
+        run();
+        return ok;
+    }
+
+    // The receiving mirror of RunSzProcess: chdir()s into `dest_dir_` before
+    // exec-ing `rz` (in the *child*, after fork -- never in this process,
+    // since every other export/import path still needs to resolve paths
+    // relative to wherever QuickLogger itself was launched from) so
+    // whatever file arrives lands there under the name the sending client
+    // gives it, then waits for it the same bounded way RunSzProcess does.
+    class RunRzProcess
+    {
+    public:
+        RunRzProcess(std::string dest_dir, bool* ok, std::string* error)
+            : dest_dir_(std::move(dest_dir)), ok_(ok), error_(error)
+        {
+        }
+
+        void operator()() const
+        {
+            *ok_ = false;
+            error_->clear();
+
+            pid_t pid = fork();
+            if (pid < 0)
+            {
+                *error_ = "Could not start the ZMODEM receiver (fork failed).";
+                return;
+            }
+            if (pid == 0)
+            {
+                if (chdir(dest_dir_.c_str()) != 0)
+                {
+                    _exit(127);
+                }
+                execlp("rz", "rz", static_cast<char*>(nullptr));
+                _exit(127);
+            }
+
+            int status = WaitWithTimeout(pid, kZmodemTimeoutSeconds);
+            if (status == -1)
+            {
+                *error_ = "ZMODEM receive timed out -- no sender responded.";
+                return;
+            }
+            if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+            {
+                *ok_ = true;
+                return;
+            }
+            *error_ = "ZMODEM receive failed or was cancelled.";
+        }
+
+    private:
+        std::string dest_dir_;
+        bool* ok_;
+        std::string* error_;
+    };
+
+    bool ReceiveFileViaZmodem(ftxui::ScreenInteractive* screen, const std::string& dest_dir,
+                              std::string* error)
+    {
+        if (!ZmodemReceiveAvailable())
+        {
+            *error = "The 'rz' command (lrzsz) isn't installed; can't receive via ZMODEM.";
+            return false;
+        }
+
+        std::system(("mkdir -p \"" + dest_dir + "\"").c_str());
+
+        bool ok = false;
+        ftxui::Closure run = screen->WithRestoredIO(RunRzProcess(dest_dir, &ok, error));
         run();
         return ok;
     }

@@ -607,13 +607,92 @@ namespace ql
         AppState* state_;
     };
 
+    // F8 on the net list page: writes the highlighted net's whole slice
+    // (definition, stations, instances, check-ins) to a .qlnet file under
+    // exports/ (see ExportNetSlice), for handing off to a new user of the
+    // software.
+    class ExportNetSliceHandler
+    {
+    public:
+        explicit ExportNetSliceHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // F9 on the net list page: refreshes the list of *.qlnet files sitting
+    // under imports/ and switches to the import-net page.
+    class ShowImportNetPageHandler
+    {
+    public:
+        explicit ShowImportNetPageHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
     // Global key handling for the net list page: F2 New Recurring Net, F3
     // Start Selected Net, F4 Settings, F5 Ad Hoc Net, F6 View History, F7 Edit
-    // Net, F10 Quit.
+    // Net, F8 Export Net, F9 Import Net, F10 Quit.
     class NetListKeyHandler
     {
     public:
         explicit NetListKeyHandler(AppState* state) : state_(state) {}
+
+        bool operator()(ftxui::Event event) const;
+
+    private:
+        AppState* state_;
+    };
+
+    // F2 on the import-net page: imports the highlighted file (see
+    // ImportSelectedNetSlice).
+    class ImportSelectedNetSliceHandler
+    {
+    public:
+        explicit ImportSelectedNetSliceHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // F3 on the import-net page: opens the ZMODEM confirmation modal set up
+    // to receive a file into imports/ (see StartZmodemReceive).
+    class StartZmodemReceiveHandler
+    {
+    public:
+        explicit StartZmodemReceiveHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // Escape on the import-net page: returns to the net list.
+    class ImportNetBackHandler
+    {
+    public:
+        explicit ImportNetBackHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // Global key handling for the import-net page: F2 Import, F3 Receive via
+    // ZMODEM, Escape Back.
+    class ImportNetKeyHandler
+    {
+    public:
+        explicit ImportNetKeyHandler(AppState* state) : state_(state) {}
 
         bool operator()(ftxui::Event event) const;
 
@@ -752,14 +831,15 @@ namespace ql
     };
 
     // F2/Enter on the ZMODEM confirmation modal (see
-    // AppState::show_zmodem_confirm_modal): runs the actual transfer. Shared
-    // by every page's key handler that can show this modal (active-net,
-    // net-history, edit-net), checked before that page's own F-key handling
+    // AppState::show_zmodem_confirm_modal): runs whichever operation
+    // AppState::zmodem_action names -- a send or a receive. Shared by every
+    // page's key handler that can show this modal (active-net, net-history,
+    // edit-net, import-net), checked before that page's own F-key handling
     // the same way each already checks its other modal flags.
-    class ConfirmZmodemSendHandler
+    class ConfirmZmodemActionHandler
     {
     public:
-        explicit ConfirmZmodemSendHandler(AppState* state) : state_(state) {}
+        explicit ConfirmZmodemActionHandler(AppState* state) : state_(state) {}
 
         void operator()() const;
 
@@ -767,12 +847,13 @@ namespace ql
         AppState* state_;
     };
 
-    // Esc on the ZMODEM confirmation modal: declines the transfer, keeping
-    // the file that was already written locally.
-    class CancelZmodemSendHandler
+    // Esc on the ZMODEM confirmation modal: declines whichever operation was
+    // pending -- a send leaves the file wherever it was already written; a
+    // receive just never happens.
+    class CancelZmodemActionHandler
     {
     public:
-        explicit CancelZmodemSendHandler(AppState* state) : state_(state) {}
+        explicit CancelZmodemActionHandler(AppState* state) : state_(state) {}
 
         void operator()() const;
 

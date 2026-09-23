@@ -145,6 +145,69 @@ namespace ql
         return rows;
     }
 
+    // Shown before actually running `sz`/`rz` -- the transfer hijacks the
+    // real terminal for its raw protocol bytes and can't show anything
+    // meaningful while in flight, so the operator needs to be told what to
+    // do first, with a real chance to back out via Esc instead. Which
+    // operation is pending (AppState::zmodem_action) changes the wording;
+    // the modal itself is otherwise identical either way. Has no
+    // interactive fields of its own (F2/Enter/Esc are handled by whichever
+    // page's key handler is showing it, the same way every other modal
+    // here works -- see AppState::show_zmodem_confirm_modal), so it's a
+    // bare Renderer over an empty Container rather than a
+    // Container::Vertical with actual children. Shared by every page that
+    // can trigger either direction (active-net/net-history/edit-net export,
+    // net-list export, import-net receive) -- built once per page via
+    // BuildZmodemConfirmModal and wrapped around that page's own view with
+    // ftxui::Modal.
+    class ZmodemConfirmModalRenderer
+    {
+    public:
+        explicit ZmodemConfirmModalRenderer(AppState* state) : state_(state) {}
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Elements rows;
+            rows.push_back(ftxui::text("ZMODEM") | ftxui::bold | ftxui::color(ftxui::Color::Cyan));
+            rows.push_back(ftxui::separator());
+            if (state_->zmodem_action == ZmodemAction::kSend)
+            {
+                rows.push_back(ftxui::text("Ready to send:"));
+                rows.push_back(ftxui::text("  " + state_->zmodem_confirm_path) |
+                               ftxui::color(ftxui::Color::YellowLight));
+                rows.push_back(ftxui::text(""));
+                rows.push_back(
+                    ftxui::text("Open your terminal's file-receive (ZMODEM) dialog now, then"));
+                rows.push_back(ftxui::text("press Enter to start. Gives up after about 25s if"));
+                rows.push_back(ftxui::text("nothing responds."));
+                rows.push_back(ftxui::separator());
+                rows.push_back(KeyHintRow({{"F2/Enter", "Send"}, {"Esc", "Skip"}}));
+            }
+            else
+            {
+                rows.push_back(ftxui::text("Ready to receive a file into imports/."));
+                rows.push_back(ftxui::text(""));
+                rows.push_back(
+                    ftxui::text("In your terminal client, start sending (uploading) the file"));
+                rows.push_back(ftxui::text("now, then press Enter to start listening. Gives up"));
+                rows.push_back(ftxui::text("after about 25s if nothing arrives."));
+                rows.push_back(ftxui::separator());
+                rows.push_back(KeyHintRow({{"F2/Enter", "Receive"}, {"Esc", "Cancel"}}));
+            }
+
+            return ftxui::vbox(rows) | ftxui::border | ftxui::color(ftxui::Color::Cyan);
+        }
+
+    private:
+        AppState* state_;
+    };
+
+    static ftxui::Component BuildZmodemConfirmModal(AppState* state)
+    {
+        ftxui::Component root = ftxui::Container::Vertical({});
+        return ftxui::Renderer(root, ZmodemConfirmModalRenderer(state));
+    }
+
     // ---- Net list page ---------------------------------------------------
 
     class NetListRenderer
@@ -174,18 +237,27 @@ namespace ql
                 ftxui::separator(),
                 ftxui::text("Recurring Nets") | ftxui::bold | ftxui::color(ftxui::Color::Cyan),
                 (net_list_elem | ftxui::border) | ftxui::flex,
+                StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
 
+            // Two rows: nine shortcuts don't read comfortably crammed onto
+            // one line (see chrome.hpp's multi-row BottomBar overload).
             return PageChrome("Recurring Nets", content,
                               {
-                                  {"F2", "New"},
-                                  {"F3/Enter", "Start"},
-                                  {"F4", "Settings"},
-                                  {"F5", "Ad Hoc"},
-                                  {"F6", "History"},
-                                  {"F7", "Edit"},
-                                  {"F10", "Quit"},
+                                  {
+                                      {"F2", "New"},
+                                      {"F3/Enter", "Start"},
+                                      {"F4", "Settings"},
+                                      {"F5", "Ad Hoc"},
+                                  },
+                                  {
+                                      {"F6", "History"},
+                                      {"F7", "Edit"},
+                                      {"F8", "Export Net"},
+                                      {"F9", "Import Net"},
+                                      {"F10", "Quit"},
+                                  },
                               });
         }
 
@@ -202,7 +274,9 @@ namespace ql
             ftxui::Menu(&state->net_names, &state->selected_net_index, net_menu_option);
 
         ftxui::Component root = ftxui::Container::Vertical({net_menu});
-        return ftxui::Renderer(root, NetListRenderer(state, net_menu));
+        ftxui::Component main_view = ftxui::Renderer(root, NetListRenderer(state, net_menu));
+        return ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
+                            &state->show_zmodem_confirm_modal);
     }
 
     // ---- Create-net page ---------------------------------------------------
@@ -565,52 +639,6 @@ namespace ql
         ftxui::Component input_comment_;
         ftxui::Component role_choice_menu_;
     };
-
-    // Shown after a file's already been written to exports/ (see
-    // ExportLinesToFile) and before actually running `sz` -- the transfer
-    // hijacks the real terminal for its raw protocol bytes and can't show
-    // anything meaningful while in flight, so the operator needs to be told
-    // to get their client's receive dialog ready first, with a real chance
-    // to back out via Esc instead. Has no interactive fields of its own
-    // (F2/Enter/Esc are handled by whichever page's key handler is showing
-    // it, the same way every other modal here works -- see
-    // AppState::show_zmodem_confirm_modal), so it's a bare Renderer over an
-    // empty Container rather than a Container::Vertical with actual
-    // children.
-    class ZmodemConfirmModalRenderer
-    {
-    public:
-        explicit ZmodemConfirmModalRenderer(AppState* state) : state_(state) {}
-
-        ftxui::Element operator()() const
-        {
-            ftxui::Elements rows;
-            rows.push_back(ftxui::text("ZMODEM Download") | ftxui::bold |
-                           ftxui::color(ftxui::Color::Cyan));
-            rows.push_back(ftxui::separator());
-            rows.push_back(ftxui::text("Ready to send:"));
-            rows.push_back(ftxui::text("  " + state_->zmodem_confirm_path) |
-                           ftxui::color(ftxui::Color::YellowLight));
-            rows.push_back(ftxui::text(""));
-            rows.push_back(
-                ftxui::text("Open your terminal's file-receive (ZMODEM) dialog now, then"));
-            rows.push_back(ftxui::text("press Enter to start. Gives up after about 25s if"));
-            rows.push_back(ftxui::text("nothing responds."));
-            rows.push_back(ftxui::separator());
-            rows.push_back(KeyHintRow({{"F2/Enter", "Send"}, {"Esc", "Skip"}}));
-
-            return ftxui::vbox(rows) | ftxui::border | ftxui::color(ftxui::Color::Cyan);
-        }
-
-    private:
-        AppState* state_;
-    };
-
-    static ftxui::Component BuildZmodemConfirmModal(AppState* state)
-    {
-        ftxui::Component root = ftxui::Container::Vertical({});
-        return ftxui::Renderer(root, ZmodemConfirmModalRenderer(state));
-    }
 
     ftxui::Component BuildActiveNetPage(AppState* state)
     {
@@ -1089,6 +1117,57 @@ namespace ql
             root, EditNetRenderer(state, input_name, input_mode, input_frequency, input_location,
                                   input_recurrence, saved_station_menu, saved_station_inputs,
                                   saved_station_suggestion_menu, saved_station_remarks_input));
+        return ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
+                            &state->show_zmodem_confirm_modal);
+    }
+
+    // ---- Import net page ---------------------------------------------------
+
+    class ImportNetRenderer
+    {
+    public:
+        ImportNetRenderer(AppState* state, ftxui::Component file_menu)
+            : state_(state), file_menu_(std::move(file_menu))
+        {
+        }
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Element file_list =
+                state_->import_net_files.empty()
+                    ? ftxui::text(
+                          "No *.qlnet files in imports/ yet. Press F3 to receive one via "
+                          "ZMODEM.") |
+                          ftxui::dim
+                    : file_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
+
+            ftxui::Element content = ftxui::vbox({
+                ftxui::text("Files ready to import:") | ftxui::bold |
+                    ftxui::color(ftxui::Color::Cyan),
+                (file_list | ftxui::border) | ftxui::flex,
+                StatusLine(state_->status_message),
+                ErrorLine(state_->form_error),
+            });
+
+            return PageChrome(
+                "Import Net", content,
+                {{"F2/Enter", "Import"}, {"F3", "Receive (ZMODEM)"}, {"Esc", "Back"}});
+        }
+
+    private:
+        AppState* state_;
+        ftxui::Component file_menu_;
+    };
+
+    ftxui::Component BuildImportNetPage(AppState* state)
+    {
+        ftxui::MenuOption file_menu_option;
+        file_menu_option.on_enter = ImportSelectedNetSliceHandler(state);
+        ftxui::Component file_menu = ftxui::Menu(
+            &state->import_net_files, &state->selected_import_file_index, file_menu_option);
+
+        ftxui::Component root = ftxui::Container::Vertical({file_menu});
+        ftxui::Component main_view = ftxui::Renderer(root, ImportNetRenderer(state, file_menu));
         return ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
                             &state->show_zmodem_confirm_modal);
     }

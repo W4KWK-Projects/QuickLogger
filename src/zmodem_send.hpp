@@ -16,6 +16,12 @@ namespace ql
     // doomed exec().
     bool ZmodemSendAvailable();
 
+    // True if `rz` (the receiving half of the same lrzsz package) is
+    // installed and on PATH. lrzsz always installs both together, but this
+    // is checked independently rather than assumed from ZmodemSendAvailable
+    // in case that ever stops being true on some platform.
+    bool ZmodemReceiveAvailable();
+
     // Sends `path` to whatever's on the other end of the real terminal via
     // the ZMODEM protocol, so a ZMODEM-aware terminal client (e.g. one with
     // auto-detect/receive enabled, like ZOC) can offer to save it locally --
@@ -39,5 +45,17 @@ namespace ql
     // reached a remote client).
     bool SendFileViaZmodem(ftxui::ScreenInteractive* screen, const std::string& path,
                            std::string* error);
+
+    // The receiving mirror of SendFileViaZmodem: suspends `screen`'s
+    // terminal hooks the same way, forks and execs `rz` with its working
+    // directory set to `dest_dir` (whatever file the sending client offers
+    // lands there, under whatever name it sends -- `rz` doesn't take a
+    // destination filename the way `sz` takes a source one) and the real
+    // stdin/stdout inherited, waits for it with the same bounded timeout,
+    // then restores the screen. Blocks the calling thread the same way
+    // SendFileViaZmodem does. Returns true if `rz` exited zero; on failure
+    // or timeout, `error` is set to a short message.
+    bool ReceiveFileViaZmodem(ftxui::ScreenInteractive* screen, const std::string& dest_dir,
+                              std::string* error);
 
 }  // namespace ql

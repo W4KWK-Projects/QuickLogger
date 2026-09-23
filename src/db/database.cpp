@@ -204,7 +204,7 @@ CREATE TABLE IF NOT EXISTS zip_counties (
         return check_in;
     }
 
-    Database::Database(const std::string& path)
+    Database::Database(const std::string& path, bool use_wal)
     {
         if (sqlite3_open(path.c_str(), &db_) != SQLITE_OK)
         {
@@ -234,8 +234,13 @@ CREATE TABLE IF NOT EXISTS zip_counties (
         // connection to this same file. It's also what makes it safe for
         // multiple *processes* (not just threads) to open this same file at
         // once -- WAL's reader/writer model is per-connection, not
-        // per-process, on a local filesystem.
-        sqlite3_exec(db_, "PRAGMA journal_mode = WAL;", nullptr, nullptr, nullptr);
+        // per-process, on a local filesystem. Skipped for `use_wal = false`
+        // callers (see the header) -- there's no second connection to help
+        // there, only a "-wal"/"-shm" sidecar to accidentally leave behind.
+        if (use_wal)
+        {
+            sqlite3_exec(db_, "PRAGMA journal_mode = WAL;", nullptr, nullptr, nullptr);
+        }
         CreateSchema();
     }
 

@@ -18,7 +18,16 @@ namespace ql
     {
     public:
         // Pass ":memory:" for a private in-memory database, e.g. in tests.
-        explicit Database(const std::string& path);
+        // `use_wal` defaults to true for the app's own quicklogger.db, where
+        // it lets the UI thread's reads proceed while a background import
+        // holds a writer transaction open on a second connection (see the
+        // journal_mode pragma in the .cpp). Pass false for a short-lived,
+        // single-connection file meant to be handed to someone else whole
+        // (e.g. a net-slice export, see net_slice.hpp) -- WAL mode leaves
+        // "-wal"/"-shm" sidecar files next to it that a plain file copy
+        // would silently leave behind, and there's no second connection
+        // for WAL to help with anyway.
+        explicit Database(const std::string& path, bool use_wal = true);
         ~Database();
 
         Database(const Database&) = delete;

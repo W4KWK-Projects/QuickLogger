@@ -25,6 +25,18 @@ namespace ql
     constexpr int kPageAdHocNet = 6;
     constexpr int kPageNetHistory = 7;
     constexpr int kPageEditNet = 8;
+    constexpr int kPageImportNet = 9;
+
+    // Which ZMODEM operation the confirmation modal (AppState::
+    // show_zmodem_confirm_modal) is currently about to run -- see
+    // ConfirmZmodemAction/CancelZmodemAction. The same modal/keys are
+    // shared by every page that can trigger either direction; this is what
+    // tells them apart.
+    enum class ZmodemAction
+    {
+        kSend,
+        kReceive,
+    };
 
     // All mutable state shared across the app's pages. Every page-building
     // function and event-handler class receives a pointer to this rather than
@@ -46,19 +58,29 @@ namespace ql
         // the two is ever showing at a time.
         std::string status_message;
 
-        // ZMODEM send confirmation, shown after a file's already been
-        // written locally (see ExportLinesToFile) and before actually
-        // running `sz` -- the transfer itself hijacks the real terminal for
-        // its raw protocol bytes and can't show anything meaningful while
-        // it's in flight, so the operator needs to be told to get their
-        // client's receive dialog ready *first*, with a real chance to back
-        // out, rather than being dropped into it with no warning. Shared
-        // across every page that can trigger an export (active-net,
-        // net-history, edit-net) via one AppState-level flag/path rather
-        // than a per-page copy, since only one of those pages is ever
-        // showing at a time.
+        // ZMODEM send/receive confirmation, shown before actually running
+        // `sz`/`rz` -- the transfer itself hijacks the real terminal for its
+        // raw protocol bytes and can't show anything meaningful while it's
+        // in flight, so the operator needs to be told to get their client
+        // ready *first*, with a real chance to back out, rather than being
+        // dropped into it with no warning. Shared across every page that
+        // can trigger either direction (active-net/net-history/edit-net
+        // export via OfferZmodemSend; the import-net page's receive) via
+        // one AppState-level flag rather than a per-page copy, since only
+        // one page is ever showing at a time. `zmodem_action` says which
+        // operation Confirm/CancelZmodemAction should actually run;
+        // `zmodem_confirm_path` only matters for kSend (the file already
+        // written and waiting to go out -- kReceive has no path yet, it
+        // always lands under ImportsDir).
         bool show_zmodem_confirm_modal = false;
+        ZmodemAction zmodem_action = ZmodemAction::kSend;
         std::string zmodem_confirm_path;
+
+        // Import-net page: the *.qlnet files found under ImportsDir(db_path)
+        // last time it was (re)opened or a ZMODEM receive completed, and
+        // which one is highlighted. Refreshed by RefreshImportNetFiles.
+        std::vector<std::string> import_net_files;
+        int selected_import_file_index = 0;
 
         // The operator's saved settings, and where they live on disk. `settings`
         // is the last-saved value (used elsewhere in the app, e.g. to prefill
@@ -409,12 +431,8 @@ namespace ql
     // callsigns and status, then the same header/rows FormatCheckInHeaderRow/
     // FormatCheckInRows already produce for the on-screen list. On a
     // failed write, sets AppState::form_error and stops there. On a
-    // successful write: if a ZMODEM sender is available, sets
-    // AppState::status_message to a "saved" confirmation and opens the
-    // ZMODEM confirmation modal (AppState::show_zmodem_confirm_modal) rather
-    // than sending immediately -- see ConfirmZmodemSend/CancelZmodemSend;
-    // if not, status_message says so and no modal appears. Shared by the
-    // active-net page (the currently open instance, from
+    // successful write, hands off to OfferZmodemSend (see below). Shared by
+    // the active-net page (the currently open instance, from
     // AppState::active_check_ins) and the net-history page (a past
     // instance, re-querying its check-ins fresh the same way
     // RefreshHistoryCheckIns does) so both "download this net's log" entry
@@ -423,27 +441,66 @@ namespace ql
                       const std::vector<CheckIn>& check_ins);
 
     // Writes `net_name`'s saved-station list to a plain space-delimited text
-    // file the same way ExportNetLog does (including the same ZMODEM
-    // confirmation-modal behavior on a successful write), containing
-    // exactly the Callsign/Name/Member ID columns the edit-net page's
-    // saved-station list shows on screen (not every field on the underlying
-    // Station record -- this mirrors FormatSavedStationRow, which only ever
-    // showed those three).
+    // file the same way ExportNetLog does (including the same
+    // OfferZmodemSend handoff on a successful write), containing exactly
+    // the Callsign/Name/Member ID columns the edit-net page's saved-station
+    // list shows on screen (not every field on the underlying Station
+    // record -- this mirrors FormatSavedStationRow, which only ever showed
+    // those three).
     void ExportSavedStations(AppState* state, const std::string& net_name,
                              const std::vector<Station>& saved_stations);
 
-    // F2/Enter on the ZMODEM confirmation modal: runs the actual transfer
-    // (SendFileViaZmodem, which blocks for as long as it takes -- the
-    // operator was already told to get their client's receive dialog ready
-    // before this point, via the modal they just dismissed to get here),
-    // folds the outcome into AppState::status_message, and closes the
-    // modal.
-    void ConfirmZmodemSend(AppState* state);
+    // Writes everything about `net` -- its own definition, every station
+    // saved to it or that's ever checked in, its instances, and their
+    // check-ins (see net_slice.hpp) -- to a standalone .qlnet file under
+    // exports/, for handing the whole net off to a new user of the
+    // software to import into their own database. On success, hands off to
+    // OfferZmodemSend the same way the plain-text exports do; on failure,
+    // sets AppState::form_error.
+    void ExportNetSlice(AppState* state, const Net& net);
 
-    // Esc on the ZMODEM confirmation modal: skips the transfer entirely --
-    // the file stays wherever ExportLinesToFile already wrote it, only the
-    // ZMODEM step is declined -- and closes the modal.
-    void CancelZmodemSend(AppState* state);
+    // Shared final step of every export above once its file is already
+    // written successfully: if a ZMODEM sender (`sz`) is available, sets
+    // status_message to a "saved" confirmation and opens the ZMODEM
+    // confirmation modal (AppState::show_zmodem_confirm_modal,
+    // zmodem_action = kSend) rather than sending immediately -- the
+    // transfer hijacks the real terminal and can't show anything while in
+    // flight, so the operator needs a chance to get their client ready
+    // first (see ConfirmZmodemAction/CancelZmodemAction). If `sz` isn't
+    // installed, status_message just says so and no modal appears.
+    void OfferZmodemSend(AppState* state, const std::string& path);
+
+    // Reloads AppState::import_net_files from whatever *.qlnet files are
+    // currently sitting under ImportsDir(db_path). Call when opening the
+    // import-net page and after a ZMODEM receive completes.
+    void RefreshImportNetFiles(AppState* state);
+
+    // F2 on the import-net page: reads the highlighted file
+    // (AppState::import_net_files[selected_import_file_index]) via
+    // ReadNetSliceFile, inserts it into the live database as a brand new
+    // net via ApplyNetSlice, refreshes AppState::nets, and returns to the
+    // net list. Sets AppState::form_error instead (leaving the page open)
+    // if there's nothing highlighted or the file can't be read.
+    void ImportSelectedNetSlice(AppState* state);
+
+    // F3 on the import-net page: opens the ZMODEM confirmation modal with
+    // zmodem_action = kReceive, so ConfirmZmodemAction runs
+    // ReceiveFileViaZmodem (into ImportsDir) instead of a send.
+    void StartZmodemReceive(AppState* state);
+
+    // F2/Enter on the ZMODEM confirmation modal: runs whichever operation
+    // AppState::zmodem_action names (SendFileViaZmodem for kSend,
+    // ReceiveFileViaZmodem for kReceive -- both block for as long as they
+    // take, which is fine here since the operator was already told what to
+    // do via the modal they just dismissed to get here), folds the outcome
+    // into AppState::status_message (refreshing AppState::import_net_files
+    // too on a successful receive), and closes the modal.
+    void ConfirmZmodemAction(AppState* state);
+
+    // Esc on the ZMODEM confirmation modal: declines whichever operation
+    // was pending -- for a send, the file stays wherever it was already
+    // written; for a receive, nothing arrives -- and closes the modal.
+    void CancelZmodemAction(AppState* state);
 
     // Reloads AppState::modal_callsign_suggestions/_labels from
     // AppState::modal_station.callsign: tier 1 (SearchNetStationsByCallsignSubstring

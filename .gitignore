@@ -22,8 +22,11 @@ settings.txt
 # Downloaded FCC ULS / Census gazetteer cache
 uls_cache/
 
-# Net log / saved-station exports (see file_export.hpp)
+# Net log / saved-station / net-slice exports (see file_export.hpp)
 exports/
+
+# Net-slice files (see net_slice.hpp) received for import
+imports/
 
 # IDE/tool-local config, not part of the project itself
 .idea/

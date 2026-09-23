@@ -14,6 +14,20 @@ namespace ql
     // is ever run from a different directory than where its data lives.
     std::string ExportsDir(const std::string& db_path);
 
+    // The directory a net-slice file (see net_slice.hpp) received from
+    // another QuickLogger user is expected to be placed into before it can
+    // be imported -- a sibling "imports" directory next to `db_path`, same
+    // rationale as ExportsDir.
+    std::string ImportsDir(const std::string& db_path);
+
+    // Lists the files directly inside `dir` whose name ends in `extension`
+    // (e.g. ".qlnet"), sorted alphabetically. Returns an empty list (not an
+    // error) if `dir` doesn't exist yet -- callers should treat "no files"
+    // and "no directory" the same way, since ImportsDir isn't created until
+    // the first file lands there.
+    std::vector<std::string> ListFilesWithExtension(const std::string& dir,
+                                                    const std::string& extension);
+
     // Writes `lines` to `path`, one per line (LF-terminated), overwriting
     // any existing file there. Creates `path`'s parent directory first
     // (mkdir -p, same approach as UlsCacheDir's caller in uls_import.cpp)

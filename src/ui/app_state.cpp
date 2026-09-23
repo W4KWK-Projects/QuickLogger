@@ -10,6 +10,7 @@
 
 #include "../file_export.hpp"
 #include "../geo_utils.hpp"
+#include "../net_slice.hpp"
 #include "../text_utils.hpp"
 #include "../zmodem_send.hpp"
 
@@ -625,6 +626,28 @@ namespace ql
     // secondary note on an otherwise-successful export, not a failure of
     // the export itself, so it's folded into status_message rather than
     // form_error.
+    void OfferZmodemSend(AppState* state, const std::string& path)
+    {
+        if (!ZmodemSendAvailable())
+        {
+            state->status_message =
+                "Saved to " + path + " (install 'sz'/lrzsz for ZMODEM download).";
+            return;
+        }
+
+        // Don't send yet -- the transfer hijacks the real terminal for its
+        // raw protocol bytes and can't show anything meaningful while it's
+        // in flight, so the operator needs a chance to get their client's
+        // receive dialog ready (or back out) *before* that happens, not be
+        // dropped into it with no warning. ConfirmZmodemAction/
+        // CancelZmodemAction (wired to the modal's F2/Enter and Esc) do the
+        // actual send.
+        state->status_message = "Saved to " + path + ".";
+        state->zmodem_action = ZmodemAction::kSend;
+        state->zmodem_confirm_path = path;
+        state->show_zmodem_confirm_modal = true;
+    }
+
     static void ExportLinesToFile(AppState* state, const std::string& path,
                                   const std::vector<std::string>& lines)
     {
@@ -637,43 +660,53 @@ namespace ql
         }
 
         state->form_error.clear();
-        if (!ZmodemSendAvailable())
-        {
-            state->status_message =
-                "Saved to " + path + " (install 'sz'/lrzsz for ZMODEM download).";
-            return;
-        }
-
-        // Don't send yet -- the transfer hijacks the real terminal for its
-        // raw protocol bytes and can't show anything meaningful while it's
-        // in flight, so the operator needs a chance to get their client's
-        // receive dialog ready (or back out) *before* that happens, not be
-        // dropped into it with no warning. ConfirmZmodemSend/CancelZmodemSend
-        // (wired to the modal's F2/Enter and Esc) do the actual send.
-        state->status_message = "Saved to " + path + ".";
-        state->zmodem_confirm_path = path;
-        state->show_zmodem_confirm_modal = true;
+        OfferZmodemSend(state, path);
     }
 
-    void ConfirmZmodemSend(AppState* state)
+    void ConfirmZmodemAction(AppState* state)
     {
         state->show_zmodem_confirm_modal = false;
         std::string error;
-        if (SendFileViaZmodem(state->screen, state->zmodem_confirm_path, &error))
+
+        if (state->zmodem_action == ZmodemAction::kSend)
         {
-            state->status_message =
-                "Saved to " + state->zmodem_confirm_path + " and sent via ZMODEM.";
+            if (SendFileViaZmodem(state->screen, state->zmodem_confirm_path, &error))
+            {
+                state->status_message =
+                    "Saved to " + state->zmodem_confirm_path + " and sent via ZMODEM.";
+            }
+            else
+            {
+                state->status_message =
+                    "Saved to " + state->zmodem_confirm_path + " (" + error + ")";
+            }
+            return;
+        }
+
+        if (ReceiveFileViaZmodem(state->screen, ImportsDir(state->db_path), &error))
+        {
+            RefreshImportNetFiles(state);
+            state->form_error.clear();
+            state->status_message = "Received a file. Highlight it below and press F2 to import.";
         }
         else
         {
-            state->status_message = "Saved to " + state->zmodem_confirm_path + " (" + error + ")";
+            state->status_message.clear();
+            state->form_error = error;
         }
     }
 
-    void CancelZmodemSend(AppState* state)
+    void CancelZmodemAction(AppState* state)
     {
         state->show_zmodem_confirm_modal = false;
-        state->status_message = "Saved to " + state->zmodem_confirm_path + " (ZMODEM skipped).";
+        if (state->zmodem_action == ZmodemAction::kSend)
+        {
+            state->status_message = "Saved to " + state->zmodem_confirm_path + " (ZMODEM skipped).";
+        }
+        else
+        {
+            state->status_message = "ZMODEM receive skipped.";
+        }
     }
 
     void ExportNetLog(AppState* state, const std::string& net_name, const NetInstance& instance,
@@ -713,6 +746,66 @@ namespace ql
         std::string path = ExportsDir(state->db_path) + "/" + SanitizeFilenameComponent(net_name) +
                            "_saved_stations.txt";
         ExportLinesToFile(state, path, lines);
+    }
+
+    void ExportNetSlice(AppState* state, const Net& net)
+    {
+        NetSlice slice = GatherNetSlice(state->db, net.id);
+        std::string path =
+            ExportsDir(state->db_path) + "/" + SanitizeFilenameComponent(net.name) + ".qlnet";
+
+        std::string error;
+        if (!WriteNetSliceFile(path, slice, &error))
+        {
+            state->status_message.clear();
+            state->form_error = error;
+            return;
+        }
+
+        state->form_error.clear();
+        OfferZmodemSend(state, path);
+    }
+
+    void RefreshImportNetFiles(AppState* state)
+    {
+        state->import_net_files = ListFilesWithExtension(ImportsDir(state->db_path), ".qlnet");
+        if (state->selected_import_file_index >= static_cast<int>(state->import_net_files.size()))
+        {
+            state->selected_import_file_index = 0;
+        }
+    }
+
+    void ImportSelectedNetSlice(AppState* state)
+    {
+        if (state->import_net_files.empty())
+        {
+            state->status_message.clear();
+            state->form_error = "No net-export files found in imports/.";
+            return;
+        }
+
+        std::string path = ImportsDir(state->db_path) + "/" +
+                           state->import_net_files[state->selected_import_file_index];
+        std::string error;
+        std::optional<NetSlice> slice = ReadNetSliceFile(path, &error);
+        if (!slice.has_value())
+        {
+            state->status_message.clear();
+            state->form_error = error;
+            return;
+        }
+
+        ApplyNetSlice(state->db, *slice);
+        RefreshNets(state);
+        state->form_error.clear();
+        state->status_message = "Imported \"" + slice->net.name + "\".";
+        state->page = kPageNetList;
+    }
+
+    void StartZmodemReceive(AppState* state)
+    {
+        state->zmodem_action = ZmodemAction::kReceive;
+        state->show_zmodem_confirm_modal = true;
     }
 
     void RefreshCallsignSuggestions(AppState* state)
