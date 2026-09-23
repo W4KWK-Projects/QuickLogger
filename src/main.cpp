@@ -49,28 +49,44 @@ namespace
 
 int main(int argc, char** argv)
 {
-    // Must happen before any thread (a background ULS import, or the SSH
-    // listener's own accept-loop thread and every connection it forks)
-    // could call into libcurl.
+    // Must happen before any thread (a background ULS import, or a forked
+    // SSH session's own threads) could call into libcurl. Done before the
+    // SSH listener below forks, so every process it leads to inherits an
+    // already-initialized libcurl.
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
     CliOptions options = ParseArgs(argc, argv);
 
-    if (options.ssh_enabled)
-    {
-        ql::StartSshServer(kDbPath, options.ssh_port);
-    }
-
     if (options.headless)
     {
-        // No local console session -- just keep the process (and the
-        // detached SSH accept-loop thread it started above) alive forever.
+        // No local console session, so nothing in this process ever opens
+        // the database -- the accept loop can safely run right here and
+        // fork its connections directly.
+        if (options.ssh_enabled)
+        {
+            ql::RunSshServer(kDbPath, options.ssh_port);
+        }
+        // Reached only with SSH disabled (nothing to serve) or if the
+        // listener couldn't start (already logged) -- keep the process alive
+        // rather than exiting, as before.
         while (true)
         {
             std::this_thread::sleep_for(std::chrono::hours(1));
         }
     }
 
+    // The listener must be its own process, forked here -- before this
+    // process opens the database or starts any thread -- so the SSH
+    // connections it forks never inherit this process's SQLite state (see
+    // THE FORK RULE in ssh_server.hpp).
+    pid_t ssh_listener_pid = -1;
+    if (options.ssh_enabled)
+    {
+        ssh_listener_pid = ql::StartSshServerProcess(kDbPath, options.ssh_port);
+    }
+
     ql::RunInteractiveSession("settings.txt", /*is_console_session=*/true);
+
+    ql::StopSshServerProcess(ssh_listener_pid);
     return 0;
 }

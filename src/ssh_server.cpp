@@ -7,7 +7,6 @@
 #include <ctime>
 #include <optional>
 #include <sstream>
-#include <thread>
 
 #include <poll.h>
 #include <sys/ioctl.h>
@@ -342,12 +341,17 @@ namespace ql
             ConnectionState state;
             state.listen_fd = listen_fd;
 
-            if (ssh_handle_key_exchange(session) != SSH_OK)
-            {
-                ssh_free(session);
-                return;
-            }
-
+            // Installed *before* key exchange, as libssh's own server
+            // examples do -- not after. A client's SERVICE_REQUEST often
+            // arrives in the same TCP read as its NEWKEYS, i.e. while
+            // ssh_handle_key_exchange is still running; with no server
+            // callbacks installed yet, libssh doesn't answer it (it appears
+            // to be queued for the message API, which this server doesn't
+            // use) and the client then waits forever for its SERVICE_ACCEPT
+            // -- observed live via libssh's packet log. That was
+            // the second, timing-dependent cause of the old "intermittent
+            // SSH connection failure" (the other being THE FORK RULE, in
+            // ssh_server.hpp).
             struct ssh_server_callbacks_struct server_callbacks;
             std::memset(&server_callbacks, 0, sizeof(server_callbacks));
             server_callbacks.userdata = &state;
@@ -356,10 +360,9 @@ namespace ql
             ssh_callbacks_init(&server_callbacks);
             ssh_set_server_callbacks(session, &server_callbacks);
 
-            ssh_event event = ssh_event_new();
-            ssh_event_add_session(event, session);
-
-            std::time_t deadline = std::time(nullptr) + 60;
+            ssh_event event = nullptr;
+            std::time_t deadline = 0;
+            bool key_exchange_succeeded = false;
 
             // Scoped so this connection's own database connection is fully
             // closed (sqlite3_close, releasing every fd/lock it holds)
@@ -371,41 +374,42 @@ namespace ql
             // exactly that), corrupts SQLite's view of its own lock state
             // ("Failed to create schema: locking protocol", confirmed by
             // hitting this for real against a live SSH client before this
-            // scoping was added). Nothing past this point needs `db` --
-            // ChannelOpenCallback only checks state.authenticated.
+            // scoping was added; see THE FORK RULE in ssh_server.hpp).
+            // Opened before key exchange rather than after so `state.db` is
+            // never null whenever an auth callback can fire. Nothing past
+            // this scope needs `db` -- ChannelOpenCallback only checks
+            // state.authenticated.
             {
                 Database db(db_path);
                 state.db = &db;
-                while (!state.authenticated && ssh_is_connected(session) &&
-                       std::time(nullptr) < deadline)
+
+                key_exchange_succeeded = ssh_handle_key_exchange(session) == SSH_OK;
+                if (key_exchange_succeeded)
                 {
-                    ssh_event_dopoll(event, 200);
+                    event = ssh_event_new();
+                    ssh_event_add_session(event, session);
+
+                    deadline = std::time(nullptr) + 60;
+                    while (!state.authenticated && ssh_is_connected(session) &&
+                           std::time(nullptr) < deadline)
+                    {
+                        ssh_event_dopoll(event, 200);
+                    }
                 }
                 state.db = nullptr;
             }
 
+            if (!key_exchange_succeeded)
+            {
+                ssh_free(session);
+                return;
+            }
+
             if (!state.authenticated)
             {
-                // Known, currently-unresolved intermittent issue: roughly
-                // 30-60% of individual connection *attempts* fail right
-                // here -- key exchange above succeeds, but the socket then
-                // reports disconnected before any auth packet ever arrives,
-                // via this exact path (not the 60s deadline; ssh_is_connected
-                // turns false almost immediately). Confirmed via extensive
-                // live testing this is NOT caused by concurrency (fails with
-                // connections fully sequential, one at a time), connection
-                // spacing (fails with 1.5s+ gaps too), or server/process age
-                // (fails on a freshly-started server's very first
-                // connection). Always fails cleanly -- no crash, no
-                // corruption, no orphaned processes -- and a retry has a
-                // good chance of succeeding. Once past this point,
-                // connections are 100% reliable. Root cause not yet found;
-                // revisit with strace/packet-capture-level tools if this
-                // proves painful in real use.
-                std::fprintf(stderr,
-                             "SSH: a connection attempt failed during authentication "
-                             "(this is a known intermittent issue -- retrying usually "
-                             "works).\n");
+                // The client gave up, was denied (unknown user / wrong
+                // key), or never authenticated within the deadline.
+                std::fprintf(stderr, "SSH: a connection ended without authenticating.\n");
                 ssh_event_free(event);
                 ssh_disconnect(session);
                 ssh_free(session);
@@ -497,16 +501,24 @@ namespace ql
             ssh_free(session);
         }
 
-        // Runs on a detached background thread for the lifetime of the
-        // process: binds once, then loops forever accepting connections and
-        // forking a dedicated process for each one (see HandleConnection).
-        // A named class rather than a lambda, per this codebase's
-        // convention -- std::thread needs a callable, and this one has real
-        // state (the bound port) worth naming.
+        // The accept loop: binds once, then loops forever accepting
+        // connections and forking a dedicated process for each one (see
+        // HandleConnection). Runs either as the whole main thread of a
+        // headless process (RunSshServer) or as the whole of a dedicated
+        // listener process (StartSshServerProcess) -- never inside a process
+        // that has opened the database itself, since every connection it
+        // forks would inherit that process's SQLite state (see THE FORK RULE
+        // in ssh_server.hpp). A named class rather than a lambda, per this
+        // codebase's convention.
         class SshAcceptLoop
         {
         public:
-            SshAcceptLoop(std::string db_path, int port) : db_path_(std::move(db_path)), port_(port)
+            // A `parent_pid` > 0 makes the loop return once that process is
+            // no longer this process's parent (the console session that
+            // started this listener quit or died -- a reparented process
+            // gets a different parent pid); <= 0 means run forever.
+            SshAcceptLoop(std::string db_path, int port, pid_t parent_pid)
+                : db_path_(std::move(db_path)), port_(port), parent_pid_(parent_pid)
             {
             }
 
@@ -515,17 +527,9 @@ namespace ql
                 // Ignoring SIGCHLD (rather than leaving the default
                 // disposition) auto-reaps every descendant at the kernel
                 // level, so nothing here needs its own zombie-reaping logic.
-                // Tried as a fix for a real intermittent issue (see the
-                // "known, currently-unresolved" comment on the auth-wait
-                // block in HandleConnection below) since a documented libssh
-                // issue describes ssh_bind_accept/ssh_event_dopoll being
-                // interruptible by an unrelated SIGCHLD -- it did not
-                // resolve that issue (confirmed: still reproduces even with
-                // this in place, and even with connections fully sequential,
-                // never overlapping), but it's still worth keeping as
-                // correct, harmless process hygiene. Set before any forking
-                // happens so it's inherited by every descendant this process
-                // creates, not just the ones forked after this line.
+                // Set before any forking happens so it's inherited by every
+                // descendant this process creates, not just the ones forked
+                // after this line.
                 std::signal(SIGCHLD, SIG_IGN);
 
                 if (!EnsureHostKeyExists(HostKeyPath()))
@@ -547,8 +551,20 @@ namespace ql
                 }
                 int listen_fd = ssh_bind_get_fd(sshbind);
 
-                while (true)
+                while (parent_pid_ <= 0 || ::getppid() == parent_pid_)
                 {
+                    // Wakes up once a second even with no connection waiting,
+                    // purely so the parent-still-alive check above gets to
+                    // run.
+                    struct pollfd listen_poll;
+                    listen_poll.fd = listen_fd;
+                    listen_poll.events = POLLIN;
+                    listen_poll.revents = 0;
+                    if (::poll(&listen_poll, 1, 1000) <= 0)
+                    {
+                        continue;
+                    }
+
                     ssh_session session = ssh_new();
                     if (ssh_bind_accept(sshbind, session) != SSH_OK)
                     {
@@ -579,18 +595,50 @@ namespace ql
                     ssh_disconnect(session);
                     ssh_free(session);
                 }
+
+                ssh_bind_free(sshbind);
             }
 
         private:
             std::string db_path_;
             int port_;
+            pid_t parent_pid_;
         };
 
     }  // namespace
 
-    void StartSshServer(const std::string& db_path, int port)
+    void RunSshServer(const std::string& db_path, int port)
     {
-        std::thread(SshAcceptLoop(db_path, port)).detach();
+        SshAcceptLoop accept_loop(db_path, port, /*parent_pid=*/-1);
+        accept_loop();
+    }
+
+    pid_t StartSshServerProcess(const std::string& db_path, int port)
+    {
+        pid_t parent_pid = ::getpid();
+        pid_t pid = fork();
+        if (pid < 0)
+        {
+            std::fprintf(stderr, "SSH: failed to start the listener process.\n");
+            return -1;
+        }
+        if (pid == 0)
+        {
+            SshAcceptLoop accept_loop(db_path, port, parent_pid);
+            accept_loop();
+            _exit(0);
+        }
+        return pid;
+    }
+
+    void StopSshServerProcess(pid_t listener_pid)
+    {
+        if (listener_pid <= 0)
+        {
+            return;
+        }
+        ::kill(listener_pid, SIGTERM);
+        ::waitpid(listener_pid, nullptr, 0);
     }
 
 }  // namespace ql

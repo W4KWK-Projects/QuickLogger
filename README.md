@@ -116,9 +116,16 @@ the first SSH user:
 1. Run `./QuickLogger` directly at the machine's own console.
 2. Go to **Settings** (F4 from the Recurring Nets list).
 3. Press **F4 (Manage Users)**.
-4. Press **F2 (Add)**, type a username, then paste that person's public
-   key as a single line — the exact format already in their own
-   `~/.ssh/id_ed25519.pub` (e.g. `ssh-ed25519 AAAA... their-comment`).
+4. Fill in the two fields at the bottom of the page — **Username** (the
+   name they'll type in `ssh <username>@host`; matched exactly, including
+   case, so a simple lowercase name is easiest) and **Public Key** (that
+   person's whole public-key line, e.g. `ssh-ed25519 AAAA... their-comment`).
+   Then press **F2 (Add)**. If they don't have a key yet, see
+   [Creating your SSH key](#creating-your-ssh-key) below.
+
+The key isn't checked when you add it — a mangled or truncated paste is
+accepted and then simply never lets that person in. If someone can't log
+in, remove the entry (F3) and re-add it with a fresh paste.
 
 That person can now connect:
 
@@ -127,6 +134,66 @@ ssh -p 2222 <username>@<host>
 ```
 
 Public-key authentication only — there's no password option.
+
+### Creating your SSH key
+
+Anyone who wants to connect needs an SSH key pair, created on the machine
+they'll be connecting **from**. The private half never leaves that machine;
+only the public half (the `.pub` file) gets handed to whoever is adding
+you in Manage Users.
+
+**1. See whether you already have a key.**
+
+```
+ls ~/.ssh/*.pub
+```
+
+If that lists `id_ed25519.pub`, skip to step 3. A "No such file or
+directory" error just means you've never made one — normal on a new
+account, and step 2 fixes it.
+
+**2. Create one.** (Same command on macOS, Linux, and Windows PowerShell —
+Windows 10+ ships with the OpenSSH client.)
+
+```
+ssh-keygen -t ed25519 -C "your-name-or-callsign"
+```
+
+Press Enter to accept the default file location. When it asks for a
+passphrase, choose one (recommended) or press Enter twice for none. This
+creates `~/.ssh/` if it doesn't exist, plus two files in it:
+
+- `id_ed25519` — your **private** key. Never share it, email it, or paste
+  it anywhere.
+- `id_ed25519.pub` — your **public** key. This is the one you give out.
+
+**3. Print your public key and send it to the person running
+QuickLogger.**
+
+```
+cat ~/.ssh/id_ed25519.pub
+```
+
+(On Windows PowerShell: `type $env:USERPROFILE\.ssh\id_ed25519.pub`. On
+macOS you can copy it straight to the clipboard with
+`pbcopy < ~/.ssh/id_ed25519.pub`.)
+
+The output is a single line that looks like this:
+
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... your-name-or-callsign
+```
+
+That whole line — starting with `ssh-ed25519`, on one line with no line
+breaks — is what gets pasted into Manage Users. It's a public key, so
+sending it by email or chat is fine.
+
+**If you have more than one key**, tell `ssh` which one to offer so it
+doesn't pick the wrong one:
+
+```
+ssh -i ~/.ssh/id_ed25519 -p 2222 <username>@<host>
+```
 
 ### Why Manage Users is console-only
 
@@ -155,6 +222,15 @@ console in that moment.
   switching to headless-only operation, or run a normal console session
   briefly whenever a new user needs adding.)
 
+### How it runs
+
+Launched normally, QuickLogger starts its SSH listener as a small separate
+helper process alongside the console session — you'll see two `QuickLogger`
+entries in `ps`. That's intentional (a process that has the database open
+can't safely fork off SSH sessions; SQLite doesn't allow it), not a stray.
+The helper exits on its own when the console session quits or dies. With
+`--headless` there's no console session, so a single process does both jobs.
+
 ### Firewall / networking
 
 Whatever port QuickLogger's SSH listener uses needs to actually be
@@ -172,13 +248,3 @@ and gitignored — treat it like any other private key. Delete it (while
 QuickLogger isn't running) to force a fresh one to be generated on next
 launch; clients that connected before will see a "host key changed"
 warning afterward, same as with any SSH server.
-
-### A known limitation
-
-Roughly 30-60% of individual SSH connection *attempts* can intermittently
-fail during authentication (the client sees "connection closed"; nothing
-crashes, no data is affected). If a connection is refused, just try
-again — a retry has a good chance of succeeding, and once a connection
-authenticates, the session itself is fully reliable. This is a real,
-currently-unresolved issue in the connection-acceptance path, not
-something you're doing wrong.
