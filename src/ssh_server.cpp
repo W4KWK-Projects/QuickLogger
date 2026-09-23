@@ -61,7 +61,25 @@ namespace ql
             // The `parameter` argument only matters for variable-size key
             // types (e.g. RSA bit length); ed25519 keys are a fixed size, so
             // it's unused here.
-            if (ssh_pki_generate(SSH_KEYTYPE_ED25519, 0, &key) != SSH_OK)
+            //
+            // ssh_pki_generate is deprecated in newer libssh in favor of
+            // ssh_pki_generate_key(type, ssh_pki_ctx, ...), but that
+            // replacement is a newer addition (introduced alongside FIDO2/
+            // security-key support) that may not exist in the libssh
+            // version an older distro/OS release ships -- deliberately kept
+            // on the older, universally-available function for broad
+            // Mac/FreeBSD/Linux compatibility, and just silencing the
+            // warning here rather than trading portability for a quieter
+            // build log.
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+            bool generated = ssh_pki_generate(SSH_KEYTYPE_ED25519, 0, &key) == SSH_OK;
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+            if (!generated)
             {
                 std::fprintf(stderr, "SSH: failed to generate a host key.\n");
                 return false;
