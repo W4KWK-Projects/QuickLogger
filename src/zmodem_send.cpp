@@ -71,12 +71,20 @@ namespace ql
     }
 
     // Runs inside ScreenInteractive::WithRestoredIO's closure: forks and
-    // execs `sz path_` with the real terminal's stdin/stdout inherited
+    // execs `sz -e path_` with the real terminal's stdin/stdout inherited
     // (never redirected -- a ZMODEM-aware client needs to see the raw
     // protocol bytes in the same stream it's already reading), then waits
     // for it with a bounded timeout. Writes its outcome into `*ok_`/`*error_`
     // rather than returning one, since ftxui::Closure is a bare
     // std::function<void()>.
+    //
+    // `-e`/`--escape` forces every control character (XON/XOFF, DLE, etc.)
+    // to be escaped rather than sent raw. Without it, a transfer through an
+    // SSH session's pty can get corrupted -- software flow control or other
+    // line-discipline processing along the path can intercept/mangle an
+    // unescaped 0x11/0x13 that happens to land in the file's byte stream,
+    // which is exactly the well-known "zmodem over ssh" failure mode. See
+    // the ZMODEM receive fix this comment was added alongside.
     class RunSzProcess
     {
     public:
@@ -98,7 +106,7 @@ namespace ql
             }
             if (pid == 0)
             {
-                execlp("sz", "sz", path_.c_str(), static_cast<char*>(nullptr));
+                execlp("sz", "sz", "-e", path_.c_str(), static_cast<char*>(nullptr));
                 _exit(127);
             }
 
@@ -138,11 +146,16 @@ namespace ql
     }
 
     // The receiving mirror of RunSzProcess: chdir()s into `dest_dir_` before
-    // exec-ing `rz` (in the *child*, after fork -- never in this process,
+    // exec-ing `rz -e` (in the *child*, after fork -- never in this process,
     // since every other export/import path still needs to resolve paths
     // relative to wherever QuickLogger itself was launched from) so
     // whatever file arrives lands there under the name the sending client
     // gives it, then waits for it the same bounded way RunSzProcess does.
+    // `-e` matters even more here than for send: a real report showed an
+    // upload through an SSH pty racking up repeated "Transmission error
+    // corrected" retries and finally cancelling (ZCAN) on an 84KB file --
+    // classic flow-control corruption of unescaped control bytes on the
+    // receiving side. See RunSzProcess's comment for the general mechanism.
     class RunRzProcess
     {
     public:
@@ -168,7 +181,7 @@ namespace ql
                 {
                     _exit(127);
                 }
-                execlp("rz", "rz", static_cast<char*>(nullptr));
+                execlp("rz", "rz", "-e", static_cast<char*>(nullptr));
                 _exit(127);
             }
 
