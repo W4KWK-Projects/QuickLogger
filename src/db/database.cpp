@@ -595,6 +595,32 @@ CREATE TABLE IF NOT EXISTS zip_counties (
         return ReadNetRow(statement);
     }
 
+    void Database::DeleteNetCompletely(std::int64_t net_id)
+    {
+        sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+
+        Statement delete_check_ins(db_, R"sql(
+        DELETE FROM check_ins
+        WHERE net_instance_id IN (SELECT id FROM net_instances WHERE net_id = ?);
+    )sql");
+        delete_check_ins.BindInt64(0, net_id);
+        delete_check_ins.Step();
+
+        Statement delete_instances(db_, "DELETE FROM net_instances WHERE net_id = ?;");
+        delete_instances.BindInt64(0, net_id);
+        delete_instances.Step();
+
+        Statement delete_saved(db_, "DELETE FROM net_saved_stations WHERE net_id = ?;");
+        delete_saved.BindInt64(0, net_id);
+        delete_saved.Step();
+
+        Statement delete_net(db_, "DELETE FROM nets WHERE id = ?;");
+        delete_net.BindInt64(0, net_id);
+        delete_net.Step();
+
+        sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
+    }
+
     std::int64_t Database::CreateNetInstance(const NetInstance& instance)
     {
         Statement statement(db_, R"sql(

@@ -109,6 +109,16 @@ namespace ql
         void UpdateNet(const Net& net);
         std::vector<Net> GetAllNets();
         std::optional<Net> GetNetById(std::int64_t net_id);
+        // Deletes `net_id` entirely: every check-in under every instance of
+        // it, every instance itself, its saved-station associations, and the
+        // net row itself -- in that order, so foreign keys never point at an
+        // already-deleted row. Does NOT touch the `stations` table itself
+        // (a station may be known to other nets too), matching
+        // RemoveSavedNetStation's scoping. Unlike DeleteStationCompletely,
+        // there's no cross-net history to protect here -- everything being
+        // removed is already scoped to this one net -- so this always
+        // succeeds and has nothing to refuse.
+        void DeleteNetCompletely(std::int64_t net_id);
 
         // Net instances (one dated occurrence of a Net).
         std::int64_t CreateNetInstance(const NetInstance& instance);

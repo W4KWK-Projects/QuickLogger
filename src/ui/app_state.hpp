@@ -76,6 +76,15 @@ namespace ql
         ZmodemAction zmodem_action = ZmodemAction::kSend;
         std::string zmodem_confirm_path;
 
+        // Edit Net page: confirmation before Database::DeleteNetCompletely
+        // (F8 there) -- this permanently erases the net's whole history
+        // (every instance and check-in, plus its saved-station list), unlike
+        // every other delete in the app, which is either scoped to one row
+        // (RemoveSavedNetStation) or already refuses when real history would
+        // be lost (DeleteStationCompletely). Same bare-Renderer-modal shape
+        // as the ZMODEM confirmation above.
+        bool show_delete_net_confirm_modal = false;
+
         // Import-net page: the *.qlnet files found under ImportsDir(db_path)
         // last time it was (re)opened or a ZMODEM receive completed, and
         // which one is highlighted. Refreshed by RefreshImportNetFiles.
@@ -501,6 +510,20 @@ namespace ql
     // was pending -- for a send, the file stays wherever it was already
     // written; for a receive, nothing arrives -- and closes the modal.
     void CancelZmodemAction(AppState* state);
+
+    // F8 on the edit-net page: opens the delete-net confirmation modal.
+    // Nothing is deleted yet -- see ConfirmDeleteNet.
+    void RequestDeleteNet(AppState* state);
+
+    // F2/Enter on the delete-net confirmation modal: permanently deletes
+    // AppState::edit_net_id via Database::DeleteNetCompletely, refreshes
+    // AppState::nets, returns to the net list with a confirmation message,
+    // and closes the modal.
+    void ConfirmDeleteNet(AppState* state);
+
+    // Esc on the delete-net confirmation modal: closes it without deleting
+    // anything.
+    void CancelDeleteNet(AppState* state);
 
     // Reloads AppState::modal_callsign_suggestions/_labels from
     // AppState::modal_station.callsign: tier 1 (SearchNetStationsByCallsignSubstring

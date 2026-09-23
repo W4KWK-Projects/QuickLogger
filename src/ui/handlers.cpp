@@ -348,6 +348,22 @@ namespace ql
             }
             return true;
         }
+        if (state_->show_delete_net_confirm_modal)
+        {
+            if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
+            {
+                ConfirmDeleteNetHandler confirm(state_);
+                confirm();
+                return true;
+            }
+            if (event == ftxui::Event::Escape)
+            {
+                CancelDeleteNetHandler cancel(state_);
+                cancel();
+                return true;
+            }
+            return true;
+        }
 
         if (event == ftxui::Event::F2)
         {
@@ -383,6 +399,12 @@ namespace ql
         {
             ExportSavedStationsHandler export_stations(state_);
             export_stations();
+            return true;
+        }
+        if (event == ftxui::Event::F8)
+        {
+            RequestDeleteNetHandler request_delete(state_);
+            request_delete();
             return true;
         }
         if (event == ftxui::Event::Escape)
@@ -912,6 +934,21 @@ namespace ql
     void CancelZmodemActionHandler::operator()() const
     {
         CancelZmodemAction(state_);
+    }
+
+    void RequestDeleteNetHandler::operator()() const
+    {
+        RequestDeleteNet(state_);
+    }
+
+    void ConfirmDeleteNetHandler::operator()() const
+    {
+        ConfirmDeleteNet(state_);
+    }
+
+    void CancelDeleteNetHandler::operator()() const
+    {
+        CancelDeleteNet(state_);
     }
 
     void QuitHandler::operator()() const

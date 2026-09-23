@@ -709,6 +709,27 @@ namespace ql
         }
     }
 
+    void RequestDeleteNet(AppState* state)
+    {
+        state->show_delete_net_confirm_modal = true;
+    }
+
+    void ConfirmDeleteNet(AppState* state)
+    {
+        state->show_delete_net_confirm_modal = false;
+        std::string deleted_name = state->edit_net_name;
+        state->db->DeleteNetCompletely(state->edit_net_id);
+        RefreshNets(state);
+        state->form_error.clear();
+        state->status_message = "Deleted \"" + deleted_name + "\" and all of its history.";
+        state->page = kPageNetList;
+    }
+
+    void CancelDeleteNet(AppState* state)
+    {
+        state->show_delete_net_confirm_modal = false;
+    }
+
     void ExportNetLog(AppState* state, const std::string& net_name, const NetInstance& instance,
                       const std::vector<CheckIn>& check_ins)
     {

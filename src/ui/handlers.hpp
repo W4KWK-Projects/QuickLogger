@@ -595,7 +595,8 @@ namespace ql
 
     // Global key handling for the edit-net page: F2 Save Net, F3 Save Station,
     // F4 Remove Station (unsave from this net), F5 Delete Station (purge
-    // entirely), F6 Add Station, F7 Export Stations, Escape Back.
+    // entirely), F6 Add Station, F7 Export Stations, F8 Delete Net (this
+    // whole net and its history, via a confirmation modal), Escape Back.
     class EditNetKeyHandler
     {
     public:
@@ -854,6 +855,44 @@ namespace ql
     {
     public:
         explicit CancelZmodemActionHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // F8 on the edit-net page: opens the delete-net confirmation modal (see
+    // AppState::show_delete_net_confirm_modal). Nothing is deleted yet.
+    class RequestDeleteNetHandler
+    {
+    public:
+        explicit RequestDeleteNetHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // F2/Enter on the delete-net confirmation modal: permanently deletes the
+    // net being edited and returns to the net list.
+    class ConfirmDeleteNetHandler
+    {
+    public:
+        explicit ConfirmDeleteNetHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // Esc on the delete-net confirmation modal: closes it, deleting nothing.
+    class CancelDeleteNetHandler
+    {
+    public:
+        explicit CancelDeleteNetHandler(AppState* state) : state_(state) {}
 
         void operator()() const;
 

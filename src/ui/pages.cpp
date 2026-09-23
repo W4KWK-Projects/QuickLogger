@@ -955,6 +955,46 @@ namespace ql
 
     // ---- Edit net page ---------------------------------------------------
 
+    // Shown before Database::DeleteNetCompletely actually runs (F8 on the
+    // edit-net page) -- this is the one delete in the whole app that erases
+    // real history (every instance and check-in under the net, not just a
+    // single row), so unlike DeleteStationCompletely's silent-refusal-only
+    // guard, it gets an explicit confirmation step. Same bare-Renderer-over-
+    // empty-Container shape as BuildZmodemConfirmModal, for the same reason:
+    // no interactive fields of its own, F2/Enter/Esc are handled by
+    // EditNetKeyHandler's guard.
+    class DeleteNetConfirmModalRenderer
+    {
+    public:
+        explicit DeleteNetConfirmModalRenderer(AppState* state) : state_(state) {}
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Elements rows;
+            rows.push_back(ftxui::text("Delete Net") | ftxui::bold |
+                           ftxui::color(ftxui::Color::Red));
+            rows.push_back(ftxui::separator());
+            rows.push_back(ftxui::text("Permanently delete \"" + state_->edit_net_name + "\"?") |
+                           ftxui::color(ftxui::Color::YellowLight));
+            rows.push_back(ftxui::text(""));
+            rows.push_back(ftxui::text("This removes every occurrence of this net, its full"));
+            rows.push_back(ftxui::text("check-in history, and its saved-station list. Cannot"));
+            rows.push_back(ftxui::text("be undone."));
+            rows.push_back(ftxui::separator());
+            rows.push_back(KeyHintRow({{"F2/Enter", "Delete"}, {"Esc", "Cancel"}}));
+            return ftxui::vbox(rows) | ftxui::border | ftxui::color(ftxui::Color::Red);
+        }
+
+    private:
+        AppState* state_;
+    };
+
+    static ftxui::Component BuildDeleteNetConfirmModal(AppState* state)
+    {
+        ftxui::Component root = ftxui::Container::Vertical({});
+        return ftxui::Renderer(root, DeleteNetConfirmModalRenderer(state));
+    }
+
     class EditNetRenderer
     {
     public:
@@ -1033,9 +1073,10 @@ namespace ql
                                   {"F2", "Save Net"},
                                   {"F3", "Save Station"},
                                   {"F4", "Remove"},
-                                  {"F5", "Delete"},
+                                  {"F5", "Delete Station"},
                                   {"F6", "Add Station"},
                                   {"F7", "Export"},
+                                  {"F8", "Delete Net"},
                                   {"Esc", "Cancel"},
                               });
         }
@@ -1114,8 +1155,10 @@ namespace ql
             root, EditNetRenderer(state, input_name, input_mode, input_frequency, input_location,
                                   input_recurrence, saved_station_menu, saved_station_inputs,
                                   saved_station_suggestion_menu, saved_station_remarks_input));
-        return ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
-                            &state->show_zmodem_confirm_modal);
+        ftxui::Component with_zmodem_modal = ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
+                                                          &state->show_zmodem_confirm_modal);
+        return ftxui::Modal(with_zmodem_modal, BuildDeleteNetConfirmModal(state),
+                            &state->show_delete_net_confirm_modal);
     }
 
     // ---- Import net page ---------------------------------------------------
