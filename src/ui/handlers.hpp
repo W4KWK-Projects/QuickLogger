@@ -722,4 +722,31 @@ namespace ql
         AppState* state_;
     };
 
+    // Wraps the whole app the same way ftxui::CatchEvent(tab, AppKeyHandler)
+    // does internally (call AppKeyHandler first; if unhandled, forward to
+    // the wrapped Tab) but adds a try/catch around both steps. Covers every
+    // source of a Database call an event can trigger -- not just an F-key
+    // action dispatched by AppKeyHandler, but also a child Input/Menu's own
+    // on_change/on_enter (e.g. a live autocomplete query on every keystroke)
+    // that ftxui::CatchEvent's plain fallthrough would otherwise send
+    // straight into the component tree with no safety net at all. This
+    // matters once quicklogger.db can be written by more than one
+    // connection at a time (see Database's sqlite3_busy_timeout comment):
+    // even with a generous busy timeout, sustained contention can still
+    // make a write time out and throw, and a net-logging tool crashing
+    // outright mid-net over a few milliseconds of write contention is far
+    // worse than one action failing with a visible error, so any such
+    // exception is caught here and surfaced as AppState::form_error instead
+    // of propagating out of main().
+    class SafeAppEventDispatcher : public ftxui::ComponentBase
+    {
+    public:
+        SafeAppEventDispatcher(ftxui::Component child, AppState* state);
+
+        bool OnEvent(ftxui::Event event) override;
+
+    private:
+        AppState* state_;
+    };
+
 }  // namespace ql

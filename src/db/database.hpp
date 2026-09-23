@@ -143,6 +143,16 @@ namespace ql
         // navigation and app restarts. `source` is a short fixed key, e.g. "uls".
         std::optional<ImportRunStatus> GetImportRunStatus(const std::string& source);
         void UpsertImportRunStatus(const ImportRunStatus& status);
+        // Atomically marks `source`'s row "running" as of `started_at`, but
+        // only if it isn't already "running" -- an UPSERT whose DO UPDATE
+        // carries a WHERE clause, so this is a single indivisible statement
+        // rather than a separate read-then-write (which two connections
+        // racing to start the same import at once, e.g. two instances of the
+        // app auto-triggering at startup within the same moment, could both
+        // pass). Returns whether this call actually acquired the claim; a
+        // caller that gets false must not start its own worker/download,
+        // since another connection already owns this import.
+        bool TryClaimImportRun(const std::string& source, std::int64_t started_at);
 
         // The full FCC ULS license database, kept in its own table rather
         // than merged into `stations` -- deliberately separate so that

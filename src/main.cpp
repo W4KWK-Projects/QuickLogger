@@ -85,8 +85,13 @@ int main()
     // Container::Tab only forwards keyboard events to its active child when
     // that child's subtree reports itself focusable, which fails whenever a
     // page's only widget is an empty list (e.g. no recurring nets yet). See
-    // ql::AppKeyHandler for the full explanation.
-    ftxui::Component ui = ftxui::CatchEvent(tab, ql::AppKeyHandler(&state));
+    // ql::AppKeyHandler for the full explanation. SafeAppEventDispatcher
+    // wraps AppKeyHandler the same way ftxui::CatchEvent would, but also
+    // guards against a Database exception (e.g. a write that times out
+    // because another connection -- a second instance of the app, or this
+    // one's own background ULS import thread -- is mid-transaction) taking
+    // down the whole app.
+    ftxui::Component ui = ftxui::Make<ql::SafeAppEventDispatcher>(tab, &state);
 
     screen.Loop(ui);
     return 0;

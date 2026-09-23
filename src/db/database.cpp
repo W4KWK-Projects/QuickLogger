@@ -212,10 +212,29 @@ CREATE TABLE IF NOT EXISTS zip_counties (
             sqlite3_close(db_);
             throw std::runtime_error("Failed to open database '" + path + "': " + message);
         }
+        // SQLite allows only one writer at a time regardless of journal mode.
+        // Without this, a second connection's write that arrives while
+        // another is mid-transaction gets SQLITE_BUSY immediately, and
+        // Statement::Step() turns that into a thrown exception -- which
+        // would otherwise crash the whole app the moment two connections'
+        // writes overlap even briefly. This covers every source of a second
+        // connection: the background ULS import worker (its own Database on
+        // a separate thread, see uls_import.hpp) *and* a second instance of
+        // the app entirely, pointed at the same quicklogger.db (e.g. Net
+        // Control and Logger running on separate machines against a shared
+        // file). 5s comfortably covers a single bulk-upsert transaction
+        // (each is a batch of 1000 rows, well under that) without ever
+        // making the UI feel stuck on a genuine deadlock -- there shouldn't
+        // be one, since every write here is a single short statement/
+        // transaction, never a held connection waiting on user input.
+        sqlite3_busy_timeout(db_, 5000);
         sqlite3_exec(db_, "PRAGMA foreign_keys = ON;", nullptr, nullptr, nullptr);
         // WAL lets the UI thread's reads proceed while a background import
         // (see uls_import.hpp) holds a writer transaction open on a second
-        // connection to this same file.
+        // connection to this same file. It's also what makes it safe for
+        // multiple *processes* (not just threads) to open this same file at
+        // once -- WAL's reader/writer model is per-connection, not
+        // per-process, on a local filesystem.
         sqlite3_exec(db_, "PRAGMA journal_mode = WAL;", nullptr, nullptr, nullptr);
         CreateSchema();
     }
@@ -774,6 +793,25 @@ CREATE TABLE IF NOT EXISTS zip_counties (
         result.records_imported = statement.ColumnInt64(4);
         result.last_error = statement.ColumnText(5);
         return result;
+    }
+
+    bool Database::TryClaimImportRun(const std::string& source, std::int64_t started_at)
+    {
+        Statement statement(db_, R"sql(
+        INSERT INTO import_runs (source, status, started_at, completed_at, records_imported, last_error)
+        VALUES (?, 'running', ?, 0, 0, '')
+        ON CONFLICT(source) DO UPDATE SET
+            status = 'running',
+            started_at = excluded.started_at,
+            completed_at = 0,
+            records_imported = 0,
+            last_error = ''
+        WHERE import_runs.status != 'running';
+    )sql");
+        statement.BindText(0, source);
+        statement.BindInt64(1, started_at);
+        statement.Step();
+        return sqlite3_changes(db_) > 0;
     }
 
     void Database::UpsertImportRunStatus(const ImportRunStatus& status)

@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <ctime>
+#include <exception>
 
 #include "../date_utils.hpp"
 #include "../text_utils.hpp"
@@ -35,6 +36,10 @@ namespace ql
     {
         ResetCreateNetForm(state_);
         state_->page = kPageCreateNet;
+        if (state_->new_net_name_input)
+        {
+            state_->new_net_name_input->TakeFocus();
+        }
     }
 
     void CreateNetSubmitHandler::operator()() const
@@ -96,6 +101,10 @@ namespace ql
     {
         ResetCreateNetForm(state_);
         state_->page = kPageAdHocNet;
+        if (state_->ad_hoc_net_name_input)
+        {
+            state_->ad_hoc_net_name_input->TakeFocus();
+        }
     }
 
     void AdHocNetSubmitHandler::operator()() const
@@ -198,6 +207,10 @@ namespace ql
         }
         OpenEditNetForm(state_, state_->nets[state_->selected_net_index]);
         state_->page = kPageEditNet;
+        if (state_->edit_net_name_input)
+        {
+            state_->edit_net_name_input->TakeFocus();
+        }
     }
 
     void SaveEditNetHandler::operator()() const
@@ -744,6 +757,30 @@ namespace ql
             return handler(event);
         }
         return false;
+    }
+
+    SafeAppEventDispatcher::SafeAppEventDispatcher(ftxui::Component child, AppState* state)
+        : state_(state)
+    {
+        Add(std::move(child));
+    }
+
+    bool SafeAppEventDispatcher::OnEvent(ftxui::Event event)
+    {
+        try
+        {
+            AppKeyHandler key_handler(state_);
+            if (key_handler(event))
+            {
+                return true;
+            }
+            return ComponentBase::OnEvent(event);
+        }
+        catch (const std::exception& e)
+        {
+            state_->form_error = std::string("Action not completed: ") + e.what();
+            return true;
+        }
     }
 
 }  // namespace ql

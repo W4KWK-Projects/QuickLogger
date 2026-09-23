@@ -769,23 +769,32 @@ namespace ql
         {
             return;
         }
-        progress->running.store(true);
-        progress->percent.store(0);
-        progress->phase.store(UlsImportPhase::kDownloading);
 
-        ImportRunStatus running_status;
-        running_status.source = "uls";
-        running_status.status = "running";
-        running_status.started_at = static_cast<std::int64_t>(std::time(nullptr));
+        std::int64_t started_at = static_cast<std::int64_t>(std::time(nullptr));
         try
         {
             Database db(db_path);
-            db.UpsertImportRunStatus(running_status);
+            if (!db.TryClaimImportRun("uls", started_at))
+            {
+                // Another connection -- most likely a second instance of the
+                // app pointed at this same quicklogger.db, auto-triggering
+                // at startup within the same moment -- already claimed this
+                // import. Don't launch a second worker: it would download to
+                // and unzip into the same uls_cache/ files the other
+                // worker's already using, and race it writing the same
+                // uls_stations rows.
+                return;
+            }
         }
         catch (const std::exception&)
         {
-            // The worker will still run and will record its own outcome.
+            // Couldn't even check -- fall through and let the worker try its
+            // own connection and report its own failure, same as before.
         }
+
+        progress->running.store(true);
+        progress->percent.store(0);
+        progress->phase.store(UlsImportPhase::kDownloading);
 
         std::thread(UlsImportWorker(db_path, progress, screen)).detach();
     }
