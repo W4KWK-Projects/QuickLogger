@@ -241,23 +241,20 @@ namespace ql
                 ErrorLine(state_->form_error),
             });
 
-            // Two rows: nine shortcuts don't read comfortably crammed onto
-            // one line (see chrome.hpp's multi-row BottomBar overload).
+            // Nine shortcuts -- PageChrome/BottomBar wraps onto a second line
+            // only if the client's terminal is too narrow to fit them all on
+            // one (see chrome.hpp).
             return PageChrome("Recurring Nets", content,
                               {
-                                  {
-                                      {"F2", "New"},
-                                      {"F3/Enter", "Start"},
-                                      {"F4", "Settings"},
-                                      {"F5", "Ad Hoc"},
-                                  },
-                                  {
-                                      {"F6", "History"},
-                                      {"F7", "Edit"},
-                                      {"F8", "Export Net"},
-                                      {"F9", "Import Net"},
-                                      {"F10", "Quit"},
-                                  },
+                                  {"F2", "New"},
+                                  {"F3/Enter", "Start"},
+                                  {"F4", "Settings"},
+                                  {"F5", "Ad Hoc"},
+                                  {"F6", "History"},
+                                  {"F7", "Edit"},
+                                  {"F8", "Export Net"},
+                                  {"F9", "Import Net"},
+                                  {"F10", "Quit"},
                               });
         }
 

@@ -26,12 +26,18 @@ namespace ql
     // the page currently shown.
     ftxui::Element TopBar(const std::string& page_title);
 
-    // A full-width colored legend bar for the bottom of a page.
+    // A full-width colored legend bar for the bottom of a page. Packs as many
+    // hints as fit on one line given the real client terminal width
+    // (ftxui::Terminal::Size(), not the page's own layout box), overflowing
+    // onto additional lines only when the client's screen is too narrow to
+    // fit them all -- a two-line bar is a fallback for a narrow terminal, not
+    // a fixed choice made ahead of time.
     ftxui::Element BottomBar(const std::vector<KeyHint>& hints);
 
-    // Same as BottomBar, but `rows` lays each inner vector out on its own
-    // line -- for a page with too many shortcuts to read comfortably on one
-    // line (e.g. the net list page once it grew past eight).
+    // Same as BottomBar, but `rows` forces each inner vector onto its own
+    // line regardless of width -- the primitive the width-aware overload
+    // above is built on. Prefer the single-vector overload unless a page
+    // genuinely needs a specific, fixed row grouping.
     ftxui::Element BottomBar(const std::vector<std::vector<KeyHint>>& rows);
 
     // Wraps `content` between a TopBar/BottomBar for `page_title`/`hints`,

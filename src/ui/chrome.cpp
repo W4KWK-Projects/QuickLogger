@@ -1,7 +1,49 @@
 #include "chrome.hpp"
 
+#include <ftxui/screen/terminal.hpp>
+
 namespace ql
 {
+
+    namespace
+    {
+
+        // Matches KeyHintRow's own rendering exactly: " "+key+" " is
+        // key.size()+2 columns, " "+label+"  " is label.size()+3.
+        int KeyHintWidth(const KeyHint& hint)
+        {
+            return static_cast<int>(hint.key.size() + hint.label.size()) + 5;
+        }
+
+        // Greedily fills each row up to `max_width` before starting a new
+        // one, so a wide terminal gets as much of row one as possible and a
+        // narrow one only spills onto extra rows as far as it has to.
+        std::vector<std::vector<KeyHint>> WrapKeyHints(const std::vector<KeyHint>& hints,
+                                                       int max_width)
+        {
+            std::vector<std::vector<KeyHint>> rows;
+            std::vector<KeyHint> current_row;
+            int current_width = 0;
+            for (const KeyHint& hint : hints)
+            {
+                int width = KeyHintWidth(hint);
+                if (!current_row.empty() && current_width + width > max_width)
+                {
+                    rows.push_back(current_row);
+                    current_row.clear();
+                    current_width = 0;
+                }
+                current_row.push_back(hint);
+                current_width += width;
+            }
+            if (!current_row.empty())
+            {
+                rows.push_back(current_row);
+            }
+            return rows;
+        }
+
+    }  // namespace
 
     ftxui::Element KeyHintRow(const std::vector<KeyHint>& hints)
     {
@@ -28,11 +70,8 @@ namespace ql
 
     ftxui::Element BottomBar(const std::vector<KeyHint>& hints)
     {
-        return ftxui::hbox({
-                   KeyHintRow(hints),
-                   ftxui::filler(),
-               }) |
-               ftxui::bgcolor(ftxui::Color::Blue) | ftxui::color(ftxui::Color::White);
+        int width = ftxui::Terminal::Size().dimx;
+        return BottomBar(WrapKeyHints(hints, width));
     }
 
     ftxui::Element BottomBar(const std::vector<std::vector<KeyHint>>& rows)
