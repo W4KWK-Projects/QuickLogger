@@ -105,6 +105,13 @@ CREATE TABLE IF NOT EXISTS zip_counties (
     zip TEXT PRIMARY KEY,
     county TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY,
+    public_key TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT 0,
+    last_login_at INTEGER NOT NULL DEFAULT 0
+);
 )sql";
 
     // Adds `column` to `table` if it isn't already there, for evolving the
@@ -1092,6 +1099,72 @@ CREATE TABLE IF NOT EXISTS zip_counties (
             have_last = true;
         }
         return results;
+    }
+
+    void Database::CreateUser(const User& user)
+    {
+        Statement statement(db_, R"sql(
+        INSERT INTO users (username, public_key, created_at, last_login_at)
+        VALUES (?,?,?,0)
+        ON CONFLICT(username) DO UPDATE SET public_key = excluded.public_key;
+    )sql");
+        statement.BindText(0, user.username);
+        statement.BindText(1, user.public_key);
+        statement.BindInt64(2, user.created_at);
+        statement.Step();
+    }
+
+    std::optional<User> Database::GetUserByUsername(const std::string& username)
+    {
+        Statement statement(db_, R"sql(
+        SELECT username, public_key, created_at, last_login_at
+        FROM users WHERE username = ?;
+    )sql");
+        statement.BindText(0, username);
+        if (!statement.Step())
+        {
+            return std::nullopt;
+        }
+        User user;
+        user.username = statement.ColumnText(0);
+        user.public_key = statement.ColumnText(1);
+        user.created_at = statement.ColumnInt64(2);
+        user.last_login_at = statement.ColumnInt64(3);
+        return user;
+    }
+
+    std::vector<User> Database::ListUsers()
+    {
+        Statement statement(db_, R"sql(
+        SELECT username, public_key, created_at, last_login_at
+        FROM users ORDER BY username;
+    )sql");
+        std::vector<User> users;
+        while (statement.Step())
+        {
+            User user;
+            user.username = statement.ColumnText(0);
+            user.public_key = statement.ColumnText(1);
+            user.created_at = statement.ColumnInt64(2);
+            user.last_login_at = statement.ColumnInt64(3);
+            users.push_back(user);
+        }
+        return users;
+    }
+
+    void Database::DeleteUser(const std::string& username)
+    {
+        Statement statement(db_, "DELETE FROM users WHERE username = ?;");
+        statement.BindText(0, username);
+        statement.Step();
+    }
+
+    void Database::UpdateUserLastLogin(const std::string& username, std::int64_t last_login_at)
+    {
+        Statement statement(db_, "UPDATE users SET last_login_at = ? WHERE username = ?;");
+        statement.BindInt64(0, last_login_at);
+        statement.BindText(1, username);
+        statement.Step();
     }
 
 }  // namespace ql

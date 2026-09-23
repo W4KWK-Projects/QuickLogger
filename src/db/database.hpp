@@ -235,6 +235,18 @@ namespace ql
         // needing a second query to find the max.
         std::vector<CityCounty> ComputeCityCounties();
 
+        // Login identities for the built-in SSH server (see ssh_server.hpp)
+        // -- global/shared data, like Net, even though each user's
+        // AppSettings (see settings.hpp) is not. `username` is the primary
+        // key; a second CreateUser for the same username overwrites its
+        // public key rather than erroring, matching this app's general
+        // upsert-by-natural-key style elsewhere.
+        void CreateUser(const User& user);
+        std::optional<User> GetUserByUsername(const std::string& username);
+        std::vector<User> ListUsers();
+        void DeleteUser(const std::string& username);
+        void UpdateUserLastLogin(const std::string& username, std::int64_t last_login_at);
+
     private:
         void CreateSchema();
 

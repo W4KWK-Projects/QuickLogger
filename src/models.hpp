@@ -164,4 +164,21 @@ namespace ql
         std::string county;
     };
 
+    // A login identity for the built-in SSH server (see ssh_server.hpp) --
+    // not the same thing as a Station/operator callsign, though `username`
+    // is typically chosen to match one. `public_key` is a single-line
+    // OpenSSH authorized_keys-style string ("ssh-ed25519 AAAA... comment"),
+    // the exact format an operator already has in their own
+    // ~/.ssh/id_ed25519.pub. Deliberately holds nothing else: this table is
+    // global/shared identity data like Net, unlike AppSettings (see
+    // settings.hpp), which becomes per-username once a user is SSH'd in
+    // rather than living here.
+    struct User
+    {
+        std::string username;
+        std::string public_key;
+        std::int64_t created_at = 0;
+        std::int64_t last_login_at = 0;
+    };
+
 }  // namespace ql

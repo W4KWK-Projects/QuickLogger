@@ -20,6 +20,7 @@ find_package(Threads REQUIRED)
 
 add_executable(QuickLogger
     src/main.cpp
+    src/interactive_session.cpp
     src/date_utils.cpp
     src/settings.cpp
     src/text_utils.cpp

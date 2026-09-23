@@ -47,6 +47,14 @@ namespace ql
         Database* db = nullptr;
         std::string db_path;  // Passed to StartUlsImport, which opens its own connection.
         ftxui::ScreenInteractive* screen = nullptr;
+        // True for the session launched directly by main() at the real
+        // console; false for a session handed off from an SSH connection
+        // (see ssh_server.hpp). The console is a permanently trusted,
+        // exempt path -- it's how the very first SSH user gets added on a
+        // fresh install, and it's also the only place Manage Users (see
+        // kPageManageUsers) is reachable at all, deliberately never over
+        // SSH, so there's no admin/permission concept to build or attack.
+        bool is_console_session = true;
 
         int page = kPageNetList;
         std::string form_error;
