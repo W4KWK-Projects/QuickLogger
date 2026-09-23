@@ -11,6 +11,7 @@
 #include "../file_export.hpp"
 #include "../geo_utils.hpp"
 #include "../text_utils.hpp"
+#include "../zmodem_send.hpp"
 
 namespace ql
 {
@@ -614,18 +615,36 @@ namespace ql
         RefreshNetHistory(state);
     }
 
-    static void ApplyExportResult(AppState* state, bool ok, const std::string& path,
-                                  const std::string& error)
+    // Writes `lines` to `path`, then -- only if that succeeded -- also tries
+    // to hand the same file to a remote, SSH'd-in user via ZMODEM (see
+    // zmodem_send.hpp), since a plain local write alone leaves them with no
+    // way to get the file off the machine QuickLogger runs on. Sets
+    // AppState::status_message/form_error to describe whichever of the two
+    // steps is the more relevant outcome to report: a failed local write is
+    // still always an error; ZMODEM being unavailable or timing out is a
+    // secondary note on an otherwise-successful export, not a failure of
+    // the export itself, so it's folded into status_message rather than
+    // form_error.
+    static void ExportLinesToFile(AppState* state, const std::string& path,
+                                  const std::vector<std::string>& lines)
     {
-        if (ok)
-        {
-            state->form_error.clear();
-            state->status_message = "Saved to " + path;
-        }
-        else
+        std::string error;
+        if (!WriteExportFile(path, lines, &error))
         {
             state->status_message.clear();
             state->form_error = error;
+            return;
+        }
+
+        state->form_error.clear();
+        std::string zmodem_error;
+        if (SendFileViaZmodem(state->screen, path, &zmodem_error))
+        {
+            state->status_message = "Saved to " + path + " and sent via ZMODEM.";
+        }
+        else
+        {
+            state->status_message = "Saved to " + path + " (" + zmodem_error + ")";
         }
     }
 
@@ -647,9 +666,7 @@ namespace ql
 
         std::string path = ExportsDir(state->db_path) + "/" + SanitizeFilenameComponent(net_name) +
                            "_" + SanitizeFilenameComponent(instance.instance_date) + "_log.txt";
-        std::string error;
-        bool ok = WriteExportFile(path, lines, &error);
-        ApplyExportResult(state, ok, path, error);
+        ExportLinesToFile(state, path, lines);
     }
 
     void ExportSavedStations(AppState* state, const std::string& net_name,
@@ -667,9 +684,7 @@ namespace ql
 
         std::string path = ExportsDir(state->db_path) + "/" + SanitizeFilenameComponent(net_name) +
                            "_saved_stations.txt";
-        std::string error;
-        bool ok = WriteExportFile(path, lines, &error);
-        ApplyExportResult(state, ok, path, error);
+        ExportLinesToFile(state, path, lines);
     }
 
     void RefreshCallsignSuggestions(AppState* state)

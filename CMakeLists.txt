@@ -25,6 +25,7 @@ add_executable(QuickLogger
     src/text_utils.cpp
     src/geo_utils.cpp
     src/file_export.cpp
+    src/zmodem_send.cpp
     src/uls_import.cpp
     src/db/database.cpp
     src/db/sqlite_statement.cpp

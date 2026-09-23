@@ -22,6 +22,12 @@ settings.txt
 # Downloaded FCC ULS / Census gazetteer cache
 uls_cache/
 
+# Net log / saved-station exports (see file_export.hpp)
+exports/
+
 # IDE/tool-local config, not part of the project itself
 .idea/
 .claude/
+
+# macOS Finder metadata
+.DS_Store
