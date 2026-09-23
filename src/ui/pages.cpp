@@ -342,7 +342,8 @@ namespace ql
                 ErrorLine(state_->form_error),
             });
 
-            return PageChrome("Enter Callsign", content, {{"F2", "Start Net"}, {"Esc", "Back"}});
+            return PageChrome("Enter Callsign", content,
+                              {{"F2/Enter", "Start Net"}, {"Esc", "Back"}});
         }
 
     private:
