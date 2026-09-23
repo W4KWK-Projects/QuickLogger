@@ -7,6 +7,7 @@
 #include <ctime>
 
 #include "../geo_utils.hpp"
+#include "../text_utils.hpp"
 
 namespace ql
 {
@@ -829,6 +830,23 @@ namespace ql
         }
     }
 
+    // Same rationale and lazy/self-correcting behavior as
+    // EnsureZipCentroidsCached above, for AppState::city_county_by_city_state.
+    static void EnsureCityCountiesCached(AppState* state)
+    {
+        if (!state->city_county_by_city_state.empty())
+        {
+            return;
+        }
+        std::vector<CityCounty> city_counties = state->db->ComputeCityCounties();
+        for (const CityCounty& city_county : city_counties)
+        {
+            std::string key =
+                ToUpperAscii(city_county.city) + "|" + ToUpperAscii(city_county.state);
+            state->city_county_by_city_state[key] = city_county.county;
+        }
+    }
+
     void RefreshNearbyZip3Prefixes(AppState* state)
     {
         state->saved_station_nearby_zip3_prefixes.clear();
@@ -958,7 +976,29 @@ namespace ql
 
     void BackfillCountyFromZip(AppState* state, Station* station)
     {
-        if (!station->county.empty() || station->zip.empty())
+        if (!station->county.empty())
+        {
+            return;
+        }
+
+        // Prefer the city-based lookup: a city is unambiguous even when one
+        // of its ZIPs straddles a county line close to evenly, which is
+        // exactly where the ZIP-based lookup below can pick the wrong side
+        // (see CityCounty in models.hpp).
+        if (!station->city.empty() && !station->state.empty())
+        {
+            EnsureCityCountiesCached(state);
+            std::string key = ToUpperAscii(station->city) + "|" + ToUpperAscii(station->state);
+            std::unordered_map<std::string, std::string>::const_iterator city_it =
+                state->city_county_by_city_state.find(key);
+            if (city_it != state->city_county_by_city_state.end())
+            {
+                station->county = city_it->second;
+                return;
+            }
+        }
+
+        if (station->zip.empty())
         {
             return;
         }

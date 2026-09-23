@@ -980,4 +980,49 @@ CREATE TABLE IF NOT EXISTS zip_counties (
         return results;
     }
 
+    std::vector<CityCounty> Database::ComputeCityCounties()
+    {
+        // FCC's EN.dat has inconsistent city-name casing across records
+        // (confirmed on real data: "CHATTANOOGA" and "Chattanooga" both
+        // appear) -- grouping on the raw column would tally each casing's
+        // votes separately instead of combining them, which could pick the
+        // wrong county for a city whose vote is otherwise close. UPPER()
+        // both sides of the join key and the GROUP BY so every casing
+        // variant counts toward the same total.
+        Statement statement(db_, R"sql(
+        SELECT UPPER(u.city), UPPER(u.state), z.county, COUNT(*) AS votes
+        FROM uls_stations u
+        JOIN zip_counties z ON z.zip = u.zip
+        WHERE u.city != '' AND u.state != '' AND z.county != ''
+        GROUP BY UPPER(u.city), UPPER(u.state), z.county
+        ORDER BY UPPER(u.city), UPPER(u.state), votes DESC;
+    )sql");
+
+        std::vector<CityCounty> results;
+        std::string last_city;
+        std::string last_state;
+        bool have_last = false;
+        while (statement.Step())
+        {
+            std::string city = statement.ColumnText(0);
+            std::string state = statement.ColumnText(1);
+            if (have_last && city == last_city && state == last_state)
+            {
+                // A later row for the same (city, state) has fewer votes
+                // (ORDER BY ... votes DESC) -- the first one seen is the
+                // winner.
+                continue;
+            }
+            CityCounty city_county;
+            city_county.city = city;
+            city_county.state = state;
+            city_county.county = statement.ColumnText(2);
+            results.push_back(city_county);
+            last_city = city;
+            last_state = state;
+            have_last = true;
+        }
+        return results;
+    }
+
 }  // namespace ql

@@ -194,6 +194,18 @@ namespace ql
         std::vector<ZipCounty> GetAllZipCounties();
         bool HasAnyZipCounties();
 
+        // Derives a (city, state) -> county mapping by joining uls_stations
+        // against zip_counties and, for each city/state pair, picking
+        // whichever county its member ZIPs agree on most often -- more
+        // reliable than a single ZIP's own zip_counties entry when that ZIP
+        // straddles a county line close to evenly (see CityCounty's doc
+        // comment). Not persisted; recomputed and cached in
+        // AppState::city_county_by_city_state once per process run. Rows
+        // are returned ordered by (city, state, votes DESC), so the caller
+        // can just keep the first row seen per (city, state) rather than
+        // needing a second query to find the max.
+        std::vector<CityCounty> ComputeCityCounties();
+
     private:
         void CreateSchema();
 

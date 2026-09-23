@@ -146,4 +146,22 @@ namespace ql
         std::string county;
     };
 
+    // A (city, state) -> county mapping derived entirely from data already
+    // on hand: for every city/state pair seen in uls_stations, whichever
+    // county its member ZIPs' zip_counties entries agree on most often (see
+    // Database::ComputeCityCounties). A city is unambiguous even when one
+    // of its ZIPs straddles a county line close to evenly -- which is
+    // exactly the case ZipCounty's own area-based ZIP lookup can get wrong
+    // (see kZipCountyOverrides in uls_import.cpp) -- so BackfillCountyFromZip
+    // prefers this over the raw per-ZIP lookup when a station's city/state
+    // are known. Not persisted as a table: recomputed into
+    // AppState::city_county_by_city_state once per process run, same
+    // loaded-once-and-cached rationale as zip_county_by_zip.
+    struct CityCounty
+    {
+        std::string city;
+        std::string state;
+        std::string county;
+    };
+
 }  // namespace ql

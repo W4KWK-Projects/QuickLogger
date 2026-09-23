@@ -76,6 +76,13 @@ namespace ql
         // else per-ZIP worth caching here.
         std::unordered_map<std::string, std::string> zip_county_by_zip;
 
+        // City+state -> county, keyed on "<CITY>|<STATE>" (both uppercased),
+        // from Database::ComputeCityCounties -- preferred over
+        // zip_county_by_zip in BackfillCountyFromZip, since a city is
+        // unambiguous even when one of its ZIPs straddles a county line
+        // close to evenly (see CityCounty's doc comment in models.hpp).
+        std::unordered_map<std::string, std::string> city_county_by_city_state;
+
         // Net list page: the recurring nets a user can select and start.
         std::vector<Net> nets;
         std::vector<std::string> net_names;  // Kept in sync with `nets` by RefreshNets.
@@ -450,15 +457,20 @@ namespace ql
     // nothing if there are no suggestions.
     void ApplySelectedSavedStationSuggestion(AppState* state);
 
-    // Fills in `station->county` from AppState::zip_county_by_zip (lazily
-    // loading it from the database on first use) if it's currently blank and
-    // `station->zip` is known -- a no-op otherwise, so it's safe to call on
-    // every station about to be persisted regardless of where its data came
-    // from. This exists specifically because ULS has no county field at all
-    // in its data, so a ULS-sourced station's county would otherwise stay
-    // permanently blank; call this right before RecordManualCheckInStation/
-    // SaveNetStation for any Station that might be ULS-sourced (or just
-    // manually entered with a ZIP but no county).
+    // Fills in `station->county` if it's currently blank -- a no-op
+    // otherwise, so it's safe to call on every station about to be
+    // persisted regardless of where its data came from. Prefers
+    // AppState::city_county_by_city_state (keyed on `station`'s city+state)
+    // over AppState::zip_county_by_zip (keyed on its ZIP) when both are
+    // available: a city is unambiguous even when one of its ZIPs straddles
+    // a county line close to evenly, which is exactly where the ZIP-based
+    // lookup can pick the wrong side (see CityCounty in models.hpp). Both
+    // caches lazily load from the database on first use. This exists
+    // specifically because ULS has no county field at all in its data, so a
+    // ULS-sourced station's county would otherwise stay permanently blank;
+    // call this right before RecordManualCheckInStation/SaveNetStation for
+    // any Station that might be ULS-sourced (or just manually entered with
+    // a ZIP but no county).
     void BackfillCountyFromZip(AppState* state, Station* station);
 
 }  // namespace ql
