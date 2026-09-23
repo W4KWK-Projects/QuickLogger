@@ -850,7 +850,7 @@ namespace ql
             });
 
             return PageChrome("History: " + net_name, content,
-                              {{"F2", "Export Log"}, {"F5", "Delete Instance"}, {"Esc", "Back"}});
+                              {{"F2", "Export"}, {"F5", "Delete Instance"}, {"Esc", "Back"}});
         }
 
     private:
@@ -959,7 +959,7 @@ namespace ql
                                   {"F4", "Remove"},
                                   {"F5", "Delete"},
                                   {"F6", "Add Station"},
-                                  {"F7", "Export Stations"},
+                                  {"F7", "Export"},
                                   {"Esc", "Cancel"},
                               });
         }
