@@ -250,6 +250,19 @@ namespace ql
         }
     }
 
+    void AddNewSavedStationHandler::operator()() const
+    {
+        state_->saved_station = Station();
+        state_->saved_station_remarks.clear();
+        state_->form_error.clear();
+        state_->saved_station_suggestions.clear();
+        state_->saved_station_suggestion_labels.clear();
+        if (state_->saved_station_callsign_input)
+        {
+            state_->saved_station_callsign_input->TakeFocus();
+        }
+    }
+
     void EditNetBackHandler::operator()() const
     {
         state_->form_error.clear();
@@ -280,6 +293,12 @@ namespace ql
         {
             DeleteSelectedSavedStationHandler delete_station(state_);
             delete_station();
+            return true;
+        }
+        if (event == ftxui::Event::F6)
+        {
+            AddNewSavedStationHandler add_station(state_);
+            add_station();
             return true;
         }
         if (event == ftxui::Event::Escape)
@@ -351,7 +370,7 @@ namespace ql
 
     bool SelectRoleKeyHandler::operator()(ftxui::Event event) const
     {
-        if (event == ftxui::Event::F2)
+        if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
         {
             RoleContinueHandler continue_handler(state_);
             continue_handler();

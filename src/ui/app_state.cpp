@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <ctime>
 
+#include <ftxui/component/component_base.hpp>
+
 #include "../geo_utils.hpp"
 #include "../text_utils.hpp"
 
@@ -746,6 +748,15 @@ namespace ql
         state->saved_station_remarks.clear();
         state->form_error.clear();
         RefreshEditNetSavedStations(state);
+
+        // Re-focus the callsign field for the next entry -- adding several
+        // stations in a row is the common case here, and without this the
+        // operator would have to Tab all the way back down from wherever
+        // focus landed after the save.
+        if (state->saved_station_callsign_input)
+        {
+            state->saved_station_callsign_input->TakeFocus();
+        }
         return true;
     }
 

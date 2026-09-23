@@ -516,6 +516,23 @@ namespace ql
         AppState* state_;
     };
 
+    // F6 on the edit-net page: clears the saved-station mini-form (so it's
+    // ready for a brand new callsign rather than whatever was last loaded or
+    // just saved) and moves focus straight to its callsign field, skipping
+    // the six Tab-stops (Name/Mode/Frequency/Location/Recurrence/the
+    // saved-station list) that otherwise sit between wherever focus is and
+    // the field an operator visiting this page is usually here for.
+    class AddNewSavedStationHandler
+    {
+    public:
+        explicit AddNewSavedStationHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
     // Escape on the edit-net page: returns to the net list.
     class EditNetBackHandler
     {

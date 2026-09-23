@@ -174,7 +174,7 @@ namespace ql
             return PageChrome("Recurring Nets", content,
                               {
                                   {"F2", "New"},
-                                  {"F3", "Start"},
+                                  {"F3/Enter", "Start"},
                                   {"F4", "Settings"},
                                   {"F5", "Ad Hoc"},
                                   {"F6", "History"},
@@ -291,7 +291,8 @@ namespace ql
                 role_radiobox_->Render(),
             });
 
-            return PageChrome("Select Your Role", content, {{"F2", "Continue"}, {"Esc", "Back"}});
+            return PageChrome("Select Your Role", content,
+                              {{"F2/Enter", "Continue"}, {"Esc", "Back"}});
         }
 
     private:
@@ -301,8 +302,17 @@ namespace ql
 
     ftxui::Component BuildSelectRolePage(AppState* state)
     {
-        ftxui::Component role_radiobox =
-            ftxui::Radiobox(&state->role_labels, &state->selected_role_index);
+        // `focused_entry` is bound to the same variable as `selected` so
+        // arrow-key movement commits immediately (Radiobox otherwise only
+        // writes `hovered_` into `*selected` on an explicit Space/Enter --
+        // see RadioboxBase::OnEvent) -- necessary so SelectRoleKeyHandler can
+        // treat a bare Enter as "continue with whatever's currently
+        // highlighted" (see below) without an extra hover-commit step first.
+        ftxui::RadioboxOption role_option;
+        role_option.entries = &state->role_labels;
+        role_option.selected = &state->selected_role_index;
+        role_option.focused_entry = &state->selected_role_index;
+        ftxui::Component role_radiobox = ftxui::Radiobox(role_option);
 
         ftxui::Component root = ftxui::Container::Vertical({role_radiobox});
         return ftxui::Renderer(root, SelectRoleRenderer(state, role_radiobox));
@@ -935,6 +945,7 @@ namespace ql
                                   {"F3", "Save Station"},
                                   {"F4", "Remove"},
                                   {"F5", "Delete"},
+                                  {"F6", "Add Station"},
                                   {"Esc", "Cancel"},
                               });
         }
