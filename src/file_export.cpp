@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 
@@ -50,14 +49,20 @@ namespace ql
         return names;
     }
 
+    bool EnsureDirectory(const std::string& dir)
+    {
+        std::error_code error;
+        std::filesystem::create_directories(dir, error);
+        return std::filesystem::is_directory(dir, error);
+    }
+
     bool WriteExportFile(const std::string& path, const std::vector<std::string>& lines,
                          std::string* error)
     {
         std::string::size_type slash = path.find_last_of('/');
         if (slash != std::string::npos)
         {
-            std::string dir = path.substr(0, slash);
-            std::system(("mkdir -p \"" + dir + "\"").c_str());
+            EnsureDirectory(path.substr(0, slash));
         }
 
         std::ofstream file(path, std::ios::trunc);

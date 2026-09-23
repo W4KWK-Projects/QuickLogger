@@ -8,6 +8,7 @@
 
 #include <ftxui/component/component_base.hpp>
 
+#include "../date_utils.hpp"
 #include "../file_export.hpp"
 #include "../geo_utils.hpp"
 #include "../net_slice.hpp"
@@ -630,8 +631,14 @@ namespace ql
     {
         if (!ZmodemSendAvailable())
         {
+#if defined(_WIN32)
+            // No ZMODEM on Windows at all (see zmodem_send.cpp), so there's
+            // nothing to install.
+            state->status_message = "Saved to " + path + ".";
+#else
             state->status_message =
                 "Saved to " + path + " (install 'sz'/lrzsz for ZMODEM download).";
+#endif
             return;
         }
 
@@ -735,9 +742,7 @@ namespace ql
         std::string last_login = "never logged in";
         if (user.last_login_at > 0)
         {
-            std::time_t time_value = static_cast<std::time_t>(user.last_login_at);
-            struct tm local_time;
-            localtime_r(&time_value, &local_time);
+            std::tm local_time = LocalTime(static_cast<std::time_t>(user.last_login_at));
             char buffer[32];
             std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M %p", &local_time);
             last_login = std::string("last login ") + buffer;

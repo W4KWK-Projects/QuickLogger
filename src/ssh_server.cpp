@@ -17,9 +17,12 @@
 
 // openpty()/login_tty() live in a different header (and, on some platforms,
 // a different library) per OS -- verified against each platform's own
-// login_tty(3)/openpty(3) man page, not assumed.
+// login_tty(3)/openpty(3) man page and headers, not assumed. On Linux they're
+// split across two headers: openpty() is in <pty.h> but login_tty() is in
+// <utmp.h> (glibc and musl alike).
 #if defined(__linux__)
 #include <pty.h>
+#include <utmp.h>
 #elif defined(__FreeBSD__)
 #include <libutil.h>
 #else

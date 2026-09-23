@@ -1,5 +1,47 @@
 #include "zmodem_send.hpp"
 
+// ZMODEM support is a thin wrapper around forking and exec'ing the external
+// `sz`/`rz` programs (lrzsz), which is POSIX-only (fork/waitpid/kill). On
+// Windows there's nothing equivalent to run -- and no remote-terminal use
+// case either, since there's no SSH server on Windows to hand files over --
+// so the same API simply reports itself unavailable.
+#if defined(_WIN32)
+
+namespace ql
+{
+
+    bool ZmodemSendAvailable()
+    {
+        return false;
+    }
+
+    bool ZmodemReceiveAvailable()
+    {
+        return false;
+    }
+
+    bool SendFileViaZmodem(ftxui::ScreenInteractive* screen, const std::string& path,
+                           std::string* error)
+    {
+        (void)screen;
+        (void)path;
+        *error = "ZMODEM transfers aren't supported on Windows.";
+        return false;
+    }
+
+    bool ReceiveFileViaZmodem(ftxui::ScreenInteractive* screen, const std::string& dest_dir,
+                              std::string* error)
+    {
+        (void)screen;
+        (void)dest_dir;
+        *error = "ZMODEM transfers aren't supported on Windows.";
+        return false;
+    }
+
+}  // namespace ql
+
+#else  // POSIX
+
 #include <csignal>
 #include <cstdlib>
 #include <ctime>
@@ -8,6 +50,8 @@
 #include <unistd.h>
 
 #include <ftxui/component/screen_interactive.hpp>
+
+#include "file_export.hpp"
 
 namespace ql
 {
@@ -229,7 +273,7 @@ namespace ql
             return false;
         }
 
-        std::system(("mkdir -p \"" + dest_dir + "\"").c_str());
+        EnsureDirectory(dest_dir);
 
         bool ok = false;
         ftxui::Closure run = screen->WithRestoredIO(RunRzProcess(dest_dir, &ok, error));
@@ -238,3 +282,5 @@ namespace ql
     }
 
 }  // namespace ql
+
+#endif  // _WIN32

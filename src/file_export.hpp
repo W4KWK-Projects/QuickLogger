@@ -28,11 +28,18 @@ namespace ql
     std::vector<std::string> ListFilesWithExtension(const std::string& dir,
                                                     const std::string& extension);
 
+    // Creates `dir` and any missing parents (like `mkdir -p`); succeeds if it
+    // already exists. Done with std::filesystem rather than shelling out to
+    // `mkdir`, which isn't a command on Windows and would run whatever a
+    // stray quote in `dir` happened to smuggle into the shell everywhere
+    // else. Returns false if the directory doesn't exist afterward.
+    bool EnsureDirectory(const std::string& dir);
+
     // Writes `lines` to `path`, one per line (LF-terminated), overwriting
     // any existing file there. Creates `path`'s parent directory first
-    // (mkdir -p, same approach as UlsCacheDir's caller in uls_import.cpp)
-    // so callers don't need the exports directory to already exist. Returns
-    // true on success; on failure, `error` is set to a short message.
+    // (see EnsureDirectory) so callers don't need the exports directory to
+    // already exist. Returns true on success; on failure, `error` is set to
+    // a short message.
     bool WriteExportFile(const std::string& path, const std::vector<std::string>& lines,
                          std::string* error);
 

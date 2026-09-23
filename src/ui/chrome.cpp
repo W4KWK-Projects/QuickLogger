@@ -71,10 +71,10 @@ namespace ql
     ftxui::Element BottomBar(const std::vector<KeyHint>& hints)
     {
         int width = ftxui::Terminal::Size().dimx;
-        return BottomBar(WrapKeyHints(hints, width));
+        return BottomBarRows(WrapKeyHints(hints, width));
     }
 
-    ftxui::Element BottomBar(const std::vector<std::vector<KeyHint>>& rows)
+    ftxui::Element BottomBarRows(const std::vector<std::vector<KeyHint>>& rows)
     {
         ftxui::Elements lines;
         for (const std::vector<KeyHint>& row : rows)
@@ -98,13 +98,13 @@ namespace ql
         });
     }
 
-    ftxui::Element PageChrome(const std::string& page_title, ftxui::Element content,
-                              const std::vector<std::vector<KeyHint>>& hint_rows)
+    ftxui::Element PageChromeRows(const std::string& page_title, ftxui::Element content,
+                                  const std::vector<std::vector<KeyHint>>& hint_rows)
     {
         return ftxui::vbox({
             TopBar(page_title),
             content | ftxui::flex,
-            BottomBar(hint_rows),
+            BottomBarRows(hint_rows),
         });
     }
 

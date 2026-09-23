@@ -35,10 +35,18 @@ namespace ql
     ftxui::Element BottomBar(const std::vector<KeyHint>& hints);
 
     // Same as BottomBar, but `rows` forces each inner vector onto its own
-    // line regardless of width -- the primitive the width-aware overload
-    // above is built on. Prefer the single-vector overload unless a page
-    // genuinely needs a specific, fixed row grouping.
-    ftxui::Element BottomBar(const std::vector<std::vector<KeyHint>>& rows);
+    // line regardless of width -- the primitive BottomBar is built on.
+    // Prefer BottomBar unless a page genuinely needs a specific, fixed row
+    // grouping.
+    //
+    // Deliberately a differently *named* function rather than an overload of
+    // BottomBar: a braced list of key hints like {{"F2", "Save"}, {"Esc",
+    // "Cancel"}} is also a valid std::vector<std::vector<KeyHint>> under
+    // libstdc++ (each {"F2", "Save"} converts through vector's
+    // iterator-pair constructor, the two const char* acting as iterators),
+    // so overloading on the two vector types makes every such call
+    // ambiguous on Linux/GCC even though libc++ (macOS/FreeBSD) resolves it.
+    ftxui::Element BottomBarRows(const std::vector<std::vector<KeyHint>>& rows);
 
     // Wraps `content` between a TopBar/BottomBar for `page_title`/`hints`,
     // giving `content` the full remaining vertical space in between so it
@@ -46,9 +54,9 @@ namespace ql
     ftxui::Element PageChrome(const std::string& page_title, ftxui::Element content,
                               const std::vector<KeyHint>& hints);
 
-    // Same as PageChrome, but with a multi-row bottom bar -- see the
-    // BottomBar overload above.
-    ftxui::Element PageChrome(const std::string& page_title, ftxui::Element content,
-                              const std::vector<std::vector<KeyHint>>& hint_rows);
+    // Same as PageChrome, but with a multi-row bottom bar -- see
+    // BottomBarRows above (also for why this isn't an overload).
+    ftxui::Element PageChromeRows(const std::string& page_title, ftxui::Element content,
+                                  const std::vector<std::vector<KeyHint>>& hint_rows);
 
 }  // namespace ql

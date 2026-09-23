@@ -2,9 +2,11 @@
 
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
 
+#include "file_export.hpp"
 #include "text_utils.hpp"
 
 namespace ql
@@ -101,14 +103,14 @@ namespace ql
         std::string::size_type slash = dest_path.find_last_of('/');
         if (slash != std::string::npos)
         {
-            std::string dir = dest_path.substr(0, slash);
-            std::system(("mkdir -p \"" + dir + "\"").c_str());
+            EnsureDirectory(dest_path.substr(0, slash));
         }
         // A stale file at this exact path (e.g. re-exporting the same net)
         // would otherwise merge with the new data instead of being replaced,
         // since Database's constructor only creates tables that don't
         // already exist.
-        std::system(("rm -f \"" + dest_path + "\"").c_str());
+        std::error_code remove_error;
+        std::filesystem::remove(dest_path, remove_error);
 
         try
         {

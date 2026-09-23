@@ -5,86 +5,96 @@ built-in SSH server so a group of operators can log into a shared,
 always-running instance directly — no separate "SSH into the host, then
 launch the app" step, and no OS user accounts to provision per operator.
 
-## Build prerequisites
+This README has two halves: **[Running QuickLogger](#running-quicklogger)**
+(what a machine needs in order to run it) and
+**[Building QuickLogger](#building-quicklogger)** (what it takes to compile
+it), each broken out by platform. The [built-in SSH
+server](#built-in-ssh-server) is documented after both.
 
-CMake resolves everything it can on its own via `find_package`, but the
-libraries themselves have to already be installed on the build machine —
-CMake will fail with a clear "not found" error naming whichever one is
-missing. You'll need:
+## Supported platforms
 
-- A C++23 compiler (a recent clang or gcc)
-- CMake 3.16+
-- SQLite3 (dev headers + library)
-- libcurl (dev headers + library)
-- **libssh** (dev headers + library) — this is `libssh`, not `libssh2`;
-  they're unrelated projects and only `libssh` has server support, which
-  this app needs
+| Platform | Support | How well verified |
+|---|---|---|
+| **macOS** | Full (console + SSH server) | Built and run natively (Apple Silicon) |
+| **Linux** (glibc and musl) | Full (console + SSH server) | Every source file compiles cleanly against real Ubuntu 22.04 and 24.04 headers/libstdc++ (libssh 0.9 and 0.10) and against musl; not yet linked or run on a Linux machine |
+| **FreeBSD** 14 / 15 | Full (console + SSH server) | Every source file compiles cleanly against the real FreeBSD 14.4 and 15.1 base-system headers; not yet linked or run on a FreeBSD machine |
+| **Windows** | Console only — no SSH server, no ZMODEM | Every source file compiles cleanly with mingw-w64; not yet linked or run; MSVC not tried |
 
-FTXUI (the terminal UI library) is fetched and built automatically by
-CMake (`FetchContent`) — nothing to install for that one.
+"Compiles cleanly" means the source was compiled (not linked) for that
+target with a Clang-based cross-compiler. The libraries QuickLogger depends
+on are standard and available on all of these systems, but until it has been
+built and run on a given platform, treat that platform as new — bug reports
+welcome.
 
-### macOS (Homebrew)
+---
 
-```
-brew install cmake sqlite3 curl libssh
-```
+# Running QuickLogger
 
-### Debian / Ubuntu
+## What you need to run it
 
-```
-sudo apt install build-essential cmake libsqlite3-dev libcurl4-openssl-dev libssh-dev
-```
+On every platform:
 
-### Fedora
+- **A terminal that handles UTF-8 and colors** — any modern terminal
+  emulator. (On Windows: Windows Terminal, or the console in Windows 10 or
+  later.) QuickLogger takes over the whole terminal window.
+- **Internet access** for the first launch, which downloads the FCC's amateur
+  license database (about 200 MB) and the Census ZIP-code gazetteer, and
+  refreshes them about weekly. Without it the rest of QuickLogger still
+  works, but callsign and ZIP lookups have no data to draw on.
+- **Write access to the directory you launch it from** — it keeps its data
+  there (see [Files it creates](#files-it-creates)).
 
-```
-sudo dnf install cmake sqlite-devel libcurl-devel libssh-devel
-```
+The runtime libraries QuickLogger is linked against, by platform (installing
+the [build packages](#what-you-need-to-build-it) instead also covers these):
 
-### FreeBSD
+| Platform | Install |
+|---|---|
+| **macOS** | `brew install libssh` (SQLite, curl and zlib are part of macOS) |
+| **Debian / Ubuntu** | `sudo apt install libssh-4 libsqlite3-0 libcurl4` — on Ubuntu 24.04+ and Debian 13 the last one is named `libcurl4t64` |
+| **Fedora** | `sudo dnf install libssh libcurl sqlite-libs` |
+| **FreeBSD** | `sudo pkg install libssh curl sqlite3` (zlib is part of the base system) |
+| **Windows** | Nothing to install, as long as the DLLs the build depends on (`sqlite3`, `libcurl`, `zlib` — vcpkg copies them next to the `.exe`) stay alongside `QuickLogger.exe` |
 
-```
-pkg install cmake sqlite3 curl libssh
-```
+(SQLite 3.24 or newer is required. Package names checked against the Ubuntu
+22.04/24.04, Debian 13, Fedora 43 and FreeBSD 14/15 package lists, September
+2026.)
 
-(Package names above were confirmed against each platform's real package
-repository at the time this was written — if a name has since changed,
-your package manager's search will find the current one.)
+QuickLogger does **not** need `unzip`, `mkdir`, or any other command-line
+tool to do its normal work — archive extraction and file handling are done
+inside the program.
 
-### Runtime-only prerequisite (optional): `lrzsz`
+### Optional: `lrzsz` (ZMODEM file transfer)
 
 The net-log/database-slice export and import features can push and pull
 files over the terminal connection using the ZMODEM protocol, via the
-`sz`/`rz` command-line tools (the `lrzsz` package). This is **not** a
-build-time dependency — it's only needed on `PATH` at runtime, and only
-for that one feature. If it's missing, QuickLogger still runs fine; it
-just skips the ZMODEM offer and tells you so.
+`sz`/`rz` command-line tools (the `lrzsz` package). It's needed on `PATH`
+only on the machine running QuickLogger, only for that one feature, and only
+where someone is connected through a ZMODEM-capable terminal (typically over
+SSH). If it's missing, QuickLogger still runs fine; it just skips the ZMODEM
+offer and tells you so.
 
 - macOS: `brew install lrzsz`
 - Debian/Ubuntu: `sudo apt install lrzsz`
 - Fedora: `sudo dnf install lrzsz`
-- FreeBSD: `pkg install lrzsz`
+- FreeBSD: `sudo pkg install lrzsz`
+- Windows: not supported
 
-## Building
-
-```
-git clone <this repo>
-cd QuickLogger
-cmake -S . -B build
-cmake --build build -j
-```
-
-The resulting binary is `build/QuickLogger`.
-
-## Running locally
+## Starting it
 
 ```
 ./QuickLogger
 ```
 
+(On Windows: `QuickLogger.exe`.)
+
 On first run, you'll be taken straight to Settings to set your callsign
 and home ZIP code (required before anything else is usable). After that,
-you land on the Recurring Nets list.
+you land on the Recurring Nets list. The FCC database import starts by
+itself in the background the first time (and about weekly after that); it
+takes a minute or two, the rest of the app stays usable meanwhile, and
+QuickLogger won't quit until it has finished.
+
+### Files it creates
 
 QuickLogger creates and uses these files/directories, all as siblings of
 wherever you launch it from (not tied to your current shell's directory
@@ -100,11 +110,144 @@ beyond that):
 - `uls_cache/` — a cache for the FCC ULS station-database import
 - `ssh_host_ed25519_key` — the SSH server's host key (see below)
 
+### Running on Windows
+
+The Windows build is a **console-only** program: everything works in a
+local terminal window, but there is no built-in SSH server (it depends on
+`fork()` and pseudo-terminals, which Windows doesn't have), no ZMODEM, and
+`--headless`, `--ssh-port` and `--no-ssh` don't apply. To host a shared
+instance that other operators SSH into, run QuickLogger on a macOS, Linux or
+FreeBSD machine — or, on a Windows machine, in WSL2, where the Linux build
+should behave like any other Linux system.
+
+---
+
+# Building QuickLogger
+
+## What you need to build it
+
+- **A C++17 compiler** with `std::filesystem` — GCC 9+, Clang 9+ or MSVC
+  2019+. (Verified with Clang; GCC hasn't been tried.)
+- **CMake 3.16 or newer.**
+- **git, and network access on the first build** — CMake downloads and builds
+  FTXUI (the terminal UI library) itself, so there's nothing to install for
+  it. See [Building offline](#building-offline) if you can't.
+- **Development files** (headers + libraries) for:
+  - **SQLite 3** (3.24+)
+  - **libcurl**
+  - **zlib**
+  - **libssh** — only for builds with the SSH server (everything but
+    Windows). This is `libssh`, not `libssh2`; they're unrelated projects and
+    only `libssh` has server support.
+
+CMake will stop with a clear "not found" error naming whichever of these is
+missing.
+
+### macOS
+
+Install the Xcode command line tools (`xcode-select --install`), which
+provide the compiler and git, then:
+
+```
+brew install cmake libssh
+```
+
+SQLite, libcurl and zlib come with macOS, so there's nothing else to install.
+
+### Debian / Ubuntu
+
+```
+sudo apt install build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev
+```
+
+### Fedora
+
+```
+sudo dnf install gcc-c++ cmake git sqlite-devel libcurl-devel zlib-devel libssh-devel
+```
+
+### FreeBSD
+
+The compiler (clang) and zlib are part of the base system.
+
+```
+sudo pkg install cmake git sqlite3 curl libssh
+```
+
+### Windows (console-only build)
+
+Either toolchain works; both need [Git](https://git-scm.com/download/win).
+
+**Visual Studio 2019 or newer, with [vcpkg](https://vcpkg.io):**
+
+```
+vcpkg install sqlite3 curl zlib --triplet x64-windows
+```
+
+**MSYS2** (UCRT64 shell):
+
+```
+pacman -S --needed git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-sqlite3 mingw-w64-ucrt-x86_64-curl mingw-w64-ucrt-x86_64-zlib
+```
+
+libssh isn't needed: the SSH server is switched off by default on Windows.
+
+## Build steps
+
+macOS, Linux, FreeBSD (and MSYS2, from its UCRT64 shell):
+
+```
+git clone <this repo>
+cd QuickLogger
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
+
+The resulting binary is `build/QuickLogger`.
+
+Windows with Visual Studio and vcpkg (from a Developer Command Prompt):
+
+```
+git clone <this repo>
+cd QuickLogger
+cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake
+cmake --build build --config Release
+```
+
+The resulting binary is `build\Release\QuickLogger.exe`.
+
+### Build options
+
+| Option | Default | Meaning |
+|---|---|---|
+| `-DQUICKLOGGER_ENABLE_SSH=OFF` | `ON` (`OFF` on Windows) | Leave out the built-in SSH server, and with it the libssh requirement. The result is a console-only QuickLogger. |
+| `-DCMAKE_BUILD_TYPE=Release` | none | Optimized build (recommended). Not used by Visual Studio; pass `--config Release` at build time instead. |
+| `-DFETCHCONTENT_SOURCE_DIR_FTXUI=<path>` | unset | Use a local FTXUI checkout instead of downloading one — see below. |
+
+If CMake can't find libssh even though it's installed, point it at the
+install with `-Dlibssh_DIR=<directory containing libssh-config.cmake>`; a
+plain `libssh.pc` (pkg-config) is used as a fallback if the CMake package
+is missing.
+
+### Building offline
+
+FTXUI v5.0.0 is downloaded from GitHub the first time you configure. To
+build without network access, clone [FTXUI](https://github.com/ArthurSonzogni/FTXUI)
+at tag `v5.0.0` somewhere ahead of time and pass its location:
+
+```
+cmake -S . -B build -DFETCHCONTENT_SOURCE_DIR_FTXUI=/path/to/FTXUI
+```
+
+---
+
 ## Built-in SSH server
 
 QuickLogger can accept SSH connections directly — `ssh <username>@host`
 drops you straight into the app, no separate login+launch step. This is
-**on by default**.
+**on by default** on macOS, Linux and FreeBSD. It isn't part of the Windows
+build (see [Running on Windows](#running-on-windows)), or of any build made
+with `-DQUICKLOGGER_ENABLE_SSH=OFF`; those are console-only.
 
 ### First-time setup: adding a user
 

@@ -1,24 +1,40 @@
 #include <curl/curl.h>
 
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <thread>
 
 #include "interactive_session.hpp"
+
+// The built-in SSH server is an optional part of the build (CMake option
+// QUICKLOGGER_ENABLE_SSH, off by default on Windows, where it can't work: it
+// is built on fork() and ptys).
+#ifdef QUICKLOGGER_WITH_SSH
 #include "ssh_server.hpp"
+#endif
 
 namespace
 {
 
     constexpr int kDefaultSshPort = 2222;
-    constexpr const char* kDbPath = "quicklogger.db";
+    // Only the SSH server takes the path as an argument (the interactive
+    // session opens "quicklogger.db" itself), hence unused without it.
+    [[maybe_unused]] constexpr const char* kDbPath = "quicklogger.db";
+
+#ifdef QUICKLOGGER_WITH_SSH
+    constexpr bool kSshCompiledIn = true;
+#else
+    constexpr bool kSshCompiledIn = false;
+#endif
 
     // Parsed once at startup; see the --ssh-port/--no-ssh/--headless doc
     // comments in README.md for what each one means to an operator.
     struct CliOptions
     {
-        bool ssh_enabled = true;
+        bool ssh_enabled = kSshCompiledIn;
         int ssh_port = kDefaultSshPort;
         bool headless = false;
     };
@@ -57,6 +73,7 @@ int main(int argc, char** argv)
 
     CliOptions options = ParseArgs(argc, argv);
 
+#ifdef QUICKLOGGER_WITH_SSH
     if (options.headless)
     {
         // No local console session, so nothing in this process ever opens
@@ -84,9 +101,20 @@ int main(int argc, char** argv)
     {
         ssh_listener_pid = ql::StartSshServerProcess(kDbPath, options.ssh_port);
     }
+#else
+    if (options.headless)
+    {
+        std::fprintf(stderr,
+                     "--headless needs the built-in SSH server, which this build of "
+                     "QuickLogger doesn't include.\n");
+        return 2;
+    }
+#endif
 
     ql::RunInteractiveSession("settings.txt", /*is_console_session=*/true);
 
+#ifdef QUICKLOGGER_WITH_SSH
     ql::StopSshServerProcess(ssh_listener_pid);
+#endif
     return 0;
 }

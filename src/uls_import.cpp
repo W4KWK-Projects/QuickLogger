@@ -14,9 +14,12 @@
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 
+#include "date_utils.hpp"
 #include "db/database.hpp"
+#include "file_export.hpp"
 #include "models.hpp"
 #include "ui/app_state.hpp"
+#include "zip_extract.hpp"
 
 namespace ql
 {
@@ -122,9 +125,7 @@ namespace ql
         {
             return "";
         }
-        std::time_t time_value = static_cast<std::time_t>(unix_time);
-        std::tm local_time{};
-        localtime_r(&time_value, &local_time);
+        std::tm local_time = LocalTime(static_cast<std::time_t>(unix_time));
         char buffer[32];
         std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M %p", &local_time);
         return std::string(buffer);
@@ -207,12 +208,9 @@ namespace ql
     static bool ExtractUlsZip(const std::string& cache_dir, const std::string& zip_path,
                               std::string* error)
     {
-        std::string command = "unzip -o -j \"" + zip_path + "\" HD.dat EN.dat AM.dat -d \"" +
-                              cache_dir + "\" > /dev/null 2>&1";
-        int result = std::system(command.c_str());
-        if (result != 0)
+        if (!ExtractZipEntries(zip_path, cache_dir, {"HD.dat", "EN.dat", "AM.dat"}, error))
         {
-            *error = "Failed to extract the FCC ULS archive.";
+            *error = "Failed to extract the FCC ULS archive: " + *error;
             return false;
         }
         for (const char* name : {"HD.dat", "EN.dat", "AM.dat"})
@@ -463,11 +461,9 @@ namespace ql
             return false;
         }
 
-        std::string command =
-            "unzip -o -j \"" + zip_path + "\" -d \"" + cache_dir + "\" > /dev/null 2>&1";
-        if (std::system(command.c_str()) != 0)
+        if (!ExtractZipEntries(zip_path, cache_dir, {kZipGazetteerFileName}, error))
         {
-            *error = "Failed to extract the ZIP gazetteer archive.";
+            *error = "Failed to extract the ZIP gazetteer archive: " + *error;
             return false;
         }
 
@@ -637,7 +633,7 @@ namespace ql
         void operator()() const
         {
             std::string cache_dir = UlsCacheDir(db_path_);
-            std::system(("mkdir -p \"" + cache_dir + "\"").c_str());
+            EnsureDirectory(cache_dir);
             std::string zip_path = cache_dir + "/l_amat.zip";
             std::int64_t started_at = static_cast<std::int64_t>(std::time(nullptr));
             std::string error;
