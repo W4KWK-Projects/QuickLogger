@@ -338,6 +338,35 @@ doesn't pick the wrong one:
 ssh -i ~/.ssh/id_ed25519 -p 2222 <username>@<host>
 ```
 
+### Slow or metered connections: turn on compression
+
+QuickLogger redraws the whole screen whenever anything changes — every
+keypress, and once a minute for the clock in the top bar. Uncompressed, one
+redraw is about 3 KB on an 80×24 terminal (most of it blank space and border
+characters), which is fine on a LAN but adds up over a slow, metered or
+radio-linked connection.
+
+Ask your SSH client to compress the session and that drops to roughly 0.2 KB
+per redraw — over 90% less. No server setup is needed. It's off by default in
+OpenSSH, so opt in with `-C`:
+
+```
+ssh -C -p 2222 <username>@<host>
+```
+
+or once and for all in `~/.ssh/config`:
+
+```
+Host quicklogger
+    HostName <host>
+    Port 2222
+    User <username>
+    Compression yes
+```
+
+after which `ssh quicklogger` is all you type. Most other SSH clients have an
+equivalent "enable compression" setting.
+
 ### Why Manage Users is console-only
 
 Adding/removing SSH users is deliberately only reachable from whoever is
