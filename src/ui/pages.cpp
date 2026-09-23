@@ -187,10 +187,10 @@ namespace ql
             {
                 rows.push_back(ftxui::text("Ready to receive a file into imports/."));
                 rows.push_back(ftxui::text(""));
+                rows.push_back(ftxui::text("Press Enter now to start listening, THEN start"));
                 rows.push_back(
-                    ftxui::text("In your terminal client, start sending (uploading) the file"));
-                rows.push_back(ftxui::text("now, then press Enter to start listening. Gives up"));
-                rows.push_back(ftxui::text("after about 25s if nothing arrives."));
+                    ftxui::text("sending (uploading) the file from your terminal client."));
+                rows.push_back(ftxui::text("Gives up after about 25s if nothing arrives."));
                 rows.push_back(ftxui::separator());
                 rows.push_back(KeyHintRow({{"F2/Enter", "Receive"}, {"Esc", "Cancel"}}));
             }
