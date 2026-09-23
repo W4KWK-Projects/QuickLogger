@@ -261,9 +261,12 @@ namespace ql
         AppState* state_;
     };
 
-    // F6 on the active-net page (no modal open): writes the currently open
+    // F7 on the active-net page (no modal open): writes the currently open
     // instance's check-ins to a plain text file under exports/ (see
-    // ExportNetLog).
+    // ExportNetLog). F7 is the shared "Export" key across every page that
+    // offers one (active-net, net-history, edit-net) -- keep new export
+    // entry points on F7 too, rather than picking whatever's free on that
+    // page, so the shortcut doesn't shift around from screen to screen.
     class ExportActiveNetLogHandler
     {
     public:
@@ -389,8 +392,10 @@ namespace ql
         AppState* state_;
     };
 
-    // F2 on the net history page: writes the highlighted net instance's
-    // check-ins to a plain text file under exports/ (see ExportNetLog).
+    // F7 on the net history page: writes the highlighted net instance's
+    // check-ins to a plain text file under exports/ (see ExportNetLog) --
+    // F7 is the shared "Export" key across every page that offers one, see
+    // ExportActiveNetLogHandler's comment.
     class ExportNetHistoryLogHandler
     {
     public:
@@ -402,7 +407,7 @@ namespace ql
         AppState* state_;
     };
 
-    // Global key handling for the net history page: Escape Back, F2 Export
+    // Global key handling for the net history page: Escape Back, F7 Export
     // Log, F5 Delete.
     class NetHistoryKeyHandler
     {
@@ -484,7 +489,9 @@ namespace ql
     };
 
     // F7 on the edit-net page: writes this net's whole saved-station list to
-    // a plain text file under exports/ (see ExportSavedStations).
+    // a plain text file under exports/ (see ExportSavedStations). F7 is the
+    // shared "Export" key across every page that offers one, see
+    // ExportActiveNetLogHandler's comment.
     class ExportSavedStationsHandler
     {
     public:
@@ -588,7 +595,7 @@ namespace ql
 
     // Global key handling for the edit-net page: F2 Save Net, F3 Save Station,
     // F4 Remove Station (unsave from this net), F5 Delete Station (purge
-    // entirely), Escape Back.
+    // entirely), F6 Add Station, F7 Export Stations, Escape Back.
     class EditNetKeyHandler
     {
     public:
@@ -651,9 +658,10 @@ namespace ql
     };
 
     // Global key handling for the active-net page. With no modal open: F2 New
-    // Station, F3 Edit Check-In, F4 Close/Save Net, F5 Remove Check-In. With
-    // the New Station modal open: F2 logs and continues, Escape closes. With
-    // the Edit Check-in modal open: F2 saves, Escape cancels.
+    // Station, F3 Edit Check-In, F4 Close/Save Net, F5 Remove Check-In, F7
+    // Export Log. With the New Station modal open: F2 logs and continues,
+    // Escape closes. With the Edit Check-in modal open: F2 saves, Escape
+    // cancels.
     class ActiveNetKeyHandler
     {
     public:

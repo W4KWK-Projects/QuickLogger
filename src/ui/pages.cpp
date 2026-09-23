@@ -435,7 +435,7 @@ namespace ql
             {
                 hints = {
                     {"F2", "New Station"},     {"F3", "Edit Check-In"}, {"F4", "Close/Save Net"},
-                    {"F5", "Delete Check-In"}, {"F6", "Export Log"},
+                    {"F5", "Delete Check-In"}, {"F7", "Export Log"},
                 };
             }
             return PageChrome(page_title, content, hints);
@@ -898,7 +898,7 @@ namespace ql
             });
 
             return PageChrome("History: " + net_name, content,
-                              {{"F2", "Export"}, {"F5", "Delete Instance"}, {"Esc", "Back"}});
+                              {{"F7", "Export"}, {"F5", "Delete Instance"}, {"Esc", "Back"}});
         }
 
     private:

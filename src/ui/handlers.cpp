@@ -226,7 +226,7 @@ namespace ql
             back();
             return true;
         }
-        if (event == ftxui::Event::F2)
+        if (event == ftxui::Event::F7)
         {
             ExportNetHistoryLogHandler export_log(state_);
             export_log();
@@ -707,7 +707,7 @@ namespace ql
             remove_selected();
             return true;
         }
-        if (event == ftxui::Event::F6 && !modal_open)
+        if (event == ftxui::Event::F7 && !modal_open)
         {
             ExportActiveNetLogHandler export_log(state_);
             export_log();
