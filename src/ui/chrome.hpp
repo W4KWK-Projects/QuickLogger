@@ -23,7 +23,8 @@ namespace ql
     ftxui::Element KeyHintRow(const std::vector<KeyHint>& hints);
 
     // A full-width colored title bar for the top of a page, naming the app and
-    // the page currently shown.
+    // the page currently shown, with the local time (to the minute) at the
+    // right end.
     ftxui::Element TopBar(const std::string& page_title);
 
     // A full-width colored legend bar for the bottom of a page. Packs as many

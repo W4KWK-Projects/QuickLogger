@@ -1,6 +1,10 @@
 #include "chrome.hpp"
 
+#include <ctime>
+
 #include <ftxui/screen/terminal.hpp>
+
+#include "../date_utils.hpp"
 
 namespace ql
 {
@@ -64,6 +68,10 @@ namespace ql
                    ftxui::text(" QuickLogger ") | ftxui::bold,
                    ftxui::text("— " + page_title + " "),
                    ftxui::filler(),
+                   // Local time, to the minute. It's computed each time the bar is
+                   // drawn; ClockTicker (interactive_session.cpp) is what makes a
+                   // redraw happen when the minute changes.
+                   ftxui::text(FormatLocalTimeOfDay(std::time(nullptr)) + " "),
                }) |
                ftxui::bgcolor(ftxui::Color::Blue) | ftxui::color(ftxui::Color::White);
     }

@@ -1,6 +1,11 @@
 #include "interactive_session.hpp"
 
+#include <chrono>
+#include <condition_variable>
+#include <cstdint>
 #include <ctime>
+#include <mutex>
+#include <thread>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
@@ -14,6 +19,95 @@
 
 namespace ql
 {
+
+    // Makes the top bar's clock advance, using as little terminal traffic as
+    // possible. FTXUI only redraws in response to an event, so on an idle
+    // screen the clock would freeze at whatever minute the last keypress
+    // happened in. This thread posts one redraw event when the minute
+    // changes -- one screen update per minute, and nothing in between (an
+    // SSH session pays for every redraw in bytes on the wire).
+    //
+    // It sleeps until the next minute boundary, but never for more than
+    // kMaxSleep at a stretch, and only posts if the minute really did change
+    // when it wakes. The cap costs no traffic (waking up sends nothing); it
+    // means a system clock that was stepped or a machine that was suspended
+    // -- when a long sleep can overrun the boundary -- is noticed within
+    // kMaxSleep instead of up to a minute later. Construct it after the
+    // screen and before screen.Loop(); it stops and joins on destruction.
+    class ClockTicker
+    {
+    public:
+        explicit ClockTicker(ftxui::ScreenInteractive* screen)
+            : screen_(screen), thread_(&ClockTicker::Run, this)
+        {
+        }
+
+        ~ClockTicker()
+        {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                stop_ = true;
+            }
+            wake_.notify_all();
+            thread_.join();
+        }
+
+        ClockTicker(const ClockTicker&) = delete;
+        ClockTicker& operator=(const ClockTicker&) = delete;
+
+    private:
+        static std::int64_t CurrentMinute()
+        {
+            return static_cast<std::int64_t>(std::time(nullptr)) / 60;
+        }
+
+        void Run()
+        {
+            std::int64_t drawn_minute = CurrentMinute();
+            while (true)
+            {
+                // Until just past the next minute boundary (the margin keeps
+                // a wake-up that lands a hair early from spinning), or the
+                // cap, whichever comes first.
+                std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
+                std::chrono::system_clock::time_point next_minute =
+                    std::chrono::floor<std::chrono::minutes>(now) + std::chrono::minutes(1);
+                std::chrono::system_clock::duration wait_time =
+                    next_minute - now + std::chrono::milliseconds(200);
+                if (wait_time > kMaxSleep)
+                {
+                    wait_time = kMaxSleep;
+                }
+                {
+                    std::unique_lock<std::mutex> lock(mutex_);
+                    if (stop_)
+                    {
+                        return;
+                    }
+                    wake_.wait_for(lock, wait_time);
+                    if (stop_)
+                    {
+                        return;
+                    }
+                }
+
+                std::int64_t minute = CurrentMinute();
+                if (minute != drawn_minute)
+                {
+                    drawn_minute = minute;
+                    screen_->PostEvent(ftxui::Event::Custom);
+                }
+            }
+        }
+
+        static constexpr std::chrono::seconds kMaxSleep{30};
+
+        ftxui::ScreenInteractive* screen_;
+        std::mutex mutex_;
+        std::condition_variable wake_;
+        bool stop_ = false;
+        std::thread thread_;
+    };
 
     void RunInteractiveSession(const std::string& settings_path, bool is_console_session)
     {
@@ -99,6 +193,10 @@ namespace ql
         // background ULS import thread -- is mid-transaction) taking down the
         // whole session.
         ftxui::Component ui = ftxui::Make<ql::SafeAppEventDispatcher>(tab, &state);
+
+        // Declared after `screen` so it is stopped and joined before `screen`
+        // is destroyed.
+        ClockTicker clock_ticker(&screen);
 
         screen.Loop(ui);
     }

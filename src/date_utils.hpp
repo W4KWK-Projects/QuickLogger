@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <ctime>
 #include <string>
 
@@ -14,5 +15,11 @@ namespace ql
     // (with its arguments in the opposite order), and plain std::localtime
     // returns a pointer into a shared static buffer.
     std::tm LocalTime(std::time_t time_value);
+
+    // The local time of day of a Unix timestamp as "03:42 PM", in the same
+    // 12-hour style as the other timestamps shown around the app. Returns an
+    // empty string for a timestamp of 0 or less, which is how "not recorded"
+    // is stored (see NetInstance::started_at).
+    std::string FormatLocalTimeOfDay(std::int64_t unix_time);
 
 }  // namespace ql

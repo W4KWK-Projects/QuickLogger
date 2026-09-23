@@ -82,6 +82,10 @@ namespace ql
         std::string location;    // Overrides Net::default_location when set.
         NetInstanceStatus status = NetInstanceStatus::kOpen;
         std::int64_t closed_at = 0;  // Unix timestamp; 0 while still open.
+        // Unix timestamp of the moment the net was started (the date half of
+        // that moment is instance_date). 0 for a net logged before start
+        // times were recorded -- shown as blank, never guessed at.
+        std::int64_t started_at = 0;
         // Which of the three role-callsign fields above the operator claimed
         // when starting this net (kRoleNetControl/kRoleAlternateNetControl/
         // kRoleLogger). A check-in can be designated as one of the *other*

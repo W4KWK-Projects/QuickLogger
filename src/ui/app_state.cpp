@@ -59,6 +59,9 @@ namespace ql
     static constexpr int kMemberIdColumnWidth = 10;
     static constexpr int kCountyColumnWidth = 14;
     static constexpr int kDateColumnWidth = 12;
+    // "03:42 PM" -- the net's start time, right after its date. Blank for a
+    // net logged before start times were recorded.
+    static constexpr int kStartTimeColumnWidth = 8;
     // Sized to fit the longest header label that lands in each of these
     // columns ("Alternate NC", 12 chars) plus a little padding -- the row
     // shows the bare callsign, no "NC:"/"Alt:"/"Log:" prefix, since the
@@ -80,12 +83,14 @@ namespace ql
     {
         const char* status = instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed";
         char buffer[256];
-        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %s", kDateColumnWidth,
-                      kDateColumnWidth, instance.instance_date.c_str(), kNetControlColumnWidth,
-                      kNetControlColumnWidth, instance.net_control_callsign.c_str(),
-                      kAlternateNcColumnWidth, kAlternateNcColumnWidth,
-                      instance.alternate_net_control_callsign.c_str(), kLoggerColumnWidth,
-                      kLoggerColumnWidth, instance.logger_callsign.c_str(), status);
+        std::string start_time = FormatLocalTimeOfDay(instance.started_at);
+        std::snprintf(
+            buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s", kDateColumnWidth,
+            kDateColumnWidth, instance.instance_date.c_str(), kStartTimeColumnWidth,
+            kStartTimeColumnWidth, start_time.c_str(), kNetControlColumnWidth,
+            kNetControlColumnWidth, instance.net_control_callsign.c_str(), kAlternateNcColumnWidth,
+            kAlternateNcColumnWidth, instance.alternate_net_control_callsign.c_str(),
+            kLoggerColumnWidth, kLoggerColumnWidth, instance.logger_callsign.c_str(), status);
         return std::string(buffer);
     }
 
@@ -93,10 +98,12 @@ namespace ql
     {
         // Same field widths as FormatNetInstanceRow.
         char buffer[256];
-        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %s", kDateColumnWidth,
-                      kDateColumnWidth, "Date", kNetControlColumnWidth, kNetControlColumnWidth,
-                      "Net Control", kAlternateNcColumnWidth, kAlternateNcColumnWidth,
-                      "Alternate NC", kLoggerColumnWidth, kLoggerColumnWidth, "Logger", "Status");
+        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
+                      kDateColumnWidth, kDateColumnWidth, "Date", kStartTimeColumnWidth,
+                      kStartTimeColumnWidth, "Start", kNetControlColumnWidth,
+                      kNetControlColumnWidth, "Net Control", kAlternateNcColumnWidth,
+                      kAlternateNcColumnWidth, "Alternate NC", kLoggerColumnWidth,
+                      kLoggerColumnWidth, "Logger", "Status");
         return std::string(kMenuEntryIndicatorWidth, ' ') + buffer;
     }
 
@@ -805,6 +812,10 @@ namespace ql
         std::vector<std::string> lines;
         lines.push_back("Net: " + net_name);
         lines.push_back("Date: " + instance.instance_date);
+        if (instance.started_at > 0)
+        {
+            lines.push_back("Start Time: " + FormatLocalTimeOfDay(instance.started_at));
+        }
         lines.push_back("Net Control: " + instance.net_control_callsign);
         lines.push_back("Alternate NC: " + instance.alternate_net_control_callsign);
         lines.push_back("Logger: " + instance.logger_callsign);

@@ -609,6 +609,7 @@ namespace ql
         NetInstance instance;
         instance.net_id = net.id;
         instance.instance_date = CurrentDateIso8601();
+        instance.started_at = static_cast<std::int64_t>(std::time(nullptr));
         // "Created By" reflects who is running the software (from Settings),
         // which may differ from whichever role-callsign is entered below --
         // falling back to that role-callsign if Settings hasn't been set up yet.

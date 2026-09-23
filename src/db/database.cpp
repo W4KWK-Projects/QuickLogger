@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS net_instances (
     location TEXT NOT NULL DEFAULT '',
     status INTEGER NOT NULL DEFAULT 0,
     closed_at INTEGER NOT NULL DEFAULT 0,
-    operator_role INTEGER NOT NULL DEFAULT 0
+    operator_role INTEGER NOT NULL DEFAULT 0,
+    started_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_net_instances_net ON net_instances(net_id);
 
@@ -193,6 +194,7 @@ CREATE TABLE IF NOT EXISTS users (
         instance.status = static_cast<NetInstanceStatus>(row.ColumnInt64(9));
         instance.closed_at = row.ColumnInt64(10);
         instance.operator_role = static_cast<int>(row.ColumnInt64(11));
+        instance.started_at = row.ColumnInt64(12);
         return instance;
     }
 
@@ -270,6 +272,7 @@ CREATE TABLE IF NOT EXISTS users (
         EnsureColumnExists(db_, "net_saved_stations", "default_remarks",
                            "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(db_, "net_instances", "operator_role", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(db_, "net_instances", "started_at", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(db_, "check_ins", "designated_role", "INTEGER NOT NULL DEFAULT -1");
 
         // One-time migration for databases created before ULS import moved
@@ -634,8 +637,8 @@ CREATE TABLE IF NOT EXISTS users (
         INSERT INTO net_instances
             (net_id, instance_date, net_control_callsign,
              alternate_net_control_callsign, logger_callsign, created_by,
-             frequency, location, status, closed_at, operator_role)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?);
+             frequency, location, status, closed_at, operator_role, started_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?);
     )sql");
         statement.BindInt64(0, instance.net_id);
         statement.BindText(1, instance.instance_date);
@@ -648,6 +651,7 @@ CREATE TABLE IF NOT EXISTS users (
         statement.BindInt64(8, static_cast<std::int64_t>(instance.status));
         statement.BindInt64(9, instance.closed_at);
         statement.BindInt64(10, instance.operator_role);
+        statement.BindInt64(11, instance.started_at);
         statement.Step();
         return sqlite3_last_insert_rowid(db_);
     }
@@ -657,8 +661,9 @@ CREATE TABLE IF NOT EXISTS users (
         Statement statement(db_, R"sql(
         SELECT id, net_id, instance_date, net_control_callsign,
                alternate_net_control_callsign, logger_callsign, created_by,
-               frequency, location, status, closed_at, operator_role
-        FROM net_instances WHERE net_id = ? ORDER BY instance_date DESC;
+               frequency, location, status, closed_at, operator_role, started_at
+        FROM net_instances WHERE net_id = ?
+        ORDER BY instance_date DESC, started_at DESC, id DESC;
     )sql");
         statement.BindInt64(0, net_id);
         std::vector<NetInstance> instances;
@@ -674,7 +679,7 @@ CREATE TABLE IF NOT EXISTS users (
         Statement statement(db_, R"sql(
         SELECT id, net_id, instance_date, net_control_callsign,
                alternate_net_control_callsign, logger_callsign, created_by,
-               frequency, location, status, closed_at, operator_role
+               frequency, location, status, closed_at, operator_role, started_at
         FROM net_instances WHERE id = ?;
     )sql");
         statement.BindInt64(0, instance_id);

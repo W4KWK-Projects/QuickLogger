@@ -6,6 +6,7 @@
 #include <ftxui/component/component_options.hpp>
 #include <ftxui/dom/elements.hpp>
 
+#include "../date_utils.hpp"
 #include "chrome.hpp"
 #include "handlers.hpp"
 
@@ -459,10 +460,17 @@ namespace ql
                     ? ftxui::text("No check-ins yet.") | ftxui::dim
                     : check_in_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
 
+            // The date the net was started, with the time of day next to it.
+            std::string started = state_->active_instance.instance_date;
+            std::string start_time = FormatLocalTimeOfDay(state_->active_instance.started_at);
+            if (!start_time.empty())
+            {
+                started += "  " + start_time;
+            }
+
             ftxui::Element info_line = ftxui::hbox({
                 ftxui::text("Date: ") | ftxui::dim,
-                ftxui::text(state_->active_instance.instance_date) |
-                    ftxui::color(ftxui::Color::Cyan),
+                ftxui::text(started) | ftxui::color(ftxui::Color::Cyan),
                 ftxui::text("   Role: ") | ftxui::dim,
                 ftxui::text(role_label) | ftxui::color(ftxui::Color::Magenta),
                 ftxui::text("   Callsign: ") | ftxui::dim,
