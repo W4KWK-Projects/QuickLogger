@@ -655,13 +655,14 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Element content = ftxui::vbox({
-                ftxui::hbox({FieldLabel("My Callsign:  "), input_callsign_->Render()}),
-                ftxui::hbox({FieldLabel("My ZIP Code:  "), input_location_->Render()}),
+                ftxui::hbox({FieldLabel("My Callsign*: "), input_callsign_->Render()}),
+                ftxui::hbox({FieldLabel("My ZIP Code*: "), input_location_->Render()}),
                 ftxui::hbox({FieldLabel("QRZ Username: "), input_qrz_username_->Render()}),
                 ftxui::hbox({FieldLabel("QRZ Password: "), input_qrz_password_->Render()}),
+                ftxui::text("* Required") | ftxui::dim,
                 ftxui::separator(),
-                ftxui::text("My ZIP Code is used to find nearby ULS stations when saving a "
-                            "station to a net.") |
+                ftxui::text("My ZIP Code is a plain 5-digit US ZIP code (digits only), used to "
+                            "find nearby ULS stations when saving a station to a net.") |
                     ftxui::dim,
                 ftxui::text(
                     "QRZ credentials are optional; used later for looking up station info.") |
@@ -690,8 +691,10 @@ namespace ql
         callsign_option.on_change = UppercaseFieldHandler(&state->settings_form.callsign);
         ftxui::Component input_callsign =
             ftxui::Input(&state->settings_form.callsign, "Your callsign", callsign_option);
+        ftxui::InputOption location_option = SingleLineInputOption();
+        location_option.on_change = ZipCodeFieldHandler(&state->settings_form.location);
         ftxui::Component input_location =
-            ftxui::Input(&state->settings_form.location, "e.g. 27601", SingleLineInputOption());
+            ftxui::Input(&state->settings_form.location, "5-digit ZIP", location_option);
         ftxui::Component input_qrz_username =
             ftxui::Input(&state->settings_form.qrz_username, "Optional", SingleLineInputOption());
 

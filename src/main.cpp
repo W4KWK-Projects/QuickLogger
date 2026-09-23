@@ -27,6 +27,19 @@ int main()
     state.screen = &screen;
     state.settings_path = "settings.txt";
     state.settings = ql::LoadSettings(state.settings_path);
+
+    // First launch (or an upgrade from before the ZIP code became required):
+    // force the operator through Settings before anything else. Mirrors
+    // ShowSettingsPageHandler's own state setup since that handler isn't
+    // reachable yet -- there's no net list to press F4 from until this is
+    // done. CancelSettingsHandler refuses to leave kPageSettings while
+    // SettingsAreComplete is still false, so Esc can't bypass this.
+    if (!ql::SettingsAreComplete(state.settings))
+    {
+        state.settings_form = state.settings;
+        state.page = ql::kPageSettings;
+    }
+
     ql::RefreshNets(&state);
 
     // Kick off a fresh FCC ULS import automatically if one has never run,

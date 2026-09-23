@@ -29,4 +29,12 @@ namespace ql
     // Writes `settings` to `path`, overwriting anything already there.
     void SaveSettings(const std::string& path, const AppSettings& settings);
 
+    // True if `settings` has every field QuickLogger requires before the
+    // operator can use the rest of the app: a callsign and a well-formed
+    // 5-digit home ZIP code (AppSettings::location -- needed for the
+    // saved-station form's ULS proximity autocomplete). QRZ credentials stay
+    // optional. Checked at startup to force a first-run trip to Settings,
+    // and again before letting Settings be left without saving.
+    bool SettingsAreComplete(const AppSettings& settings);
+
 }  // namespace ql

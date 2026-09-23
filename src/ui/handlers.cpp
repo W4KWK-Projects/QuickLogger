@@ -1,5 +1,6 @@
 #include "handlers.hpp"
 
+#include <cctype>
 #include <ctime>
 
 #include "../date_utils.hpp"
@@ -11,6 +12,23 @@ namespace ql
     void UppercaseFieldHandler::operator()() const
     {
         *field_ = ToUpperAscii(*field_);
+    }
+
+    void ZipCodeFieldHandler::operator()() const
+    {
+        std::string digits_only;
+        for (char c : *field_)
+        {
+            if (std::isdigit(static_cast<unsigned char>(c)))
+            {
+                digits_only.push_back(c);
+            }
+        }
+        if (digits_only.size() > 5)
+        {
+            digits_only.resize(5);
+        }
+        *field_ = digits_only;
     }
 
     void ShowCreateNetPageHandler::operator()() const
@@ -594,6 +612,11 @@ namespace ql
             state_->form_error = "Your callsign is required.";
             return;
         }
+        if (state_->settings_form.location.size() != 5)
+        {
+            state_->form_error = "Your ZIP code is required and must be 5 digits.";
+            return;
+        }
 
         SaveSettings(state_->settings_path, state_->settings_form);
         state_->settings = state_->settings_form;
@@ -603,6 +626,14 @@ namespace ql
 
     void CancelSettingsHandler::operator()() const
     {
+        // Settings aren't optional on first launch: refuse to leave until a
+        // callsign and ZIP code are on file, same requirement F2/Save
+        // enforces above, so Esc can't be used to bypass it.
+        if (!SettingsAreComplete(state_->settings))
+        {
+            state_->form_error = "Please enter your callsign and ZIP code before continuing.";
+            return;
+        }
         state_->form_error.clear();
         state_->page = kPageNetList;
     }

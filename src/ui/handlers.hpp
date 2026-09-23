@@ -25,6 +25,23 @@ namespace ql
         std::string* field_;
     };
 
+    // An Input's on_change for a ZIP code field: strips any non-digit
+    // character and truncates to 5 digits as the operator types, so the
+    // field can never hold anything but a plain 5-digit ZIP (or a shorter
+    // in-progress prefix of one) -- e.g. pasting "27601-1234" reads back as
+    // "27601" immediately. Same rationale as UppercaseFieldHandler for
+    // taking the field directly rather than an AppState*.
+    class ZipCodeFieldHandler
+    {
+    public:
+        explicit ZipCodeFieldHandler(std::string* field) : field_(field) {}
+
+        void operator()() const;
+
+    private:
+        std::string* field_;
+    };
+
     // F2 on the net list page: clears the create-net form and switches to it.
     class ShowCreateNetPageHandler
     {

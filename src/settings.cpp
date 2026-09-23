@@ -1,9 +1,26 @@
 #include "settings.hpp"
 
+#include <cctype>
 #include <fstream>
 
 namespace ql
 {
+
+    static bool IsFiveDigitZip(const std::string& value)
+    {
+        if (value.size() != 5)
+        {
+            return false;
+        }
+        for (char c : value)
+        {
+            if (!std::isdigit(static_cast<unsigned char>(c)))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
 
     static std::string Trim(const std::string& value)
     {
@@ -66,6 +83,11 @@ namespace ql
         file << "qrz_username=" << settings.qrz_username << "\n";
         file << "qrz_password=" << settings.qrz_password << "\n";
         file << "location=" << settings.location << "\n";
+    }
+
+    bool SettingsAreComplete(const AppSettings& settings)
+    {
+        return !settings.callsign.empty() && IsFiveDigitZip(settings.location);
     }
 
 }  // namespace ql
