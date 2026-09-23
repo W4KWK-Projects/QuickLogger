@@ -260,6 +260,8 @@ namespace ql
             input_recurrence,
         });
 
+        state->new_net_name_input = input_name;
+
         return ftxui::Renderer(
             root, CreateNetRenderer(state, input_name, input_mode, input_frequency, input_location,
                                     input_recurrence));
@@ -782,6 +784,8 @@ namespace ql
             input_location,
         });
 
+        state->ad_hoc_net_name_input = input_name;
+
         return ftxui::Renderer(
             root, AdHocNetRenderer(state, input_name, input_mode, input_frequency, input_location));
     }
@@ -1017,6 +1021,9 @@ namespace ql
         }
 
         ftxui::Component root = ftxui::Container::Vertical(root_components);
+
+        state->edit_net_name_input = input_name;
+
         return ftxui::Renderer(
             root, EditNetRenderer(state, input_name, input_mode, input_frequency, input_location,
                                   input_recurrence, saved_station_menu, saved_station_inputs,

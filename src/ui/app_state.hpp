@@ -201,6 +201,25 @@ namespace ql
         // The saved-station callsign Input, so LoadSavedStationHandler can
         // TakeFocus() it after loading a row, jumping straight into editing.
         ftxui::Component saved_station_callsign_input;
+        // Name-field Inputs for the three "open a blank/repopulated form"
+        // pages below, so each page's Show*Handler can TakeFocus() the Name
+        // field every time the page is (re)opened. Without this, a
+        // Container::Vertical's remembered focused-child index survives
+        // across repeated visits (the component tree is built once in
+        // main() and reused, never rebuilt per visit -- same reason
+        // LoadSavedStationHandler above needs an explicit TakeFocus()), so
+        // opening the form a second time can silently start with focus left
+        // on whatever field was focused last time (e.g. Recurrence, if the
+        // operator tabbed there before saving) instead of Name. For Create
+        // Net and Ad Hoc Net specifically, that's not just an inconvenience:
+        // both forms start every field blank, so typing without noticing
+        // lands each keystroke run in the wrong field, one position off per
+        // repeat visit -- confirmed live by creating several nets in a row
+        // and finding Name/Mode/Frequency/Location/Recurrence rotated by an
+        // increasing offset in the saved rows.
+        ftxui::Component new_net_name_input;
+        ftxui::Component ad_hoc_net_name_input;
+        ftxui::Component edit_net_name_input;
         // The ZIP3 prefixes within geo_utils::kNearbyRadiusMiles of
         // AppState::settings.location, recomputed by RefreshNearbyZip3Prefixes
         // whenever the edit-net page opens or Settings is saved (not on every
