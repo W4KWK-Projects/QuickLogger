@@ -3,7 +3,6 @@
 #include <curl/curl.h>
 
 #include <cstdio>
-#include <cstdlib>
 #include <ctime>
 #include <fstream>
 #include <mutex>
@@ -540,9 +539,30 @@ namespace ql
     // registered there). Rather than a general fix (would need real
     // population-weighted data, e.g. HUD's USPS crosswalk, which requires
     // registration), corrected by hand as each is found.
-    static const std::unordered_map<std::string, std::string> kZipCountyOverrides = {
+    struct ZipCountyOverride
+    {
+        const char* zip;
+        const char* county;
+    };
+    // A plain constant array rather than a std::unordered_map, so there's
+    // nothing to construct (or fail to construct) at program startup; it's
+    // a handful of entries, searched once per ZIP during an import.
+    static constexpr ZipCountyOverride kZipCountyOverrides[] = {
         {"37419", "Hamilton"},
     };
+
+    // The hand-corrected county for `zip`, or nullptr if it has none.
+    static const char* ZipCountyOverrideFor(const std::string& zip)
+    {
+        for (const ZipCountyOverride& entry : kZipCountyOverrides)
+        {
+            if (zip == entry.zip)
+            {
+                return entry.county;
+            }
+        }
+        return nullptr;
+    }
 
     static bool FetchAndLoadZipCounties(const std::string& cache_dir, Database* db,
                                         std::string* error)
@@ -606,11 +626,9 @@ namespace ql
         {
             ZipCounty zip_county;
             zip_county.zip = entry.first;
-            std::unordered_map<std::string, std::string>::const_iterator override_it =
-                kZipCountyOverrides.find(entry.first);
-            zip_county.county = override_it != kZipCountyOverrides.end()
-                                    ? override_it->second
-                                    : StripCountySuffix(entry.second);
+            const char* override_county = ZipCountyOverrideFor(entry.first);
+            zip_county.county = override_county != nullptr ? std::string(override_county)
+                                                           : StripCountySuffix(entry.second);
             batch.push_back(zip_county);
         }
         db->BulkUpsertZipCounties(batch);
@@ -726,6 +744,7 @@ namespace ql
                     Database fallback_db(db_path_);
                     fallback_db.UpsertImportRunStatus(status);
                 }
+                // NOLINTNEXTLINE(bugprone-empty-catch): deliberately ignored, see below.
                 catch (const std::exception&)
                 {
                     // Nothing more we can do; the in-memory progress below
@@ -782,6 +801,7 @@ namespace ql
                 return;
             }
         }
+        // NOLINTNEXTLINE(bugprone-empty-catch): deliberately ignored, see below.
         catch (const std::exception&)
         {
             // Couldn't even check -- fall through and let the worker try its

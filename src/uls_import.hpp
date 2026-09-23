@@ -49,7 +49,7 @@ namespace ql
 
     // FCC republishes the ULS amateur database weekly; treat a completed
     // import older than this as due for a refresh.
-    constexpr std::int64_t kUlsStalenessThresholdSeconds = 7 * 24 * 60 * 60;
+    constexpr std::int64_t kUlsStalenessThresholdSeconds = std::int64_t{7} * 24 * 60 * 60;
 
     // No-op if progress->running is already true. Otherwise spawns a detached
     // background thread that downloads the current FCC ULS amateur database,

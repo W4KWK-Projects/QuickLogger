@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <string>
 #include <thread>
 
@@ -16,54 +17,59 @@
 #include "ssh_server.hpp"
 #endif
 
-namespace
-{
-
-    constexpr int kDefaultSshPort = 2222;
-    // Only the SSH server takes the path as an argument (the interactive
-    // session opens "quicklogger.db" itself), hence unused without it.
-    [[maybe_unused]] constexpr const char* kDbPath = "quicklogger.db";
+constexpr int kDefaultSshPort = 2222;
+// Only the SSH server takes the path as an argument (the interactive
+// session opens "quicklogger.db" itself), hence unused without it.
+[[maybe_unused]] constexpr const char* kDbPath = "quicklogger.db";
 
 #ifdef QUICKLOGGER_WITH_SSH
-    constexpr bool kSshCompiledIn = true;
+constexpr bool kSshCompiledIn = true;
 #else
-    constexpr bool kSshCompiledIn = false;
+constexpr bool kSshCompiledIn = false;
 #endif
 
-    // Parsed once at startup; see the --ssh-port/--no-ssh/--headless doc
-    // comments in README.md for what each one means to an operator.
-    struct CliOptions
-    {
-        bool ssh_enabled = kSshCompiledIn;
-        int ssh_port = kDefaultSshPort;
-        bool headless = false;
-    };
+// Parsed once at startup; see the --ssh-port/--no-ssh/--headless doc
+// comments in README.md for what each one means to an operator.
+struct CliOptions
+{
+    bool ssh_enabled = kSshCompiledIn;
+    int ssh_port = kDefaultSshPort;
+    bool headless = false;
+};
 
-    CliOptions ParseArgs(int argc, char** argv)
+static CliOptions ParseArgs(int argc, char** argv)
+{
+    CliOptions options;
+    for (int i = 1; i < argc; ++i)
     {
-        CliOptions options;
-        for (int i = 1; i < argc; ++i)
+        std::string arg = argv[i];
+        if (arg == "--no-ssh")
         {
-            std::string arg = argv[i];
-            if (arg == "--no-ssh")
+            options.ssh_enabled = false;
+        }
+        else if (arg == "--headless")
+        {
+            options.headless = true;
+        }
+        else if (arg.rfind("--ssh-port=", 0) == 0)
+        {
+            const char* value = arg.c_str() + std::strlen("--ssh-port=");
+            char* end = nullptr;
+            long port = std::strtol(value, &end, 10);
+            if (end == value || *end != '\0' || port < 1 || port > 65535)
             {
-                options.ssh_enabled = false;
+                std::fprintf(stderr, "Ignoring invalid --ssh-port value \"%s\".\n", value);
             }
-            else if (arg == "--headless")
+            else
             {
-                options.headless = true;
-            }
-            else if (arg.rfind("--ssh-port=", 0) == 0)
-            {
-                options.ssh_port = std::atoi(arg.c_str() + std::strlen("--ssh-port="));
+                options.ssh_port = static_cast<int>(port);
             }
         }
-        return options;
     }
+    return options;
+}
 
-}  // namespace
-
-int main(int argc, char** argv)
+static int RunQuickLogger(int argc, char** argv)
 {
     // Must happen before any thread (a background ULS import, or a forked
     // SSH session's own threads) could call into libcurl. Done before the
@@ -111,10 +117,41 @@ int main(int argc, char** argv)
     }
 #endif
 
-    ql::RunInteractiveSession("settings.txt", /*is_console_session=*/true);
+    // Anything thrown this far up (e.g. the database file can't be opened
+    // or created) ends the session; report it in plain words rather than
+    // letting std::terminate abort with a core dump.
+    int exit_code = 0;
+    try
+    {
+        ql::RunInteractiveSession("settings.txt", /*is_console_session=*/true);
+    }
+    catch (const std::exception& e)
+    {
+        std::fprintf(stderr, "QuickLogger stopped: %s\n", e.what());
+        exit_code = 1;
+    }
 
 #ifdef QUICKLOGGER_WITH_SSH
     ql::StopSshServerProcess(ssh_listener_pid);
 #endif
-    return 0;
+    return exit_code;
+}
+
+int main(int argc, char** argv)
+{
+    // Last-resort guard so nothing escapes main() (which would end in
+    // std::terminate and an abort instead of a readable message).
+    try
+    {
+        return RunQuickLogger(argc, argv);
+    }
+    catch (const std::exception& e)
+    {
+        std::fprintf(stderr, "QuickLogger stopped: %s\n", e.what());
+    }
+    catch (...)
+    {
+        std::fprintf(stderr, "QuickLogger stopped because of an unexpected error.\n");
+    }
+    return 1;
 }

@@ -3,7 +3,6 @@
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
-#include <cstring>
 #include <ctime>
 #include <optional>
 #include <sstream>
@@ -38,577 +37,565 @@
 namespace ql
 {
 
-    namespace
+    static std::string HostKeyPath()
     {
+        return "ssh_host_ed25519_key";
+    }
 
-        std::string HostKeyPath()
+    // Generates the host key on first run and locks its permissions
+    // down, or does nothing if one already exists. `ssh_bind_options_set`
+    // fails loudly (logged, listener never starts) if the resulting file
+    // is missing or unreadable, rather than this function trying to
+    // pre-validate its contents.
+    static bool EnsureHostKeyExists(const std::string& path)
+    {
+        struct stat existing{};
+        if (::stat(path.c_str(), &existing) == 0)
         {
-            return "ssh_host_ed25519_key";
+            return true;
         }
 
-        // Generates the host key on first run and locks its permissions
-        // down, or does nothing if one already exists. `ssh_bind_options_set`
-        // fails loudly (logged, listener never starts) if the resulting file
-        // is missing or unreadable, rather than this function trying to
-        // pre-validate its contents.
-        bool EnsureHostKeyExists(const std::string& path)
-        {
-            struct stat existing;
-            if (::stat(path.c_str(), &existing) == 0)
-            {
-                return true;
-            }
-
-            ssh_key key = nullptr;
-            // The `parameter` argument only matters for variable-size key
-            // types (e.g. RSA bit length); ed25519 keys are a fixed size, so
-            // it's unused here.
-            //
-            // ssh_pki_generate is deprecated in newer libssh in favor of
-            // ssh_pki_generate_key(type, ssh_pki_ctx, ...), but that
-            // replacement is a newer addition (introduced alongside FIDO2/
-            // security-key support) that may not exist in the libssh
-            // version an older distro/OS release ships -- deliberately kept
-            // on the older, universally-available function for broad
-            // Mac/FreeBSD/Linux compatibility, and just silencing the
-            // warning here rather than trading portability for a quieter
-            // build log.
+        ssh_key key = nullptr;
+        // The `parameter` argument only matters for variable-size key
+        // types (e.g. RSA bit length); ed25519 keys are a fixed size, so
+        // it's unused here.
+        //
+        // ssh_pki_generate is deprecated in newer libssh in favor of
+        // ssh_pki_generate_key(type, ssh_pki_ctx, ...), but that
+        // replacement is a newer addition (introduced alongside FIDO2/
+        // security-key support) that may not exist in the libssh
+        // version an older distro/OS release ships -- deliberately kept
+        // on the older, universally-available function for broad
+        // Mac/FreeBSD/Linux compatibility, and just silencing the
+        // warning here rather than trading portability for a quieter
+        // build log.
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
-            bool generated = ssh_pki_generate(SSH_KEYTYPE_ED25519, 0, &key) == SSH_OK;
+        bool generated = ssh_pki_generate(SSH_KEYTYPE_ED25519, 0, &key) == SSH_OK;
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
-            if (!generated)
-            {
-                std::fprintf(stderr, "SSH: failed to generate a host key.\n");
-                return false;
-            }
-            int exported =
-                ssh_pki_export_privkey_file(key, nullptr, nullptr, nullptr, path.c_str());
-            ssh_key_free(key);
-            if (exported != SSH_OK)
-            {
-                std::fprintf(stderr, "SSH: failed to write host key to %s.\n", path.c_str());
-                return false;
-            }
-            ::chmod(path.c_str(), 0600);
-            return true;
+        if (!generated)
+        {
+            std::fprintf(stderr, "SSH: failed to generate a host key.\n");
+            return false;
+        }
+        int exported = ssh_pki_export_privkey_file(key, nullptr, nullptr, nullptr, path.c_str());
+        ssh_key_free(key);
+        if (exported != SSH_OK)
+        {
+            std::fprintf(stderr, "SSH: failed to write host key to %s.\n", path.c_str());
+            return false;
+        }
+        ::chmod(path.c_str(), 0600);
+        return true;
+    }
+
+    // Where a given SSH user's own AppSettings live -- see
+    // settings.hpp's own doc comment on why this stays a flat file
+    // rather than a users-table column: it must never be reachable by a
+    // future shared-database export the way it isn't today. Ensures the
+    // containing directory exists first, since std::ofstream (what
+    // SaveSettings uses) can't create missing parent directories itself.
+    static std::string PerUserSettingsPath(const std::string& username)
+    {
+        ::mkdir("settings", 0700);
+        return "settings/" + username + ".txt";
+    }
+
+    // Parses a single OpenSSH authorized_keys-style line ("ssh-ed25519
+    // AAAA... comment") into an ssh_key for comparison. Returns nullptr
+    // on any parse failure or unrecognized key type -- callers treat
+    // that the same as "key doesn't match."
+    static ssh_key ParsePublicKeyLine(const std::string& line)
+    {
+        std::istringstream stream(line);
+        std::string type_name;
+        std::string base64_blob;
+        if (!(stream >> type_name >> base64_blob))
+        {
+            return nullptr;
         }
 
-        // Where a given SSH user's own AppSettings live -- see
-        // settings.hpp's own doc comment on why this stays a flat file
-        // rather than a users-table column: it must never be reachable by a
-        // future shared-database export the way it isn't today. Ensures the
-        // containing directory exists first, since std::ofstream (what
-        // SaveSettings uses) can't create missing parent directories itself.
-        std::string PerUserSettingsPath(const std::string& username)
+        enum ssh_keytypes_e type = ssh_key_type_from_name(type_name.c_str());
+        if (type == SSH_KEYTYPE_UNKNOWN)
         {
-            ::mkdir("settings", 0700);
-            return "settings/" + username + ".txt";
+            return nullptr;
         }
 
-        // Parses a single OpenSSH authorized_keys-style line ("ssh-ed25519
-        // AAAA... comment") into an ssh_key for comparison. Returns nullptr
-        // on any parse failure or unrecognized key type -- callers treat
-        // that the same as "key doesn't match."
-        ssh_key ParsePublicKeyLine(const std::string& line)
+        ssh_key key = nullptr;
+        if (ssh_pki_import_pubkey_base64(base64_blob.c_str(), type, &key) != SSH_OK)
         {
-            std::istringstream stream(line);
-            std::string type_name;
-            std::string base64_blob;
-            if (!(stream >> type_name >> base64_blob))
-            {
-                return nullptr;
-            }
+            return nullptr;
+        }
+        return key;
+    }
 
-            enum ssh_keytypes_e type = ssh_key_type_from_name(type_name.c_str());
-            if (type == SSH_KEYTYPE_UNKNOWN)
-            {
-                return nullptr;
-            }
+    // Everything one accepted connection's forked process needs to carry
+    // between libssh's callbacks -- they're plain C function pointers
+    // (no captures), so shared state has to travel via the `userdata`
+    // pointer libssh threads through every one of them, pointing at one
+    // of these per connection.
+    struct ConnectionState
+    {
+        Database* db = nullptr;
+        int listen_fd = -1;
 
-            ssh_key key = nullptr;
-            if (ssh_pki_import_pubkey_base64(base64_blob.c_str(), type, &key) != SSH_OK)
-            {
-                return nullptr;
-            }
-            return key;
+        bool authenticated = false;
+        std::string username;
+
+        ssh_channel channel = nullptr;
+
+        int pty_master_fd = -1;
+        int pty_slave_fd = -1;
+        bool shell_started = false;
+        pid_t child_pid = -1;
+    };
+
+    static int AuthPubkeyCallback(ssh_session session, const char* user, ssh_key pubkey,
+                                  char signature_state, void* userdata)
+    {
+        (void)session;
+        ConnectionState* state = static_cast<ConnectionState*>(userdata);
+
+        std::optional<User> found = state->db->GetUserByUsername(user);
+        if (!found.has_value())
+        {
+            return SSH_AUTH_DENIED;
         }
 
-        // Everything one accepted connection's forked process needs to carry
-        // between libssh's callbacks -- they're plain C function pointers
-        // (no captures), so shared state has to travel via the `userdata`
-        // pointer libssh threads through every one of them, pointing at one
-        // of these per connection.
-        struct ConnectionState
+        ssh_key stored_key = ParsePublicKeyLine(found->public_key);
+        if (stored_key == nullptr)
         {
-            Database* db = nullptr;
-            int listen_fd = -1;
-
-            bool authenticated = false;
-            std::string username;
-
-            ssh_channel channel = nullptr;
-
-            int pty_master_fd = -1;
-            int pty_slave_fd = -1;
-            bool shell_started = false;
-            pid_t child_pid = -1;
-        };
-
-        int AuthPubkeyCallback(ssh_session session, const char* user, ssh_key pubkey,
-                               char signature_state, void* userdata)
+            return SSH_AUTH_DENIED;
+        }
+        bool matches = ssh_key_cmp(pubkey, stored_key, SSH_KEY_CMP_PUBLIC) == 0;
+        ssh_key_free(stored_key);
+        if (!matches)
         {
-            (void)session;
-            ConnectionState* state = static_cast<ConnectionState*>(userdata);
-
-            std::optional<User> found = state->db->GetUserByUsername(user);
-            if (!found.has_value())
-            {
-                return SSH_AUTH_DENIED;
-            }
-
-            ssh_key stored_key = ParsePublicKeyLine(found->public_key);
-            if (stored_key == nullptr)
-            {
-                return SSH_AUTH_DENIED;
-            }
-            bool matches = ssh_key_cmp(pubkey, stored_key, SSH_KEY_CMP_PUBLIC) == 0;
-            ssh_key_free(stored_key);
-            if (!matches)
-            {
-                return SSH_AUTH_DENIED;
-            }
-
-            // A client probes an offered key (signature_state == NONE)
-            // before actually signing with it -- accept the probe so the
-            // client knows to send a real signed request, but only mark the
-            // connection authenticated once that signed request arrives.
-            if (signature_state == SSH_PUBLICKEY_STATE_VALID)
-            {
-                state->authenticated = true;
-                state->username = user;
-                state->db->UpdateUserLastLogin(user, static_cast<std::int64_t>(std::time(nullptr)));
-            }
-            return SSH_AUTH_SUCCESS;
+            return SSH_AUTH_DENIED;
         }
 
-        ssh_channel ChannelOpenCallback(ssh_session session, void* userdata)
+        // A client probes an offered key (signature_state == NONE)
+        // before actually signing with it -- accept the probe so the
+        // client knows to send a real signed request, but only mark the
+        // connection authenticated once that signed request arrives.
+        if (signature_state == SSH_PUBLICKEY_STATE_VALID)
         {
-            ConnectionState* state = static_cast<ConnectionState*>(userdata);
-            // The SSH protocol itself never delivers a channel-open request
-            // before authentication succeeds, but check anyway rather than
-            // trust that solely -- costs nothing.
-            if (!state->authenticated)
-            {
-                return nullptr;
-            }
-            state->channel = ssh_channel_new(session);
-            return state->channel;
+            state->authenticated = true;
+            state->username = user;
+            state->db->UpdateUserLastLogin(user, static_cast<std::int64_t>(std::time(nullptr)));
+        }
+        return SSH_AUTH_SUCCESS;
+    }
+
+    static ssh_channel ChannelOpenCallback(ssh_session session, void* userdata)
+    {
+        ConnectionState* state = static_cast<ConnectionState*>(userdata);
+        // The SSH protocol itself never delivers a channel-open request
+        // before authentication succeeds, but check anyway rather than
+        // trust that solely -- costs nothing.
+        if (!state->authenticated)
+        {
+            return nullptr;
+        }
+        state->channel = ssh_channel_new(session);
+        return state->channel;
+    }
+
+    static int PtyRequestCallback(ssh_session session, ssh_channel channel, const char* term,
+                                  int width, int height, int pxwidth, int pwheight, void* userdata)
+    {
+        (void)session;
+        (void)channel;
+        (void)term;
+        ConnectionState* state = static_cast<ConnectionState*>(userdata);
+
+        struct winsize window_size{};
+        window_size.ws_col = static_cast<unsigned short>(width);
+        window_size.ws_row = static_cast<unsigned short>(height);
+        window_size.ws_xpixel = static_cast<unsigned short>(pxwidth);
+        window_size.ws_ypixel = static_cast<unsigned short>(pwheight);
+
+        if (::openpty(&state->pty_master_fd, &state->pty_slave_fd, nullptr, nullptr,
+                      &window_size) != 0)
+        {
+            return -1;
+        }
+        return 0;
+    }
+
+    static int PtyWindowChangeCallback(ssh_session session, ssh_channel channel, int width,
+                                       int height, int pxwidth, int pwheight, void* userdata)
+    {
+        (void)session;
+        (void)channel;
+        ConnectionState* state = static_cast<ConnectionState*>(userdata);
+        if (state->pty_master_fd < 0)
+        {
+            return -1;
+        }
+        struct winsize window_size{};
+        window_size.ws_col = static_cast<unsigned short>(width);
+        window_size.ws_row = static_cast<unsigned short>(height);
+        window_size.ws_xpixel = static_cast<unsigned short>(pxwidth);
+        window_size.ws_ypixel = static_cast<unsigned short>(pwheight);
+        ::ioctl(state->pty_master_fd, TIOCSWINSZ, &window_size);
+        return 0;
+    }
+
+    // Forks the grandchild that becomes a full QuickLogger session,
+    // exactly like a login shell would: closes everything it doesn't
+    // need (the listening socket, the network side of the SSH
+    // connection, the pty master -- it only needs the pty slave),
+    // `login_tty()`s onto the pty slave (handles setsid()/TIOCSCTTY/
+    // dup2 of fds 0/1/2 in one call), then calls straight into
+    // RunInteractiveSession -- the same function main() calls for a
+    // local console launch, just is_console_session=false and a
+    // per-username settings path (see PerUserSettingsPath).
+    static int ShellRequestCallback(ssh_session session, ssh_channel channel, void* userdata)
+    {
+        (void)channel;
+        ConnectionState* state = static_cast<ConnectionState*>(userdata);
+        if (state->pty_slave_fd < 0)
+        {
+            return 1;
         }
 
-        int PtyRequestCallback(ssh_session session, ssh_channel channel, const char* term,
-                               int width, int height, int pxwidth, int pwheight, void* userdata)
+        pid_t pid = fork();
+        if (pid < 0)
         {
-            (void)session;
-            (void)channel;
-            (void)term;
-            ConnectionState* state = static_cast<ConnectionState*>(userdata);
-
-            struct winsize window_size;
-            std::memset(&window_size, 0, sizeof(window_size));
-            window_size.ws_col = static_cast<unsigned short>(width);
-            window_size.ws_row = static_cast<unsigned short>(height);
-            window_size.ws_xpixel = static_cast<unsigned short>(pxwidth);
-            window_size.ws_ypixel = static_cast<unsigned short>(pwheight);
-
-            if (::openpty(&state->pty_master_fd, &state->pty_slave_fd, nullptr, nullptr,
-                          &window_size) != 0)
+            return 1;
+        }
+        if (pid == 0)
+        {
+            if (state->listen_fd >= 0)
             {
-                return -1;
+                ::close(state->listen_fd);
             }
+            ::close(ssh_get_fd(session));
+            ::close(state->pty_master_fd);
+
+            ::login_tty(state->pty_slave_fd);
+            std::string username = state->username;
+            RunInteractiveSession(PerUserSettingsPath(username), /*is_console_session=*/false);
+            _exit(0);
+        }
+
+        ::close(state->pty_slave_fd);
+        state->pty_slave_fd = -1;
+        state->child_pid = pid;
+        state->shell_started = true;
+        return 0;
+    }
+
+    static int ChannelDataCallback(ssh_session session, ssh_channel channel, void* data,
+                                   uint32_t len, int is_stderr, void* userdata)
+    {
+        (void)session;
+        (void)channel;
+        (void)is_stderr;
+        ConnectionState* state = static_cast<ConnectionState*>(userdata);
+        if (state->pty_master_fd < 0)
+        {
+            return static_cast<int>(len);
+        }
+        ssize_t written = ::write(state->pty_master_fd, data, len);
+        return written > 0 ? static_cast<int>(written) : 0;
+    }
+
+    // Registered on the pty master fd via ssh_event_add_fd -- called
+    // whenever the child's session has produced output, relaying it
+    // into the SSH channel (the reverse direction of ChannelDataCallback).
+    static int PtyMasterReadableCallback(socket_t fd, int revents, void* userdata)
+    {
+        ConnectionState* state = static_cast<ConnectionState*>(userdata);
+        if ((static_cast<unsigned int>(revents) & static_cast<unsigned int>(POLLIN)) == 0)
+        {
             return 0;
         }
-
-        int PtyWindowChangeCallback(ssh_session session, ssh_channel channel, int width, int height,
-                                    int pxwidth, int pwheight, void* userdata)
+        char buffer[4096];
+        ssize_t count = ::read(fd, buffer, sizeof(buffer));
+        if (count <= 0)
         {
-            (void)session;
-            (void)channel;
-            ConnectionState* state = static_cast<ConnectionState*>(userdata);
-            if (state->pty_master_fd < 0)
-            {
-                return -1;
-            }
-            struct winsize window_size;
-            std::memset(&window_size, 0, sizeof(window_size));
-            window_size.ws_col = static_cast<unsigned short>(width);
-            window_size.ws_row = static_cast<unsigned short>(height);
-            window_size.ws_xpixel = static_cast<unsigned short>(pxwidth);
-            window_size.ws_ypixel = static_cast<unsigned short>(pwheight);
-            ::ioctl(state->pty_master_fd, TIOCSWINSZ, &window_size);
             return 0;
         }
+        ssh_channel_write(state->channel, buffer, static_cast<uint32_t>(count));
+        return static_cast<int>(count);
+    }
 
-        // Forks the grandchild that becomes a full QuickLogger session,
-        // exactly like a login shell would: closes everything it doesn't
-        // need (the listening socket, the network side of the SSH
-        // connection, the pty master -- it only needs the pty slave),
-        // `login_tty()`s onto the pty slave (handles setsid()/TIOCSCTTY/
-        // dup2 of fds 0/1/2 in one call), then calls straight into
-        // RunInteractiveSession -- the same function main() calls for a
-        // local console launch, just is_console_session=false and a
-        // per-username settings path (see PerUserSettingsPath).
-        int ShellRequestCallback(ssh_session session, ssh_channel channel, void* userdata)
+    // Runs the whole lifecycle of one already-accepted connection: key
+    // exchange, auth, channel/pty/shell setup, then relays bytes between
+    // the pty and the SSH channel until either side goes away. Called in
+    // a process forked solely for this one connection (see
+    // SshAcceptLoop) -- returning from this function means that process
+    // is done and should exit.
+    static void HandleConnection(ssh_session session, const std::string& db_path, int listen_fd)
+    {
+        ConnectionState state;
+        state.listen_fd = listen_fd;
+
+        // Installed *before* key exchange, as libssh's own server
+        // examples do -- not after. A client's SERVICE_REQUEST often
+        // arrives in the same TCP read as its NEWKEYS, i.e. while
+        // ssh_handle_key_exchange is still running; with no server
+        // callbacks installed yet, libssh doesn't answer it (it appears
+        // to be queued for the message API, which this server doesn't
+        // use) and the client then waits forever for its SERVICE_ACCEPT
+        // -- observed live via libssh's packet log. That was
+        // the second, timing-dependent cause of the old "intermittent
+        // SSH connection failure" (the other being THE FORK RULE, in
+        // ssh_server.hpp).
+        struct ssh_server_callbacks_struct server_callbacks{};
+        server_callbacks.userdata = &state;
+        server_callbacks.auth_pubkey_function = AuthPubkeyCallback;
+        server_callbacks.channel_open_request_session_function = ChannelOpenCallback;
+        ssh_callbacks_init(&server_callbacks);
+        ssh_set_server_callbacks(session, &server_callbacks);
+
+        ssh_event event = nullptr;
+        std::time_t deadline = 0;
+        bool key_exchange_succeeded = false;
+
+        // Scoped so this connection's own database connection is fully
+        // closed (sqlite3_close, releasing every fd/lock it holds)
+        // before ShellRequestCallback forks below. SQLite's fcntl-based
+        // advisory locking is scoped per *process*, not per file
+        // descriptor -- a child that inherits this still-open
+        // connection's fd via fork(), then opens its *own* independent
+        // connection to the same file (RunInteractiveSession does
+        // exactly that), corrupts SQLite's view of its own lock state
+        // ("Failed to create schema: locking protocol", confirmed by
+        // hitting this for real against a live SSH client before this
+        // scoping was added; see THE FORK RULE in ssh_server.hpp).
+        // Opened before key exchange rather than after so `state.db` is
+        // never null whenever an auth callback can fire. Nothing past
+        // this scope needs `db` -- ChannelOpenCallback only checks
+        // state.authenticated.
         {
-            (void)channel;
-            ConnectionState* state = static_cast<ConnectionState*>(userdata);
-            if (state->pty_slave_fd < 0)
-            {
-                return 1;
-            }
+            Database db(db_path);
+            state.db = &db;
 
-            pid_t pid = fork();
-            if (pid < 0)
+            key_exchange_succeeded = ssh_handle_key_exchange(session) == SSH_OK;
+            if (key_exchange_succeeded)
             {
-                return 1;
-            }
-            if (pid == 0)
-            {
-                if (state->listen_fd >= 0)
+                event = ssh_event_new();
+                ssh_event_add_session(event, session);
+
+                deadline = std::time(nullptr) + 60;
+                while (!state.authenticated && ssh_is_connected(session) &&
+                       std::time(nullptr) < deadline)
                 {
-                    ::close(state->listen_fd);
+                    ssh_event_dopoll(event, 200);
                 }
-                ::close(ssh_get_fd(session));
-                ::close(state->pty_master_fd);
-
-                ::login_tty(state->pty_slave_fd);
-                std::string username = state->username;
-                RunInteractiveSession(PerUserSettingsPath(username), /*is_console_session=*/false);
-                _exit(0);
             }
-
-            ::close(state->pty_slave_fd);
-            state->pty_slave_fd = -1;
-            state->child_pid = pid;
-            state->shell_started = true;
-            return 0;
+            state.db = nullptr;
         }
 
-        int ChannelDataCallback(ssh_session session, ssh_channel channel, void* data, uint32_t len,
-                                int is_stderr, void* userdata)
+        if (!key_exchange_succeeded)
         {
-            (void)session;
-            (void)channel;
-            (void)is_stderr;
-            ConnectionState* state = static_cast<ConnectionState*>(userdata);
-            if (state->pty_master_fd < 0)
-            {
-                return static_cast<int>(len);
-            }
-            ssize_t written = ::write(state->pty_master_fd, data, len);
-            return written > 0 ? static_cast<int>(written) : 0;
+            ssh_free(session);
+            return;
         }
 
-        // Registered on the pty master fd via ssh_event_add_fd -- called
-        // whenever the child's session has produced output, relaying it
-        // into the SSH channel (the reverse direction of ChannelDataCallback).
-        int PtyMasterReadableCallback(socket_t fd, int revents, void* userdata)
+        if (!state.authenticated)
         {
-            ConnectionState* state = static_cast<ConnectionState*>(userdata);
-            if ((revents & POLLIN) == 0)
-            {
-                return 0;
-            }
-            char buffer[4096];
-            ssize_t count = ::read(fd, buffer, sizeof(buffer));
-            if (count <= 0)
-            {
-                return 0;
-            }
-            ssh_channel_write(state->channel, buffer, static_cast<uint32_t>(count));
-            return static_cast<int>(count);
-        }
-
-        // Runs the whole lifecycle of one already-accepted connection: key
-        // exchange, auth, channel/pty/shell setup, then relays bytes between
-        // the pty and the SSH channel until either side goes away. Called in
-        // a process forked solely for this one connection (see
-        // SshAcceptLoop) -- returning from this function means that process
-        // is done and should exit.
-        void HandleConnection(ssh_session session, const std::string& db_path, int listen_fd)
-        {
-            ConnectionState state;
-            state.listen_fd = listen_fd;
-
-            // Installed *before* key exchange, as libssh's own server
-            // examples do -- not after. A client's SERVICE_REQUEST often
-            // arrives in the same TCP read as its NEWKEYS, i.e. while
-            // ssh_handle_key_exchange is still running; with no server
-            // callbacks installed yet, libssh doesn't answer it (it appears
-            // to be queued for the message API, which this server doesn't
-            // use) and the client then waits forever for its SERVICE_ACCEPT
-            // -- observed live via libssh's packet log. That was
-            // the second, timing-dependent cause of the old "intermittent
-            // SSH connection failure" (the other being THE FORK RULE, in
-            // ssh_server.hpp).
-            struct ssh_server_callbacks_struct server_callbacks;
-            std::memset(&server_callbacks, 0, sizeof(server_callbacks));
-            server_callbacks.userdata = &state;
-            server_callbacks.auth_pubkey_function = AuthPubkeyCallback;
-            server_callbacks.channel_open_request_session_function = ChannelOpenCallback;
-            ssh_callbacks_init(&server_callbacks);
-            ssh_set_server_callbacks(session, &server_callbacks);
-
-            ssh_event event = nullptr;
-            std::time_t deadline = 0;
-            bool key_exchange_succeeded = false;
-
-            // Scoped so this connection's own database connection is fully
-            // closed (sqlite3_close, releasing every fd/lock it holds)
-            // before ShellRequestCallback forks below. SQLite's fcntl-based
-            // advisory locking is scoped per *process*, not per file
-            // descriptor -- a child that inherits this still-open
-            // connection's fd via fork(), then opens its *own* independent
-            // connection to the same file (RunInteractiveSession does
-            // exactly that), corrupts SQLite's view of its own lock state
-            // ("Failed to create schema: locking protocol", confirmed by
-            // hitting this for real against a live SSH client before this
-            // scoping was added; see THE FORK RULE in ssh_server.hpp).
-            // Opened before key exchange rather than after so `state.db` is
-            // never null whenever an auth callback can fire. Nothing past
-            // this scope needs `db` -- ChannelOpenCallback only checks
-            // state.authenticated.
-            {
-                Database db(db_path);
-                state.db = &db;
-
-                key_exchange_succeeded = ssh_handle_key_exchange(session) == SSH_OK;
-                if (key_exchange_succeeded)
-                {
-                    event = ssh_event_new();
-                    ssh_event_add_session(event, session);
-
-                    deadline = std::time(nullptr) + 60;
-                    while (!state.authenticated && ssh_is_connected(session) &&
-                           std::time(nullptr) < deadline)
-                    {
-                        ssh_event_dopoll(event, 200);
-                    }
-                }
-                state.db = nullptr;
-            }
-
-            if (!key_exchange_succeeded)
-            {
-                ssh_free(session);
-                return;
-            }
-
-            if (!state.authenticated)
-            {
-                // The client gave up, was denied (unknown user / wrong
-                // key), or never authenticated within the deadline.
-                std::fprintf(stderr, "SSH: a connection ended without authenticating.\n");
-                ssh_event_free(event);
-                ssh_disconnect(session);
-                ssh_free(session);
-                return;
-            }
-
-            // Poll until a channel exists (the client opens one once it
-            // sees auth succeeded) and, once channel callbacks are wired up
-            // below, until a pty+shell has actually been started.
-            struct ssh_channel_callbacks_struct channel_callbacks;
-            std::memset(&channel_callbacks, 0, sizeof(channel_callbacks));
-            channel_callbacks.userdata = &state;
-            channel_callbacks.channel_pty_request_function = PtyRequestCallback;
-            channel_callbacks.channel_pty_window_change_function = PtyWindowChangeCallback;
-            channel_callbacks.channel_shell_request_function = ShellRequestCallback;
-            channel_callbacks.channel_data_function = ChannelDataCallback;
-            ssh_callbacks_init(&channel_callbacks);
-            bool channel_callbacks_registered = false;
-
-            while (!state.shell_started && ssh_is_connected(session) &&
-                   std::time(nullptr) < deadline)
-            {
-                ssh_event_dopoll(event, 200);
-                if (state.channel != nullptr && !channel_callbacks_registered)
-                {
-                    ssh_set_channel_callbacks(state.channel, &channel_callbacks);
-                    channel_callbacks_registered = true;
-                }
-            }
-
-            if (!state.shell_started)
-            {
-                ssh_event_free(event);
-                ssh_disconnect(session);
-                ssh_free(session);
-                return;
-            }
-
-            ssh_event_add_fd(event, state.pty_master_fd, POLLIN, PtyMasterReadableCallback, &state);
-
-            while (true)
-            {
-                ssh_event_dopoll(event, 200);
-
-                int status = 0;
-                pid_t reaped = waitpid(state.child_pid, &status, WNOHANG);
-                // SIGCHLD is ignored process-wide (see SshAcceptLoop), which
-                // auto-reaps children at the kernel level -- if that already
-                // happened before this call, waitpid correctly reports
-                // ECHILD ("no such child") rather than the pid, since there's
-                // nothing left to wait for. Both outcomes mean the same
-                // thing here: the child is gone.
-                if (reaped == state.child_pid || (reaped == -1 && errno == ECHILD))
-                {
-                    break;
-                }
-                if (ssh_channel_is_eof(state.channel))
-                {
-                    break;
-                }
-                // Catches an abrupt client-side disconnect (network drop,
-                // client killed rather than exiting cleanly) that never
-                // sends a channel EOF -- without this, the session's child
-                // process (running RunInteractiveSession, oblivious that
-                // its pty's far end vanished) would run forever as an
-                // orphan. Confirmed live: killing the ssh client process
-                // outright left all three of this connection's processes
-                // running until this check was added.
-                if (!ssh_is_connected(session))
-                {
-                    break;
-                }
-            }
-
-            if (waitpid(state.child_pid, nullptr, WNOHANG) == 0)
-            {
-                kill(state.child_pid, SIGTERM);
-                waitpid(state.child_pid, nullptr, 0);
-            }
-
-            ssh_event_remove_fd(event, state.pty_master_fd);
-            ::close(state.pty_master_fd);
+            // The client gave up, was denied (unknown user / wrong
+            // key), or never authenticated within the deadline.
+            std::fprintf(stderr, "SSH: a connection ended without authenticating.\n");
             ssh_event_free(event);
-
-            ssh_channel_send_eof(state.channel);
-            ssh_channel_close(state.channel);
-            ssh_channel_free(state.channel);
             ssh_disconnect(session);
             ssh_free(session);
+            return;
         }
 
-        // The accept loop: binds once, then loops forever accepting
-        // connections and forking a dedicated process for each one (see
-        // HandleConnection). Runs either as the whole main thread of a
-        // headless process (RunSshServer) or as the whole of a dedicated
-        // listener process (StartSshServerProcess) -- never inside a process
-        // that has opened the database itself, since every connection it
-        // forks would inherit that process's SQLite state (see THE FORK RULE
-        // in ssh_server.hpp). A named class rather than a lambda, per this
-        // codebase's convention.
-        class SshAcceptLoop
+        // Poll until a channel exists (the client opens one once it
+        // sees auth succeeded) and, once channel callbacks are wired up
+        // below, until a pty+shell has actually been started.
+        struct ssh_channel_callbacks_struct channel_callbacks{};
+        channel_callbacks.userdata = &state;
+        channel_callbacks.channel_pty_request_function = PtyRequestCallback;
+        channel_callbacks.channel_pty_window_change_function = PtyWindowChangeCallback;
+        channel_callbacks.channel_shell_request_function = ShellRequestCallback;
+        channel_callbacks.channel_data_function = ChannelDataCallback;
+        ssh_callbacks_init(&channel_callbacks);
+        bool channel_callbacks_registered = false;
+
+        while (!state.shell_started && ssh_is_connected(session) && std::time(nullptr) < deadline)
         {
-        public:
-            // A `parent_pid` > 0 makes the loop return once that process is
-            // no longer this process's parent (the console session that
-            // started this listener quit or died -- a reparented process
-            // gets a different parent pid); <= 0 means run forever.
-            SshAcceptLoop(std::string db_path, int port, pid_t parent_pid)
-                : db_path_(std::move(db_path)), port_(port), parent_pid_(parent_pid)
+            ssh_event_dopoll(event, 200);
+            if (state.channel != nullptr && !channel_callbacks_registered)
             {
+                ssh_set_channel_callbacks(state.channel, &channel_callbacks);
+                channel_callbacks_registered = true;
+            }
+        }
+
+        if (!state.shell_started)
+        {
+            ssh_event_free(event);
+            ssh_disconnect(session);
+            ssh_free(session);
+            return;
+        }
+
+        ssh_event_add_fd(event, state.pty_master_fd, POLLIN, PtyMasterReadableCallback, &state);
+
+        while (true)
+        {
+            ssh_event_dopoll(event, 200);
+
+            int status = 0;
+            pid_t reaped = waitpid(state.child_pid, &status, WNOHANG);
+            // SIGCHLD is ignored process-wide (see SshAcceptLoop), which
+            // auto-reaps children at the kernel level -- if that already
+            // happened before this call, waitpid correctly reports
+            // ECHILD ("no such child") rather than the pid, since there's
+            // nothing left to wait for. Both outcomes mean the same
+            // thing here: the child is gone.
+            if (reaped == state.child_pid || (reaped == -1 && errno == ECHILD))
+            {
+                break;
+            }
+            if (ssh_channel_is_eof(state.channel))
+            {
+                break;
+            }
+            // Catches an abrupt client-side disconnect (network drop,
+            // client killed rather than exiting cleanly) that never
+            // sends a channel EOF -- without this, the session's child
+            // process (running RunInteractiveSession, oblivious that
+            // its pty's far end vanished) would run forever as an
+            // orphan. Confirmed live: killing the ssh client process
+            // outright left all three of this connection's processes
+            // running until this check was added.
+            if (!ssh_is_connected(session))
+            {
+                break;
+            }
+        }
+
+        if (waitpid(state.child_pid, nullptr, WNOHANG) == 0)
+        {
+            kill(state.child_pid, SIGTERM);
+            waitpid(state.child_pid, nullptr, 0);
+        }
+
+        ssh_event_remove_fd(event, state.pty_master_fd);
+        ::close(state.pty_master_fd);
+        ssh_event_free(event);
+
+        ssh_channel_send_eof(state.channel);
+        ssh_channel_close(state.channel);
+        ssh_channel_free(state.channel);
+        ssh_disconnect(session);
+        ssh_free(session);
+    }
+
+    // The accept loop: binds once, then loops forever accepting
+    // connections and forking a dedicated process for each one (see
+    // HandleConnection). Runs either as the whole main thread of a
+    // headless process (RunSshServer) or as the whole of a dedicated
+    // listener process (StartSshServerProcess) -- never inside a process
+    // that has opened the database itself, since every connection it
+    // forks would inherit that process's SQLite state (see THE FORK RULE
+    // in ssh_server.hpp). A named class rather than a lambda, per this
+    // codebase's convention.
+    class SshAcceptLoop
+    {
+    public:
+        // A `parent_pid` > 0 makes the loop return once that process is
+        // no longer this process's parent (the console session that
+        // started this listener quit or died -- a reparented process
+        // gets a different parent pid); <= 0 means run forever.
+        SshAcceptLoop(std::string db_path, int port, pid_t parent_pid)
+            : db_path_(std::move(db_path)), port_(port), parent_pid_(parent_pid)
+        {
+        }
+
+        void operator()() const
+        {
+            // Ignoring SIGCHLD (rather than leaving the default
+            // disposition) auto-reaps every descendant at the kernel
+            // level, so nothing here needs its own zombie-reaping logic.
+            // Set before any forking happens so it's inherited by every
+            // descendant this process creates, not just the ones forked
+            // after this line.
+            std::signal(SIGCHLD, SIG_IGN);
+
+            if (!EnsureHostKeyExists(HostKeyPath()))
+            {
+                return;
             }
 
-            void operator()() const
+            ssh_bind sshbind = ssh_bind_new();
+            std::string host_key_path = HostKeyPath();
+            ssh_bind_options_set(sshbind, SSH_BIND_OPTIONS_HOSTKEY, host_key_path.c_str());
+            ssh_bind_options_set(sshbind, SSH_BIND_OPTIONS_BINDPORT, &port_);
+
+            if (ssh_bind_listen(sshbind) < 0)
             {
-                // Ignoring SIGCHLD (rather than leaving the default
-                // disposition) auto-reaps every descendant at the kernel
-                // level, so nothing here needs its own zombie-reaping logic.
-                // Set before any forking happens so it's inherited by every
-                // descendant this process creates, not just the ones forked
-                // after this line.
-                std::signal(SIGCHLD, SIG_IGN);
-
-                if (!EnsureHostKeyExists(HostKeyPath()))
-                {
-                    return;
-                }
-
-                ssh_bind sshbind = ssh_bind_new();
-                std::string host_key_path = HostKeyPath();
-                ssh_bind_options_set(sshbind, SSH_BIND_OPTIONS_HOSTKEY, host_key_path.c_str());
-                ssh_bind_options_set(sshbind, SSH_BIND_OPTIONS_BINDPORT, &port_);
-
-                if (ssh_bind_listen(sshbind) < 0)
-                {
-                    std::fprintf(stderr, "SSH: failed to listen on port %d: %s\n", port_,
-                                 ssh_get_error(sshbind));
-                    ssh_bind_free(sshbind);
-                    return;
-                }
-                int listen_fd = ssh_bind_get_fd(sshbind);
-
-                while (parent_pid_ <= 0 || ::getppid() == parent_pid_)
-                {
-                    // Wakes up once a second even with no connection waiting,
-                    // purely so the parent-still-alive check above gets to
-                    // run.
-                    struct pollfd listen_poll;
-                    listen_poll.fd = listen_fd;
-                    listen_poll.events = POLLIN;
-                    listen_poll.revents = 0;
-                    if (::poll(&listen_poll, 1, 1000) <= 0)
-                    {
-                        continue;
-                    }
-
-                    ssh_session session = ssh_new();
-                    if (ssh_bind_accept(sshbind, session) != SSH_OK)
-                    {
-                        ssh_free(session);
-                        continue;
-                    }
-
-                    pid_t pid = fork();
-                    if (pid < 0)
-                    {
-                        ssh_free(session);
-                        continue;
-                    }
-                    if (pid == 0)
-                    {
-                        // The listening socket keeps accepting in the
-                        // parent; this child only needs this one
-                        // connection's own session.
-                        HandleConnection(session, db_path_, listen_fd);
-                        _exit(0);
-                    }
-
-                    // The parent doesn't touch this connection again --
-                    // HandleConnection took full ownership of `session` in
-                    // the child's own address space. Matches libssh's own
-                    // ssh_server_fork.c example exactly (ssh_disconnect then
-                    // ssh_free).
-                    ssh_disconnect(session);
-                    ssh_free(session);
-                }
-
+                std::fprintf(stderr, "SSH: failed to listen on port %d: %s\n", port_,
+                             ssh_get_error(sshbind));
                 ssh_bind_free(sshbind);
+                return;
+            }
+            int listen_fd = ssh_bind_get_fd(sshbind);
+
+            while (parent_pid_ <= 0 || ::getppid() == parent_pid_)
+            {
+                // Wakes up once a second even with no connection waiting,
+                // purely so the parent-still-alive check above gets to
+                // run.
+                struct pollfd listen_poll{};
+                listen_poll.fd = listen_fd;
+                listen_poll.events = POLLIN;
+                if (::poll(&listen_poll, 1, 1000) <= 0)
+                {
+                    continue;
+                }
+
+                ssh_session session = ssh_new();
+                if (ssh_bind_accept(sshbind, session) != SSH_OK)
+                {
+                    ssh_free(session);
+                    continue;
+                }
+
+                pid_t pid = fork();
+                if (pid < 0)
+                {
+                    ssh_free(session);
+                    continue;
+                }
+                if (pid == 0)
+                {
+                    // The listening socket keeps accepting in the
+                    // parent; this child only needs this one
+                    // connection's own session.
+                    HandleConnection(session, db_path_, listen_fd);
+                    _exit(0);
+                }
+
+                // The parent doesn't touch this connection again --
+                // HandleConnection took full ownership of `session` in
+                // the child's own address space. Matches libssh's own
+                // ssh_server_fork.c example exactly (ssh_disconnect then
+                // ssh_free).
+                ssh_disconnect(session);
+                ssh_free(session);
             }
 
-        private:
-            std::string db_path_;
-            int port_;
-            pid_t parent_pid_;
-        };
+            ssh_bind_free(sshbind);
+        }
 
-    }  // namespace
+    private:
+        std::string db_path_;
+        int port_;
+        pid_t parent_pid_;
+    };
 
     void RunSshServer(const std::string& db_path, int port)
     {

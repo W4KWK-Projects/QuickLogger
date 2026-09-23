@@ -1,6 +1,7 @@
 #include "chrome.hpp"
 
 #include <ctime>
+#include <utility>
 
 #include <ftxui/screen/terminal.hpp>
 
@@ -9,45 +10,40 @@
 namespace ql
 {
 
-    namespace
+    // Matches KeyHintRow's own rendering exactly: " "+key+" " is
+    // key.size()+2 columns, " "+label+"  " is label.size()+3.
+    static int KeyHintWidth(const KeyHint& hint)
     {
+        return static_cast<int>(hint.key.size() + hint.label.size()) + 5;
+    }
 
-        // Matches KeyHintRow's own rendering exactly: " "+key+" " is
-        // key.size()+2 columns, " "+label+"  " is label.size()+3.
-        int KeyHintWidth(const KeyHint& hint)
+    // Greedily fills each row up to `max_width` before starting a new
+    // one, so a wide terminal gets as much of row one as possible and a
+    // narrow one only spills onto extra rows as far as it has to.
+    static std::vector<std::vector<KeyHint>> WrapKeyHints(const std::vector<KeyHint>& hints,
+                                                          int max_width)
+    {
+        std::vector<std::vector<KeyHint>> rows;
+        std::vector<KeyHint> current_row;
+        int current_width = 0;
+        for (const KeyHint& hint : hints)
         {
-            return static_cast<int>(hint.key.size() + hint.label.size()) + 5;
-        }
-
-        // Greedily fills each row up to `max_width` before starting a new
-        // one, so a wide terminal gets as much of row one as possible and a
-        // narrow one only spills onto extra rows as far as it has to.
-        std::vector<std::vector<KeyHint>> WrapKeyHints(const std::vector<KeyHint>& hints,
-                                                       int max_width)
-        {
-            std::vector<std::vector<KeyHint>> rows;
-            std::vector<KeyHint> current_row;
-            int current_width = 0;
-            for (const KeyHint& hint : hints)
-            {
-                int width = KeyHintWidth(hint);
-                if (!current_row.empty() && current_width + width > max_width)
-                {
-                    rows.push_back(current_row);
-                    current_row.clear();
-                    current_width = 0;
-                }
-                current_row.push_back(hint);
-                current_width += width;
-            }
-            if (!current_row.empty())
+            int width = KeyHintWidth(hint);
+            if (!current_row.empty() && current_width + width > max_width)
             {
                 rows.push_back(current_row);
+                current_row.clear();
+                current_width = 0;
             }
-            return rows;
+            current_row.push_back(hint);
+            current_width += width;
         }
-
-    }  // namespace
+        if (!current_row.empty())
+        {
+            rows.push_back(current_row);
+        }
+        return rows;
+    }
 
     ftxui::Element KeyHintRow(const std::vector<KeyHint>& hints)
     {
@@ -101,7 +97,7 @@ namespace ql
     {
         return ftxui::vbox({
             TopBar(page_title),
-            content | ftxui::flex,
+            std::move(content) | ftxui::flex,
             BottomBar(hints),
         });
     }
@@ -111,7 +107,7 @@ namespace ql
     {
         return ftxui::vbox({
             TopBar(page_title),
-            content | ftxui::flex,
+            std::move(content) | ftxui::flex,
             BottomBarRows(hint_rows),
         });
     }

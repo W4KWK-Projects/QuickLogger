@@ -334,7 +334,7 @@ namespace ql
     public:
         explicit AdHocNetKeyHandler(AppState* state) : state_(state) {}
 
-        bool operator()(ftxui::Event event) const;
+        bool operator()(const ftxui::Event& event) const;
 
     private:
         AppState* state_;
@@ -414,7 +414,7 @@ namespace ql
     public:
         explicit NetHistoryKeyHandler(AppState* state) : state_(state) {}
 
-        bool operator()(ftxui::Event event) const;
+        bool operator()(const ftxui::Event& event) const;
 
     private:
         AppState* state_;
@@ -602,7 +602,7 @@ namespace ql
     public:
         explicit EditNetKeyHandler(AppState* state) : state_(state) {}
 
-        bool operator()(ftxui::Event event) const;
+        bool operator()(const ftxui::Event& event) const;
 
     private:
         AppState* state_;
@@ -644,7 +644,7 @@ namespace ql
     public:
         explicit NetListKeyHandler(AppState* state) : state_(state) {}
 
-        bool operator()(ftxui::Event event) const;
+        bool operator()(const ftxui::Event& event) const;
 
     private:
         AppState* state_;
@@ -695,7 +695,7 @@ namespace ql
     public:
         explicit ImportNetKeyHandler(AppState* state) : state_(state) {}
 
-        bool operator()(ftxui::Event event) const;
+        bool operator()(const ftxui::Event& event) const;
 
     private:
         AppState* state_;
@@ -707,7 +707,7 @@ namespace ql
     public:
         explicit CreateNetKeyHandler(AppState* state) : state_(state) {}
 
-        bool operator()(ftxui::Event event) const;
+        bool operator()(const ftxui::Event& event) const;
 
     private:
         AppState* state_;
@@ -719,7 +719,7 @@ namespace ql
     public:
         explicit SelectRoleKeyHandler(AppState* state) : state_(state) {}
 
-        bool operator()(ftxui::Event event) const;
+        bool operator()(const ftxui::Event& event) const;
 
     private:
         AppState* state_;
@@ -731,7 +731,7 @@ namespace ql
     public:
         explicit EnterCallsignKeyHandler(AppState* state) : state_(state) {}
 
-        bool operator()(ftxui::Event event) const;
+        bool operator()(const ftxui::Event& event) const;
 
     private:
         AppState* state_;
@@ -747,7 +747,7 @@ namespace ql
     public:
         explicit ActiveNetKeyHandler(AppState* state) : state_(state) {}
 
-        bool operator()(ftxui::Event event) const;
+        bool operator()(const ftxui::Event& event) const;
 
     private:
         AppState* state_;
@@ -865,7 +865,7 @@ namespace ql
     public:
         explicit ManageUsersKeyHandler(AppState* state) : state_(state) {}
 
-        bool operator()(ftxui::Event event) const;
+        bool operator()(const ftxui::Event& event) const;
 
     private:
         AppState* state_;
@@ -878,7 +878,7 @@ namespace ql
     public:
         explicit SettingsKeyHandler(AppState* state) : state_(state) {}
 
-        bool operator()(ftxui::Event event) const;
+        bool operator()(const ftxui::Event& event) const;
 
     private:
         AppState* state_;
@@ -979,7 +979,7 @@ namespace ql
     public:
         explicit AppKeyHandler(AppState* state) : state_(state) {}
 
-        bool operator()(ftxui::Event event) const;
+        bool operator()(const ftxui::Event& event) const;
 
     private:
         AppState* state_;

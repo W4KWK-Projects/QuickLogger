@@ -45,6 +45,7 @@ namespace ql
 #include <csignal>
 #include <cstdlib>
 #include <ctime>
+#include <string>
 
 #include <sys/wait.h>
 #include <unistd.h>
@@ -67,14 +68,46 @@ namespace ql
     // doesn't react to the first signal immediately.
     static constexpr int kZmodemKillGraceSeconds = 2;
 
+    // True if an executable named `program` is in one of the directories on
+    // PATH -- the same lookup execlp() does. Done directly rather than via
+    // `std::system("command -v ...")`, which would start a shell just to ask.
+    static bool IsOnPath(const std::string& program)
+    {
+        const char* path = std::getenv("PATH");
+        if (path == nullptr)
+        {
+            return false;
+        }
+        std::string directories(path);
+        std::string::size_type start = 0;
+        while (start <= directories.size())
+        {
+            std::string::size_type colon = directories.find(':', start);
+            if (colon == std::string::npos)
+            {
+                colon = directories.size();
+            }
+            // An empty PATH entry means the current directory.
+            std::string directory = directories.substr(start, colon - start);
+            std::string candidate = (directory.empty() ? std::string(".") : directory) + "/";
+            candidate += program;
+            if (::access(candidate.c_str(), X_OK) == 0)
+            {
+                return true;
+            }
+            start = colon + 1;
+        }
+        return false;
+    }
+
     bool ZmodemSendAvailable()
     {
-        return std::system("command -v sz > /dev/null 2>&1") == 0;
+        return IsOnPath("sz");
     }
 
     bool ZmodemReceiveAvailable()
     {
-        return std::system("command -v rz > /dev/null 2>&1") == 0;
+        return IsOnPath("rz");
     }
 
     // Waits up to `timeout_seconds` for `pid` to exit on its own, polling

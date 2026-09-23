@@ -22,7 +22,7 @@ namespace ql
     // The end record is followed by an archive comment of at most this many
     // bytes, so it is always found within this distance of the file's end.
     static constexpr std::size_t kMaxCommentSize = 65535;
-    static constexpr std::size_t kIoBufferSize = 64 * 1024;
+    static constexpr std::size_t kIoBufferSize = std::size_t{64} * 1024;
 
     static constexpr std::uint16_t kFlagEncrypted = 0x0001;
     static constexpr std::uint16_t kMethodStored = 0;
@@ -46,14 +46,15 @@ namespace ql
 
     static std::uint16_t ReadU16(const unsigned char* bytes)
     {
-        return static_cast<std::uint16_t>(bytes[0] | (bytes[1] << 8));
+        return static_cast<std::uint16_t>(static_cast<unsigned int>(bytes[0]) |
+                                          (static_cast<unsigned int>(bytes[1]) << 8U));
     }
 
     static std::uint32_t ReadU32(const unsigned char* bytes)
     {
-        return static_cast<std::uint32_t>(bytes[0]) | (static_cast<std::uint32_t>(bytes[1]) << 8) |
-               (static_cast<std::uint32_t>(bytes[2]) << 16) |
-               (static_cast<std::uint32_t>(bytes[3]) << 24);
+        return static_cast<std::uint32_t>(bytes[0]) | (static_cast<std::uint32_t>(bytes[1]) << 8U) |
+               (static_cast<std::uint32_t>(bytes[2]) << 16U) |
+               (static_cast<std::uint32_t>(bytes[3]) << 24U);
     }
 
     static std::string BaseName(const std::string& entry_name)
@@ -199,8 +200,8 @@ namespace ql
             return false;
         }
         std::streamoff data_offset = static_cast<std::streamoff>(entry.local_header_offset) +
-                                     kLocalHeaderSize + ReadU16(local_header + 26) +
-                                     ReadU16(local_header + 28);
+                                     static_cast<std::streamoff>(kLocalHeaderSize) +
+                                     ReadU16(local_header + 26) + ReadU16(local_header + 28);
         file->seekg(data_offset, std::ios::beg);
 
         std::ofstream out(dest_path, std::ios::binary | std::ios::trunc);
@@ -334,7 +335,10 @@ namespace ql
                     continue;
                 }
                 found = true;
-                if (!ExtractEntry(&file, entry, dest_dir + "/" + wanted, error))
+                std::string dest_path = dest_dir;
+                dest_path += "/";
+                dest_path += wanted;
+                if (!ExtractEntry(&file, entry, dest_path, error))
                 {
                     return false;
                 }

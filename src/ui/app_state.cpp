@@ -821,7 +821,7 @@ namespace ql
         lines.push_back("Logger: " + instance.logger_callsign);
         lines.push_back(std::string("Status: ") +
                         (instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed"));
-        lines.push_back("");
+        lines.emplace_back("");
         lines.push_back(FormatCheckInHeaderRow(/*above_menu=*/false));
         std::vector<std::string> rows = FormatCheckInRows(state->db, check_ins);
         lines.insert(lines.end(), rows.begin(), rows.end());
@@ -836,8 +836,8 @@ namespace ql
     {
         std::vector<std::string> lines;
         lines.push_back("Net: " + net_name);
-        lines.push_back("Saved Stations:");
-        lines.push_back("");
+        lines.emplace_back("Saved Stations:");
+        lines.emplace_back("");
         lines.push_back(FormatSavedStationHeaderRow(/*above_menu=*/false));
         for (const Station& station : saved_stations)
         {

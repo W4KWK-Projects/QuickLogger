@@ -39,9 +39,9 @@ namespace ql
         // re-parsing the same INSERT statement once per row.
         void Reset();
 
-        std::string ColumnText(int index) const;
-        std::int64_t ColumnInt64(int index) const;
-        double ColumnDouble(int index) const;
+        [[nodiscard]] std::string ColumnText(int index) const;
+        [[nodiscard]] std::int64_t ColumnInt64(int index) const;
+        [[nodiscard]] double ColumnDouble(int index) const;
 
     private:
         sqlite3_stmt* stmt_ = nullptr;

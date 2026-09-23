@@ -1,6 +1,5 @@
 #include "net_slice.hpp"
 
-#include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <unordered_map>

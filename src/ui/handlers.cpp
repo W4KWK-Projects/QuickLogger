@@ -69,7 +69,7 @@ namespace ql
         state_->page = kPageNetList;
     }
 
-    bool CreateNetKeyHandler::operator()(ftxui::Event event) const
+    bool CreateNetKeyHandler::operator()(const ftxui::Event& event) const
     {
         if (event == ftxui::Event::F2)
         {
@@ -137,7 +137,7 @@ namespace ql
         state_->page = kPageSelectRole;
     }
 
-    bool AdHocNetKeyHandler::operator()(ftxui::Event event) const
+    bool AdHocNetKeyHandler::operator()(const ftxui::Event& event) const
     {
         if (event == ftxui::Event::F2)
         {
@@ -201,7 +201,7 @@ namespace ql
         ExportNetLog(state_, net_name, instance, check_ins);
     }
 
-    bool NetHistoryKeyHandler::operator()(ftxui::Event event) const
+    bool NetHistoryKeyHandler::operator()(const ftxui::Event& event) const
     {
         if (state_->show_zmodem_confirm_modal)
         {
@@ -330,7 +330,7 @@ namespace ql
         state_->page = kPageNetList;
     }
 
-    bool EditNetKeyHandler::operator()(ftxui::Event event) const
+    bool EditNetKeyHandler::operator()(const ftxui::Event& event) const
     {
         if (state_->show_zmodem_confirm_modal)
         {
@@ -435,7 +435,7 @@ namespace ql
         state_->page = kPageImportNet;
     }
 
-    bool NetListKeyHandler::operator()(ftxui::Event event) const
+    bool NetListKeyHandler::operator()(const ftxui::Event& event) const
     {
         if (state_->show_zmodem_confirm_modal)
         {
@@ -528,7 +528,7 @@ namespace ql
         state_->page = kPageNetList;
     }
 
-    bool ImportNetKeyHandler::operator()(ftxui::Event event) const
+    bool ImportNetKeyHandler::operator()(const ftxui::Event& event) const
     {
         if (state_->show_zmodem_confirm_modal)
         {
@@ -579,7 +579,7 @@ namespace ql
         state_->page = kPageNetList;
     }
 
-    bool SelectRoleKeyHandler::operator()(ftxui::Event event) const
+    bool SelectRoleKeyHandler::operator()(const ftxui::Event& event) const
     {
         if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
         {
@@ -644,7 +644,7 @@ namespace ql
         state_->page = kPageSelectRole;
     }
 
-    bool EnterCallsignKeyHandler::operator()(ftxui::Event event) const
+    bool EnterCallsignKeyHandler::operator()(const ftxui::Event& event) const
     {
         if (event == ftxui::Event::F2)
         {
@@ -777,7 +777,7 @@ namespace ql
                      state_->active_check_ins);
     }
 
-    bool ActiveNetKeyHandler::operator()(ftxui::Event event) const
+    bool ActiveNetKeyHandler::operator()(const ftxui::Event& event) const
     {
         if (state_->show_zmodem_confirm_modal)
         {
@@ -931,7 +931,7 @@ namespace ql
         state_->page = kPageSettings;
     }
 
-    bool ManageUsersKeyHandler::operator()(ftxui::Event event) const
+    bool ManageUsersKeyHandler::operator()(const ftxui::Event& event) const
     {
         if (event == ftxui::Event::F2)
         {
@@ -954,7 +954,7 @@ namespace ql
         return false;
     }
 
-    bool SettingsKeyHandler::operator()(ftxui::Event event) const
+    bool SettingsKeyHandler::operator()(const ftxui::Event& event) const
     {
         if (event == ftxui::Event::F2)
         {
@@ -1019,7 +1019,7 @@ namespace ql
         state_->screen->ExitLoopClosure()();
     }
 
-    bool AppKeyHandler::operator()(ftxui::Event event) const
+    bool AppKeyHandler::operator()(const ftxui::Event& event) const
     {
         if (state_->page == kPageNetList)
         {
