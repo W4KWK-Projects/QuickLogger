@@ -92,6 +92,16 @@ On first run, you'll be taken straight to Settings to set your callsign
 and home ZIP code (required before anything else is usable). After that,
 you land on the Recurring Nets list.
 
+### Saving stations to a net
+
+On a net's **Edit Net** page (F7 from the Recurring Nets list), the station
+form sits below the net's own details and its list of saved stations. You
+don't have to Tab down to it: press **F3** (Save Station) while the form's
+callsign is empty and the cursor jumps straight to the Callsign field (**F6**,
+Add Station, does the same and also clears the form). Type a callsign, pick
+a match, fill in anything else, and press **F3** again to save it — the
+cursor returns to Callsign, ready for the next station.
+
 ### Station data
 
 QuickLogger looks callsigns up in its own copy of the FCC's amateur license

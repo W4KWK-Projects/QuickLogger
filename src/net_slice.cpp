@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 #include "file_export.hpp"
 #include "text_utils.hpp"
@@ -27,7 +28,7 @@ namespace ql
             NetSliceSavedStation entry;
             entry.station = station;
             entry.default_remarks = db->GetSavedNetStationRemarks(net_id, station.callsign);
-            slice.saved_stations.push_back(entry);
+            slice.saved_stations.push_back(std::move(entry));
             known_callsigns.insert(ToUpperAscii(station.callsign));
         }
 
@@ -151,7 +152,7 @@ namespace ql
                 entry.station = station;
                 entry.default_remarks =
                     source.GetSavedNetStationRemarks(slice.net.id, station.callsign);
-                slice.saved_stations.push_back(entry);
+                slice.saved_stations.push_back(std::move(entry));
             }
 
             slice.instances = source.GetNetInstancesForNet(slice.net.id);

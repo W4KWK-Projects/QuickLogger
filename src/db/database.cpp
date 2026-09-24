@@ -3,6 +3,7 @@
 #include <sqlite3.h>
 
 #include <stdexcept>
+#include <utility>
 
 #include "../text_utils.hpp"
 #include "sqlite_statement.hpp"
@@ -126,6 +127,16 @@ CREATE TABLE IF NOT EXISTS users (
     // schema of a database created by an older version of QuickLogger without
     // forcing the user to delete it. kSchemaSql's CREATE TABLE only covers
     // brand-new databases.
+    // The version of the upgrades CreateSchema has applied to this
+    // database; see the comment there.
+    static constexpr int kSchemaVersion = 1;
+
+    static int ReadUserVersion(sqlite3* db)
+    {
+        Statement statement(db, "PRAGMA user_version;");
+        return statement.Step() ? static_cast<int>(statement.ColumnInt64(0)) : 0;
+    }
+
     static void EnsureColumnExists(sqlite3* db, const char* table, const char* column,
                                    const char* column_declaration)
     {
@@ -275,6 +286,17 @@ CREATE TABLE IF NOT EXISTS users (
             throw std::runtime_error("Failed to create schema: " + message);
         }
 
+        // Everything below upgrades a database created by an older version.
+        // It's all idempotent, but some of it scans whole tables, and a
+        // database is opened by every session, the SSH listener's
+        // connections and the data updater -- so it runs once per database,
+        // recorded in SQLite's user_version, rather than on every open. Bump
+        // kSchemaVersion when adding to it.
+        if (ReadUserVersion(db_) >= kSchemaVersion)
+        {
+            return;
+        }
+
         EnsureColumnExists(db_, "stations", "street_address", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(db_, "net_saved_stations", "default_remarks",
                            "TEXT NOT NULL DEFAULT ''");
@@ -307,6 +329,9 @@ CREATE TABLE IF NOT EXISTS users (
         // refresh rewrote them. Idempotent -- a no-op once none remain.
         sqlite3_exec(db_, "UPDATE uls_stations SET zip = substr(zip, 1, 5) WHERE length(zip) > 5;",
                      nullptr, nullptr, nullptr);
+
+        std::string set_version = "PRAGMA user_version = " + std::to_string(kSchemaVersion) + ";";
+        sqlite3_exec(db_, set_version.c_str(), nullptr, nullptr, nullptr);
     }
 
     void Database::UpsertStation(const Station& station)
@@ -948,8 +973,13 @@ CREATE TABLE IF NOT EXISTS users (
         statement.Step();
     }
 
-    void Database::BulkUpsertUlsStations(const std::vector<Station>& batch, std::int64_t updated_at)
+    void Database::BulkUpsertUlsStations(const std::vector<Station>& stations, std::size_t begin,
+                                         std::size_t end, std::int64_t updated_at)
     {
+        // The WHERE on the update skips rows whose data hasn't changed -- on a
+        // weekly refresh that's nearly all of them, and an unchanged row then
+        // costs a lookup instead of a rewrite of its table and index pages.
+        // (So last_updated means "last changed", not "last seen".)
         Statement statement(db_, R"sql(
         INSERT INTO uls_stations
             (callsign, name, street_address, city, state, zip, license_class, last_updated)
@@ -961,12 +991,19 @@ CREATE TABLE IF NOT EXISTS users (
             state = excluded.state,
             zip = excluded.zip,
             license_class = excluded.license_class,
-            last_updated = excluded.last_updated;
+            last_updated = excluded.last_updated
+        WHERE uls_stations.name IS NOT excluded.name
+           OR uls_stations.street_address IS NOT excluded.street_address
+           OR uls_stations.city IS NOT excluded.city
+           OR uls_stations.state IS NOT excluded.state
+           OR uls_stations.zip IS NOT excluded.zip
+           OR uls_stations.license_class IS NOT excluded.license_class;
     )sql");
 
         sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
-        for (const Station& station : batch)
+        for (std::size_t i = begin; i < end && i < stations.size(); ++i)
         {
+            const Station& station = stations[i];
             statement.Reset();
             statement.BindText(0, ToUpperAscii(station.callsign));
             statement.BindText(1, station.name);
@@ -990,6 +1027,12 @@ CREATE TABLE IF NOT EXISTS users (
             return results;
         }
 
+        // Each ZIP3 prefix as a range, zip >= "374" AND zip < "375", rather
+        // than zip LIKE "374%": SQLite can answer a range from the zip index,
+        // but not a LIKE (it's case-insensitive by default, so the index
+        // doesn't apply). With a range per prefix it reads only the nearby
+        // stations -- ~10 ms -- instead of walking the whole 800k-row table in
+        // callsign order, ~25 ms for most keystrokes.
         std::string sql =
             "SELECT callsign, name, street_address, city, state, zip, license_class, "
             "last_updated FROM uls_stations WHERE callsign LIKE '%' || ? || '%' AND (";
@@ -999,7 +1042,7 @@ CREATE TABLE IF NOT EXISTS users (
             {
                 sql += " OR ";
             }
-            sql += "zip LIKE ? || '%'";
+            sql += "(zip >= ? AND zip < ?)";
         }
         sql += ") ORDER BY callsign LIMIT 50;";
 
@@ -1007,7 +1050,16 @@ CREATE TABLE IF NOT EXISTS users (
         statement.BindText(0, ToUpperAscii(substring));
         for (std::size_t i = 0; i < zip3_prefixes.size(); ++i)
         {
-            statement.BindText(static_cast<int>(i) + 1, zip3_prefixes[i]);
+            const std::string& prefix = zip3_prefixes[i];
+            // The first string after every one starting with `prefix`: bump
+            // its last character ("374" -> "375", "379" -> "37:").
+            std::string after_prefix = prefix;
+            if (!after_prefix.empty())
+            {
+                after_prefix.back() = static_cast<char>(after_prefix.back() + 1);
+            }
+            statement.BindText(static_cast<int>(2 * i) + 1, prefix);
+            statement.BindText(static_cast<int>(2 * i) + 2, after_prefix);
         }
         while (statement.Step())
         {
@@ -1021,7 +1073,7 @@ CREATE TABLE IF NOT EXISTS users (
             station.license_class = statement.ColumnText(6);
             station.last_updated = statement.ColumnInt64(7);
             station.data_source = StationDataSource::kUls;
-            results.push_back(station);
+            results.push_back(std::move(station));
         }
         return results;
     }
@@ -1087,7 +1139,7 @@ CREATE TABLE IF NOT EXISTS users (
             centroid.zip = statement.ColumnText(0);
             centroid.lat = statement.ColumnDouble(1);
             centroid.lon = statement.ColumnDouble(2);
-            results.push_back(centroid);
+            results.push_back(std::move(centroid));
         }
         return results;
     }
@@ -1131,7 +1183,7 @@ CREATE TABLE IF NOT EXISTS users (
             ZipCounty zip_county;
             zip_county.zip = statement.ColumnText(0);
             zip_county.county = statement.ColumnText(1);
-            results.push_back(zip_county);
+            results.push_back(std::move(zip_county));
         }
         return results;
     }
@@ -1146,7 +1198,7 @@ CREATE TABLE IF NOT EXISTS users (
             zip_place.zip = statement.ColumnText(0);
             zip_place.place = statement.ColumnText(1);
             zip_place.county = statement.ColumnText(2);
-            results.push_back(zip_place);
+            results.push_back(std::move(zip_place));
         }
         return results;
     }
@@ -1204,7 +1256,7 @@ CREATE TABLE IF NOT EXISTS users (
             user.public_key = statement.ColumnText(1);
             user.created_at = statement.ColumnInt64(2);
             user.last_login_at = statement.ColumnInt64(3);
-            users.push_back(user);
+            users.push_back(std::move(user));
         }
         return users;
     }

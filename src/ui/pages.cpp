@@ -413,7 +413,7 @@ namespace ql
 
         ftxui::Element operator()() const
         {
-            std::string role_label = state_->role_labels[state_->selected_role_index];
+            const std::string& role_label = state_->role_labels[state_->selected_role_index];
 
             ftxui::Element content = ftxui::vbox({
                 ftxui::text("Role: " + role_label) | ftxui::bold |
@@ -456,7 +456,7 @@ namespace ql
 
         ftxui::Element operator()() const
         {
-            std::string role_label = state_->role_labels[state_->selected_role_index];
+            const std::string& role_label = state_->role_labels[state_->selected_role_index];
 
             ftxui::Element check_in_list =
                 state_->active_display_rows.empty()

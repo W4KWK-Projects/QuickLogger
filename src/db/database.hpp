@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -187,9 +188,11 @@ namespace ql
         // Plain overwrite-on-conflict is correct here (unlike the
         // fill-blanks-only Station upserts) since every row in this table is
         // exclusively ULS-sourced -- there's no manual edit to protect.
-        // Wraps the whole batch in one transaction for performance, so
-        // callers should pass a few hundred to a few thousand at a time.
-        void BulkUpsertUlsStations(const std::vector<Station>& batch, std::int64_t updated_at);
+        // Writes stations[begin, end) in one transaction for performance, so
+        // callers should pass a few thousand at a time. Rows whose data is
+        // unchanged are left alone.
+        void BulkUpsertUlsStations(const std::vector<Station>& stations, std::size_t begin,
+                                   std::size_t end, std::int64_t updated_at);
         // Matches any callsign containing `substring` (case-insensitive)
         // among ULS-imported stations whose zip code starts with one of
         // `zip3_prefixes` -- a coarse, index-friendly proximity pre-filter

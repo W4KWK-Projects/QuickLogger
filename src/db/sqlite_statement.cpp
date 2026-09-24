@@ -62,7 +62,15 @@ namespace ql
     std::string Statement::ColumnText(int index) const
     {
         const unsigned char* text = sqlite3_column_text(stmt_, index);
-        return text == nullptr ? std::string() : reinterpret_cast<const char*>(text);
+        if (text == nullptr)
+        {
+            return std::string();
+        }
+        // SQLite already knows the length (sqlite3_column_bytes, valid right
+        // after sqlite3_column_text), so build the string from it rather than
+        // making std::string scan for the terminator with strlen.
+        return std::string(reinterpret_cast<const char*>(text),
+                           static_cast<std::size_t>(sqlite3_column_bytes(stmt_, index)));
     }
 
     std::int64_t Statement::ColumnInt64(int index) const

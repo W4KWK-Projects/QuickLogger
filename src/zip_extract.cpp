@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
+#include <utility>
 
 #include <zlib.h>
 
@@ -165,7 +166,7 @@ namespace ql
                 *error = "ZIP64 archives aren't supported.";
                 return false;
             }
-            entries->push_back(entry);
+            entries->push_back(std::move(entry));
             position += kCentralHeaderSize + name_length + extra_length + comment_length;
         }
         return true;

@@ -4,6 +4,7 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <utility>
 
 namespace ql
 {
@@ -42,7 +43,7 @@ namespace ql
             if (name.size() >= extension.size() &&
                 name.compare(name.size() - extension.size(), extension.size(), extension) == 0)
             {
-                names.push_back(name);
+                names.push_back(std::move(name));
             }
         }
         std::sort(names.begin(), names.end());

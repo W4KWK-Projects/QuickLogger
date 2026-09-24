@@ -2,12 +2,20 @@
 
 #include <curl/curl.h>
 
+#include <charconv>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <optional>
+#include <string_view>
+#include <system_error>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "date_utils.hpp"
@@ -96,27 +104,67 @@ namespace ql
         return dir + "/uls_cache";
     }
 
-    static std::vector<std::string> SplitOn(const std::string& line, char separator)
+    // Splits `line` on `separator` into `fields`, as views into `line` --
+    // no per-field allocation, and `fields` is reused from call to call, so
+    // parsing millions of lines costs no allocations after the first. The
+    // views are only valid while `line` is unchanged.
+    static void SplitFields(std::string_view line, char separator,
+                            std::vector<std::string_view>* fields)
     {
-        std::vector<std::string> fields;
-        std::string::size_type start = 0;
+        fields->clear();
+        std::string_view::size_type start = 0;
         while (true)
         {
-            std::string::size_type found = line.find(separator, start);
-            if (found == std::string::npos)
+            std::string_view::size_type found = line.find(separator, start);
+            if (found == std::string_view::npos)
             {
-                fields.push_back(line.substr(start));
-                break;
+                fields->push_back(line.substr(start));
+                return;
             }
-            fields.push_back(line.substr(start, found - start));
+            fields->push_back(line.substr(start, found - start));
             start = found + 1;
         }
-        return fields;
     }
 
-    static std::string FieldOrEmpty(const std::vector<std::string>& fields, std::size_t index)
+    static std::string_view FieldOrEmpty(const std::vector<std::string_view>& fields,
+                                         std::size_t index)
     {
-        return index < fields.size() ? fields[index] : std::string();
+        return index < fields.size() ? fields[index] : std::string_view();
+    }
+
+    // The FCC files' record ids are plain decimal numbers; 0 if a field isn't
+    // one. Parsed to an integer so the id lookups below hash a number rather
+    // than a string.
+    static std::uint32_t ParseRecordId(std::string_view text)
+    {
+        std::uint32_t id = 0;
+        std::from_chars_result result = std::from_chars(text.data(), text.data() + text.size(), id);
+        return result.ec == std::errc() ? id : 0;
+    }
+
+    // std::stod wants a std::string, and std::from_chars for floating point
+    // isn't available in every standard library this builds with; strtod on
+    // a small stack copy handles the short numeric fields these files have.
+    static double ParseDoubleOr(std::string_view text, double fallback)
+    {
+        // Some Census files pad fields with spaces (the gazetteer's last
+        // column carries dozens), so trim before measuring.
+        std::string_view::size_type first = text.find_first_not_of(" \t\r");
+        if (first == std::string_view::npos)
+        {
+            return fallback;
+        }
+        text = text.substr(first, text.find_last_not_of(" \t\r") - first + 1);
+        char buffer[64];
+        if (text.size() >= sizeof(buffer))
+        {
+            return fallback;
+        }
+        std::memcpy(buffer, text.data(), text.size());
+        buffer[text.size()] = '\0';
+        char* end = nullptr;
+        double value = std::strtod(buffer, &end);
+        return end == buffer ? fallback : value;
     }
 
     // FCC's EN.dat zip field is sometimes a 9-digit ZIP+4 with no separator
@@ -126,12 +174,12 @@ namespace ql
     // saved-station form's ULS proximity tier) keys off a plain 5-digit
     // ZIP, so normalize once here at the source rather than in every
     // consumer.
-    static std::string NormalizeZip5(const std::string& zip)
+    static std::string_view NormalizeZip5(std::string_view zip)
     {
         return zip.size() > 5 ? zip.substr(0, 5) : zip;
     }
 
-    static std::string LicenseClassFromCode(const std::string& code)
+    static const char* LicenseClassFromCode(std::string_view code)
     {
         if (code == "T")
         {
@@ -177,16 +225,11 @@ namespace ql
         return static_cast<std::int64_t>(std::time(nullptr));
     }
 
-    static std::int64_t CountLines(const std::string& path)
+    static std::int64_t FileSize(const std::string& path)
     {
-        std::ifstream file(path);
-        std::int64_t count = 0;
-        std::string line;
-        while (std::getline(file, line))
-        {
-            ++count;
-        }
-        return count;
+        std::error_code error;
+        std::uintmax_t size = std::filesystem::file_size(path, error);
+        return error ? 0 : static_cast<std::int64_t>(size);
     }
 
     // Writes the refresh job's progress (see kDataRefreshJob) and answers
@@ -322,154 +365,179 @@ namespace ql
         return true;
     }
 
-    struct UlsEntityFields
+    // Reads `path` line by line, calling `handler.HandleLine(fields)` with
+    // each line split on '|', and reporting progress through the file (by
+    // bytes read) as `fraction_base` to `fraction_base + fraction_span` of
+    // the current step. Returns false if the file can't be read or a stop
+    // was requested.
+    template <typename Handler>
+    static bool ForEachUlsRecord(const std::string& path, ProgressReporter* reporter,
+                                 double fraction_base, double fraction_span, Handler* handler)
     {
-        std::string name;
-        std::string street_address;
-        std::string city;
-        std::string state;
-        std::string zip;
+        std::ifstream file(path, std::ios::binary);
+        if (!file.good())
+        {
+            return false;
+        }
+        double total_bytes = static_cast<double>(FileSize(path));
+        std::string line;
+        std::vector<std::string_view> fields;
+        std::int64_t line_number = 0;
+        while (std::getline(file, line))
+        {
+            SplitFields(line, '|', &fields);
+            handler->HandleLine(fields);
+            if (++line_number % 20000 == 0)
+            {
+                if (reporter->StopRequested())
+                {
+                    return false;
+                }
+                std::streamoff position = file.tellg();
+                if (total_bytes > 0.0 && position > 0)
+                {
+                    reporter->Report(
+                        fraction_base + fraction_span * static_cast<double>(position) / total_bytes,
+                        0);
+                }
+            }
+        }
+        return true;
+    }
+
+    // Everything needed from the three FCC files, for the active licenses
+    // only. HD.dat is read first to find those (about half of its 1.7M rows);
+    // EN.dat and AM.dat then fill in just those records, found by numeric id
+    // -- far less memory and hashing than keeping all 1.7M EN.dat entries.
+    struct UlsLicenses
+    {
+        std::vector<Station> stations;
+        std::unordered_map<std::uint32_t, std::uint32_t> index_by_id;
     };
 
-    static std::unordered_map<std::string, UlsEntityFields> ParseEntityFile(const std::string& path)
+    class HdLineHandler
     {
-        std::unordered_map<std::string, UlsEntityFields> result;
-        std::ifstream file(path);
-        std::string line;
-        while (std::getline(file, line))
+    public:
+        explicit HdLineHandler(UlsLicenses* licenses) : licenses_(licenses) {}
+
+        void HandleLine(const std::vector<std::string_view>& fields)
         {
-            std::vector<std::string> fields = SplitOn(line, '|');
+            if (fields.size() <= kHdLicenseStatus || fields[0] != "HD" ||
+                fields[kHdLicenseStatus] != "A" || fields[kHdCallSign].empty())
+            {
+                return;
+            }
+            std::uint32_t id = ParseRecordId(fields[kHdUniqueSystemId]);
+            if (id == 0)
+            {
+                return;
+            }
+            licenses_->index_by_id[id] = static_cast<std::uint32_t>(licenses_->stations.size());
+            licenses_->stations.emplace_back();
+            licenses_->stations.back().callsign = std::string(fields[kHdCallSign]);
+        }
+
+    private:
+        UlsLicenses* licenses_;
+    };
+
+    class EnLineHandler
+    {
+    public:
+        explicit EnLineHandler(UlsLicenses* licenses) : licenses_(licenses) {}
+
+        void HandleLine(const std::vector<std::string_view>& fields)
+        {
             if (fields.empty() || fields[0] != "EN")
             {
-                continue;
+                return;
             }
-            UlsEntityFields entity;
-            entity.name = FieldOrEmpty(fields, kEnEntityName);
-            entity.street_address = FieldOrEmpty(fields, kEnStreetAddress);
-            entity.city = FieldOrEmpty(fields, kEnCity);
-            entity.state = FieldOrEmpty(fields, kEnState);
-            entity.zip = NormalizeZip5(FieldOrEmpty(fields, kEnZip));
-            result[FieldOrEmpty(fields, kEnUniqueSystemId)] = entity;
+            std::unordered_map<std::uint32_t, std::uint32_t>::const_iterator it =
+                licenses_->index_by_id.find(ParseRecordId(FieldOrEmpty(fields, kEnUniqueSystemId)));
+            if (it == licenses_->index_by_id.end())
+            {
+                return;
+            }
+            Station& station = licenses_->stations[it->second];
+            station.name = std::string(FieldOrEmpty(fields, kEnEntityName));
+            station.street_address = std::string(FieldOrEmpty(fields, kEnStreetAddress));
+            station.city = std::string(FieldOrEmpty(fields, kEnCity));
+            station.state = std::string(FieldOrEmpty(fields, kEnState));
+            station.zip = std::string(NormalizeZip5(FieldOrEmpty(fields, kEnZip)));
         }
-        return result;
-    }
 
-    static std::unordered_map<std::string, std::string> ParseAmateurFile(const std::string& path)
+    private:
+        UlsLicenses* licenses_;
+    };
+
+    class AmLineHandler
     {
-        std::unordered_map<std::string, std::string> result;
-        std::ifstream file(path);
-        std::string line;
-        while (std::getline(file, line))
+    public:
+        explicit AmLineHandler(UlsLicenses* licenses) : licenses_(licenses) {}
+
+        void HandleLine(const std::vector<std::string_view>& fields)
         {
-            std::vector<std::string> fields = SplitOn(line, '|');
             if (fields.empty() || fields[0] != "AM")
             {
-                continue;
+                return;
             }
-            result[FieldOrEmpty(fields, kAmUniqueSystemId)] =
+            std::unordered_map<std::uint32_t, std::uint32_t>::const_iterator it =
+                licenses_->index_by_id.find(ParseRecordId(FieldOrEmpty(fields, kAmUniqueSystemId)));
+            if (it == licenses_->index_by_id.end())
+            {
+                return;
+            }
+            licenses_->stations[it->second].license_class =
                 LicenseClassFromCode(FieldOrEmpty(fields, kAmOperatorClass));
         }
-        return result;
-    }
+
+    private:
+        UlsLicenses* licenses_;
+    };
 
     static bool ParseAndImport(const std::string& cache_dir, Database* db,
                                ProgressReporter* reporter, std::int64_t* out_records,
                                std::string* error)
     {
-        std::unordered_map<std::string, UlsEntityFields> entities =
-            ParseEntityFile(cache_dir + "/EN.dat");
-        std::unordered_map<std::string, std::string> license_classes =
-            ParseAmateurFile(cache_dir + "/AM.dat");
-        if (reporter->StopRequested())
+        // Roughly how the time splits: reading the three files, then writing
+        // to the database.
+        UlsLicenses licenses;
+        licenses.stations.reserve(1000000);
+        licenses.index_by_id.reserve(1000000);
+
+        HdLineHandler hd_handler(&licenses);
+        EnLineHandler en_handler(&licenses);
+        AmLineHandler am_handler(&licenses);
+        if (!ForEachUlsRecord(cache_dir + "/HD.dat", reporter, 0.0, 0.15, &hd_handler) ||
+            !ForEachUlsRecord(cache_dir + "/EN.dat", reporter, 0.15, 0.2, &en_handler) ||
+            !ForEachUlsRecord(cache_dir + "/AM.dat", reporter, 0.35, 0.05, &am_handler))
         {
-            *error = "Interrupted.";
+            *error = reporter->StopRequested() ? "Interrupted." : "Failed to read the FCC files.";
             return false;
         }
-
-        std::string hd_path = cache_dir + "/HD.dat";
-        std::int64_t total_lines = CountLines(hd_path);
-        if (total_lines <= 0)
+        if (licenses.stations.empty())
         {
-            *error = "HD.dat was empty.";
-            return false;
-        }
-
-        std::ifstream file(hd_path);
-        if (!file.good())
-        {
-            *error = "Failed to open HD.dat.";
+            *error = "HD.dat had no active licenses.";
             return false;
         }
 
         std::int64_t now = Now();
-        constexpr std::size_t kBatchSize = 1000;
-        std::vector<Station> batch;
-        batch.reserve(kBatchSize);
-        std::int64_t imported = 0;
-        std::int64_t line_number = 0;
-        std::string line;
-        while (std::getline(file, line))
+        constexpr std::size_t kBatchSize = 5000;
+        std::size_t total = licenses.stations.size();
+        for (std::size_t start = 0; start < total; start += kBatchSize)
         {
-            ++line_number;
-            std::vector<std::string> fields = SplitOn(line, '|');
-            if (fields.size() <= kHdLicenseStatus || fields[0] != "HD")
+            std::size_t end = start + kBatchSize < total ? start + kBatchSize : total;
+            db->BulkUpsertUlsStations(licenses.stations, start, end, now);
+            reporter->Report(0.4 + 0.6 * static_cast<double>(end) / static_cast<double>(total),
+                             static_cast<std::int64_t>(end));
+            if (reporter->StopRequested())
             {
-                continue;
-            }
-            if (FieldOrEmpty(fields, kHdLicenseStatus) != "A")
-            {
-                continue;
-            }
-            std::string call_sign = FieldOrEmpty(fields, kHdCallSign);
-            if (call_sign.empty())
-            {
-                continue;
-            }
-            std::string id = FieldOrEmpty(fields, kHdUniqueSystemId);
-
-            Station station;
-            station.callsign = call_sign;
-
-            std::unordered_map<std::string, UlsEntityFields>::const_iterator entity_it =
-                entities.find(id);
-            if (entity_it != entities.end())
-            {
-                station.name = entity_it->second.name;
-                station.street_address = entity_it->second.street_address;
-                station.city = entity_it->second.city;
-                station.state = entity_it->second.state;
-                station.zip = entity_it->second.zip;
-            }
-
-            std::unordered_map<std::string, std::string>::const_iterator class_it =
-                license_classes.find(id);
-            if (class_it != license_classes.end())
-            {
-                station.license_class = class_it->second;
-            }
-
-            batch.push_back(station);
-            ++imported;
-
-            if (batch.size() >= kBatchSize)
-            {
-                db->BulkUpsertUlsStations(batch, now);
-                batch.clear();
-                reporter->Report(
-                    static_cast<double>(line_number) / static_cast<double>(total_lines), imported);
-                if (reporter->StopRequested())
-                {
-                    *error = "Interrupted.";
-                    return false;
-                }
+                *error = "Interrupted.";
+                return false;
             }
         }
-        if (!batch.empty())
-        {
-            db->BulkUpsertUlsStations(batch, now);
-        }
 
-        *out_records = imported;
+        *out_records = static_cast<std::int64_t>(total);
         return true;
     }
 
@@ -529,25 +597,24 @@ namespace ql
         constexpr std::size_t kBatchSize = 1000;
         std::vector<ZipCentroid> batch;
         batch.reserve(kBatchSize);
+        std::vector<std::string_view> fields;
         while (std::getline(file, line))
         {
-            std::vector<std::string> fields = SplitOn(line, '\t');
+            SplitFields(line, '\t', &fields);
             if (fields.size() < 7)
             {
                 continue;
             }
+            constexpr double kNotANumber = 1000.0;  // Outside any real lat/lon.
             ZipCentroid centroid;
-            centroid.zip = fields[0];
-            try
-            {
-                centroid.lat = std::stod(fields[5]);
-                centroid.lon = std::stod(fields[6]);
-            }
-            catch (const std::exception&)
+            centroid.zip = std::string(fields[0]);
+            centroid.lat = ParseDoubleOr(fields[5], kNotANumber);
+            centroid.lon = ParseDoubleOr(fields[6], kNotANumber);
+            if (centroid.lat == kNotANumber || centroid.lon == kNotANumber)
             {
                 continue;
             }
-            batch.push_back(centroid);
+            batch.push_back(std::move(centroid));
             if (batch.size() >= kBatchSize)
             {
                 db->BulkUpsertZipCentroids(batch);
@@ -575,18 +642,6 @@ namespace ql
             return county.substr(0, county.size() - suffix.size());
         }
         return county;
-    }
-
-    static double ParseDoubleOr(const std::string& text, double fallback)
-    {
-        try
-        {
-            return std::stod(text);
-        }
-        catch (const std::exception&)
-        {
-            return fallback;
-        }
     }
 
     // One county a ZIP overlaps, with how much of the ZIP is in it.
@@ -710,18 +765,20 @@ namespace ql
             }
             std::string line;
             std::getline(file, line);  // Header row.
+            std::vector<std::string_view> fields;
             while (std::getline(file, line))
             {
-                std::vector<std::string> fields = SplitOn(line, '|');
+                SplitFields(line, '|', &fields);
                 if (fields.size() < 17 || fields[1].empty() || fields[9].empty())
                 {
                     continue;
                 }
                 ZipCountyShare share;
-                share.county_geoid = fields[9];
+                share.county_geoid = std::string(fields[9]);
                 share.land_area = ParseDoubleOr(fields[16], 0.0);
-                shares_by_zip[fields[1]].push_back(share);
-                county_names[fields[9]] = StripCountySuffix(fields[10]);
+                std::string county_name = StripCountySuffix(std::string(fields[10]));
+                county_names[share.county_geoid] = std::move(county_name);
+                shares_by_zip[std::string(fields[1])].push_back(std::move(share));
             }
         }
         if (shares_by_zip.empty())
@@ -737,9 +794,10 @@ namespace ql
             std::ifstream file(population_path);
             std::string line;
             std::getline(file, line);  // Header row.
+            std::vector<std::string_view> fields;
             while (std::getline(file, line))
             {
-                std::vector<std::string> fields = SplitOn(line, ',');
+                SplitFields(line, ',', &fields);
                 if (fields.size() < 9)
                 {
                     continue;
@@ -749,7 +807,7 @@ namespace ql
                 {
                     continue;
                 }
-                population_share[fields[0]][fields[3]] =
+                population_share[std::string(fields[0])][std::string(fields[3])] =
                     ParseDoubleOr(fields[4], 0.0) / zip_population;
             }
         }
@@ -810,7 +868,7 @@ namespace ql
             ZipCounty zip_county;
             zip_county.zip = entry.first;
             zip_county.county = county_names[best->county_geoid];
-            zip_counties.push_back(zip_county);
+            zip_counties.push_back(std::move(zip_county));
             if (best->share < kSingleCountyShare)
             {
                 straddling_zips.insert(entry.first);
@@ -830,24 +888,26 @@ namespace ql
             }
             std::string line;
             std::getline(file, line);  // Header row.
+            std::vector<std::string_view> fields;
             while (std::getline(file, line))
             {
-                std::vector<std::string> fields = SplitOn(line, '|');
+                SplitFields(line, '|', &fields);
                 if (fields.size() < 17 || fields[9].size() < 5 ||
-                    straddling_zips.count(fields[1]) == 0)
+                    straddling_zips.count(std::string(fields[1])) == 0)
                 {
                     continue;
                 }
                 std::unordered_map<std::string, std::string>::const_iterator county_it =
-                    county_names.find(fields[9].substr(0, 5));
+                    county_names.find(std::string(fields[9].substr(0, 5)));
                 if (county_it == county_names.end())
                 {
                     continue;
                 }
                 double land_area = ParseDoubleOr(fields[16], 0.0);
-                for (const std::string& place : PlaceNameVariants(fields[10]))
+                std::string zip_prefix = std::string(fields[1]) + "|";
+                for (const std::string& place : PlaceNameVariants(std::string(fields[10])))
                 {
-                    PlaceCandidate& candidate = best_by_zip_place[fields[1] + "|" + place];
+                    PlaceCandidate& candidate = best_by_zip_place[zip_prefix + place];
                     if (candidate.county.empty() || land_area > candidate.land_area)
                     {
                         candidate.county = county_it->second;
@@ -866,7 +926,7 @@ namespace ql
             zip_place.zip = entry.first.substr(0, bar);
             zip_place.place = entry.first.substr(bar + 1);
             zip_place.county = entry.second.county;
-            zip_place_counties.push_back(zip_place);
+            zip_place_counties.push_back(std::move(zip_place));
         }
 
         db->ReplaceZipCountyData(zip_counties, zip_place_counties);

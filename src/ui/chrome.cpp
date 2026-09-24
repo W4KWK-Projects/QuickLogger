@@ -35,7 +35,7 @@ namespace ql
             int width = KeyHintWidth(hint);
             if (!current_row.empty() && current_width + width > max_width)
             {
-                rows.push_back(current_row);
+                rows.push_back(std::move(current_row));
                 current_row.clear();
                 current_width = 0;
             }
@@ -44,7 +44,7 @@ namespace ql
         }
         if (!current_row.empty())
         {
-            rows.push_back(current_row);
+            rows.push_back(std::move(current_row));
         }
         return rows;
     }

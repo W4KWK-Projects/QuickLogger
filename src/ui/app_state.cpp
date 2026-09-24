@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <ctime>
+#include <utility>
 
 #include <ftxui/component/component_base.hpp>
 
@@ -954,17 +955,16 @@ namespace ql
             return;
         }
 
-        Station selected = state->modal_callsign_suggestions[state->selected_suggestion_index];
-        state->modal_station = selected;
+        state->modal_station = state->modal_callsign_suggestions[state->selected_suggestion_index];
         // Fill County in now, so it shows in the form as soon as the station
         // is picked rather than only once it's saved.
         BackfillCountyFromZip(state, &state->modal_station);
 
-        std::string default_remarks =
-            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, selected.callsign);
+        std::string default_remarks = state->db->GetSavedNetStationRemarks(
+            state->active_instance.net_id, state->modal_station.callsign);
         if (!default_remarks.empty())
         {
-            state->modal_remarks = default_remarks;
+            state->modal_remarks = std::move(default_remarks);
         }
 
         state->modal_callsign_suggestions.clear();

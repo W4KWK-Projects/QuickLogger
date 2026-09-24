@@ -3,9 +3,9 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <exception>
 #include <string>
+#include <string_view>
 #include <thread>
 
 #include "data_updater.hpp"
@@ -19,6 +19,7 @@
 #endif
 
 constexpr int kDefaultSshPort = 2222;
+constexpr std::string_view kSshPortFlag = "--ssh-port=";
 constexpr const char* kDbPath = "quicklogger.db";
 
 #ifdef QUICKLOGGER_WITH_SSH
@@ -41,7 +42,8 @@ static CliOptions ParseArgs(int argc, char** argv)
     CliOptions options;
     for (int i = 1; i < argc; ++i)
     {
-        std::string arg = argv[i];
+        // A view, not a std::string: nothing here needs a copy of argv.
+        std::string_view arg = argv[i];
         if (arg == "--no-ssh")
         {
             options.ssh_enabled = false;
@@ -50,9 +52,10 @@ static CliOptions ParseArgs(int argc, char** argv)
         {
             options.headless = true;
         }
-        else if (arg.rfind("--ssh-port=", 0) == 0)
+        else if (arg.substr(0, kSshPortFlag.size()) == kSshPortFlag)
         {
-            const char* value = arg.c_str() + std::strlen("--ssh-port=");
+            // argv strings are NUL-terminated, so this is too.
+            const char* value = argv[i] + kSshPortFlag.size();
             char* end = nullptr;
             long port = std::strtol(value, &end, 10);
             if (end == value || *end != '\0' || port < 1 || port > 65535)
