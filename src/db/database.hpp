@@ -84,16 +84,21 @@ namespace ql
         // have when they first saved just the callsign), not adding a new one.
         void UpdateSavedNetStation(std::int64_t net_id, const Station& station,
                                    const std::string& default_remarks, std::int64_t updated_at);
-        // Removes a station's saved association with a net. Does not touch the
-        // Station record itself, nor any real check-in history.
+        // Removes a station's saved association with a net. Never touches
+        // check-in history. Like every delete here, it then drops any
+        // station record nothing refers to any more (see DeleteUnusedStations).
         void RemoveSavedNetStation(std::int64_t net_id, const std::string& callsign);
-        // Removes `callsign` entirely: its saved association with every net
-        // (not just one) and the Station record itself. Refuses (returns
-        // false, changes nothing) if the station has any real check-in
-        // history, since that would either violate the check_ins->stations
-        // foreign key or silently destroy logged history -- callers should
-        // direct the operator to RemoveSavedNetStation instead in that case.
-        bool DeleteStationCompletely(const std::string& callsign);
+        // Whether `callsign` is saved to some net other than `net_id`, or has
+        // checked in anywhere -- i.e. whether its station record would
+        // survive being removed from `net_id`'s saved stations.
+        bool IsStationUsedOutsideNet(const std::string& callsign, std::int64_t net_id);
+        // A station record (name, member ID, address...) lives only as long
+        // as something refers to it: a net it's saved to, or a check-in in
+        // some log. This deletes the records nothing refers to any more --
+        // e.g. a mistyped callsign once it's removed from the net it was
+        // saved to -- so they stop turning up in autocomplete. Called at the
+        // end of every delete below. Returns how many were deleted.
+        int DeleteUnusedStations();
         // Stations explicitly saved to `net_id` (not those merely known via
         // real check-in history) -- for the edit-net page's saved-station list.
         std::vector<Station> GetSavedStationsForNet(std::int64_t net_id);
@@ -113,11 +118,9 @@ namespace ql
         // it, every instance itself, its saved-station associations, and the
         // net row itself -- in that order, so foreign keys never point at an
         // already-deleted row. Does NOT touch the `stations` table itself
-        // (a station may be known to other nets too), matching
-        // RemoveSavedNetStation's scoping. Unlike DeleteStationCompletely,
-        // there's no cross-net history to protect here -- everything being
-        // removed is already scoped to this one net -- so this always
-        // succeeds and has nothing to refuse.
+        // directly -- a station may be known to other nets too -- but, like
+        // every delete, finishes with DeleteUnusedStations, which drops the
+        // records only this net referred to.
         void DeleteNetCompletely(std::int64_t net_id);
 
         // Net instances (one dated occurrence of a Net).

@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS check_ins (
     designated_role INTEGER NOT NULL DEFAULT -1
 );
 CREATE INDEX IF NOT EXISTS idx_check_ins_net_instance ON check_ins(net_instance_id);
+CREATE INDEX IF NOT EXISTS idx_check_ins_callsign ON check_ins(callsign);
 
 CREATE TABLE IF NOT EXISTS net_saved_stations (
     net_id INTEGER NOT NULL REFERENCES nets(id),
@@ -525,28 +526,30 @@ CREATE TABLE IF NOT EXISTS users (
         statement.BindInt64(0, net_id);
         statement.BindText(1, ToUpperAscii(callsign));
         statement.Step();
+        DeleteUnusedStations();
     }
 
-    bool Database::DeleteStationCompletely(const std::string& callsign)
+    bool Database::IsStationUsedOutsideNet(const std::string& callsign, std::int64_t net_id)
     {
-        std::string upper_callsign = ToUpperAscii(callsign);
+        Statement statement(db_, R"sql(
+        SELECT EXISTS(SELECT 1 FROM net_saved_stations WHERE callsign = ?1 AND net_id != ?2)
+            OR EXISTS(SELECT 1 FROM check_ins WHERE callsign = ?1);
+    )sql");
+        statement.BindText(0, ToUpperAscii(callsign));
+        statement.BindInt64(1, net_id);
+        statement.Step();
+        return statement.ColumnInt64(0) != 0;
+    }
 
-        Statement count_statement(db_, "SELECT COUNT(*) FROM check_ins WHERE callsign = ?;");
-        count_statement.BindText(0, upper_callsign);
-        count_statement.Step();
-        if (count_statement.ColumnInt64(0) > 0)
-        {
-            return false;
-        }
-
-        Statement delete_saved(db_, "DELETE FROM net_saved_stations WHERE callsign = ?;");
-        delete_saved.BindText(0, upper_callsign);
-        delete_saved.Step();
-
-        Statement delete_station(db_, "DELETE FROM stations WHERE callsign = ?;");
-        delete_station.BindText(0, upper_callsign);
-        delete_station.Step();
-        return true;
+    int Database::DeleteUnusedStations()
+    {
+        Statement statement(db_, R"sql(
+        DELETE FROM stations
+        WHERE NOT EXISTS (SELECT 1 FROM net_saved_stations s WHERE s.callsign = stations.callsign)
+          AND NOT EXISTS (SELECT 1 FROM check_ins c WHERE c.callsign = stations.callsign);
+    )sql");
+        statement.Step();
+        return sqlite3_changes(db_);
     }
 
     std::vector<Station> Database::GetSavedStationsForNet(std::int64_t net_id)
@@ -672,6 +675,7 @@ CREATE TABLE IF NOT EXISTS users (
         delete_net.BindInt64(0, net_id);
         delete_net.Step();
 
+        DeleteUnusedStations();
         sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
     }
 
@@ -757,6 +761,7 @@ CREATE TABLE IF NOT EXISTS users (
         delete_instance.BindInt64(0, instance_id);
         delete_instance.Step();
 
+        DeleteUnusedStations();
         sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
     }
 
@@ -846,6 +851,7 @@ CREATE TABLE IF NOT EXISTS users (
         Statement statement(db_, "DELETE FROM check_ins WHERE id = ?;");
         statement.BindInt64(0, check_in_id);
         statement.Step();
+        DeleteUnusedStations();
     }
 
     void Database::ClearCheckInRoleForInstance(std::int64_t net_instance_id, int role,

@@ -38,6 +38,36 @@ namespace ql
         kReceive,
     };
 
+    // Edit and delete on a list work by number: the key (e.g. F5 Delete
+    // Check-In) puts the list into "pick" mode, where every row shows a
+    // number; the operator types a number and presses Enter. An edit then
+    // opens that row; a delete first asks for confirmation in a modal. These
+    // are the actions that work that way -- see StartRowPick.
+    enum class RowPickAction
+    {
+        kNone,
+        kEditNet,               // Recurring Nets, F7
+        kEditCheckIn,           // active net, F3
+        kDeleteCheckIn,         // active net, F5
+        kEditSavedStation,      // Edit Net, F9
+        kRemoveSavedStation,    // Edit Net, F4 (un-save from this net)
+        kDeleteNetInstance,     // History, F5
+        kDeleteHistoryCheckIn,  // History, F4 (a check-in in a past log)
+        kRemoveUser,            // Manage Users, F3
+    };
+
+    // The on-screen lists a RowPickAction picks from.
+    enum class PickList
+    {
+        kNone,
+        kNets,
+        kActiveCheckIns,
+        kSavedStations,
+        kNetInstances,
+        kHistoryCheckIns,
+        kUsers,
+    };
+
     // All mutable state shared across the app's pages. Every page-building
     // function and event-handler class receives a pointer to this rather than
     // capturing individual fields, since FTXUI's callbacks need to read and
@@ -87,11 +117,25 @@ namespace ql
         // Edit Net page: confirmation before Database::DeleteNetCompletely
         // (F8 there) -- this permanently erases the net's whole history
         // (every instance and check-in, plus its saved-station list), unlike
-        // every other delete in the app, which is either scoped to one row
-        // (RemoveSavedNetStation) or already refuses when real history would
-        // be lost (DeleteStationCompletely). Same bare-Renderer-modal shape
-        // as the ZMODEM confirmation above.
+        // the numbered deletes, which each remove a single row (see
+        // RowPickAction). Same bare-Renderer-modal shape as the ZMODEM
+        // confirmation above.
         bool show_delete_net_confirm_modal = false;
+
+        // Row picking (see RowPickAction). While row_pick_action isn't
+        // kNone, the list it belongs to shows row_pick_numbers[i] beside row
+        // i and every key goes to HandleRowPickKey; row_pick_digits is what's
+        // been typed so far.
+        RowPickAction row_pick_action = RowPickAction::kNone;
+        std::string row_pick_digits;
+        std::vector<int> row_pick_numbers;
+        // The delete confirmation a pick leads to: which action, on which
+        // row, and the text to show.
+        bool show_row_delete_confirm_modal = false;
+        RowPickAction row_delete_action = RowPickAction::kNone;
+        int row_delete_index = -1;
+        std::string row_delete_title;
+        std::vector<std::string> row_delete_lines;
 
         // Import-net page: the *.qlnet files found under ImportsDir(db_path)
         // last time it was (re)opened or a ZMODEM receive completed, and
@@ -227,6 +271,8 @@ namespace ql
         // across frames. Refreshed by RefreshHistoryCheckIns, called both
         // from RefreshNetHistory and whenever selected_history_index changes.
         std::vector<std::string> history_check_in_labels;
+        // The check-ins behind history_check_in_labels, same order.
+        std::vector<CheckIn> history_check_ins;
         int selected_history_check_in_index = 0;
 
         // Edit-net page: which Net is being edited, its field values (a
@@ -528,6 +574,48 @@ namespace ql
     // anything.
     void CancelDeleteNet(AppState* state);
 
+    // ---- Picking a row by number (see RowPickAction) ----
+
+    // Which list `action` picks from.
+    PickList RowPickListFor(RowPickAction action);
+
+    // Puts the list for `action` into pick mode: numbers every row and
+    // clears anything typed. Sets AppState::form_error instead if the list is
+    // empty.
+    void StartRowPick(AppState* state, RowPickAction action);
+
+    // Leaves pick mode without doing anything.
+    void CancelRowPick(AppState* state);
+
+    // A digit typed while picking (ignored past four digits), and Backspace.
+    // Each moves the list's highlight to the row whose number now matches,
+    // if any, so the operator sees which row they're about to pick.
+    void TypeRowPickDigit(AppState* state, char digit);
+    void EraseRowPickDigit(AppState* state);
+
+    // Up/Down while picking: moves the list's highlight by `delta` rows and
+    // clears anything typed, since Enter will now pick the highlighted row.
+    void MoveRowPickHighlight(AppState* state, int delta);
+
+    // The verb for the pick-mode Enter key ("Edit", "Delete", "Remove").
+    std::string RowPickVerbFor(RowPickAction action);
+
+    // Enter while picking: finds the row whose number was typed (or, if
+    // nothing was typed, the highlighted row), leaves pick mode and either
+    // opens that row (edits) or asks to confirm (deletes). If the typed
+    // number isn't on the list, says so and stays in pick mode.
+    void FinishRowPick(AppState* state);
+
+    // The one-line prompt shown under a list in pick mode, e.g. "Delete
+    // which check-in? Type its number, then Enter."
+    std::string RowPickPrompt(const AppState* state);
+
+    // F2/Enter on the delete confirmation: does the delete.
+    void ConfirmRowDelete(AppState* state);
+
+    // Esc on the delete confirmation: closes it, deleting nothing.
+    void CancelRowDelete(AppState* state);
+
     // Reloads AppState::manage_users/_labels from Database::ListUsers. Call
     // when opening the Manage Users page and after any add/remove.
     void RefreshUsers(AppState* state);
@@ -608,17 +696,18 @@ namespace ql
     void LoadSavedStationIntoForm(AppState* state, const Station& saved);
 
     // Removes the highlighted saved station (AppState::selected_saved_station_index)
-    // from AppState::edit_net_id and refreshes the saved-station list. Sets
-    // AppState::form_error instead if there's nothing to remove.
+    // from AppState::edit_net_id and refreshes the saved-station list. If
+    // that leaves the station unused -- saved to no net, never checked in --
+    // its record is deleted too (Database::DeleteUnusedStations), and the
+    // status message says so. Sets AppState::form_error instead if there's
+    // nothing to remove.
     void RemoveSelectedSavedNetStation(AppState* state);
 
-    // Deletes the highlighted saved station (AppState::selected_saved_station_index)
-    // entirely -- its saved association with every net, and the Station
-    // record itself -- via Database::DeleteStationCompletely. Sets
-    // AppState::form_error instead of deleting anything if the station has
-    // real check-in history (see DeleteStationCompletely) or if there's
-    // nothing selected to delete.
-    void DeleteSelectedSavedStationCompletely(AppState* state);
+    // Deletes the highlighted check-in of the History page's highlighted
+    // session (AppState::selected_history_check_in_index), clearing the
+    // session's Alternate NC/Logger callsign if that check-in held the role,
+    // and refreshes the page.
+    void DeleteSelectedHistoryCheckIn(AppState* state);
 
     // Recomputes AppState::nearby_zip3_prefixes from
     // AppState::settings.location. Called by both autocompletes before their

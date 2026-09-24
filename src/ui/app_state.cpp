@@ -593,6 +593,7 @@ namespace ql
     void RefreshHistoryCheckIns(AppState* state)
     {
         state->history_check_in_labels.clear();
+        state->history_check_ins.clear();
         state->selected_history_check_in_index = 0;
 
         if (state->selected_history_index >= static_cast<int>(state->history_instances.size()))
@@ -601,8 +602,8 @@ namespace ql
         }
 
         const NetInstance& selected = state->history_instances[state->selected_history_index];
-        std::vector<CheckIn> check_ins = state->db->GetCheckInsForNetInstance(selected.id);
-        state->history_check_in_labels = FormatCheckInRows(state->db, check_ins);
+        state->history_check_ins = state->db->GetCheckInsForNetInstance(selected.id);
+        state->history_check_in_labels = FormatCheckInRows(state->db, state->history_check_ins);
     }
 
     void DeleteSelectedNetInstance(AppState* state)
@@ -743,6 +744,493 @@ namespace ql
     void CancelDeleteNet(AppState* state)
     {
         state->show_delete_net_confirm_modal = false;
+    }
+
+    // ---- Picking a row by number -------------------------------------------
+
+    PickList RowPickListFor(RowPickAction action)
+    {
+        switch (action)
+        {
+            case RowPickAction::kEditNet:
+                return PickList::kNets;
+            case RowPickAction::kEditCheckIn:
+            case RowPickAction::kDeleteCheckIn:
+                return PickList::kActiveCheckIns;
+            case RowPickAction::kEditSavedStation:
+            case RowPickAction::kRemoveSavedStation:
+                return PickList::kSavedStations;
+            case RowPickAction::kDeleteNetInstance:
+                return PickList::kNetInstances;
+            case RowPickAction::kDeleteHistoryCheckIn:
+                return PickList::kHistoryCheckIns;
+            case RowPickAction::kRemoveUser:
+                return PickList::kUsers;
+            case RowPickAction::kNone:
+                break;
+        }
+        return PickList::kNone;
+    }
+
+    static std::size_t PickListSize(const AppState* state, PickList list)
+    {
+        switch (list)
+        {
+            case PickList::kNets:
+                return state->nets.size();
+            case PickList::kActiveCheckIns:
+                return state->active_check_ins.size();
+            case PickList::kSavedStations:
+                return state->edit_net_saved_stations.size();
+            case PickList::kNetInstances:
+                return state->history_instances.size();
+            case PickList::kHistoryCheckIns:
+                return state->history_check_ins.size();
+            case PickList::kUsers:
+                return state->manage_users.size();
+            case PickList::kNone:
+                break;
+        }
+        return 0;
+    }
+
+    // The variable holding the list's highlighted row -- set to the picked
+    // row, so the existing "act on the selected row" functions do the work.
+    static int* PickListSelection(AppState* state, PickList list)
+    {
+        switch (list)
+        {
+            case PickList::kNets:
+                return &state->selected_net_index;
+            case PickList::kActiveCheckIns:
+                return &state->selected_check_in_index;
+            case PickList::kSavedStations:
+                return &state->selected_saved_station_index;
+            case PickList::kNetInstances:
+                return &state->selected_history_index;
+            case PickList::kHistoryCheckIns:
+                return &state->selected_history_check_in_index;
+            case PickList::kUsers:
+                return &state->selected_user_index;
+            case PickList::kNone:
+                break;
+        }
+        return nullptr;
+    }
+
+    // The nouns used in prompts and messages.
+    static const char* PickListNoun(PickList list)
+    {
+        switch (list)
+        {
+            case PickList::kNets:
+                return "net";
+            case PickList::kActiveCheckIns:
+                return "check-in";
+            case PickList::kSavedStations:
+                return "station";
+            case PickList::kNetInstances:
+                return "net session";
+            case PickList::kHistoryCheckIns:
+                return "check-in";
+            case PickList::kUsers:
+                return "user";
+            case PickList::kNone:
+                break;
+        }
+        return "row";
+    }
+
+    static const char* RowPickVerb(RowPickAction action)
+    {
+        switch (action)
+        {
+            case RowPickAction::kEditNet:
+            case RowPickAction::kEditCheckIn:
+            case RowPickAction::kEditSavedStation:
+                return "Edit";
+            case RowPickAction::kRemoveSavedStation:
+            case RowPickAction::kRemoveUser:
+                return "Remove";
+            case RowPickAction::kDeleteCheckIn:
+            case RowPickAction::kDeleteNetInstance:
+            case RowPickAction::kDeleteHistoryCheckIn:
+            case RowPickAction::kNone:
+                break;
+        }
+        return "Delete";
+    }
+
+    void StartRowPick(AppState* state, RowPickAction action)
+    {
+        PickList list = RowPickListFor(action);
+        std::size_t count = PickListSize(state, list);
+        if (count == 0)
+        {
+            state->status_message.clear();
+            std::string verb = RowPickVerb(action);
+            verb[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(verb[0])));
+            state->form_error =
+                std::string("There's no ") + PickListNoun(list) + " to " + verb + ".";
+            return;
+        }
+
+        // Check-ins already show their own number in the # column, so
+        // that's the number to type; every other list is numbered 1, 2, 3...
+        state->row_pick_numbers.clear();
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            int number = static_cast<int>(i) + 1;
+            if (list == PickList::kActiveCheckIns)
+            {
+                number = state->active_check_ins[i].sequence_number;
+            }
+            else if (list == PickList::kHistoryCheckIns)
+            {
+                number = state->history_check_ins[i].sequence_number;
+            }
+            state->row_pick_numbers.push_back(number);
+        }
+        state->row_pick_action = action;
+        state->row_pick_digits.clear();
+        state->form_error.clear();
+        state->status_message.clear();
+    }
+
+    void CancelRowPick(AppState* state)
+    {
+        state->row_pick_action = RowPickAction::kNone;
+        state->row_pick_digits.clear();
+        state->row_pick_numbers.clear();
+    }
+
+    // The history page's check-in pane follows the highlighted session.
+    static void SyncPickListSideEffects(AppState* state)
+    {
+        if (RowPickListFor(state->row_pick_action) == PickList::kNetInstances)
+        {
+            RefreshHistoryCheckIns(state);
+        }
+    }
+
+    // Moves the list's highlight to the row numbered as typed, if there is one.
+    static void HighlightTypedRow(AppState* state)
+    {
+        int* selection = PickListSelection(state, RowPickListFor(state->row_pick_action));
+        if (selection == nullptr || state->row_pick_digits.empty())
+        {
+            return;
+        }
+        int typed = 0;
+        for (char digit : state->row_pick_digits)
+        {
+            typed = typed * 10 + (digit - '0');
+        }
+        for (std::size_t i = 0; i < state->row_pick_numbers.size(); ++i)
+        {
+            if (state->row_pick_numbers[i] == typed)
+            {
+                *selection = static_cast<int>(i);
+                SyncPickListSideEffects(state);
+                return;
+            }
+        }
+    }
+
+    void MoveRowPickHighlight(AppState* state, int delta)
+    {
+        PickList list = RowPickListFor(state->row_pick_action);
+        int* selection = PickListSelection(state, list);
+        int count = static_cast<int>(PickListSize(state, list));
+        if (selection == nullptr || count == 0)
+        {
+            return;
+        }
+        int moved = *selection + delta;
+        *selection = moved < 0 ? 0 : (moved >= count ? count - 1 : moved);
+        state->row_pick_digits.clear();
+        SyncPickListSideEffects(state);
+    }
+
+    std::string RowPickVerbFor(RowPickAction action)
+    {
+        return RowPickVerb(action);
+    }
+
+    void TypeRowPickDigit(AppState* state, char digit)
+    {
+        if (state->row_pick_digits.size() < 4)
+        {
+            state->row_pick_digits += digit;
+            state->form_error.clear();
+            HighlightTypedRow(state);
+        }
+    }
+
+    void EraseRowPickDigit(AppState* state)
+    {
+        if (!state->row_pick_digits.empty())
+        {
+            state->row_pick_digits.pop_back();
+            HighlightTypedRow(state);
+        }
+    }
+
+    std::string RowPickPrompt(const AppState* state)
+    {
+        PickList list = RowPickListFor(state->row_pick_action);
+        std::string noun = PickListNoun(list);
+        return std::string(RowPickVerb(state->row_pick_action)) + " which " + noun +
+               "? Type its number, then Enter (Esc cancels).";
+    }
+
+    // Opens the confirmation for deleting row `index` of the action's list,
+    // or explains why it can't be deleted.
+    static void OpenRowDeleteConfirm(AppState* state, RowPickAction action, int index)
+    {
+        state->row_delete_lines.clear();
+        switch (action)
+        {
+            case RowPickAction::kDeleteCheckIn:
+            {
+                const CheckIn& check_in = state->active_check_ins[index];
+                std::optional<Station> station =
+                    state->db->FindStationByCallsign(check_in.callsign);
+                std::string who = check_in.callsign;
+                if (station.has_value() && !station->name.empty())
+                {
+                    who += " (" + station->name + ")";
+                }
+                state->row_delete_title = "Delete Check-In";
+                state->row_delete_lines.emplace_back("Delete check-in #" +
+                                                     std::to_string(check_in.sequence_number) +
+                                                     ": " + who + "?");
+                state->row_delete_lines.emplace_back("It's removed from this net's log.");
+                break;
+            }
+            case RowPickAction::kRemoveSavedStation:
+            {
+                const Station& station = state->edit_net_saved_stations[index];
+                state->row_delete_title = "Remove Saved Station";
+                state->row_delete_lines.emplace_back(
+                    "Remove " + station.callsign +
+                    (station.name.empty() ? "" : " (" + station.name + ")") +
+                    " from this net's saved stations?");
+                if (state->db->IsStationUsedOutsideNet(station.callsign, state->edit_net_id))
+                {
+                    state->row_delete_lines.emplace_back(
+                        "It's saved to another net or has checked in, so its details stay and "
+                        "it still comes up in autocomplete.");
+                }
+                else
+                {
+                    state->row_delete_lines.emplace_back(
+                        "It isn't saved to any other net and has never checked in, so its "
+                        "details (member ID, address...) are deleted too.");
+                }
+                break;
+            }
+            case RowPickAction::kDeleteHistoryCheckIn:
+            {
+                const CheckIn& check_in = state->history_check_ins[index];
+                std::optional<Station> station =
+                    state->db->FindStationByCallsign(check_in.callsign);
+                std::string who = check_in.callsign;
+                if (station.has_value() && !station->name.empty())
+                {
+                    who += " (" + station->name + ")";
+                }
+                std::string when;
+                if (state->selected_history_index <
+                    static_cast<int>(state->history_instances.size()))
+                {
+                    when = " from the " +
+                           state->history_instances[state->selected_history_index].instance_date +
+                           " session";
+                }
+                state->row_delete_title = "Delete Check-In";
+                state->row_delete_lines.push_back("Delete check-in #" +
+                                                  std::to_string(check_in.sequence_number) + ": " +
+                                                  who + when + "?");
+                state->row_delete_lines.emplace_back("It's removed from that net's log.");
+                break;
+            }
+            case RowPickAction::kDeleteNetInstance:
+            {
+                const NetInstance& instance = state->history_instances[index];
+                if (instance.status == NetInstanceStatus::kOpen)
+                {
+                    state->form_error =
+                        "That net session is still open. Close it (from the Active Net page) "
+                        "before "
+                        "deleting it.";
+                    return;
+                }
+                std::size_t check_ins = state->db->GetCheckInsForNetInstance(instance.id).size();
+                std::string when = instance.instance_date;
+                std::string start_time = FormatLocalTimeOfDay(instance.started_at);
+                if (!start_time.empty())
+                {
+                    when += " " + start_time;
+                }
+                state->row_delete_title = "Delete Net Session";
+                state->row_delete_lines.emplace_back("Delete the " + when + " session (" +
+                                                     std::to_string(check_ins) + " check-in" +
+                                                     (check_ins == 1 ? "" : "s") + ")?");
+                state->row_delete_lines.emplace_back("Its whole log is deleted.");
+                break;
+            }
+            case RowPickAction::kRemoveUser:
+            {
+                state->row_delete_title = "Remove SSH User";
+                state->row_delete_lines.emplace_back("Remove " +
+                                                     state->manage_users[index].username + "?");
+                state->row_delete_lines.emplace_back("They won't be able to log in over SSH.");
+                break;
+            }
+            case RowPickAction::kNone:
+            case RowPickAction::kEditNet:
+            case RowPickAction::kEditCheckIn:
+            case RowPickAction::kEditSavedStation:
+                return;
+        }
+        state->row_delete_lines.emplace_back("This can't be undone.");
+        state->row_delete_action = action;
+        state->row_delete_index = index;
+        state->show_row_delete_confirm_modal = true;
+    }
+
+    void FinishRowPick(AppState* state)
+    {
+        RowPickAction action = state->row_pick_action;
+        PickList list = RowPickListFor(action);
+        int* selection = PickListSelection(state, list);
+        if (selection == nullptr)
+        {
+            CancelRowPick(state);
+            return;
+        }
+
+        int index = *selection;
+        if (!state->row_pick_digits.empty())
+        {
+            // Only digits can be typed in pick mode (see HandleRowPickKey),
+            // at most a few of them.
+            int typed = 0;
+            for (char digit : state->row_pick_digits)
+            {
+                typed = typed * 10 + (digit - '0');
+            }
+            index = -1;
+            for (std::size_t i = 0; i < state->row_pick_numbers.size(); ++i)
+            {
+                if (state->row_pick_numbers[i] == typed)
+                {
+                    index = static_cast<int>(i);
+                    break;
+                }
+            }
+            if (index < 0)
+            {
+                state->form_error = "There's no " + std::string(PickListNoun(list)) + " #" +
+                                    state->row_pick_digits + ".";
+                state->row_pick_digits.clear();
+                return;
+            }
+        }
+        if (index < 0 || index >= static_cast<int>(PickListSize(state, list)))
+        {
+            CancelRowPick(state);
+            return;
+        }
+
+        CancelRowPick(state);
+        state->form_error.clear();
+        *selection = index;
+        switch (action)
+        {
+            case RowPickAction::kEditNet:
+                OpenEditNetForm(state, state->nets[index]);
+                state->page = kPageEditNet;
+                if (state->edit_net_name_input)
+                {
+                    state->edit_net_name_input->TakeFocus();
+                }
+                return;
+            case RowPickAction::kEditCheckIn:
+                OpenEditCheckInForm(state, state->active_check_ins[index]);
+                return;
+            case RowPickAction::kEditSavedStation:
+                LoadSavedStationIntoForm(state, state->edit_net_saved_stations[index]);
+                if (state->saved_station_callsign_input)
+                {
+                    state->saved_station_callsign_input->TakeFocus();
+                }
+                return;
+            default:
+                if (list == PickList::kNetInstances)
+                {
+                    RefreshHistoryCheckIns(state);
+                }
+                OpenRowDeleteConfirm(state, action, index);
+                return;
+        }
+    }
+
+    void ConfirmRowDelete(AppState* state)
+    {
+        RowPickAction action = state->row_delete_action;
+        int index = state->row_delete_index;
+        state->show_row_delete_confirm_modal = false;
+        state->row_delete_action = RowPickAction::kNone;
+        state->row_delete_index = -1;
+
+        int* selection = PickListSelection(state, RowPickListFor(action));
+        if (selection == nullptr || index < 0 ||
+            index >= static_cast<int>(PickListSize(state, RowPickListFor(action))))
+        {
+            return;
+        }
+        *selection = index;
+        switch (action)
+        {
+            case RowPickAction::kDeleteCheckIn:
+                RemoveSelectedCheckIn(state);
+                state->status_message = "Check-in deleted.";
+                break;
+            case RowPickAction::kRemoveSavedStation:
+                RemoveSelectedSavedNetStation(state);
+                break;
+            case RowPickAction::kDeleteHistoryCheckIn:
+                DeleteSelectedHistoryCheckIn(state);
+                state->status_message = "Check-in deleted.";
+                break;
+            case RowPickAction::kDeleteNetInstance:
+                DeleteSelectedNetInstance(state);
+                if (state->form_error.empty())
+                {
+                    state->status_message = "Net session deleted.";
+                }
+                break;
+            case RowPickAction::kRemoveUser:
+                RemoveSelectedUser(state);
+                break;
+            default:
+                break;
+        }
+        // Keep the highlight on a row that still exists.
+        std::size_t remaining = PickListSize(state, RowPickListFor(action));
+        if (*selection >= static_cast<int>(remaining))
+        {
+            *selection = remaining == 0 ? 0 : static_cast<int>(remaining) - 1;
+        }
+    }
+
+    void CancelRowDelete(AppState* state)
+    {
+        state->show_row_delete_confirm_modal = false;
+        state->row_delete_action = RowPickAction::kNone;
+        state->row_delete_index = -1;
     }
 
     static std::string FormatUserLabel(const User& user)
@@ -1103,33 +1591,37 @@ namespace ql
             return;
         }
 
-        const Station& selected =
-            state->edit_net_saved_stations[state->selected_saved_station_index];
-        state->db->RemoveSavedNetStation(state->edit_net_id, selected.callsign);
+        std::string callsign =
+            state->edit_net_saved_stations[state->selected_saved_station_index].callsign;
+        state->db->RemoveSavedNetStation(state->edit_net_id, callsign);
         state->form_error.clear();
+        state->status_message = state->db->FindStationByCallsign(callsign).has_value()
+                                    ? "Removed " + callsign + " from this net's saved stations."
+                                    : "Removed " + callsign +
+                                          "; it wasn't used anywhere else, so its details were "
+                                          "deleted too.";
         RefreshEditNetSavedStations(state);
     }
 
-    void DeleteSelectedSavedStationCompletely(AppState* state)
+    void DeleteSelectedHistoryCheckIn(AppState* state)
     {
-        if (state->edit_net_saved_stations.empty())
+        if (state->history_check_ins.empty() ||
+            state->selected_history_index >= static_cast<int>(state->history_instances.size()))
         {
-            state->form_error = "No saved stations to delete.";
+            state->form_error = "No check-in to delete.";
             return;
         }
 
-        const Station& selected =
-            state->edit_net_saved_stations[state->selected_saved_station_index];
-        if (!state->db->DeleteStationCompletely(selected.callsign))
+        const CheckIn& check_in = state->history_check_ins[state->selected_history_check_in_index];
+        if (check_in.designated_role != kRoleNone)
         {
-            state->form_error = selected.callsign +
-                                " has check-in history and can't be fully deleted; use Remove "
-                                "to un-save it from this net instead.";
-            return;
+            state->db->SetNetInstanceRoleCallsign(
+                state->history_instances[state->selected_history_index].id,
+                check_in.designated_role, "");
         }
-
+        state->db->DeleteCheckIn(check_in.id);
         state->form_error.clear();
-        RefreshEditNetSavedStations(state);
+        RefreshNetHistory(state);
     }
 
     // Loads AppState::zip_centroids_cache/_by_zip from the database exactly

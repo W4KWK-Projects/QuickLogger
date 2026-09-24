@@ -37,6 +37,8 @@ namespace ql
     //   Success messages  light green; errors light red
     //   Frames, lines     light blue               (Framed, Separator)
     //   Operator's role   light magenta
+    //   Row numbers       light red -- the numbers beside a list's rows while
+    //                     picking one to edit or delete by number
     //   Modals            light cyan (new station, ZMODEM), light magenta
     //                     (edit check-in), light red (delete)
     constexpr ftxui::Color::Palette16 kColorHeading = ftxui::Color::CyanLight;
@@ -48,6 +50,7 @@ namespace ql
     constexpr ftxui::Color::Palette16 kColorError = ftxui::Color::RedLight;
     constexpr ftxui::Color::Palette16 kColorFrame = ftxui::Color::BlueLight;
     constexpr ftxui::Color::Palette16 kColorRole = ftxui::Color::MagentaLight;
+    constexpr ftxui::Color::Palette16 kColorPickNumber = ftxui::Color::RedLight;
 
     // A section heading ("Recurring Nets", "Saved Stations:").
     ftxui::Element Heading(const std::string& text);

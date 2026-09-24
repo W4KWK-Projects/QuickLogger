@@ -92,6 +92,39 @@ On first run, you'll be taken straight to Settings to set your callsign
 and home ZIP code (required before anything else is usable). After that,
 you land on the Recurring Nets list.
 
+### Editing and deleting by number
+
+Wherever a list has an edit or delete key, pressing it numbers every row.
+Type the row's number and press **Enter**. An edit opens that row straight
+away. A delete (or remove) first shows what it's about to delete and asks
+you to confirm with **F2/Enter**, or **Esc** to back out. While you're
+choosing, **Up/Down** move the highlight instead (Enter with no number
+typed picks the highlighted row), **Backspace** erases a digit, and **Esc**
+cancels. Check-ins already show their number in the **#** column, so that's
+the number to type for them.
+
+| Page | Key | What it does |
+|---|---|---|
+| Recurring Nets | F7 | Edit a net |
+| Active net (while logging) | F3 / F5 | Edit / delete a check-in |
+| Edit Net | F9 | Load a saved station into the form below |
+| Edit Net | F4 | Remove a saved station from this net |
+| History | F4 | Delete one check-in from the highlighted session's log |
+| History | F5 | Delete a closed net session and its log |
+| Manage Users | F3 | Remove an SSH user |
+
+Deleting a whole recurring net is still **F8** on its Edit Net page, which
+asks to confirm first.
+
+**What happens to a station's details.** A station's details (name, member
+ID, address, county, and so on) are kept for as long as something uses
+them: a net it's saved to, or a check-in in some net's log. When the last
+of those goes — you remove it from the only net it was saved to and it has
+never checked in, or you delete its last check-in — its details are deleted
+too, and it stops coming up in autocomplete. That's also how a mistyped
+callsign gets cleaned up: remove it and it's gone. The confirmation tells
+you beforehand which of the two will happen.
+
 ### Callsign autocomplete
 
 Wherever you enter a station's callsign — the New Station window while

@@ -248,19 +248,6 @@ namespace ql
         AppState* state_;
     };
 
-    // F5 on the active-net page (no modal open): removes the highlighted
-    // check-in entirely.
-    class RemoveSelectedCheckInHandler
-    {
-    public:
-        explicit RemoveSelectedCheckInHandler(AppState* state) : state_(state) {}
-
-        void operator()() const;
-
-    private:
-        AppState* state_;
-    };
-
     // F7 on the active-net page (no modal open): writes the currently open
     // instance's check-ins to a plain text file under exports/ (see
     // ExportNetLog). F7 is the shared "Export" key across every page that
@@ -379,19 +366,6 @@ namespace ql
         AppState* state_;
     };
 
-    // F5 on the net history page: permanently deletes the highlighted net
-    // instance and its check-ins.
-    class DeleteSelectedNetInstanceHandler
-    {
-    public:
-        explicit DeleteSelectedNetInstanceHandler(AppState* state) : state_(state) {}
-
-        void operator()() const;
-
-    private:
-        AppState* state_;
-    };
-
     // F7 on the net history page: writes the highlighted net instance's
     // check-ins to a plain text file under exports/ (see ExportNetLog) --
     // F7 is the shared "Export" key across every page that offers one, see
@@ -420,20 +394,6 @@ namespace ql
         AppState* state_;
     };
 
-    // F7 on the net list page: loads the selected net's fields and saved
-    // stations into the edit-net form and switches to it, unless there are no
-    // recurring nets yet.
-    class ShowEditNetPageHandler
-    {
-    public:
-        explicit ShowEditNetPageHandler(AppState* state) : state_(state) {}
-
-        void operator()() const;
-
-    private:
-        AppState* state_;
-    };
-
     // F2 on the edit-net page: saves the net's fields. Stays on the page
     // (rather than returning to the net list) so saved stations can still be
     // managed.
@@ -456,33 +416,6 @@ namespace ql
     {
     public:
         explicit SaveNetStationFormHandler(AppState* state) : state_(state) {}
-
-        void operator()() const;
-
-    private:
-        AppState* state_;
-    };
-
-    // F4 on the edit-net page: removes the highlighted saved station.
-    class RemoveSavedNetStationHandler
-    {
-    public:
-        explicit RemoveSavedNetStationHandler(AppState* state) : state_(state) {}
-
-        void operator()() const;
-
-    private:
-        AppState* state_;
-    };
-
-    // F5 on the edit-net page: deletes the highlighted saved station
-    // entirely (its Station record, not just its association with this
-    // net) -- refuses if it has real check-in history. See
-    // Database::DeleteStationCompletely.
-    class DeleteSelectedSavedStationHandler
-    {
-    public:
-        explicit DeleteSelectedSavedStationHandler(AppState* state) : state_(state) {}
 
         void operator()() const;
 
@@ -831,18 +764,6 @@ namespace ql
     {
     public:
         explicit AddUserHandler(AppState* state) : state_(state) {}
-
-        void operator()() const;
-
-    private:
-        AppState* state_;
-    };
-
-    // F3 on the Manage Users page: removes the highlighted user.
-    class RemoveUserHandler
-    {
-    public:
-        explicit RemoveUserHandler(AppState* state) : state_(state) {}
 
         void operator()() const;
 

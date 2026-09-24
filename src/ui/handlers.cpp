@@ -180,11 +180,6 @@ namespace ql
         state_->page = kPageNetList;
     }
 
-    void DeleteSelectedNetInstanceHandler::operator()() const
-    {
-        DeleteSelectedNetInstance(state_);
-    }
-
     void ExportNetHistoryLogHandler::operator()() const
     {
         if (state_->selected_history_index >= static_cast<int>(state_->history_instances.size()))
@@ -237,26 +232,15 @@ namespace ql
         }
         if (event == ftxui::Event::F5)
         {
-            DeleteSelectedNetInstanceHandler delete_instance(state_);
-            delete_instance();
+            StartRowPick(state_, RowPickAction::kDeleteNetInstance);
+            return true;
+        }
+        if (event == ftxui::Event::F4)
+        {
+            StartRowPick(state_, RowPickAction::kDeleteHistoryCheckIn);
             return true;
         }
         return false;
-    }
-
-    void ShowEditNetPageHandler::operator()() const
-    {
-        if (state_->nets.empty())
-        {
-            state_->form_error = "Create a recurring net first.";
-            return;
-        }
-        OpenEditNetForm(state_, state_->nets[state_->selected_net_index]);
-        state_->page = kPageEditNet;
-        if (state_->edit_net_name_input)
-        {
-            state_->edit_net_name_input->TakeFocus();
-        }
     }
 
     void SaveEditNetHandler::operator()() const
@@ -293,16 +277,6 @@ namespace ql
             return;
         }
         SaveNetStationForm(state_);
-    }
-
-    void RemoveSavedNetStationHandler::operator()() const
-    {
-        RemoveSelectedSavedNetStation(state_);
-    }
-
-    void DeleteSelectedSavedStationHandler::operator()() const
-    {
-        DeleteSelectedSavedStationCompletely(state_);
     }
 
     void ExportSavedStationsHandler::operator()() const
@@ -443,14 +417,12 @@ namespace ql
         }
         if (event == ftxui::Event::F4)
         {
-            RemoveSavedNetStationHandler remove_station(state_);
-            remove_station();
+            StartRowPick(state_, RowPickAction::kRemoveSavedStation);
             return true;
         }
-        if (event == ftxui::Event::F5)
+        if (event == ftxui::Event::F9)
         {
-            DeleteSelectedSavedStationHandler delete_station(state_);
-            delete_station();
+            StartRowPick(state_, RowPickAction::kEditSavedStation);
             return true;
         }
         if (event == ftxui::Event::F6)
@@ -550,8 +522,7 @@ namespace ql
         }
         if (event == ftxui::Event::F7)
         {
-            ShowEditNetPageHandler show_edit(state_);
-            show_edit();
+            StartRowPick(state_, RowPickAction::kEditNet);
             return true;
         }
         if (event == ftxui::Event::F8)
@@ -837,11 +808,6 @@ namespace ql
         state_->show_edit_checkin_modal = false;
     }
 
-    void RemoveSelectedCheckInHandler::operator()() const
-    {
-        RemoveSelectedCheckIn(state_);
-    }
-
     void ExportActiveNetLogHandler::operator()() const
     {
         ExportNetLog(state_, state_->active_net_name, state_->active_instance,
@@ -898,8 +864,7 @@ namespace ql
         }
         if (event == ftxui::Event::F3 && !modal_open)
         {
-            EditSelectedCheckInHandler edit_selected(state_);
-            edit_selected();
+            StartRowPick(state_, RowPickAction::kEditCheckIn);
             return true;
         }
         if (event == ftxui::Event::F4 && !modal_open)
@@ -910,8 +875,7 @@ namespace ql
         }
         if (event == ftxui::Event::F5 && !modal_open)
         {
-            RemoveSelectedCheckInHandler remove_selected(state_);
-            remove_selected();
+            StartRowPick(state_, RowPickAction::kDeleteCheckIn);
             return true;
         }
         if (event == ftxui::Event::F7 && !modal_open)
@@ -1006,11 +970,6 @@ namespace ql
         AddUserFromForm(state_);
     }
 
-    void RemoveUserHandler::operator()() const
-    {
-        RemoveSelectedUser(state_);
-    }
-
     void ManageUsersBackHandler::operator()() const
     {
         state_->form_error.clear();
@@ -1028,8 +987,7 @@ namespace ql
         }
         if (event == ftxui::Event::F3)
         {
-            RemoveUserHandler remove_user(state_);
-            remove_user();
+            StartRowPick(state_, RowPickAction::kRemoveUser);
             return true;
         }
         if (event == ftxui::Event::Escape)
@@ -1100,8 +1058,63 @@ namespace ql
         state_->screen->ExitLoopClosure()();
     }
 
+    // Every key while a list is in pick mode (see RowPickAction): digits
+    // build the number, Backspace erases, Enter picks, Esc cancels, Up/Down
+    // move the highlight (Enter with nothing typed picks the highlighted
+    // row). Everything else is swallowed, so a digit can't land in a text
+    // field that happens to have focus.
+    static bool HandleRowPickKey(AppState* state, const ftxui::Event& event)
+    {
+        if (event == ftxui::Event::Return)
+        {
+            FinishRowPick(state);
+            return true;
+        }
+        if (event == ftxui::Event::Escape)
+        {
+            CancelRowPick(state);
+            return true;
+        }
+        if (event == ftxui::Event::Backspace)
+        {
+            EraseRowPickDigit(state);
+            return true;
+        }
+        if (event.is_character() && event.character().size() == 1 &&
+            std::isdigit(static_cast<unsigned char>(event.character()[0])) != 0)
+        {
+            TypeRowPickDigit(state, event.character()[0]);
+            return true;
+        }
+        if (event == ftxui::Event::ArrowUp || event == ftxui::Event::ArrowDown)
+        {
+            MoveRowPickHighlight(state, event == ftxui::Event::ArrowUp ? -1 : 1);
+            return true;
+        }
+        return event != ftxui::Event::Custom;
+    }
+
     bool AppKeyHandler::operator()(const ftxui::Event& event) const
     {
+        // A delete confirmation, or a list in pick mode, takes every key
+        // first, whatever page it's on.
+        if (state_->show_row_delete_confirm_modal)
+        {
+            if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
+            {
+                ConfirmRowDelete(state_);
+            }
+            else if (event == ftxui::Event::Escape)
+            {
+                CancelRowDelete(state_);
+            }
+            return event != ftxui::Event::Custom;
+        }
+        if (state_->row_pick_action != RowPickAction::kNone)
+        {
+            return HandleRowPickKey(state_, event);
+        }
+
         if (state_->page == kPageNetList)
         {
             NetListKeyHandler handler(state_);

@@ -259,6 +259,155 @@ namespace ql
         return ftxui::Renderer(root, ZmodemConfirmModalRenderer(state));
     }
 
+    // ---- Picking a row by number (see RowPickAction) ------------------------
+
+    static bool IsPicking(const AppState* state, PickList list)
+    {
+        return state->row_pick_action != RowPickAction::kNone &&
+               RowPickListFor(state->row_pick_action) == list;
+    }
+
+    // Check-in rows already begin with their # column, which is the number
+    // to type, so they get no extra number column.
+    static bool PickNumbersAlreadyShown(PickList list)
+    {
+        return list == PickList::kActiveCheckIns || list == PickList::kHistoryCheckIns;
+    }
+
+    // Width of the number column in pick mode: the digits of the largest
+    // number.
+    static int PickNumberWidth(const AppState* state)
+    {
+        int widest = 9;
+        for (int number : state->row_pick_numbers)
+        {
+            widest = number > widest ? number : widest;
+        }
+        return static_cast<int>(std::to_string(widest).size());
+    }
+
+    // Extra spaces in front of a list's column header in pick mode, so it
+    // stays over its columns once the numbers push the rows right. (A
+    // Menu's rows start with a two-column "> " marker; numbered rows start
+    // with the number and a space instead.)
+    static std::string PickHeaderPad(const AppState* state, PickList list)
+    {
+        if (!IsPicking(state, list) || PickNumbersAlreadyShown(list))
+        {
+            return "";
+        }
+        return std::string(static_cast<std::size_t>(PickNumberWidth(state) + 1 - 2), ' ');
+    }
+
+    // A list's rows: its Menu normally; in pick mode, every row with its
+    // number beside it and the row about to be picked highlighted.
+    static ftxui::Element PickableRows(const AppState* state, PickList list,
+                                       const std::vector<std::string>& labels, int highlighted,
+                                       const ftxui::Component& menu)
+    {
+        if (!IsPicking(state, list))
+        {
+            return menu->Render();
+        }
+        int width = PickNumberWidth(state);
+        ftxui::Elements rows;
+        for (std::size_t i = 0; i < labels.size(); ++i)
+        {
+            std::string number;
+            std::string rest = labels[i];
+            if (PickNumbersAlreadyShown(list))
+            {
+                // The number is the row's own leading # column: color just
+                // those digits, behind the usual two-column gutter.
+                std::string::size_type digits_end = rest.find_first_not_of("0123456789");
+                digits_end = digits_end == std::string::npos ? rest.size() : digits_end;
+                number = "  " + rest.substr(0, digits_end);
+                rest = rest.substr(digits_end);
+            }
+            else
+            {
+                std::string digits = i < state->row_pick_numbers.size()
+                                         ? std::to_string(state->row_pick_numbers[i])
+                                         : std::string();
+                number = std::string(static_cast<std::size_t>(width) - digits.size(), ' ') +
+                         digits + " ";
+            }
+            ftxui::Element row = ftxui::hbox({
+                ftxui::text(number) | ftxui::color(kColorPickNumber),
+                ftxui::text(rest) | ftxui::color(kColorListRow),
+            });
+            if (static_cast<int>(i) == highlighted)
+            {
+                row = row | ftxui::inverted | ftxui::focus;
+            }
+            rows.push_back(row);
+        }
+        return ftxui::vbox(rows);
+    }
+
+    // The prompt under a list in pick mode, with what's been typed so far.
+    static ftxui::Element PickPrompt(const AppState* state, PickList list)
+    {
+        if (!IsPicking(state, list))
+        {
+            return ftxui::text("");
+        }
+        return ftxui::hbox({
+            ftxui::text(RowPickPrompt(state) + "  ") | ftxui::bold | ftxui::color(kColorLabel),
+            ftxui::text("#" + state->row_pick_digits + "_") | ftxui::bold |
+                ftxui::color(kColorData),
+        });
+    }
+
+    // The key bar while picking.
+    static std::vector<KeyHint> PickKeyHints(const AppState* state)
+    {
+        return {{"0-9", "Number"},
+                {"Enter", RowPickVerbFor(state->row_pick_action)},
+                {"Up/Down", "Move"},
+                {"Esc", "Cancel"}};
+    }
+
+    // The confirmation a numbered delete leads to (see RowPickAction).
+    class RowDeleteConfirmModalRenderer
+    {
+    public:
+        explicit RowDeleteConfirmModalRenderer(AppState* state) : state_(state) {}
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Elements rows;
+            rows.push_back(ftxui::text(state_->row_delete_title) | ftxui::bold |
+                           ftxui::color(kColorError));
+            rows.push_back(Separator());
+            for (std::size_t i = 0; i < state_->row_delete_lines.size(); ++i)
+            {
+                ftxui::Element line = ftxui::paragraph(state_->row_delete_lines[i]);
+                rows.push_back(i == 0 ? line | ftxui::bold | ftxui::color(kColorLabel)
+                                      : line | ftxui::color(kColorHint));
+            }
+            rows.push_back(Separator());
+            rows.push_back(
+                KeyHintRow({{"F2/Enter", "Yes, " + RowPickVerbFor(state_->row_delete_action)},
+                            {"Esc", "Cancel"}}));
+            // Long lines wrap rather than stretching the box across the
+            // whole screen.
+            return ftxui::vbox(rows) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 64) |
+                   ftxui::border | ftxui::color(kColorError);
+        }
+
+    private:
+        AppState* state_;
+    };
+
+    // Wraps `page` so the numbered-delete confirmation can pop up over it.
+    static ftxui::Component WithRowDeleteConfirm(AppState* state, ftxui::Component page)
+    {
+        ftxui::Component modal =
+            ftxui::Renderer(ftxui::Container::Vertical({}), RowDeleteConfirmModalRenderer(state));
+        return ftxui::Modal(std::move(page), modal, &state->show_row_delete_confirm_modal);
+    }
+
     // ---- Net list page ---------------------------------------------------
 
     class NetListRenderer
@@ -273,7 +422,8 @@ namespace ql
         {
             ftxui::Element net_list_elem =
                 state_->nets.empty() ? HintText("No recurring nets yet. Press F2 to create one.")
-                                     : net_menu_->Render();
+                                     : PickableRows(state_, PickList::kNets, state_->net_names,
+                                                    state_->selected_net_index, net_menu_);
 
             ftxui::Element callsign_hint =
                 state_->settings.callsign.empty()
@@ -288,6 +438,7 @@ namespace ql
                 Separator(),
                 Heading("Recurring Nets"),
                 Framed(net_list_elem) | ftxui::flex,
+                PickPrompt(state_, PickList::kNets),
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
@@ -295,6 +446,10 @@ namespace ql
             // Nine shortcuts -- PageChrome/BottomBar wraps onto a second line
             // only if the client's terminal is too narrow to fit them all on
             // one (see chrome.hpp).
+            if (state_->row_pick_action != RowPickAction::kNone)
+            {
+                return PageChrome("Recurring Nets", content, PickKeyHints(state_));
+            }
             return PageChrome("Recurring Nets", content,
                               {
                                   {"F2", "New"},
@@ -509,7 +664,9 @@ namespace ql
             ftxui::Element check_in_list =
                 state_->active_display_rows.empty()
                     ? HintText("No check-ins yet.")
-                    : check_in_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
+                    : PickableRows(state_, PickList::kActiveCheckIns, state_->active_display_rows,
+                                   state_->selected_check_in_index, check_in_menu_) |
+                          ftxui::frame | ftxui::vscroll_indicator;
 
             // The date the net was started, with the time of day next to it.
             std::string started = state_->active_instance.instance_date;
@@ -536,9 +693,12 @@ namespace ql
                     check_in_list,
                 })) |
                     ftxui::flex,
-                state_->show_new_station_modal || state_->show_edit_checkin_modal
-                    ? ftxui::text("")
-                    : HintText("Enter or F3 to edit a highlighted check-in."),
+                IsPicking(state_, PickList::kActiveCheckIns)
+                    ? PickPrompt(state_, PickList::kActiveCheckIns)
+                    : (state_->show_new_station_modal || state_->show_edit_checkin_modal
+                           ? ftxui::text("")
+                           : HintText("F3 edits and F5 deletes a check-in by its #; Enter edits "
+                                      "the highlighted one.")),
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
@@ -551,7 +711,11 @@ namespace ql
             // then, and F2 (context-sensitive) is relabeled for whichever
             // modal has focus instead.
             std::vector<KeyHint> hints;
-            if (state_->show_edit_checkin_modal)
+            if (state_->row_pick_action != RowPickAction::kNone)
+            {
+                hints = PickKeyHints(state_);
+            }
+            else if (state_->show_edit_checkin_modal)
             {
                 hints = {{"F2", "Save"}, {"Esc", "Cancel"}};
             }
@@ -781,8 +945,9 @@ namespace ql
             ftxui::Modal(main_view, modal_view, &state->show_new_station_modal);
         ftxui::Component with_edit_checkin_modal =
             ftxui::Modal(with_new_station_modal, edit_modal_view, &state->show_edit_checkin_modal);
-        return ftxui::Modal(with_edit_checkin_modal, BuildZmodemConfirmModal(state),
-                            &state->show_zmodem_confirm_modal);
+        return WithRowDeleteConfirm(
+            state, ftxui::Modal(with_edit_checkin_modal, BuildZmodemConfirmModal(state),
+                                &state->show_zmodem_confirm_modal));
     }
 
     // ---- Settings page ---------------------------------------------------
@@ -939,31 +1104,46 @@ namespace ql
             ftxui::Element instance_list =
                 state_->history_instances.empty()
                     ? HintText("No past instances of this net yet.")
-                    : instance_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
+                    : PickableRows(state_, PickList::kNetInstances, state_->history_instance_labels,
+                                   state_->selected_history_index, instance_menu_) |
+                          ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element checkin_list =
                 state_->history_check_in_labels.empty()
                     ? HintText(state_->history_instances.empty() ? "" : "No check-ins were logged.")
-                    : checkin_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
+                    : PickableRows(state_, PickList::kHistoryCheckIns,
+                                   state_->history_check_in_labels,
+                                   state_->selected_history_check_in_index, checkin_menu_) |
+                          ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element content = ftxui::vbox({
                 Framed(ftxui::vbox({
-                    ColumnHeader(FormatNetInstanceHeaderRow()),
+                    ColumnHeader(PickHeaderPad(state_, PickList::kNetInstances) +
+                                 FormatNetInstanceHeaderRow()),
                     instance_list,
                 })) |
                     ftxui::flex,
+                PickPrompt(state_, PickList::kNetInstances),
                 Separator(),
                 Framed(ftxui::vbox({
                     ColumnHeader(FormatCheckInHeaderRow(/*above_menu=*/true)),
                     checkin_list,
                 })) |
                     ftxui::flex,
+                PickPrompt(state_, PickList::kHistoryCheckIns),
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
 
+            if (state_->row_pick_action != RowPickAction::kNone)
+            {
+                return PageChrome("History: " + net_name, content, PickKeyHints(state_));
+            }
             return PageChrome("History: " + net_name, content,
-                              {{"F7", "Export"}, {"F5", "Delete Instance"}, {"Esc", "Back"}});
+                              {{"F4", "Delete Check-In"},
+                               {"F5", "Delete Session"},
+                               {"F7", "Export"},
+                               {"Esc", "Back"}});
         }
 
     private:
@@ -989,8 +1169,8 @@ namespace ql
         ftxui::Component root = ftxui::Container::Vertical({instance_menu, checkin_menu});
         ftxui::Component main_view =
             ftxui::Renderer(root, NetHistoryRenderer(state, instance_menu, checkin_menu));
-        return ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
-                            &state->show_zmodem_confirm_modal);
+        return WithRowDeleteConfirm(state, ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
+                                                        &state->show_zmodem_confirm_modal));
     }
 
     // ---- Edit net page ---------------------------------------------------
@@ -998,8 +1178,8 @@ namespace ql
     // Shown before Database::DeleteNetCompletely actually runs (F8 on the
     // edit-net page) -- this is the one delete in the whole app that erases
     // real history (every instance and check-in under the net, not just a
-    // single row), so unlike DeleteStationCompletely's silent-refusal-only
-    // guard, it gets an explicit confirmation step. Same bare-Renderer-over-
+    // single row), so it has its own confirmation rather than the numbered
+    // pick the single-row deletes use. Same bare-Renderer-over-
     // empty-Container shape as BuildZmodemConfirmModal, for the same reason:
     // no interactive fields of its own, F2/Enter/Esc are handled by
     // EditNetKeyHandler's guard.
@@ -1061,7 +1241,10 @@ namespace ql
             ftxui::Element saved_station_list =
                 state_->edit_net_saved_stations.empty()
                     ? HintText("No saved stations yet.")
-                    : saved_station_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
+                    : PickableRows(state_, PickList::kSavedStations,
+                                   state_->edit_net_saved_station_labels,
+                                   state_->selected_saved_station_index, saved_station_menu_) |
+                          ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element suggestions =
                 state_->saved_station_suggestions.empty()
@@ -1083,11 +1266,21 @@ namespace ql
             rows.push_back(Separator());
             rows.push_back(Heading("Saved Stations:"));
             rows.push_back(Framed(ftxui::vbox({
-                               ColumnHeader(FormatSavedStationHeaderRow(/*above_menu=*/true)),
+                               ColumnHeader(PickHeaderPad(state_, PickList::kSavedStations) +
+                                            FormatSavedStationHeaderRow(/*above_menu=*/true)),
                                saved_station_list,
                            })) |
                            ftxui::flex);
-            rows.push_back(HintText("Enter picks a station and jumps to its fields below."));
+            if (IsPicking(state_, PickList::kSavedStations))
+            {
+                rows.push_back(PickPrompt(state_, PickList::kSavedStations));
+            }
+            else
+            {
+                rows.push_back(
+                    HintText("F9 (or Enter on a highlighted station) loads a station into the "
+                             "fields below; F4 removes one."));
+            }
             rows.push_back(Separator());
             ftxui::Elements field_rows = StationFieldRows(saved_station_inputs_);
             rows.push_back(field_rows[0]);  // Callsign
@@ -1101,15 +1294,20 @@ namespace ql
             rows.push_back(StatusLine(state_->status_message));
             rows.push_back(ErrorLine(state_->form_error));
 
+            if (state_->row_pick_action != RowPickAction::kNone)
+            {
+                return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(rows),
+                                  PickKeyHints(state_));
+            }
             return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(rows),
                               {
                                   {"F2", "Save Net"},
                                   {"F3", "Save Station"},
                                   {"F4", "Remove"},
-                                  {"F5", "Delete Station"},
                                   {"F6", "Add Station"},
                                   {"F7", "Export"},
                                   {"F8", "Delete Net"},
+                                  {"F9", "Edit Station"},
                                   {"Esc", "Cancel"},
                               });
         }
@@ -1190,8 +1388,9 @@ namespace ql
                                   saved_station_suggestion_menu, saved_station_remarks_input));
         ftxui::Component with_zmodem_modal = ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
                                                           &state->show_zmodem_confirm_modal);
-        return ftxui::Modal(with_zmodem_modal, BuildDeleteNetConfirmModal(state),
-                            &state->show_delete_net_confirm_modal);
+        return WithRowDeleteConfirm(
+            state, ftxui::Modal(with_zmodem_modal, BuildDeleteNetConfirmModal(state),
+                                &state->show_delete_net_confirm_modal));
     }
 
     // ---- Import net page ---------------------------------------------------
@@ -1269,11 +1468,14 @@ namespace ql
             ftxui::Element user_list =
                 state_->manage_users.empty()
                     ? HintText("No SSH users yet.")
-                    : user_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
+                    : PickableRows(state_, PickList::kUsers, state_->manage_users_labels,
+                                   state_->selected_user_index, user_menu_) |
+                          ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element content = ftxui::vbox({
                 Heading("SSH Users:"),
                 Framed(user_list) | ftxui::flex,
+                PickPrompt(state_, PickList::kUsers),
                 Separator(),
                 ftxui::hbox({FieldLabel("Username:    "), input_username_->Render()}),
                 ftxui::hbox({FieldLabel("Public Key:  "), input_public_key_->Render()}),
@@ -1283,6 +1485,10 @@ namespace ql
                 ErrorLine(state_->form_error),
             });
 
+            if (state_->row_pick_action != RowPickAction::kNone)
+            {
+                return PageChrome("Manage Users", content, PickKeyHints(state_));
+            }
             return PageChrome("Manage Users", content,
                               {{"F2", "Add"}, {"F3", "Remove"}, {"Esc", "Back"}});
         }
@@ -1307,8 +1513,9 @@ namespace ql
 
         ftxui::Component root =
             ftxui::Container::Vertical({user_menu, input_username, input_public_key});
-        return ftxui::Renderer(
-            root, ManageUsersRenderer(state, user_menu, input_username, input_public_key));
+        return WithRowDeleteConfirm(
+            state, ftxui::Renderer(root, ManageUsersRenderer(state, user_menu, input_username,
+                                                             input_public_key)));
     }
 
 }  // namespace ql
