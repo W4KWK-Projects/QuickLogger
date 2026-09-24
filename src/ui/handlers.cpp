@@ -707,6 +707,10 @@ namespace ql
 
     void OpenNewStationModalHandler::operator()() const
     {
+        if (!EnsureActiveSessionOpen(state_, ""))
+        {
+            return;
+        }
         ClearModalFields(state_);
         state_->show_new_station_modal = true;
         if (state_->modal_callsign_input)

@@ -321,6 +321,52 @@ namespace ql
         CHECK(f.state.form_error.find("still open") != std::string::npos);
     }
 
+    QL_TEST(NothingIsLoggedToASessionSomeoneElseClosed)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        f.Log("K4AAA");
+        // Another operator sharing the session closes it.
+        CHECK(f.db()->CloseNetInstance(f.state.active_instance.id, 2000));
+        f.state.show_new_station_modal = true;
+        CHECK(!f.Log("K4BBB"));
+        CHECK_EQ(f.db()->GetCheckInsForNetInstance(f.state.active_instance.id).size(),
+                 std::size_t{2});
+        CHECK_EQ(f.state.page, kPageNetList);
+        CHECK(!f.state.show_new_station_modal);
+        CHECK(f.state.form_error.find("Skywarn was closed by someone else at ") == 0);
+        CHECK(f.state.form_error.find(FormatLocalTimeOfDay(2000)) != std::string::npos);
+        CHECK(f.state.form_error.find("K4BBB was not logged.") != std::string::npos);
+        // Nor can the check-in window be opened again.
+        f.state.page = kPageActiveNet;
+        CHECK(!EnsureActiveSessionOpen(&f.state, ""));
+        CHECK(f.state.form_error.find("was not logged") == std::string::npos);
+    }
+
+    QL_TEST(NothingIsLoggedToASessionSomeoneElseDeleted)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        f.db()->DeleteNetInstance(f.state.active_instance.id);
+        CHECK(!f.Log("K4BBB"));
+        CHECK_EQ(f.state.page, kPageNetList);
+        CHECK(f.state.form_error.find("session was deleted by someone else") != std::string::npos);
+    }
+
+    QL_TEST(ClosingASessionSomeoneElseClosedKeepsTheirEndTime)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        CHECK(f.db()->CloseNetInstance(f.state.active_instance.id, 2000));
+        RequestCloseActiveNet(&f.state);
+        CloseActiveNet(&f.state);
+        CHECK_EQ(f.db()->GetNetInstanceById(f.state.active_instance.id)->closed_at,
+                 std::int64_t{2000});
+        CHECK_EQ(f.state.page, kPageNetList);
+        CHECK(f.state.form_error.find("closed by someone else") != std::string::npos);
+        CHECK(f.state.status_message.empty());
+    }
+
     QL_TEST(DeletingAClosedSessionFromHistory)
     {
         Fixture f;

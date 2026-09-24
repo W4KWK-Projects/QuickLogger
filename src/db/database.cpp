@@ -798,15 +798,17 @@ CREATE TABLE IF NOT EXISTS users (
         return net_ids;
     }
 
-    void Database::CloseNetInstance(std::int64_t instance_id, std::int64_t closed_at)
+    bool Database::CloseNetInstance(std::int64_t instance_id, std::int64_t closed_at)
     {
         Statement statement(db_, R"sql(
-        UPDATE net_instances SET status = ?, closed_at = ? WHERE id = ?;
+        UPDATE net_instances SET status = ?, closed_at = ? WHERE id = ? AND status = ?;
     )sql");
         statement.BindInt64(0, static_cast<std::int64_t>(NetInstanceStatus::kClosed));
         statement.BindInt64(1, closed_at);
         statement.BindInt64(2, instance_id);
+        statement.BindInt64(3, static_cast<std::int64_t>(NetInstanceStatus::kOpen));
         statement.Step();
+        return sqlite3_changes(db_) > 0;
     }
 
     void Database::DeleteNetInstance(std::int64_t instance_id)

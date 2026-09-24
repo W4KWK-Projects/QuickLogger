@@ -411,8 +411,17 @@ namespace ql
     // -- a closed session can't be reopened.
     void RequestCloseActiveNet(AppState* state);
 
-    // Closes the active session and returns to the net list.
+    // Closes the active session and returns to the net list. If someone
+    // else closed it in the meantime, their end time is kept and the
+    // message says so.
     void CloseActiveNet(AppState* state);
+
+    // True if AppState::active_instance is still open for logging. If
+    // someone else has closed or deleted it (it may be shared -- see
+    // ResumeOpenNet), closes any open dialog, returns to the net list with
+    // a message saying so -- naming `unlogged_callsign`, if not empty, as
+    // not logged -- and returns false.
+    bool EnsureActiveSessionOpen(AppState* state, const std::string& unlogged_callsign);
 
     // Esc on any ConfirmPrompt: closes it, doing nothing.
     void CancelConfirmPrompt(AppState* state);

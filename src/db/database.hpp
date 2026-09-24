@@ -127,7 +127,10 @@ namespace ql
         std::int64_t CreateNetInstance(const NetInstance& instance);
         std::vector<NetInstance> GetNetInstancesForNet(std::int64_t net_id);
         std::optional<NetInstance> GetNetInstanceById(std::int64_t instance_id);
-        void CloseNetInstance(std::int64_t instance_id, std::int64_t closed_at);
+        // Closes an open instance as of `closed_at`. Returns false, changing
+        // nothing, if it's already closed (someone else got there first, and
+        // their end time stands) or no longer exists.
+        bool CloseNetInstance(std::int64_t instance_id, std::int64_t closed_at);
         // The nets that have at least one instance still open -- i.e. a net
         // someone is logging right now, or one whose session ended without
         // being closed (see ResumeOpenNet in app_state.hpp).

@@ -415,13 +415,9 @@ namespace ql
              "A closed session can't be reopened for logging."});
     }
 
-    void CloseActiveNet(AppState* state)
+    // Leaves the active net for the net list, closing any dialog on it.
+    static void LeaveActiveNet(AppState* state)
     {
-        CancelConfirmPrompt(state);
-        state->db->CloseNetInstance(state->active_instance.id,
-                                    static_cast<std::int64_t>(std::time(nullptr)));
-        std::string closed_name = state->active_net_name;
-        std::size_t check_ins = state->active_check_ins.size();
         state->active_check_ins.clear();
         state->active_display_rows.clear();
         state->show_new_station_modal = false;
@@ -429,9 +425,61 @@ namespace ql
         ClearModalFields(state);
         ResetStartNetFlow(state);
         RefreshNets(state);
+        state->page = kPageNetList;
+    }
+
+    void CloseActiveNet(AppState* state)
+    {
+        CancelConfirmPrompt(state);
+        std::string closed_name = state->active_net_name;
+        bool closed_here = state->db->CloseNetInstance(
+            state->active_instance.id, static_cast<std::int64_t>(std::time(nullptr)));
+        if (!closed_here)
+        {
+            EnsureActiveSessionOpen(state, "");
+            return;
+        }
+        std::size_t check_ins =
+            state->db->GetCheckInsForNetInstance(state->active_instance.id).size();
+        LeaveActiveNet(state);
+        state->form_error.clear();
         state->status_message =
             "Closed " + closed_name + " (" + CountCheckIns(check_ins) + "). It's in History (F6).";
-        state->page = kPageNetList;
+    }
+
+    bool EnsureActiveSessionOpen(AppState* state, const std::string& unlogged_callsign)
+    {
+        std::optional<NetInstance> session =
+            state->db->GetNetInstanceById(state->active_instance.id);
+        if (session.has_value() && session->status == NetInstanceStatus::kOpen)
+        {
+            return true;
+        }
+
+        std::string name = state->active_net_name.empty() ? "This net" : state->active_net_name;
+        std::string message;
+        if (!session.has_value())
+        {
+            message = name +
+                      "'s session was deleted by someone else, so nothing more can be "
+                      "logged to it.";
+        }
+        else
+        {
+            std::string ended = DescribeSessionEnd(*session);
+            message = name + " was closed by someone else" + (ended.empty() ? "" : " at " + ended) +
+                      ", so nothing more can be logged to it.";
+        }
+        if (!unlogged_callsign.empty())
+        {
+            message += " " + unlogged_callsign + " was not logged.";
+        }
+        message += " Start the net again (F3) to begin a new session.";
+
+        LeaveActiveNet(state);
+        state->status_message.clear();
+        state->form_error = message;
+        return false;
     }
 
     void OpenSettingsForm(AppState* state)
@@ -772,6 +820,10 @@ namespace ql
             return false;
         }
         if (!CheckCallsign(state, state->modal_station.callsign))
+        {
+            return false;
+        }
+        if (!EnsureActiveSessionOpen(state, state->modal_station.callsign))
         {
             return false;
         }
