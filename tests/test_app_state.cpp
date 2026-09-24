@@ -321,6 +321,39 @@ namespace ql
         CHECK(f.state.form_error.find("still open") != std::string::npos);
     }
 
+    QL_TEST(CheckInsSomeoneElseLogsShowUpOnTheActiveNet)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        f.state.page = kPageActiveNet;
+        RefreshActiveCheckIns(&f.state);
+        CHECK_EQ(f.state.watched_instance_id.load(), f.state.active_instance.id);
+        CHECK_EQ(f.state.shown_check_in_count.load(), std::int64_t{1});
+
+        // Another operator on the same session logs one.
+        AddTestCheckIn(f.db(), f.state.active_instance.id, "K4OTH", 2);
+        std::int64_t count = 0;
+        std::int64_t newest = 0;
+        f.db()->GetCheckInSummary(f.state.active_instance.id, &count, &newest);
+        CHECK_EQ(count, std::int64_t{2});
+        CHECK(newest != f.state.shown_newest_check_in_id.load());
+
+        // Not while the Edit Check-In dialog is working from the list.
+        f.state.show_edit_checkin_modal = true;
+        RefreshActiveCheckInsFromOthers(&f.state, f.state.active_instance.id);
+        CHECK_EQ(f.state.active_check_ins.size(), std::size_t{1});
+        f.state.show_edit_checkin_modal = false;
+        RefreshActiveCheckInsFromOthers(&f.state, f.state.active_instance.id);
+        REQUIRE(f.state.active_check_ins.size() == 2);
+        CHECK_EQ(f.state.active_check_ins[1].callsign, std::string("K4OTH"));
+        CHECK_EQ(f.state.shown_newest_check_in_id.load(), newest);
+
+        // Leaving the net stops the watching.
+        RequestCloseActiveNet(&f.state);
+        CloseActiveNet(&f.state);
+        CHECK_EQ(f.state.watched_instance_id.load(), std::int64_t{0});
+    }
+
     QL_TEST(NothingIsLoggedToASessionSomeoneElseClosed)
     {
         Fixture f;
@@ -618,6 +651,92 @@ namespace ql
               NetInstanceStatus::kClosed);
         CHECK_EQ(f.state.page, kPageNetList);
         CHECK(f.state.status_message.find("History") != std::string::npos);
+    }
+
+    // Starts an ad hoc net through the Ad Hoc Net page's form.
+    static void StartAdHoc(Fixture* f, const std::string& name)
+    {
+        ResetCreateNetForm(&f->state);
+        f->state.new_net_name = name;
+        StartAdHocNet(&f->state);
+    }
+
+    QL_TEST(AdHocNetsStayOffTheNetList)
+    {
+        Fixture f;
+        AddTestNet(f.db(), "Skywarn");
+        StartAdHoc(&f, "Tailgate");
+        CHECK_EQ(f.state.page, kPageSelectRole);
+        CHECK_EQ(f.state.start_net.name, std::string("Tailgate"));
+        CHECK(f.state.start_net.is_ad_hoc);
+        REQUIRE(f.db()->GetNetById(f.state.start_net.id).has_value());
+        CHECK(f.db()->GetNetById(f.state.start_net.id)->is_ad_hoc);
+
+        RefreshNets(&f.state);
+        REQUIRE(f.state.nets.size() == 1);
+        CHECK_EQ(f.state.nets[0].name, std::string("Skywarn"));
+    }
+
+    QL_TEST(AnAdHocSessionLeftOpenCanBeResumedFromTheAdHocPage)
+    {
+        Fixture f;
+        StartAdHoc(&f, "Tailgate");
+        std::int64_t session =
+            AddTestInstance(f.db(), f.state.start_net.id, "2026-09-24", 1000, "W4KWK");
+        AddTestCheckIn(f.db(), session, "K4AAA", 1);
+        f.state.page = kPageAdHocNet;
+        RefreshOpenAdHocSessions(&f.state);
+        REQUIRE(f.state.open_ad_hoc_labels.size() == 1);
+        CHECK(f.state.open_ad_hoc_labels[0].find("Tailgate  started 2026-09-24") == 0);
+        CHECK(f.state.open_ad_hoc_labels[0].find("1 check-in") != std::string::npos);
+
+        f.state.start_net = Net();
+        StartRowPick(&f.state, RowPickAction::kResumeAdHocSession);
+        TypeRowPickDigit(&f.state, '1');
+        FinishRowPick(&f.state);
+        REQUIRE(f.state.show_confirm_prompt);
+        CHECK(f.state.confirm_prompt == ConfirmPrompt::kResumeNet);
+        CHECK(f.state.confirm_prompt_lines[0].find("Tailgate has a session") == 0);
+
+        ResumeOpenNet(&f.state);
+        CHECK_EQ(f.state.page, kPageActiveNet);
+        CHECK_EQ(f.state.active_net_name, std::string("Tailgate"));
+        CHECK(f.state.active_net_is_ad_hoc);
+        RequestCloseActiveNet(&f.state);
+        CHECK(f.state.confirm_prompt_lines[1].find("F6 on the Ad Hoc Net page") !=
+              std::string::npos);
+        CloseActiveNet(&f.state);
+        CHECK(f.state.status_message.find("F6 on the Ad Hoc Net page") != std::string::npos);
+        RefreshOpenAdHocSessions(&f.state);
+        CHECK(f.state.open_ad_hoc_sessions.empty());
+    }
+
+    QL_TEST(AdHocHistoryListsEveryAdHocSession)
+    {
+        Fixture f;
+        std::int64_t recurring = AddTestNet(f.db(), "Skywarn");
+        AddTestInstance(f.db(), recurring, "2026-09-20", 500, "W4KWK");
+        StartAdHoc(&f, "Tailgate");
+        AddTestInstance(f.db(), f.state.start_net.id, "2026-09-22", 900, "W4KWK");
+        StartAdHoc(&f, "Field Day Practice");
+        AddTestInstance(f.db(), f.state.start_net.id, "2026-09-23", 1000, "K4BBB");
+
+        f.state.history_ad_hoc = true;
+        RefreshNetHistory(&f.state);
+        REQUIRE(f.state.history_instance_labels.size() == 2);
+        std::string header = FormatAdHocInstanceHeaderRow();
+        std::string::size_type net_column = header.find("Net ") - 2;  // Menu gutter.
+        CHECK(f.state.history_instance_labels[0].find("2026-09-23") == 0);
+        CHECK(f.state.history_instance_labels[0].substr(net_column).find("Field Day Practice") ==
+              0);
+        CHECK(f.state.history_instance_labels[1].substr(net_column).find("Tailgate") == 0);
+        CHECK_EQ(header.find("Net Control") - header.find("Net "), std::size_t{25});
+        CHECK(header.size() <= 78);
+
+        f.state.history_ad_hoc = false;
+        RefreshNets(&f.state);
+        RefreshNetHistory(&f.state);
+        CHECK_EQ(f.state.history_instances.size(), std::size_t{1});
     }
 
     QL_TEST(TheNetListShowsWhenEachNetWasCreatedOrImported)
@@ -979,12 +1098,17 @@ namespace ql
         Fixture f;
         std::int64_t net_id = AddTestNet(f.db(), "Keep");
         OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
+        f.state.page = kPageEditNet;
         f.state.edit_net_name.clear();
         CHECK(!SaveEditNetForm(&f.state));
         CHECK_EQ(f.db()->GetNetById(net_id)->name, std::string("Keep"));
+        CHECK_EQ(f.state.page, kPageEditNet);  // Stays put to fix the error.
         f.state.edit_net_name = "Renamed";
         CHECK(SaveEditNetForm(&f.state));
         CHECK_EQ(f.state.nets[0].name, std::string("Renamed"));
+        // Saving closes the page.
+        CHECK_EQ(f.state.page, kPageNetList);
+        CHECK_EQ(f.state.status_message, std::string("Saved Renamed."));
     }
 
     QL_TEST(NetZipMustBeFiveDigitsOrBlank)

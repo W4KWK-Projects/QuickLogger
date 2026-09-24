@@ -614,15 +614,10 @@ namespace ql
 
         ftxui::Element operator()() const
         {
-            std::string net_name;
-            if (state_->selected_net_index < static_cast<int>(state_->nets.size()))
-            {
-                net_name = state_->nets[state_->selected_net_index].name;
-            }
-
             ftxui::Element content = ftxui::vbox({
-                ftxui::hbox({ftxui::text("Starting: ") | ftxui::color(kColorLabel),
-                             ftxui::text(net_name) | ftxui::bold | ftxui::color(kColorData)}),
+                ftxui::hbox(
+                    {ftxui::text("Starting: ") | ftxui::color(kColorLabel),
+                     ftxui::text(state_->start_net.name) | ftxui::bold | ftxui::color(kColorData)}),
                 Separator(),
                 HintText("Select your role for this net:"),
                 role_radiobox_->Render(),
@@ -1147,36 +1142,75 @@ namespace ql
     {
     public:
         AdHocNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
-                         ftxui::Component input_frequency, ftxui::Component input_location)
+                         ftxui::Component input_frequency, ftxui::Component input_location,
+                         ftxui::Component open_session_menu)
             : state_(state),
               input_name_(std::move(input_name)),
               input_mode_(std::move(input_mode)),
               input_frequency_(std::move(input_frequency)),
-              input_location_(std::move(input_location))
+              input_location_(std::move(input_location)),
+              open_session_menu_(std::move(open_session_menu))
         {
         }
 
         ftxui::Element operator()() const
         {
-            ftxui::Element content = ftxui::vbox({
-                HintText("Logs a one-off net without saving it as a recurring net."),
+            ftxui::Elements rows = {
+                HintParagraph("Logs a one-off net. Ad hoc nets aren't listed with the recurring "
+                              "nets; F6 shows their history."),
                 Separator(),
                 ftxui::hbox({FieldLabel("Name:      "), input_name_->Render()}),
                 ftxui::hbox({FieldLabel("Mode:      "), input_mode_->Render()}),
                 ftxui::hbox({FieldLabel("Frequency: "), input_frequency_->Render()}),
                 ftxui::hbox({FieldLabel("ZIP Code:  "), input_location_->Render()}),
-                ErrorLine(state_->form_error),
-            });
+            };
 
-            return PageChrome("Ad Hoc Net", content, {{"F2", "Start"}, {"Esc", "Cancel"}});
+            std::vector<KeyHint> hints = {{"F2", "Start"}};
+            if (!state_->open_ad_hoc_sessions.empty())
+            {
+                rows.push_back(Separator());
+                rows.push_back(Heading("Still open (F3 resumes one):"));
+                rows.push_back(Framed(OpenSessionRows()));
+                rows.push_back(PickPrompt(state_, PickList::kOpenAdHocSessions));
+                hints.push_back({"F3", "Resume"});
+            }
+            rows.push_back(StatusLine(state_->status_message));
+            rows.push_back(ErrorLine(state_->form_error));
+            hints.push_back({"F6", "History"});
+            hints.push_back({"Esc", "Cancel"});
+
+            if (state_->row_pick_action != RowPickAction::kNone)
+            {
+                return PageChrome("Ad Hoc Net", ftxui::vbox(rows), PickKeyHints(state_));
+            }
+            return PageChrome("Ad Hoc Net", ftxui::vbox(rows), hints);
         }
 
     private:
+        // The open sessions: numbered while picking one to resume; otherwise
+        // plain rows, since the list isn't something to move around in.
+        ftxui::Element OpenSessionRows() const
+        {
+            if (IsPicking(state_, PickList::kOpenAdHocSessions))
+            {
+                return PickableRows(state_, PickList::kOpenAdHocSessions,
+                                    state_->open_ad_hoc_labels, state_->selected_open_ad_hoc_index,
+                                    open_session_menu_);
+            }
+            ftxui::Elements lines;
+            for (const std::string& label : state_->open_ad_hoc_labels)
+            {
+                lines.push_back(ftxui::text("  " + label) | ftxui::color(kColorListRow));
+            }
+            return ftxui::vbox(lines);
+        }
+
         AppState* state_;
         ftxui::Component input_name_;
         ftxui::Component input_mode_;
         ftxui::Component input_frequency_;
         ftxui::Component input_location_;
+        ftxui::Component open_session_menu_;
     };
 
     ftxui::Component BuildAdHocNetPage(AppState* state)
@@ -1201,8 +1235,16 @@ namespace ql
 
         state->ad_hoc_net_name_input = input_name;
 
-        return ftxui::Renderer(
-            root, AdHocNetRenderer(state, input_name, input_mode, input_frequency, input_location));
+        // Only rendered while picking (see AdHocNetRenderer::OpenSessionRows),
+        // and deliberately left out of `root`: Tab and the arrow keys stay on
+        // the form's fields.
+        ftxui::Component open_session_menu =
+            ftxui::Menu(&state->open_ad_hoc_labels, &state->selected_open_ad_hoc_index);
+
+        return WithConfirmPrompt(
+            state,
+            ftxui::Renderer(root, AdHocNetRenderer(state, input_name, input_mode, input_frequency,
+                                                   input_location, open_session_menu)));
     }
 
     // ---- Net history page ---------------------------------------------------
@@ -1220,15 +1262,17 @@ namespace ql
 
         ftxui::Element operator()() const
         {
-            std::string net_name;
-            if (state_->selected_net_index < static_cast<int>(state_->nets.size()))
+            std::string net_name = "Ad Hoc Nets";
+            if (!state_->history_ad_hoc &&
+                state_->selected_net_index < static_cast<int>(state_->nets.size()))
             {
                 net_name = state_->nets[state_->selected_net_index].name;
             }
 
             ftxui::Element instance_list =
                 state_->history_instances.empty()
-                    ? HintText("No past instances of this net yet.")
+                    ? HintText(state_->history_ad_hoc ? "No ad hoc nets yet."
+                                                      : "No past instances of this net yet.")
                     : PickableRows(state_, PickList::kNetInstances, state_->history_instance_labels,
                                    state_->selected_history_index, instance_menu_) |
                           ftxui::frame | ftxui::vscroll_indicator;
@@ -1244,7 +1288,8 @@ namespace ql
             ftxui::Element content = ftxui::vbox({
                 Framed(ftxui::vbox({
                     ColumnHeader(PickHeaderPad(state_, PickList::kNetInstances) +
-                                 FormatNetInstanceHeaderRow()),
+                                 (state_->history_ad_hoc ? FormatAdHocInstanceHeaderRow()
+                                                         : FormatNetInstanceHeaderRow())),
                     instance_list,
                 })) |
                     ftxui::flex,
@@ -1425,7 +1470,7 @@ namespace ql
             }
             return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(rows),
                               {
-                                  {"F2", "Save Net"},
+                                  {"F2", "Save & Close"},
                                   {"F3", "Save Station"},
                                   {"F4", "Remove"},
                                   {"F6", "Add Station"},

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -54,6 +56,7 @@ namespace ql
         kDeleteNetInstance,     // History, F5
         kDeleteHistoryCheckIn,  // History, F4 (a check-in in a past log)
         kRemoveUser,            // Manage Users, F3
+        kResumeAdHocSession,    // Ad Hoc Net, F3 (an ad hoc session left open)
     };
 
     // A yes/no-style question that pops up over the page before an action
@@ -75,6 +78,7 @@ namespace ql
         kNetInstances,
         kHistoryCheckIns,
         kUsers,
+        kOpenAdHocSessions,
     };
 
     // All mutable state shared across the app's pages. Every page-building
@@ -204,7 +208,8 @@ namespace ql
         std::unordered_map<std::string, std::string> zip_county_by_zip;
         std::unordered_map<std::string, std::string> zip_place_county_by_key;
 
-        // Net list page: the recurring nets a user can select and start.
+        // Net list page: the recurring nets a user can select and start (never
+        // ad hoc ones -- see Net::is_ad_hoc).
         std::vector<Net> nets;
         std::vector<std::string> net_names;  // Kept in sync with `nets` by RefreshNets.
         int selected_net_index = 0;
@@ -215,6 +220,19 @@ namespace ql
         std::string new_net_frequency;
         std::string new_net_location;
         std::string new_net_recurrence;
+
+        // The net being started or resumed: set by StartSelectedNet, the Ad
+        // Hoc page and the resume prompt, and read by the Select Role and
+        // Enter Callsign pages. A copy, not an index into `nets`, since an ad
+        // hoc net isn't in that list.
+        Net start_net;
+
+        // Ad Hoc Net page: ad hoc sessions still open (e.g. after a dropped
+        // connection), which F3 offers to resume. Refreshed by
+        // RefreshOpenAdHocSessions.
+        std::vector<NetInstance> open_ad_hoc_sessions;
+        std::vector<std::string> open_ad_hoc_labels;
+        int selected_open_ad_hoc_index = 0;
 
         // Select-role page: which role the operator is filling for this instance.
         std::vector<std::string> role_labels{"Net Control", "Alternate Net Control", "Logger"};
@@ -230,6 +248,7 @@ namespace ql
         // The active net's ZIP (Net::default_location), for nearby-station
         // autocomplete; see RefreshNearbyZips.
         std::string active_net_zip;
+        bool active_net_is_ad_hoc = false;
         std::vector<CheckIn> active_check_ins;
         // One formatted display line per entry in `active_check_ins`, rebuilt by
         // RefreshActiveCheckIns whenever a check-in is added. Kept pre-formatted
@@ -237,6 +256,14 @@ namespace ql
         // doesn't have to hit the database on every frame.
         std::vector<std::string> active_display_rows;
         int selected_check_in_index = 0;  // Which row is highlighted in the check-in list.
+        // Read by the session's ScreenTicker thread, which checks every few
+        // seconds whether someone else sharing the session has logged or
+        // deleted a check-in: the session the active net page is showing (0
+        // when it isn't showing one), and the count and newest id of the
+        // check-ins it last loaded. Set by RefreshActiveCheckIns.
+        std::atomic<std::int64_t> watched_instance_id{0};
+        std::atomic<std::int64_t> shown_check_in_count{0};
+        std::atomic<std::int64_t> shown_newest_check_in_id{0};
 
         // New Station modal, opened from the active-net page. `modal_station`
         // holds every editable Station field (callsign, name, member_id,
@@ -285,8 +312,10 @@ namespace ql
         std::vector<std::string> edit_checkin_role_choice_labels;
         int edit_checkin_role_choice_index = 0;
 
-        // Net history page: past instances of AppState::nets[selected_net_index],
-        // and which one is highlighted.
+        // Net history page: past instances of AppState::nets[selected_net_index]
+        // -- or, when history_ad_hoc is set (F6 on the Ad Hoc page), of every
+        // ad hoc net -- and which one is highlighted.
+        bool history_ad_hoc = false;
         std::vector<NetInstance> history_instances;
         std::vector<std::string> history_instance_labels;  // Kept in sync by RefreshNetHistory.
         int selected_history_index = 0;
@@ -402,6 +431,15 @@ namespace ql
     // session or close it and start a new one (ConfirmPrompt::kResumeNet).
     void StartSelectedNet(AppState* state);
 
+    // Reloads AppState::open_ad_hoc_sessions/_labels. Call when showing the
+    // Ad Hoc Net page.
+    void RefreshOpenAdHocSessions(AppState* state);
+
+    // F2 on the Ad Hoc Net page: saves the form as a new ad hoc net
+    // (Net::is_ad_hoc) and goes on to pick a role. Sets
+    // AppState::form_error instead if the form isn't valid.
+    void StartAdHocNet(AppState* state);
+
     // The kResumeNet answers: carry on logging the open session, or close it
     // and go on to start a new one.
     void ResumeOpenNet(AppState* state);
@@ -436,6 +474,14 @@ namespace ql
     // for AppState::active_instance. Call after any change to that instance's
     // check-ins.
     void RefreshActiveCheckIns(AppState* state);
+
+    // Called on the UI thread when the ScreenTicker sees that session
+    // `instance_id`'s check-ins have changed (someone else logging it):
+    // reloads them and redraws, if the active net page is still showing
+    // that session. Waits (does nothing; the ticker asks again) while a
+    // numbered pick, a delete confirmation or the Edit Check-In dialog is
+    // working from the current list.
+    void RefreshActiveCheckInsFromOthers(AppState* state, std::int64_t instance_id);
 
     // Logs the operator (AppState::operator_callsign) as check-in #1 on the
     // just-created AppState::active_instance, designated with whichever role
@@ -539,10 +585,14 @@ namespace ql
 
     // The column-header line for a list of FormatNetInstanceRow rows.
     std::string FormatNetInstanceHeaderRow();
+    // The same for the ad hoc history (AppState::history_ad_hoc), which has a
+    // Net column in place of Alternate NC and Logger.
+    std::string FormatAdHocInstanceHeaderRow();
 
     // Reloads AppState::history_instances/history_instance_labels from the
-    // database for AppState::nets[selected_net_index], then calls
-    // RefreshHistoryCheckIns. Call before showing the net history page.
+    // database for AppState::nets[selected_net_index] (or every ad hoc net,
+    // if AppState::history_ad_hoc), then calls RefreshHistoryCheckIns. Call
+    // before showing the net history page.
     void RefreshNetHistory(AppState* state);
 
     // Reloads AppState::history_check_in_labels from the database for
@@ -745,8 +795,10 @@ namespace ql
     void OpenEditNetForm(AppState* state, const Net& net);
 
     // Validates and persists the edit-net page's field edits back to the Net
-    // row (AppState::edit_net_id unchanged). Returns false (and sets
-    // AppState::form_error) without changing anything if the name is empty.
+    // row (AppState::edit_net_id unchanged), then returns to the net list
+    // saying so. Returns false (and sets AppState::form_error), changing
+    // nothing and staying on the page, if the name is empty or the ZIP isn't
+    // valid.
     bool SaveEditNetForm(AppState* state);
 
     // Reloads AppState::edit_net_saved_stations/_labels for AppState::edit_net_id. Call

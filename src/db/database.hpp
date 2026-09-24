@@ -126,6 +126,8 @@ namespace ql
         // Net instances (one dated occurrence of a Net).
         std::int64_t CreateNetInstance(const NetInstance& instance);
         std::vector<NetInstance> GetNetInstancesForNet(std::int64_t net_id);
+        // Every session of every ad hoc net (Net::is_ad_hoc), newest first.
+        std::vector<NetInstance> GetAdHocNetInstances();
         std::optional<NetInstance> GetNetInstanceById(std::int64_t instance_id);
         // Closes an open instance as of `closed_at`. Returns false, changing
         // nothing, if it's already closed (someone else got there first, and
@@ -159,6 +161,10 @@ namespace ql
         // logging the same session at the same moment can't both get it.
         std::int64_t AddCheckInAtNextSequence(const CheckIn& check_in);
         std::vector<CheckIn> GetCheckInsForNetInstance(std::int64_t net_instance_id);
+        // How many check-ins a session has and the newest one's id -- enough
+        // to tell cheaply whether someone else has logged or deleted one.
+        void GetCheckInSummary(std::int64_t net_instance_id, std::int64_t* count,
+                               std::int64_t* newest_id);
         void UpdateCheckIn(const CheckIn& check_in);
         // Removes one check-in entry entirely (e.g. logged in error). Does not
         // touch the Station record or renumber other check-ins' sequence

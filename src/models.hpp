@@ -71,6 +71,9 @@ namespace ql
         // before these were recorded; shown blank, never guessed at).
         std::int64_t created_at = 0;
         std::int64_t imported_at = 0;
+        // Started from the Ad Hoc Net page: kept out of the Recurring Nets
+        // list, with its sessions resumed and browsed from that page instead.
+        bool is_ad_hoc = false;
     };
 
     enum class NetInstanceStatus

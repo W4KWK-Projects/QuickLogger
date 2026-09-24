@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS nets (
     recurrence_description TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL DEFAULT 0,
-    imported_at INTEGER NOT NULL DEFAULT 0
+    imported_at INTEGER NOT NULL DEFAULT 0,
+    is_ad_hoc INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS net_instances (
@@ -128,7 +129,7 @@ CREATE TABLE IF NOT EXISTS users (
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 3;
+    static constexpr int kSchemaVersion = 4;
 
     static int ReadUserVersion(sqlite3* db)
     {
@@ -199,6 +200,7 @@ CREATE TABLE IF NOT EXISTS users (
         net.notes = row.ColumnText(7);
         net.created_at = row.ColumnInt64(8);
         net.imported_at = row.ColumnInt64(9);
+        net.is_ad_hoc = row.ColumnInt64(10) != 0;
         return net;
     }
 
@@ -314,6 +316,7 @@ CREATE TABLE IF NOT EXISTS users (
         EnsureColumnExists(db_, "import_runs", "requested_at", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(db_, "nets", "created_at", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(db_, "nets", "imported_at", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(db_, "nets", "is_ad_hoc", "INTEGER NOT NULL DEFAULT 0");
 
         // One-time migration for databases created before ULS import moved
         // to its own table (uls_stations): any leftover data_source=2 (kUls)
@@ -636,8 +639,9 @@ CREATE TABLE IF NOT EXISTS users (
         Statement statement(db_, R"sql(
         INSERT INTO nets
             (name, mode, default_frequency, default_location,
-             default_grid_square, recurrence_description, notes, created_at, imported_at)
-        VALUES (?,?,?,?,?,?,?,?,?);
+             default_grid_square, recurrence_description, notes, created_at, imported_at,
+             is_ad_hoc)
+        VALUES (?,?,?,?,?,?,?,?,?,?);
     )sql");
         statement.BindText(0, net.name);
         statement.BindText(1, net.mode);
@@ -648,6 +652,7 @@ CREATE TABLE IF NOT EXISTS users (
         statement.BindText(6, net.notes);
         statement.BindInt64(7, net.created_at);
         statement.BindInt64(8, net.imported_at);
+        statement.BindInt64(9, net.is_ad_hoc ? 1 : 0);
         statement.Step();
         return sqlite3_last_insert_rowid(db_);
     }
@@ -673,7 +678,8 @@ CREATE TABLE IF NOT EXISTS users (
     {
         Statement statement(db_, R"sql(
         SELECT id, name, mode, default_frequency, default_location,
-               default_grid_square, recurrence_description, notes, created_at, imported_at
+               default_grid_square, recurrence_description, notes, created_at, imported_at,
+               is_ad_hoc
         FROM nets ORDER BY name COLLATE NOCASE, id;
     )sql");
         std::vector<Net> nets;
@@ -688,7 +694,8 @@ CREATE TABLE IF NOT EXISTS users (
     {
         Statement statement(db_, R"sql(
         SELECT id, name, mode, default_frequency, default_location,
-               default_grid_square, recurrence_description, notes, created_at, imported_at
+               default_grid_square, recurrence_description, notes, created_at, imported_at,
+               is_ad_hoc
         FROM nets WHERE id = ?;
     )sql");
         statement.BindInt64(0, net_id);
@@ -749,6 +756,24 @@ CREATE TABLE IF NOT EXISTS users (
         statement.BindInt64(11, instance.started_at);
         statement.Step();
         return sqlite3_last_insert_rowid(db_);
+    }
+
+    std::vector<NetInstance> Database::GetAdHocNetInstances()
+    {
+        Statement statement(db_, R"sql(
+        SELECT i.id, i.net_id, i.instance_date, i.net_control_callsign,
+               i.alternate_net_control_callsign, i.logger_callsign, i.created_by,
+               i.frequency, i.location, i.status, i.closed_at, i.operator_role, i.started_at
+        FROM net_instances i JOIN nets n ON n.id = i.net_id
+        WHERE n.is_ad_hoc = 1
+        ORDER BY i.instance_date DESC, i.started_at DESC, i.id DESC;
+    )sql");
+        std::vector<NetInstance> instances;
+        while (statement.Step())
+        {
+            instances.push_back(ReadNetInstanceRow(statement));
+        }
+        return instances;
     }
 
     std::vector<NetInstance> Database::GetNetInstancesForNet(std::int64_t net_id)
@@ -893,6 +918,21 @@ CREATE TABLE IF NOT EXISTS users (
         statement.BindInt64(6, check_in.designated_role);
         statement.Step();
         return sqlite3_last_insert_rowid(db_);
+    }
+
+    void Database::GetCheckInSummary(std::int64_t net_instance_id, std::int64_t* count,
+                                     std::int64_t* newest_id)
+    {
+        Statement statement(
+            db_, "SELECT COUNT(*), COALESCE(MAX(id), 0) FROM check_ins WHERE net_instance_id = ?;");
+        statement.BindInt64(0, net_instance_id);
+        *count = 0;
+        *newest_id = 0;
+        if (statement.Step())
+        {
+            *count = statement.ColumnInt64(0);
+            *newest_id = statement.ColumnInt64(1);
+        }
     }
 
     std::vector<CheckIn> Database::GetCheckInsForNetInstance(std::int64_t net_instance_id)

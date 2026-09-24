@@ -26,10 +26,32 @@
 namespace ql
 {
 
+    // Posted to the UI thread by ScreenTicker when the watched session's
+    // check-ins have changed: see RefreshActiveCheckInsFromOthers.
+    class RefreshCheckInsTask
+    {
+    public:
+        RefreshCheckInsTask(AppState* state, std::int64_t instance_id)
+            : state_(state), instance_id_(instance_id)
+        {
+        }
+
+        void operator()() const
+        {
+            RefreshActiveCheckInsFromOthers(state_, instance_id_);
+        }
+
+    private:
+        AppState* state_;
+        std::int64_t instance_id_;
+    };
+
     // Redraws the screen when -- and only when -- something it shows has
     // changed on its own, without a keypress: the top bar's clock ticking
-    // over to a new minute, or the shared station data's status (see
-    // DescribeStationDataNotice / DescribeStationDataStatus) moving on. FTXUI
+    // over to a new minute, the shared station data's status (see
+    // DescribeStationDataNotice / DescribeStationDataStatus) moving on, or
+    // someone else logging (or deleting) a check-in in the session the
+    // active net page is showing -- checked every kCheckInPoll. FTXUI
     // only redraws in response to an event, and every redraw costs an SSH
     // session a screenful of bytes on the wire, so this posts one only when
     // the visible text would actually differ.
@@ -45,8 +67,11 @@ namespace ql
     class ScreenTicker
     {
     public:
-        ScreenTicker(ftxui::ScreenInteractive* screen, std::string db_path)
-            : screen_(screen), db_path_(std::move(db_path)), thread_(&ScreenTicker::Run, this)
+        ScreenTicker(ftxui::ScreenInteractive* screen, AppState* state, std::string db_path)
+            : screen_(screen),
+              state_(state),
+              db_path_(std::move(db_path)),
+              thread_(&ScreenTicker::Run, this)
         {
         }
 
@@ -120,6 +145,10 @@ namespace ql
                 std::chrono::system_clock::duration wait_time =
                     next_minute - now + std::chrono::milliseconds(200);
                 std::chrono::system_clock::duration poll = busy ? kStatusPollBusy : kStatusPollIdle;
+                if (state_->watched_instance_id != 0 && poll > kCheckInPoll)
+                {
+                    poll = kCheckInPoll;
+                }
                 if (wait_time > poll)
                 {
                     wait_time = poll;
@@ -154,13 +183,43 @@ namespace ql
                 {
                     screen_->PostEvent(ftxui::Event::Custom);
                 }
+                CheckWatchedSession(db.get());
+            }
+        }
+
+        // If the active net page's session has check-ins it isn't showing
+        // yet (or is showing ones since deleted), asks the UI thread to
+        // reload them; it redraws only then.
+        void CheckWatchedSession(Database* db)
+        {
+            std::int64_t instance_id = state_->watched_instance_id;
+            if (db == nullptr || instance_id == 0)
+            {
+                return;
+            }
+            std::int64_t count = 0;
+            std::int64_t newest_id = 0;
+            try
+            {
+                db->GetCheckInSummary(instance_id, &count, &newest_id);
+            }
+            catch (const std::exception&)
+            {
+                return;  // Busy right now; try again next time.
+            }
+            if (count != state_->shown_check_in_count ||
+                newest_id != state_->shown_newest_check_in_id)
+            {
+                screen_->Post(RefreshCheckInsTask(state_, instance_id));
             }
         }
 
         static constexpr std::chrono::seconds kStatusPollIdle{10};
         static constexpr std::chrono::seconds kStatusPollBusy{3};
+        static constexpr std::chrono::seconds kCheckInPoll{3};
 
         ftxui::ScreenInteractive* screen_;
+        AppState* state_;
         std::string db_path_;
         std::mutex mutex_;
         std::condition_variable wake_;
@@ -240,7 +299,7 @@ namespace ql
 
         // Declared after `screen` so it is stopped and joined before `screen`
         // is destroyed.
-        ScreenTicker screen_ticker(&screen, state.db_path);
+        ScreenTicker screen_ticker(&screen, &state, state.db_path);
 
         screen.Loop(ui);
     }

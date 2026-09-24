@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <ctime>
 #include <exception>
+#include <optional>
 #include <utility>
 
 #include "../date_utils.hpp"
@@ -102,6 +103,8 @@ namespace ql
     void ShowAdHocNetPageHandler::operator()() const
     {
         ResetCreateNetForm(state_);
+        state_->status_message.clear();
+        RefreshOpenAdHocSessions(state_);
         state_->page = kPageAdHocNet;
         if (state_->ad_hoc_net_name_input)
         {
@@ -111,37 +114,7 @@ namespace ql
 
     void AdHocNetSubmitHandler::operator()() const
     {
-        if (state_->new_net_name.empty())
-        {
-            state_->form_error = "Net name is required.";
-            return;
-        }
-        if (!CheckNetZip(state_, state_->new_net_location))
-        {
-            return;
-        }
-
-        Net net;
-        net.name = state_->new_net_name;
-        net.mode = state_->new_net_mode;
-        net.default_frequency = state_->new_net_frequency;
-        net.default_location = state_->new_net_location;
-        net.created_at = static_cast<std::int64_t>(std::time(nullptr));
-        std::int64_t new_net_id = state_->db->CreateNet(net);
-
-        RefreshNets(state_);
-        for (int i = 0; i < static_cast<int>(state_->nets.size()); ++i)
-        {
-            if (state_->nets[i].id == new_net_id)
-            {
-                state_->selected_net_index = i;
-                break;
-            }
-        }
-
-        ResetCreateNetForm(state_);
-        ResetStartNetFlow(state_);
-        state_->page = kPageSelectRole;
+        StartAdHocNet(state_);
     }
 
     bool AdHocNetKeyHandler::operator()(const ftxui::Event& event) const
@@ -150,6 +123,20 @@ namespace ql
         {
             AdHocNetSubmitHandler submit(state_);
             submit();
+            return true;
+        }
+        if (event == ftxui::Event::F3)
+        {
+            StartRowPick(state_, RowPickAction::kResumeAdHocSession);
+            return true;
+        }
+        if (event == ftxui::Event::F6)
+        {
+            state_->history_ad_hoc = true;
+            state_->form_error.clear();
+            state_->status_message.clear();
+            RefreshNetHistory(state_);
+            state_->page = kPageNetHistory;
             return true;
         }
         if (event == ftxui::Event::Escape)
@@ -168,6 +155,7 @@ namespace ql
             state_->form_error = "Create a recurring net first.";
             return;
         }
+        state_->history_ad_hoc = false;
         RefreshNetHistory(state_);
         state_->form_error.clear();
         state_->status_message.clear();
@@ -181,6 +169,12 @@ namespace ql
 
     void NetHistoryBackHandler::operator()() const
     {
+        if (state_->history_ad_hoc)
+        {
+            ShowAdHocNetPageHandler show_adhoc(state_);
+            show_adhoc();
+            return;
+        }
         state_->page = kPageNetList;
     }
 
@@ -195,12 +189,8 @@ namespace ql
 
         const NetInstance& instance = state_->history_instances[state_->selected_history_index];
         std::vector<CheckIn> check_ins = state_->db->GetCheckInsForNetInstance(instance.id);
-        std::string net_name;
-        if (state_->selected_net_index < static_cast<int>(state_->nets.size()))
-        {
-            net_name = state_->nets[state_->selected_net_index].name;
-        }
-        ExportNetLog(state_, net_name, instance, check_ins);
+        std::optional<Net> net = state_->db->GetNetById(instance.net_id);
+        ExportNetLog(state_, net.has_value() ? net->name : "", instance, check_ins);
     }
 
     bool NetHistoryKeyHandler::operator()(const ftxui::Event& event) const
@@ -647,7 +637,7 @@ namespace ql
             return;
         }
 
-        const Net& net = state_->nets[state_->selected_net_index];
+        const Net& net = state_->start_net;
 
         NetInstance instance;
         instance.net_id = net.id;
@@ -676,6 +666,7 @@ namespace ql
         state_->active_instance = instance;
         state_->active_net_name = net.name;
         state_->active_net_zip = net.default_location;
+        state_->active_net_is_ad_hoc = net.is_ad_hoc;
         LogOperatorCheckIn(state_);
         state_->form_error.clear();
         state_->status_message.clear();

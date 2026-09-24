@@ -55,7 +55,7 @@ namespace ql
                                    table + "'"),
                      std::int64_t{1});
         }
-        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{3});
+        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{4});
         CHECK_EQ(CountRows(dir.File("q.db"),
                            "SELECT COUNT(*) FROM pragma_table_info('import_runs') WHERE name IN "
                            "('phase','percent','heartbeat_at','requested_at')"),
@@ -114,11 +114,12 @@ namespace ql
         )sql");
 
         Database db(path);
-        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{3});
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{4});
         std::vector<Net> nets = db.GetAllNets();
         REQUIRE(nets.size() == 1);
         CHECK_EQ(nets[0].created_at, std::int64_t{0});  // Unknown, not guessed.
         CHECK_EQ(nets[0].imported_at, std::int64_t{0});
+        CHECK(!nets[0].is_ad_hoc);  // Nothing is guessed to be ad hoc.
         // New columns exist, with their defaults.
         std::vector<NetInstance> instances = db.GetNetInstancesForNet(1);
         REQUIRE(instances.size() == 1);

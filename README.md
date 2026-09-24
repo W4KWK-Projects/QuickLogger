@@ -88,7 +88,9 @@ On **Recurring Nets**, highlight a net and press **F3** (or Enter), pick your ro
 
 **F4** closes the net when you're done. It asks first, since a closed session can't be reopened for logging; it stays in **History** (F6), with the times it started and ended, where you can still view and export it.
 
-**Picking up where you left off.** If a session ends without F4 — an SSH connection drops, a terminal is closed — the session stays open, and the net shows *session open* in the list. Starting that net again offers to **Resume** it (F2/Enter), carrying on the same log, or to **close it and start a new session** (F3). The same applies if someone else is logging that net right now: resuming joins their log.
+**Picking up where you left off.** If a session ends without F4 — an SSH connection drops, a terminal is closed — the session stays open, and the net shows *session open* in the list. Starting that net again offers to **Resume** it (F2/Enter), carrying on the same log, or to **close it and start a new session** (F3). The same applies if someone else is logging that net right now: resuming joins their log. If one of you closes the session, the others can't log anything more to it; the next check-in they try is refused with a message, and they're returned to the net list.
+
+**Ad hoc nets.** **F5 (AdHoc)** starts a one-off net: fill in its name and details and press **F2**. Ad hoc nets never appear in the Recurring Nets list. Everything about them is on the Ad Hoc Net page instead: an ad hoc session left open (say, after a dropped connection) is listed there, and **F3** resumes it; **F6** shows the history of every ad hoc net, one session per row, where you can view, export and delete them just as in a recurring net's History.
 
 **Telling nets apart.** The list shows when each net was created, or, for one brought in with **F9 (Import Net)**, when it was imported — so if you import a net with the same name as one of yours, you can tell which is which and delete the one you don't want. (Nets created before this was recorded show no date.)
 
@@ -99,6 +101,7 @@ Wherever a list has an edit or delete key, pressing it numbers every row. Type t
 | Page | Key | What it does |
 |---|---|---|
 | Recurring Nets | F7 | Edit a net |
+| Ad Hoc Net | F3 | Resume an ad hoc session that's still open |
 | Active net (while logging) | F3 / F5 | Edit / delete a check-in |
 | Edit Net | F9 | Load a saved station into the form below |
 | Edit Net | F4 | Remove a saved station from this net |

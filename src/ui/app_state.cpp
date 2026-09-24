@@ -10,6 +10,7 @@
 #include <utility>
 
 #include <ftxui/component/component_base.hpp>
+#include <ftxui/component/event.hpp>
 
 #include "../callsign_rules.hpp"
 #include "../date_utils.hpp"
@@ -115,6 +116,40 @@ namespace ql
                       "End", kNetControlColumnWidth, kNetControlColumnWidth, "Net Control",
                       kAlternateNcColumnWidth, kAlternateNcColumnWidth, "Alternate NC",
                       kLoggerColumnWidth, kLoggerColumnWidth, "Logger", "Status");
+        return std::string(kMenuEntryIndicatorWidth, ' ') + buffer;
+    }
+
+    // The ad hoc history's rows: every ad hoc net's sessions in one list, so
+    // the net's name takes the place of the Alternate NC and Logger columns
+    // (keeping a row within 80 columns).
+    static constexpr int kAdHocNetNameColumnWidth = 24;
+
+    static std::string FormatAdHocInstanceRow(const NetInstance& instance,
+                                              const std::string& net_name)
+    {
+        const char* status = instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed";
+        char buffer[256];
+        std::string start_time = FormatLocalTimeOfDay(instance.started_at);
+        std::string end_time = FormatLocalTimeOfDay(instance.closed_at);
+        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
+                      kDateColumnWidth, kDateColumnWidth, instance.instance_date.c_str(),
+                      kStartTimeColumnWidth, kStartTimeColumnWidth, start_time.c_str(),
+                      kEndTimeColumnWidth, kEndTimeColumnWidth, end_time.c_str(),
+                      kAdHocNetNameColumnWidth, kAdHocNetNameColumnWidth, net_name.c_str(),
+                      kNetControlColumnWidth, kNetControlColumnWidth,
+                      instance.net_control_callsign.c_str(), status);
+        return std::string(buffer);
+    }
+
+    std::string FormatAdHocInstanceHeaderRow()
+    {
+        // Same field widths as FormatAdHocInstanceRow.
+        char buffer[256];
+        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
+                      kDateColumnWidth, kDateColumnWidth, "Date", kStartTimeColumnWidth,
+                      kStartTimeColumnWidth, "Start", kEndTimeColumnWidth, kEndTimeColumnWidth,
+                      "End", kAdHocNetNameColumnWidth, kAdHocNetNameColumnWidth, "Net",
+                      kNetControlColumnWidth, kNetControlColumnWidth, "Net Control", "Status");
         return std::string(kMenuEntryIndicatorWidth, ' ') + buffer;
     }
 
@@ -233,7 +268,14 @@ namespace ql
 
     void RefreshNets(AppState* state)
     {
-        state->nets = state->db->GetAllNets();
+        state->nets.clear();
+        for (const Net& net : state->db->GetAllNets())
+        {
+            if (!net.is_ad_hoc)
+            {
+                state->nets.push_back(net);
+            }
+        }
         std::vector<std::int64_t> open_net_ids = state->db->GetNetIdsWithOpenInstances();
 
         int name_width = 0;
@@ -305,6 +347,20 @@ namespace ql
         state->confirm_prompt = ConfirmPrompt::kNone;
     }
 
+    // Asks whether to resume `session` of AppState::start_net, which is still
+    // open, or close it and start a new one (ConfirmPrompt::kResumeNet).
+    static void OfferToResume(AppState* state, const NetInstance& session)
+    {
+        state->resume_instance = session;
+        std::size_t check_ins = state->db->GetCheckInsForNetInstance(session.id).size();
+        ShowConfirmPrompt(
+            state, ConfirmPrompt::kResumeNet, "Session Still Open",
+            {state->start_net.name + " has a session that's still open: started " +
+                 DescribeSessionStart(session) + ", " + CountCheckIns(check_ins) + ".",
+             "Resume it to keep logging -- if someone else is logging it right now, you'll "
+             "both be adding to the same log. Or close it and start a new session."});
+    }
+
     void StartSelectedNet(AppState* state)
     {
         if (state->nets.empty())
@@ -312,27 +368,77 @@ namespace ql
             state->form_error = "Create a recurring net first.";
             return;
         }
-        const Net& net = state->nets[state->selected_net_index];
+        state->start_net = state->nets[state->selected_net_index];
 
         // Newest first, so this is the most recent session left open.
-        std::vector<NetInstance> sessions = state->db->GetNetInstancesForNet(net.id);
+        std::vector<NetInstance> sessions = state->db->GetNetInstancesForNet(state->start_net.id);
         for (const NetInstance& session : sessions)
+        {
+            if (session.status == NetInstanceStatus::kOpen)
+            {
+                OfferToResume(state, session);
+                return;
+            }
+        }
+
+        ResetStartNetFlow(state);
+        state->page = kPageSelectRole;
+    }
+
+    // "Tailgate Net  started 2026-09-24 06:10 PM, 3 check-ins".
+    static std::string FormatOpenAdHocSession(const Net& net, const NetInstance& session,
+                                              std::size_t check_ins)
+    {
+        return net.name + "  started " + DescribeSessionStart(session) + ", " +
+               CountCheckIns(check_ins);
+    }
+
+    void RefreshOpenAdHocSessions(AppState* state)
+    {
+        state->open_ad_hoc_sessions.clear();
+        state->open_ad_hoc_labels.clear();
+        for (const NetInstance& session : state->db->GetAdHocNetInstances())
         {
             if (session.status != NetInstanceStatus::kOpen)
             {
                 continue;
             }
-            state->resume_instance = session;
+            std::optional<Net> net = state->db->GetNetById(session.net_id);
             std::size_t check_ins = state->db->GetCheckInsForNetInstance(session.id).size();
-            ShowConfirmPrompt(
-                state, ConfirmPrompt::kResumeNet, "Session Still Open",
-                {net.name + " has a session that's still open: started " +
-                     DescribeSessionStart(session) + ", " + CountCheckIns(check_ins) + ".",
-                 "Resume it to keep logging -- if someone else is logging it right now, you'll "
-                 "both be adding to the same log. Or close it and start a new session."});
+            state->open_ad_hoc_sessions.push_back(session);
+            state->open_ad_hoc_labels.push_back(
+                FormatOpenAdHocSession(net.has_value() ? *net : Net(), session, check_ins));
+        }
+        if (state->selected_open_ad_hoc_index >=
+            static_cast<int>(state->open_ad_hoc_sessions.size()))
+        {
+            state->selected_open_ad_hoc_index = 0;
+        }
+    }
+
+    void StartAdHocNet(AppState* state)
+    {
+        if (state->new_net_name.empty())
+        {
+            state->form_error = "Net name is required.";
+            return;
+        }
+        if (!CheckNetZip(state, state->new_net_location))
+        {
             return;
         }
 
+        Net net;
+        net.name = state->new_net_name;
+        net.mode = state->new_net_mode;
+        net.default_frequency = state->new_net_frequency;
+        net.default_location = state->new_net_location;
+        net.created_at = static_cast<std::int64_t>(std::time(nullptr));
+        net.is_ad_hoc = true;
+        net.id = state->db->CreateNet(net);
+        state->start_net = net;
+
+        ResetCreateNetForm(state);
         ResetStartNetFlow(state);
         state->page = kPageSelectRole;
     }
@@ -350,16 +456,10 @@ namespace ql
         }
 
         state->active_instance = *session;
-        state->active_net_name.clear();
-        state->active_net_zip.clear();
-        for (const Net& net : state->nets)
-        {
-            if (net.id == session->net_id)
-            {
-                state->active_net_name = net.name;
-                state->active_net_zip = net.default_location;
-            }
-        }
+        std::optional<Net> net = state->db->GetNetById(session->net_id);
+        state->active_net_name = net.has_value() ? net->name : "";
+        state->active_net_zip = net.has_value() ? net->default_location : "";
+        state->active_net_is_ad_hoc = net.has_value() && net->is_ad_hoc;
         // The header shows who started it, in which role.
         state->selected_role_index = session->operator_role;
         if (session->operator_role == kRoleAlternateNetControl)
@@ -405,19 +505,27 @@ namespace ql
         state->page = kPageSelectRole;
     }
 
+    // Where the active net's history is: ad hoc nets aren't on the net list.
+    static const char* HistoryKeyDescription(const AppState* state)
+    {
+        return state->active_net_is_ad_hoc ? "F6 on the Ad Hoc Net page" : "F6 on the net list";
+    }
+
     void RequestCloseActiveNet(AppState* state)
     {
         std::string name = state->active_net_name.empty() ? "this net" : state->active_net_name;
         ShowConfirmPrompt(
             state, ConfirmPrompt::kCloseNet, "Close Net",
             {"Close " + name + " (" + CountCheckIns(state->active_check_ins.size()) + ")?",
-             "It moves to History (F6 on the net list), where you can still view and export it. "
-             "A closed session can't be reopened for logging."});
+             std::string("It moves to History (") + HistoryKeyDescription(state) +
+                 "), where you can still view and export it. A closed session can't be "
+                 "reopened for logging."});
     }
 
     // Leaves the active net for the net list, closing any dialog on it.
     static void LeaveActiveNet(AppState* state)
     {
+        state->watched_instance_id = 0;
         state->active_check_ins.clear();
         state->active_display_rows.clear();
         state->show_new_station_modal = false;
@@ -441,10 +549,11 @@ namespace ql
         }
         std::size_t check_ins =
             state->db->GetCheckInsForNetInstance(state->active_instance.id).size();
+        std::string history = HistoryKeyDescription(state);
         LeaveActiveNet(state);
         state->form_error.clear();
-        state->status_message =
-            "Closed " + closed_name + " (" + CountCheckIns(check_ins) + "). It's in History (F6).";
+        state->status_message = "Closed " + closed_name + " (" + CountCheckIns(check_ins) +
+                                "). It's in History (" + history + ").";
     }
 
     bool EnsureActiveSessionOpen(AppState* state, const std::string& unlogged_callsign)
@@ -474,7 +583,9 @@ namespace ql
         {
             message += " " + unlogged_callsign + " was not logged.";
         }
-        message += " Start the net again (F3) to begin a new session.";
+        message += state->active_net_is_ad_hoc
+                       ? " Start a new ad hoc net (F5) to keep logging."
+                       : " Start the net again (F3) to begin a new session.";
 
         LeaveActiveNet(state);
         state->status_message.clear();
@@ -632,6 +743,30 @@ namespace ql
         if (state->selected_check_in_index >= static_cast<int>(state->active_check_ins.size()))
         {
             state->selected_check_in_index = 0;
+        }
+
+        std::int64_t newest_id = 0;
+        for (const CheckIn& check_in : state->active_check_ins)
+        {
+            newest_id = std::max(newest_id, check_in.id);
+        }
+        state->shown_check_in_count = static_cast<std::int64_t>(state->active_check_ins.size());
+        state->shown_newest_check_in_id = newest_id;
+        state->watched_instance_id = state->active_instance.id;
+    }
+
+    void RefreshActiveCheckInsFromOthers(AppState* state, std::int64_t instance_id)
+    {
+        if (state->page != kPageActiveNet || state->active_instance.id != instance_id ||
+            state->row_pick_action != RowPickAction::kNone ||
+            state->show_row_delete_confirm_modal || state->show_edit_checkin_modal)
+        {
+            return;
+        }
+        RefreshActiveCheckIns(state);
+        if (state->screen != nullptr)
+        {
+            state->screen->PostEvent(ftxui::Event::Custom);
         }
     }
 
@@ -913,17 +1048,32 @@ namespace ql
         state->history_instances.clear();
         state->history_instance_labels.clear();
 
-        if (state->selected_net_index >= static_cast<int>(state->nets.size()))
+        if (state->history_ad_hoc)
         {
-            return;
+            std::unordered_map<std::int64_t, std::string> names;
+            for (const Net& net : state->db->GetAllNets())
+            {
+                names[net.id] = net.name;
+            }
+            state->history_instances = state->db->GetAdHocNetInstances();
+            for (const NetInstance& instance : state->history_instances)
+            {
+                state->history_instance_labels.push_back(
+                    FormatAdHocInstanceRow(instance, names[instance.net_id]));
+            }
         }
-
-        const Net& net = state->nets[state->selected_net_index];
-        state->history_instances = state->db->GetNetInstancesForNet(net.id);
-
-        for (const NetInstance& instance : state->history_instances)
+        else
         {
-            state->history_instance_labels.push_back(FormatNetInstanceRow(instance));
+            if (state->selected_net_index >= static_cast<int>(state->nets.size()))
+            {
+                return;
+            }
+            const Net& net = state->nets[state->selected_net_index];
+            state->history_instances = state->db->GetNetInstancesForNet(net.id);
+            for (const NetInstance& instance : state->history_instances)
+            {
+                state->history_instance_labels.push_back(FormatNetInstanceRow(instance));
+            }
         }
 
         if (state->selected_history_index >= static_cast<int>(state->history_instances.size()))
@@ -1112,6 +1262,8 @@ namespace ql
                 return PickList::kHistoryCheckIns;
             case RowPickAction::kRemoveUser:
                 return PickList::kUsers;
+            case RowPickAction::kResumeAdHocSession:
+                return PickList::kOpenAdHocSessions;
             case RowPickAction::kNone:
                 break;
         }
@@ -1134,6 +1286,8 @@ namespace ql
                 return state->history_check_ins.size();
             case PickList::kUsers:
                 return state->manage_users.size();
+            case PickList::kOpenAdHocSessions:
+                return state->open_ad_hoc_sessions.size();
             case PickList::kNone:
                 break;
         }
@@ -1158,6 +1312,8 @@ namespace ql
                 return &state->selected_history_check_in_index;
             case PickList::kUsers:
                 return &state->selected_user_index;
+            case PickList::kOpenAdHocSessions:
+                return &state->selected_open_ad_hoc_index;
             case PickList::kNone:
                 break;
         }
@@ -1181,6 +1337,8 @@ namespace ql
                 return "check-in";
             case PickList::kUsers:
                 return "user";
+            case PickList::kOpenAdHocSessions:
+                return "open session";
             case PickList::kNone:
                 break;
         }
@@ -1198,6 +1356,8 @@ namespace ql
             case RowPickAction::kRemoveSavedStation:
             case RowPickAction::kRemoveUser:
                 return "Remove";
+            case RowPickAction::kResumeAdHocSession:
+                return "Resume";
             case RowPickAction::kDeleteCheckIn:
             case RowPickAction::kDeleteNetInstance:
             case RowPickAction::kDeleteHistoryCheckIn:
@@ -1407,8 +1567,9 @@ namespace ql
                 if (instance.status == NetInstanceStatus::kOpen)
                 {
                     state->form_error =
-                        "That session is still open. Resume it (F3 on the net list), close it "
-                        "with F4, then delete it.";
+                        std::string("That session is still open. Resume it (F3 on the ") +
+                        (state->history_ad_hoc ? "Ad Hoc Net page" : "net list") +
+                        "), close it with F4, then delete it.";
                     return;
                 }
                 std::size_t check_ins = state->db->GetCheckInsForNetInstance(instance.id).size();
@@ -1433,6 +1594,7 @@ namespace ql
             case RowPickAction::kEditNet:
             case RowPickAction::kEditCheckIn:
             case RowPickAction::kEditSavedStation:
+            case RowPickAction::kResumeAdHocSession:
                 return;
         }
         state->row_delete_lines.emplace_back("This can't be undone.");
@@ -1501,6 +1663,20 @@ namespace ql
             case RowPickAction::kEditCheckIn:
                 OpenEditCheckInForm(state, state->active_check_ins[index]);
                 return;
+            case RowPickAction::kResumeAdHocSession:
+            {
+                const NetInstance& session = state->open_ad_hoc_sessions[index];
+                std::optional<Net> net = state->db->GetNetById(session.net_id);
+                if (!net.has_value())
+                {
+                    RefreshOpenAdHocSessions(state);
+                    state->form_error = "That net has been deleted in the meantime.";
+                    return;
+                }
+                state->start_net = *net;
+                OfferToResume(state, session);
+                return;
+            }
             case RowPickAction::kEditSavedStation:
                 LoadSavedStationIntoForm(state, state->edit_net_saved_stations[index]);
                 if (state->saved_station_callsign_input)
@@ -1874,6 +2050,8 @@ namespace ql
 
         RefreshNets(state);
         state->form_error.clear();
+        state->status_message = "Saved " + net.name + ".";
+        state->page = kPageNetList;
         return true;
     }
 

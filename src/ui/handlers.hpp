@@ -410,9 +410,8 @@ namespace ql
         AppState* state_;
     };
 
-    // F2 on the edit-net page: saves the net's fields. Stays on the page
-    // (rather than returning to the net list) so saved stations can still be
-    // managed.
+    // F2 on the edit-net page: saves the net's fields and returns to the net
+    // list (see SaveEditNetForm).
     class SaveEditNetHandler
     {
     public:
@@ -544,7 +543,7 @@ namespace ql
         AppState* state_;
     };
 
-    // Global key handling for the edit-net page: F2 Save Net, F3 Save Station,
+    // Global key handling for the edit-net page: F2 Save & Close, F3 Save Station,
     // F4 Remove Station (unsave from this net), F5 Delete Station (purge
     // entirely), F6 Add Station, F7 Export Stations, F8 Delete Net (this
     // whole net and its history, via a confirmation modal), Escape Back.
