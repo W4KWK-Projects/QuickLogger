@@ -1045,52 +1045,79 @@ CREATE TABLE IF NOT EXISTS users (
         sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
     }
 
-    std::vector<Station> Database::SearchUlsStationsByCallsignAndZip3Prefixes(
-        const std::string& substring, const std::vector<std::string>& zip3_prefixes)
+    std::vector<NearbyUlsStation> Database::SearchNearbyUlsStations(
+        const std::string& substring, const std::vector<NearbyZip>& nearby_zips,
+        const std::vector<std::string>& zip3_prefixes, int limit)
     {
-        std::vector<Station> results;
-        if (zip3_prefixes.empty())
+        std::vector<NearbyUlsStation> results;
+        if (nearby_zips.empty())
         {
             return results;
         }
 
-        // Each ZIP3 prefix as a range, zip >= "374" AND zip < "375", rather
-        // than zip LIKE "374%": SQLite can answer a range from the zip index,
-        // but not a LIKE (it's case-insensitive by default, so the index
-        // doesn't apply). With a range per prefix it reads only the nearby
-        // stations -- ~10 ms -- instead of walking the whole 800k-row table in
-        // callsign order, ~25 ms for most keystrokes.
-        std::string sql =
-            "SELECT callsign, name, street_address, city, state, zip, license_class, "
-            "last_updated FROM uls_stations WHERE callsign LIKE '%' || ? || '%' AND (";
-        for (std::size_t i = 0; i < zip3_prefixes.size(); ++i)
+        // The nearby ZIPs and their distances go in as a VALUES list, and
+        // the join is driven from it -- one zip-index lookup per nearby ZIP
+        // -- so SQLite reads only nearby stations and sorts just the
+        // matches, ~10 ms. (Joining the other way round scans the VALUES
+        // list once per station, 20 times slower.) The second half finds
+        // stations whose ZIP has no centroid, by ZIP3 range, rather than
+        // zip LIKE "374%", which can't use the index.
+        std::string sql = "WITH nearby(zip, miles) AS (VALUES ";
+        for (std::size_t i = 0; i < nearby_zips.size(); ++i)
         {
-            if (i > 0)
-            {
-                sql += " OR ";
-            }
-            sql += "(zip >= ? AND zip < ?)";
+            sql += i > 0 ? ",(?,?)" : "(?,?)";
         }
-        sql += ") ORDER BY callsign LIMIT 50;";
+        sql +=
+            ") SELECT callsign, name, street_address, city, state, zip, license_class, "
+            "last_updated, COALESCE(miles, -1.0) FROM ("
+            "SELECT u.*, n.miles AS miles FROM nearby n JOIN uls_stations u ON u.zip = n.zip "
+            "WHERE u.callsign LIKE '%' || ? || '%'";
+        if (!zip3_prefixes.empty())
+        {
+            sql +=
+                " UNION ALL SELECT u.*, NULL AS miles FROM uls_stations u "
+                "WHERE u.callsign LIKE '%' || ? || '%' AND (";
+            for (std::size_t i = 0; i < zip3_prefixes.size(); ++i)
+            {
+                sql += i > 0 ? " OR (u.zip >= ? AND u.zip < ?)" : "(u.zip >= ? AND u.zip < ?)";
+            }
+            sql +=
+                ") AND NOT EXISTS (SELECT 1 FROM zip_centroids c WHERE c.zip = u.zip)"
+                " AND u.zip NOT IN (SELECT zip FROM nearby)";
+        }
+        sql += ") ORDER BY miles IS NULL, miles, callsign LIMIT ?;";
 
         Statement statement(db_, sql);
-        statement.BindText(0, ToUpperAscii(substring));
-        for (std::size_t i = 0; i < zip3_prefixes.size(); ++i)
+        int index = 0;
+        for (const NearbyZip& nearby : nearby_zips)
         {
-            const std::string& prefix = zip3_prefixes[i];
-            // The first string after every one starting with `prefix`: bump
-            // its last character ("374" -> "375", "379" -> "37:").
-            std::string after_prefix = prefix;
-            if (!after_prefix.empty())
-            {
-                after_prefix.back() = static_cast<char>(after_prefix.back() + 1);
-            }
-            statement.BindText(static_cast<int>(2 * i) + 1, prefix);
-            statement.BindText(static_cast<int>(2 * i) + 2, after_prefix);
+            statement.BindText(index++, nearby.zip);
+            statement.BindDouble(index++, nearby.miles);
         }
+        std::string upper = ToUpperAscii(substring);
+        statement.BindText(index++, upper);
+        if (!zip3_prefixes.empty())
+        {
+            statement.BindText(index++, upper);
+            for (const std::string& prefix : zip3_prefixes)
+            {
+                // The first string after every one starting with `prefix`:
+                // bump its last character ("374" -> "375", "379" -> "37:").
+                std::string after_prefix = prefix;
+                if (!after_prefix.empty())
+                {
+                    after_prefix.back() = static_cast<char>(after_prefix.back() + 1);
+                }
+                statement.BindText(index++, prefix);
+                statement.BindText(index++, after_prefix);
+            }
+        }
+        statement.BindInt64(index, limit);
+
         while (statement.Step())
         {
-            Station station;
+            NearbyUlsStation found;
+            Station& station = found.station;
             station.callsign = statement.ColumnText(0);
             station.name = statement.ColumnText(1);
             station.street_address = statement.ColumnText(2);
@@ -1100,7 +1127,8 @@ CREATE TABLE IF NOT EXISTS users (
             station.license_class = statement.ColumnText(6);
             station.last_updated = statement.ColumnInt64(7);
             station.data_source = StationDataSource::kUls;
-            results.push_back(std::move(station));
+            found.miles = statement.ColumnDouble(8);
+            results.push_back(std::move(found));
         }
         return results;
     }

@@ -1,10 +1,17 @@
 #include "geo_utils.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <set>
+#include <utility>
 
 namespace ql
 {
+
+    static bool NearerZip(const NearbyZip& a, const NearbyZip& b)
+    {
+        return a.miles < b.miles || (a.miles == b.miles && a.zip < b.zip);
+    }
 
     static constexpr double kEarthRadiusMiles = 3958.8;
 
@@ -25,6 +32,25 @@ namespace ql
         double a = sin_lat * sin_lat + std::cos(lat1_rad) * std::cos(lat2_rad) * sin_lon * sin_lon;
         double c = 2.0 * std::atan2(std::sqrt(a), std::sqrt(1.0 - a));
         return kEarthRadiusMiles * c;
+    }
+
+    std::vector<NearbyZip> NearbyZips(double origin_lat, double origin_lon,
+                                      const std::vector<ZipCentroid>& centroids)
+    {
+        std::vector<NearbyZip> nearby;
+        for (const ZipCentroid& centroid : centroids)
+        {
+            double miles = DistanceMiles(origin_lat, origin_lon, centroid.lat, centroid.lon);
+            if (miles <= kNearbyRadiusMiles)
+            {
+                NearbyZip zip;
+                zip.zip = centroid.zip;
+                zip.miles = miles;
+                nearby.push_back(std::move(zip));
+            }
+        }
+        std::sort(nearby.begin(), nearby.end(), NearerZip);
+        return nearby;
     }
 
     std::vector<std::string> NearbyZip3Prefixes(double origin_lat, double origin_lon,

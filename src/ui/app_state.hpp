@@ -181,7 +181,7 @@ namespace ql
 
         // In-memory cache of the whole zip_centroids table (see
         // EnsureZipCentroidsCached in app_state.cpp), so proximity lookups
-        // for the saved-station form's ULS tier (RefreshNearbyZip3Prefixes,
+        // for the saved-station form's ULS tier (RefreshNearbyZips,
         // RefreshSavedStationSuggestions) don't re-query the database on
         // every edit-net-page-open or keystroke -- ZIP centroids are
         // effectively static once loaded, so a one-time load per process
@@ -336,16 +336,18 @@ namespace ql
         ftxui::Component new_net_name_input;
         ftxui::Component ad_hoc_net_name_input;
         ftxui::Component edit_net_name_input;
-        // The ZIP3 prefixes within geo_utils::kNearbyRadiusMiles of
-        // AppState::settings.location, for the ULS tier of both autocompletes
+        // The ZIP codes within geo_utils::kNearbyRadiusMiles of
+        // AppState::settings.location (with their distances, nearest first)
+        // and their ZIP3 prefixes, for the ULS tier of both autocompletes
         // (the New Station modal and the saved-station form). Recomputed by
-        // RefreshNearbyZip3Prefixes only when that location changes -- see
-        // nearby_zip3_origin -- not on every keystroke. Empty if the operator
+        // RefreshNearbyZips only when that location changes -- see
+        // nearby_zips_origin -- not on every keystroke. Empty if the operator
         // hasn't set a ZIP or it's not a recognized one, in which case the ULS
         // tier just stays empty rather than erroring.
+        std::vector<NearbyZip> nearby_zips;
         std::vector<std::string> nearby_zip3_prefixes;
-        // The AppSettings::location nearby_zip3_prefixes was computed for.
-        std::string nearby_zip3_origin;
+        // The AppSettings::location the two above were computed for.
+        std::string nearby_zips_origin;
         // Autocomplete candidates for the saved-station mini-form (see
         // RefreshSavedStationSuggestions), refreshed live as the operator
         // types the callsign: tier 1 (already known to this net, real
@@ -752,11 +754,11 @@ namespace ql
     // and refreshes the page.
     void DeleteSelectedHistoryCheckIn(AppState* state);
 
-    // Recomputes AppState::nearby_zip3_prefixes from
+    // Recomputes AppState::nearby_zips/nearby_zip3_prefixes from
     // AppState::settings.location. Called by both autocompletes before their
     // ULS tier; it only does the work when the location has changed since
     // last time (or the ZIP data has only just loaded).
-    void RefreshNearbyZip3Prefixes(AppState* state);
+    void RefreshNearbyZips(AppState* state);
 
     // Reloads AppState::saved_station_suggestions/_labels from
     // AppState::saved_station.callsign, same three-tier priority as

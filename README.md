@@ -174,7 +174,9 @@ listed in this order:
    to it), marked *(this net)*.
 2. Stations known to **other nets**, marked *(other net)*.
 3. **Licensed stations near you** from the FCC data (within about 70 miles
-   of the home ZIP in Settings), marked *(ULS, ~N mi)*.
+   of the home ZIP in Settings), nearest first, marked *(ULS, ~N mi)*.
+   Stations whose ZIP has no location on file (usually a PO Box ZIP) come
+   after those, marked *(ULS, nearby)*.
 
 Up to 8 matches show at once; the FCC ones fill whatever room the first two
 groups leave. The match marked **>** is the one Enter picks. Press

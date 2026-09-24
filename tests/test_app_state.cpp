@@ -575,6 +575,26 @@ namespace ql
         CHECK(f.state.modal_callsign_suggestions.empty());
     }
 
+    QL_TEST(LicenseSuggestionsAreNearestFirst)
+    {
+        Fixture f;
+        LoadZipData(f.db());
+        // Alphabetical order is the reverse of distance order.
+        f.db()->BulkUpsertUlsStations(
+            {MakeStation("K4AAA", "TRENTON", "30752"), MakeStation("K4BBB", "DOWNTOWN", "37402"),
+             MakeStation("K4CCC", "HOME", "37415")},
+            0, 3, 1);
+        f.StartNet("Skywarn");
+        f.state.modal_station.callsign = "K4";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 3);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("K4CCC"));
+        CHECK_EQ(f.state.modal_callsign_suggestions[1].callsign, std::string("K4BBB"));
+        CHECK_EQ(f.state.modal_callsign_suggestions[2].callsign, std::string("K4AAA"));
+        CHECK(f.state.modal_callsign_suggestion_labels[0].find("(ULS, ~0 mi)") !=
+              std::string::npos);
+    }
+
     QL_TEST(AutocompleteShowsAtMostEight)
     {
         Fixture f;

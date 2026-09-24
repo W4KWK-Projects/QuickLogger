@@ -196,6 +196,21 @@ namespace ql
         CHECK(std::find(prefixes.begin(), prefixes.end(), "902") == prefixes.end());
     }
 
+    QL_TEST(NearbyZipsAreWithinRangeAndNearestFirst)
+    {
+        std::vector<ZipCentroid> centroids = {{"30752", 34.87, -85.51},
+                                              {"37415", 35.10, -85.28},
+                                              {"90210", 34.09, -118.40},
+                                              {"37402", 35.05, -85.31}};
+        std::vector<NearbyZip> nearby = NearbyZips(35.10, -85.28, centroids);
+        REQUIRE(nearby.size() == 3);
+        CHECK_EQ(nearby[0].zip, std::string("37415"));
+        CHECK(nearby[0].miles < 0.01);
+        CHECK_EQ(nearby[1].zip, std::string("37402"));
+        CHECK_EQ(nearby[2].zip, std::string("30752"));
+        CHECK(nearby[1].miles < nearby[2].miles);
+    }
+
     // ---- settings --------------------------------------------------------------
 
     QL_TEST(SettingsRoundTripThroughTheFile)

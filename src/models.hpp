@@ -157,6 +157,23 @@ namespace ql
         double lon = 0.0;
     };
 
+    // A ZIP code near the operator, and how far its centroid is from theirs
+    // -- see NearbyZips in geo_utils.hpp.
+    struct NearbyZip
+    {
+        std::string zip;
+        double miles = 0.0;
+    };
+
+    // A ULS station found by Database::SearchNearbyUlsStations, with its
+    // distance from the operator in miles (-1 if its ZIP has no centroid on
+    // file, so its distance isn't known).
+    struct NearbyUlsStation
+    {
+        Station station;
+        double miles = -1.0;
+    };
+
     // The county a US ZIP code is in, for filling in Station::county (FCC's
     // ULS data has none). For a ZIP that crosses a county line, this is the
     // county where most of its residents live -- see FetchAndLoadZipCounties

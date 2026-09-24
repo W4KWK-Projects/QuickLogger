@@ -1717,7 +1717,7 @@ namespace ql
         state->saved_station_suggestion_labels.clear();
 
         RefreshEditNetSavedStations(state);
-        RefreshNearbyZip3Prefixes(state);
+        RefreshNearbyZips(state);
     }
 
     bool SaveEditNetForm(AppState* state)
@@ -1900,15 +1900,15 @@ namespace ql
         }
     }
 
-    void RefreshNearbyZip3Prefixes(AppState* state)
+    void RefreshNearbyZips(AppState* state)
     {
-        if (state->nearby_zip3_origin == state->settings.location &&
-            !state->nearby_zip3_prefixes.empty())
+        if (state->nearby_zips_origin == state->settings.location && !state->nearby_zips.empty())
         {
             return;
         }
+        state->nearby_zips.clear();
         state->nearby_zip3_prefixes.clear();
-        state->nearby_zip3_origin = state->settings.location;
+        state->nearby_zips_origin = state->settings.location;
 
         EnsureZipCentroidsCached(state);
         std::unordered_map<std::string, ZipCentroid>::const_iterator origin_it =
@@ -1918,18 +1918,19 @@ namespace ql
             return;
         }
 
+        state->nearby_zips =
+            NearbyZips(origin_it->second.lat, origin_it->second.lon, state->zip_centroids_cache);
         state->nearby_zip3_prefixes = NearbyZip3Prefixes(
             origin_it->second.lat, origin_it->second.lon, state->zip_centroids_cache);
     }
 
     // Autocomplete's last tier, shared by the New Station modal and the
     // saved-station form: ULS-imported stations matching `typed` whose ZIP is
-    // within geo_utils::kNearbyRadiusMiles of the operator's own ZIP --
-    // coarsely by ZIP3 prefix in SQL, then exactly by ZIP centroid distance
-    // here. Appended after whatever `suggestions` already holds (the
-    // this-net and other-nets tiers), skipping callsigns already there, until
-    // `max_suggestions` is reached. Nothing is added if the operator has no
-    // recognized home ZIP.
+    // within geo_utils::kNearbyRadiusMiles of the operator's own ZIP, nearest
+    // first (see Database::SearchNearbyUlsStations). Appended after whatever
+    // `suggestions` already holds (the this-net and other-nets tiers),
+    // skipping callsigns already there, until `max_suggestions` is reached.
+    // Nothing is added if the operator has no recognized home ZIP.
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed,
                                            std::size_t max_suggestions,
                                            std::vector<Station>* suggestions,
@@ -1939,29 +1940,28 @@ namespace ql
         {
             return;
         }
-        RefreshNearbyZip3Prefixes(state);
-        if (state->nearby_zip3_prefixes.empty())
+        RefreshNearbyZips(state);
+        if (state->nearby_zips.empty())
         {
             return;
         }
 
-        std::vector<Station> uls_candidates = state->db->SearchUlsStationsByCallsignAndZip3Prefixes(
-            typed, state->nearby_zip3_prefixes);
-        std::unordered_map<std::string, ZipCentroid>::const_iterator origin_it =
-            state->zip_centroids_by_zip.find(state->settings.location);
-        bool has_origin = origin_it != state->zip_centroids_by_zip.end();
+        // Enough extra to still fill the list after dropping callsigns the
+        // earlier tiers already show.
+        int limit = static_cast<int>(max_suggestions + suggestions->size());
+        std::vector<NearbyUlsStation> candidates = state->db->SearchNearbyUlsStations(
+            typed, state->nearby_zips, state->nearby_zip3_prefixes, limit);
 
-        for (const Station& candidate : uls_candidates)
+        for (const NearbyUlsStation& candidate : candidates)
         {
             if (suggestions->size() >= max_suggestions)
             {
                 break;
             }
-
             bool already_known = false;
             for (const Station& existing : *suggestions)
             {
-                if (existing.callsign == candidate.callsign)
+                if (existing.callsign == candidate.station.callsign)
                 {
                     already_known = true;
                     break;
@@ -1971,28 +1971,8 @@ namespace ql
             {
                 continue;
             }
-
-            double distance_miles = -1.0;
-            if (has_origin)
-            {
-                std::unordered_map<std::string, ZipCentroid>::const_iterator candidate_it =
-                    state->zip_centroids_by_zip.find(candidate.zip);
-                if (candidate_it != state->zip_centroids_by_zip.end())
-                {
-                    distance_miles =
-                        DistanceMiles(origin_it->second.lat, origin_it->second.lon,
-                                      candidate_it->second.lat, candidate_it->second.lon);
-                    if (distance_miles > kNearbyRadiusMiles)
-                    {
-                        // The ZIP3 prefix matched but this specific ZIP's
-                        // exact centroid is outside the real radius.
-                        continue;
-                    }
-                }
-            }
-
-            suggestions->push_back(candidate);
-            labels->push_back(FormatUlsSuggestion(candidate, distance_miles));
+            suggestions->push_back(candidate.station);
+            labels->push_back(FormatUlsSuggestion(candidate.station, candidate.miles));
         }
     }
 

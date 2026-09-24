@@ -205,16 +205,16 @@ namespace ql
         // since the last one stops turning up in autocomplete. Returns how
         // many were deleted.
         int DeleteUlsStationsNotIn(const std::vector<Station>& current);
-        // Matches any callsign containing `substring` (case-insensitive)
-        // among ULS-imported stations whose zip code starts with one of
-        // `zip3_prefixes` -- a coarse, index-friendly proximity pre-filter
-        // (exact-mileage filtering happens in the caller, using
-        // GetAllZipCentroids -- see AppState::zip_centroids_cache, which
-        // loads it once per process run rather than re-querying). Capped to
-        // a handful of results. This is the saved-station form's
-        // proximity-based autocomplete tier -- see uls_import.hpp's geo helpers.
-        std::vector<Station> SearchUlsStationsByCallsignAndZip3Prefixes(
-            const std::string& substring, const std::vector<std::string>& zip3_prefixes);
+        // Autocomplete's FCC tier: ULS stations whose callsign contains
+        // `substring` (case-insensitive) and who live near the operator,
+        // nearest first (then by callsign), at most `limit` of them. "Near"
+        // is a ZIP in `nearby_zips` (see NearbyZips in geo_utils.hpp, which
+        // also supplies each one's distance), or -- listed after those, with
+        // an unknown distance -- a ZIP with no centroid on file (e.g. a PO
+        // Box ZIP) that starts with one of `zip3_prefixes`.
+        std::vector<NearbyUlsStation> SearchNearbyUlsStations(
+            const std::string& substring, const std::vector<NearbyZip>& nearby_zips,
+            const std::vector<std::string>& zip3_prefixes, int limit);
         // Exact-callsign lookup against the ULS table, for resolving a
         // specific operator's info (see LogOperatorCheckIn) rather than
         // searching/ranking candidates.

@@ -465,23 +465,48 @@ namespace ql
         CHECK(db.HasAnyUlsStations());
     }
 
-    QL_TEST(UlsSearchIsLimitedToTheGivenZipPrefixes)
+    static NearbyZip Near(const std::string& zip, double miles)
+    {
+        NearbyZip nearby;
+        nearby.zip = zip;
+        nearby.miles = miles;
+        return nearby;
+    }
+
+    QL_TEST(NearbyUlsSearchListsTheNearestFirst)
     {
         TempDir dir;
         Database db(dir.File("q.db"));
         std::vector<Station> stations = {
-            MakeStation("K1AAA", "", "37415"), MakeStation("K1BBB", "", "37499"),
-            MakeStation("K1CCC", "", "37500"), MakeStation("K1DDD", "", "37900"),
-            MakeStation("K1EEE", "", "37999"), MakeStation("W9ZZZ", "", "37415")};
+            MakeStation("K1AAA", "", "37402"),   // 12 mi
+            MakeStation("K1BBB", "", "37415"),   // 0 mi
+            MakeStation("K1CCC", "", "37415"),   // 0 mi
+            MakeStation("K1DDD", "", "37450"),   // Same prefix, beyond the radius.
+            MakeStation("K1EEE", "", "37499"),   // No centroid on file (PO Box ZIP).
+            MakeStation("K1FFF", "", "90210"),   // Far away.
+            MakeStation("W9ZZZ", "", "37415")};  // Doesn't match.
         db.BulkUpsertUlsStations(stations, 0, stations.size(), 1);
-        std::vector<Station> found = db.SearchUlsStationsByCallsignAndZip3Prefixes("k1", {"374"});
-        REQUIRE(found.size() == 2);
-        CHECK_EQ(found[0].callsign, std::string("K1AAA"));
-        CHECK_EQ(found[1].callsign, std::string("K1BBB"));
+        std::vector<ZipCentroid> centroids = {
+            {"37402", 35.05, -85.31}, {"37415", 35.10, -85.28}, {"37450", 36.5, -84.0}};
+        db.BulkUpsertZipCentroids(centroids);
+
+        std::vector<NearbyZip> nearby = {Near("37415", 0.0), Near("37402", 12.4)};
+        std::vector<NearbyUlsStation> found = db.SearchNearbyUlsStations("k1", nearby, {"374"}, 8);
+        REQUIRE(found.size() == 4);
+        CHECK_EQ(found[0].station.callsign, std::string("K1BBB"));
+        CHECK_EQ(found[1].station.callsign, std::string("K1CCC"));
+        CHECK_EQ(found[2].station.callsign, std::string("K1AAA"));
+        CHECK(found[2].miles > 12.3 && found[2].miles < 12.5);
+        CHECK_EQ(found[3].station.callsign, std::string("K1EEE"));
+        CHECK_EQ(found[3].miles, -1.0);
+
+        CHECK_EQ(db.SearchNearbyUlsStations("K1", nearby, {"374"}, 2).size(), std::size_t{2});
         // A prefix ending in 9 (whose "next" prefix isn't a digit).
-        CHECK_EQ(db.SearchUlsStationsByCallsignAndZip3Prefixes("K1", {"379"}).size(),
-                 std::size_t{2});
-        CHECK(db.SearchUlsStationsByCallsignAndZip3Prefixes("K1", {}).empty());
+        std::vector<NearbyZip> nine = {Near("37900", 5.0)};
+        db.BulkUpsertUlsStations(
+            {MakeStation("K1GGG", "", "37900"), MakeStation("K1HHH", "", "37999")}, 0, 2, 1);
+        CHECK_EQ(db.SearchNearbyUlsStations("K1", nine, {"379"}, 8).size(), std::size_t{2});
+        CHECK(db.SearchNearbyUlsStations("K1", {}, {"374"}, 8).empty());
     }
 
     QL_TEST(ZipCountyDataIsReplacedWholesale)
