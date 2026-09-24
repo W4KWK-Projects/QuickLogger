@@ -35,6 +35,20 @@ namespace ql
     // that died; another updater may take it over.
     constexpr std::int64_t kJobStaleAfterSeconds = 120;
 
+    // Where each dataset is downloaded from. DefaultDataSources() is the real
+    // FCC and Census addresses; tests substitute file:// URLs to local
+    // fixtures, which libcurl reads the same way.
+    struct DataSources
+    {
+        std::string uls_zip_url;
+        std::string zip_gazetteer_url;
+        std::string zip_gazetteer_file_name;  // The file inside that zip.
+        std::string zcta_county_url;
+        std::string zcta_county_population_url;
+        std::string zcta_county_subdivision_url;
+    };
+    DataSources DefaultDataSources();
+
     // Which datasets are due for (re)loading right now.
     struct DataRefreshPlan
     {
@@ -61,7 +75,8 @@ namespace ql
     // `db_path`. Returns "complete", "failed" or "interrupted", for the job
     // row.
     std::string RunDataRefresh(Database* db, const std::string& db_path,
-                               const DataRefreshPlan& plan, bool (*should_stop)());
+                               const DataRefreshPlan& plan, bool (*should_stop)(),
+                               const DataSources& sources);
 
     // One or two sentences for the Settings page describing the station
     // data: whether it's loaded and how current, any failure, and a refresh

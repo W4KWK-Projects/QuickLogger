@@ -60,6 +60,13 @@ namespace ql
         std::string default_grid_square;  // Resolved from default_location.
         std::string recurrence_description;
         std::string notes;
+        // Unix timestamps: when this net was created here, and -- for a net
+        // brought in from a .qlnet file -- when it was imported. Shown in the
+        // net list so two nets with the same name (e.g. your own and one
+        // someone sent you) can be told apart. 0 = not known (a net created
+        // before these were recorded; shown blank, never guessed at).
+        std::int64_t created_at = 0;
+        std::int64_t imported_at = 0;
     };
 
     enum class NetInstanceStatus

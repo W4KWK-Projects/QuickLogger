@@ -36,7 +36,9 @@ CREATE TABLE IF NOT EXISTS nets (
     default_location TEXT NOT NULL DEFAULT '',
     default_grid_square TEXT NOT NULL DEFAULT '',
     recurrence_description TEXT NOT NULL DEFAULT '',
-    notes TEXT NOT NULL DEFAULT ''
+    notes TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL DEFAULT 0,
+    imported_at INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS net_instances (
@@ -124,13 +126,9 @@ CREATE TABLE IF NOT EXISTS users (
 );
 )sql";
 
-    // Adds `column` to `table` if it isn't already there, for evolving the
-    // schema of a database created by an older version of QuickLogger without
-    // forcing the user to delete it. kSchemaSql's CREATE TABLE only covers
-    // brand-new databases.
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 1;
+    static constexpr int kSchemaVersion = 2;
 
     static int ReadUserVersion(sqlite3* db)
     {
@@ -138,6 +136,10 @@ CREATE TABLE IF NOT EXISTS users (
         return statement.Step() ? static_cast<int>(statement.ColumnInt64(0)) : 0;
     }
 
+    // Adds `column` to `table` if it isn't already there, for evolving the
+    // schema of a database created by an older version of QuickLogger without
+    // forcing the user to delete it. kSchemaSql's CREATE TABLE only covers
+    // brand-new databases.
     static void EnsureColumnExists(sqlite3* db, const char* table, const char* column,
                                    const char* column_declaration)
     {
@@ -195,6 +197,8 @@ CREATE TABLE IF NOT EXISTS users (
         net.default_grid_square = row.ColumnText(5);
         net.recurrence_description = row.ColumnText(6);
         net.notes = row.ColumnText(7);
+        net.created_at = row.ColumnInt64(8);
+        net.imported_at = row.ColumnInt64(9);
         return net;
     }
 
@@ -308,6 +312,8 @@ CREATE TABLE IF NOT EXISTS users (
         EnsureColumnExists(db_, "import_runs", "percent", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(db_, "import_runs", "heartbeat_at", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(db_, "import_runs", "requested_at", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(db_, "nets", "created_at", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(db_, "nets", "imported_at", "INTEGER NOT NULL DEFAULT 0");
 
         // One-time migration for databases created before ULS import moved
         // to its own table (uls_stations): any leftover data_source=2 (kUls)
@@ -591,8 +597,8 @@ CREATE TABLE IF NOT EXISTS users (
         Statement statement(db_, R"sql(
         INSERT INTO nets
             (name, mode, default_frequency, default_location,
-             default_grid_square, recurrence_description, notes)
-        VALUES (?,?,?,?,?,?,?);
+             default_grid_square, recurrence_description, notes, created_at, imported_at)
+        VALUES (?,?,?,?,?,?,?,?,?);
     )sql");
         statement.BindText(0, net.name);
         statement.BindText(1, net.mode);
@@ -601,6 +607,8 @@ CREATE TABLE IF NOT EXISTS users (
         statement.BindText(4, net.default_grid_square);
         statement.BindText(5, net.recurrence_description);
         statement.BindText(6, net.notes);
+        statement.BindInt64(7, net.created_at);
+        statement.BindInt64(8, net.imported_at);
         statement.Step();
         return sqlite3_last_insert_rowid(db_);
     }
@@ -626,8 +634,8 @@ CREATE TABLE IF NOT EXISTS users (
     {
         Statement statement(db_, R"sql(
         SELECT id, name, mode, default_frequency, default_location,
-               default_grid_square, recurrence_description, notes
-        FROM nets ORDER BY name;
+               default_grid_square, recurrence_description, notes, created_at, imported_at
+        FROM nets ORDER BY name COLLATE NOCASE, id;
     )sql");
         std::vector<Net> nets;
         while (statement.Step())
@@ -641,7 +649,7 @@ CREATE TABLE IF NOT EXISTS users (
     {
         Statement statement(db_, R"sql(
         SELECT id, name, mode, default_frequency, default_location,
-               default_grid_square, recurrence_description, notes
+               default_grid_square, recurrence_description, notes, created_at, imported_at
         FROM nets WHERE id = ?;
     )sql");
         statement.BindInt64(0, net_id);
@@ -736,6 +744,19 @@ CREATE TABLE IF NOT EXISTS users (
             return std::nullopt;
         }
         return ReadNetInstanceRow(statement);
+    }
+
+    std::vector<std::int64_t> Database::GetNetIdsWithOpenInstances()
+    {
+        Statement statement(
+            db_, "SELECT DISTINCT net_id FROM net_instances WHERE status = ? ORDER BY net_id;");
+        statement.BindInt64(0, static_cast<std::int64_t>(NetInstanceStatus::kOpen));
+        std::vector<std::int64_t> net_ids;
+        while (statement.Step())
+        {
+            net_ids.push_back(statement.ColumnInt64(0));
+        }
+        return net_ids;
     }
 
     void Database::CloseNetInstance(std::int64_t instance_id, std::int64_t closed_at)
@@ -1150,6 +1171,34 @@ CREATE TABLE IF NOT EXISTS users (
         return results;
     }
 
+    int Database::DeleteUlsStationsNotIn(const std::vector<Station>& current)
+    {
+        sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+        sqlite3_exec(db_,
+                     "CREATE TEMP TABLE IF NOT EXISTS current_uls_callsigns "
+                     "(callsign TEXT PRIMARY KEY);"
+                     "DELETE FROM current_uls_callsigns;",
+                     nullptr, nullptr, nullptr);
+        {
+            Statement insert(db_,
+                             "INSERT OR IGNORE INTO current_uls_callsigns (callsign) VALUES (?);");
+            for (const Station& station : current)
+            {
+                insert.Reset();
+                insert.BindText(0, ToUpperAscii(station.callsign));
+                insert.Step();
+            }
+        }
+        sqlite3_exec(db_,
+                     "DELETE FROM uls_stations WHERE callsign NOT IN "
+                     "(SELECT callsign FROM current_uls_callsigns);",
+                     nullptr, nullptr, nullptr);
+        int deleted = sqlite3_changes(db_);
+        sqlite3_exec(db_, "DROP TABLE current_uls_callsigns;", nullptr, nullptr, nullptr);
+        sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
+        return deleted;
+    }
+
     void Database::ReplaceZipCountyData(const std::vector<ZipCounty>& zip_counties,
                                         const std::vector<ZipPlaceCounty>& zip_place_counties)
     {
@@ -1252,7 +1301,7 @@ CREATE TABLE IF NOT EXISTS users (
     {
         Statement statement(db_, R"sql(
         SELECT username, public_key, created_at, last_login_at
-        FROM users ORDER BY username;
+        FROM users ORDER BY username COLLATE NOCASE;
     )sql");
         std::vector<User> users;
         while (statement.Step())

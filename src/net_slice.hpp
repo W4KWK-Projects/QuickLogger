@@ -78,7 +78,10 @@ namespace ql
     // from the slice (a fresh Net row, fresh net_instances rows, etc.), so
     // this is safe to call against a database that already has its own
     // unrelated nets/instances with potentially colliding ids from a
-    // different source file. Returns the new net's id.
-    std::int64_t ApplyNetSlice(Database* db, const NetSlice& slice);
+    // different source file. The net keeps the slice's created_at and gets
+    // `imported_at` as its import time: an actual import passes now, while
+    // writing a .qlnet file passes the net's own imported_at through
+    // unchanged. Returns the new net's id.
+    std::int64_t ApplyNetSlice(Database* db, const NetSlice& slice, std::int64_t imported_at);
 
 }  // namespace ql

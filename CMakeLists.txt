@@ -44,8 +44,9 @@ find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 
+# Everything but main() goes into a library, so the test suite (tests/) can
+# link exactly the code the app runs.
 set(quicklogger_sources
-    src/main.cpp
     src/interactive_session.cpp
     src/date_utils.cpp
     src/settings.cpp
@@ -53,6 +54,7 @@ set(quicklogger_sources
     src/geo_utils.cpp
     src/file_export.cpp
     src/net_slice.cpp
+    src/public_key.cpp
     src/zmodem_send.cpp
     src/zip_extract.cpp
     src/uls_import.cpp
@@ -93,10 +95,12 @@ if(QUICKLOGGER_ENABLE_SSH)
     list(APPEND quicklogger_sources src/ssh_server.cpp)
 endif()
 
-add_executable(QuickLogger ${quicklogger_sources})
+add_library(quicklogger_core STATIC ${quicklogger_sources})
+add_executable(QuickLogger src/main.cpp)
+target_link_libraries(QuickLogger PRIVATE quicklogger_core)
 
-target_link_libraries(QuickLogger
-    PRIVATE
+target_link_libraries(quicklogger_core
+    PUBLIC
         ftxui::component
         ftxui::dom
         ftxui::screen
@@ -107,8 +111,8 @@ target_link_libraries(QuickLogger
 )
 
 if(QUICKLOGGER_ENABLE_SSH)
-    target_compile_definitions(QuickLogger PRIVATE QUICKLOGGER_WITH_SSH)
-    target_link_libraries(QuickLogger PRIVATE ${quicklogger_libssh_target})
+    target_compile_definitions(quicklogger_core PUBLIC QUICKLOGGER_WITH_SSH)
+    target_link_libraries(quicklogger_core PUBLIC ${quicklogger_libssh_target})
 
     # openpty()/login_tty() (ssh_server.cpp) live in libutil on Linux and
     # FreeBSD, but are part of libSystem on macOS -- there's no separate
@@ -118,7 +122,7 @@ if(QUICKLOGGER_ENABLE_SSH)
     if(NOT APPLE)
         find_library(quicklogger_util_library util)
         if(quicklogger_util_library)
-            target_link_libraries(QuickLogger PRIVATE ${quicklogger_util_library})
+            target_link_libraries(quicklogger_core PUBLIC ${quicklogger_util_library})
         endif()
     endif()
 endif()
@@ -126,11 +130,32 @@ endif()
 if(WIN32)
     # NOMINMAX / WIN32_LEAN_AND_MEAN keep <windows.h> (pulled in by libcurl
     # and FTXUI) from defining min()/max() macros that break std::min/max.
-    target_compile_definitions(QuickLogger PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
+    target_compile_definitions(quicklogger_core PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN
                                _CRT_SECURE_NO_WARNINGS)
     if(MSVC)
         # The sources are UTF-8 (box-drawing characters, em dashes in
         # string literals); MSVC otherwise assumes the system code page.
-        target_compile_options(QuickLogger PRIVATE /utf-8)
+        target_compile_options(quicklogger_core PUBLIC /utf-8)
     endif()
+endif()
+
+# The test suite: `cmake --build build && ctest --test-dir build`. It never
+# touches a real quicklogger.db -- every test works in its own temporary
+# directory -- and needs no network (the station-data tests download from
+# local file:// fixtures). Off with -DQUICKLOGGER_BUILD_TESTS=OFF.
+option(QUICKLOGGER_BUILD_TESTS "Build the test suite" ON)
+if(QUICKLOGGER_BUILD_TESTS)
+    enable_testing()
+    add_executable(quicklogger_tests
+        tests/test_main.cpp
+        tests/test_helpers.cpp
+        tests/test_utilities.cpp
+        tests/test_zip_extract.cpp
+        tests/test_database.cpp
+        tests/test_station_data.cpp
+        tests/test_net_slice.cpp
+        tests/test_app_state.cpp
+    )
+    target_link_libraries(quicklogger_tests PRIVATE quicklogger_core)
+    add_test(NAME quicklogger_tests COMMAND quicklogger_tests)
 endif()

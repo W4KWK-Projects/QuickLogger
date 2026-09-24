@@ -128,6 +128,10 @@ namespace ql
         std::vector<NetInstance> GetNetInstancesForNet(std::int64_t net_id);
         std::optional<NetInstance> GetNetInstanceById(std::int64_t instance_id);
         void CloseNetInstance(std::int64_t instance_id, std::int64_t closed_at);
+        // The nets that have at least one instance still open -- i.e. a net
+        // someone is logging right now, or one whose session ended without
+        // being closed (see ResumeOpenNet in app_state.hpp).
+        std::vector<std::int64_t> GetNetIdsWithOpenInstances();
         // Sets one of the instance's three role-callsign columns (kRoleNetControl/
         // kRoleAlternateNetControl/kRoleLogger) to `callsign` -- `callsign` is
         // "" to clear it. Used by ApplyCheckInRoleDesignation to keep these
@@ -196,6 +200,11 @@ namespace ql
         // unchanged are left alone.
         void BulkUpsertUlsStations(const std::vector<Station>& stations, std::size_t begin,
                                    std::size_t end, std::int64_t updated_at);
+        // Deletes every ULS row whose callsign isn't in `current` -- run after
+        // a full import, so a license that has expired or been cancelled
+        // since the last one stops turning up in autocomplete. Returns how
+        // many were deleted.
+        int DeleteUlsStationsNotIn(const std::vector<Station>& current);
         // Matches any callsign containing `substring` (case-insensitive)
         // among ULS-imported stations whose zip code starts with one of
         // `zip3_prefixes` -- a coarse, index-friendly proximity pre-filter

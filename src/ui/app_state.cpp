@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <ctime>
+#include <exception>
 #include <utility>
 
 #include <ftxui/component/component_base.hpp>
@@ -13,6 +14,7 @@
 #include "../file_export.hpp"
 #include "../geo_utils.hpp"
 #include "../net_slice.hpp"
+#include "../public_key.hpp"
 #include "../text_utils.hpp"
 #include "../zmodem_send.hpp"
 
@@ -192,20 +194,208 @@ namespace ql
         }
     }
 
+    // Net-list names are padded to the longest (up to this) so the dates
+    // after them line up.
+    static constexpr int kMaxNetNameColumnWidth = 40;
+
+    static std::string FormatNetListRow(const Net& net, int name_width, bool has_open_session)
+    {
+        std::string when;
+        if (net.imported_at > 0)
+        {
+            when = "imported " + FormatLocalDate(net.imported_at);
+        }
+        else if (net.created_at > 0)
+        {
+            when = "created " + FormatLocalDate(net.created_at);
+        }
+        if (has_open_session)
+        {
+            when += when.empty() ? "session open" : ", session open";
+        }
+        if (when.empty())
+        {
+            return net.name;
+        }
+        char buffer[256];
+        std::snprintf(buffer, sizeof(buffer), "%-*.*s  %s", name_width, name_width,
+                      net.name.c_str(), when.c_str());
+        return std::string(buffer);
+    }
+
     void RefreshNets(AppState* state)
     {
         state->nets = state->db->GetAllNets();
+        std::vector<std::int64_t> open_net_ids = state->db->GetNetIdsWithOpenInstances();
+
+        int name_width = 0;
+        for (const Net& net : state->nets)
+        {
+            name_width = std::max(name_width, static_cast<int>(net.name.size()));
+        }
+        name_width = std::min(name_width, kMaxNetNameColumnWidth);
 
         state->net_names.clear();
         for (const Net& net : state->nets)
         {
-            state->net_names.push_back(net.name);
+            bool has_open_session =
+                std::find(open_net_ids.begin(), open_net_ids.end(), net.id) != open_net_ids.end();
+            state->net_names.push_back(FormatNetListRow(net, name_width, has_open_session));
         }
 
         if (state->selected_net_index >= static_cast<int>(state->nets.size()))
         {
             state->selected_net_index = 0;
         }
+    }
+
+    // "2026-09-24 03:42 PM", or just the date if no start time was recorded.
+    static std::string DescribeSessionStart(const NetInstance& instance)
+    {
+        std::string when = instance.instance_date;
+        std::string start_time = FormatLocalTimeOfDay(instance.started_at);
+        if (!start_time.empty())
+        {
+            when += " " + start_time;
+        }
+        return when;
+    }
+
+    static std::string CountCheckIns(std::size_t count)
+    {
+        return std::to_string(count) + (count == 1 ? " check-in" : " check-ins");
+    }
+
+    static void ShowConfirmPrompt(AppState* state, ConfirmPrompt prompt, const std::string& title,
+                                  const std::vector<std::string>& lines)
+    {
+        state->confirm_prompt = prompt;
+        state->confirm_prompt_title = title;
+        state->confirm_prompt_lines = lines;
+        state->show_confirm_prompt = true;
+        state->form_error.clear();
+        state->status_message.clear();
+    }
+
+    void CancelConfirmPrompt(AppState* state)
+    {
+        state->show_confirm_prompt = false;
+        state->confirm_prompt = ConfirmPrompt::kNone;
+    }
+
+    void StartSelectedNet(AppState* state)
+    {
+        if (state->nets.empty())
+        {
+            state->form_error = "Create a recurring net first.";
+            return;
+        }
+        const Net& net = state->nets[state->selected_net_index];
+
+        // Newest first, so this is the most recent session left open.
+        std::vector<NetInstance> sessions = state->db->GetNetInstancesForNet(net.id);
+        for (const NetInstance& session : sessions)
+        {
+            if (session.status != NetInstanceStatus::kOpen)
+            {
+                continue;
+            }
+            state->resume_instance = session;
+            std::size_t check_ins = state->db->GetCheckInsForNetInstance(session.id).size();
+            ShowConfirmPrompt(
+                state, ConfirmPrompt::kResumeNet, "Session Still Open",
+                {net.name + " has a session that's still open: started " +
+                     DescribeSessionStart(session) + ", " + CountCheckIns(check_ins) + ".",
+                 "Resume it to keep logging -- if someone else is logging it right now, you'll "
+                 "both be adding to the same log. Or close it and start a new session."});
+            return;
+        }
+
+        ResetStartNetFlow(state);
+        state->page = kPageSelectRole;
+    }
+
+    void ResumeOpenNet(AppState* state)
+    {
+        CancelConfirmPrompt(state);
+        std::optional<NetInstance> session =
+            state->db->GetNetInstanceById(state->resume_instance.id);
+        if (!session.has_value() || session->status != NetInstanceStatus::kOpen)
+        {
+            RefreshNets(state);
+            state->form_error = "That session has been closed or deleted in the meantime.";
+            return;
+        }
+
+        state->active_instance = *session;
+        state->active_net_name.clear();
+        for (const Net& net : state->nets)
+        {
+            if (net.id == session->net_id)
+            {
+                state->active_net_name = net.name;
+            }
+        }
+        // The header shows who started it, in which role.
+        state->selected_role_index = session->operator_role;
+        if (session->operator_role == kRoleAlternateNetControl)
+        {
+            state->operator_callsign = session->alternate_net_control_callsign;
+        }
+        else if (session->operator_role == kRoleLogger)
+        {
+            state->operator_callsign = session->logger_callsign;
+        }
+        else
+        {
+            state->operator_callsign = session->net_control_callsign;
+        }
+        state->show_new_station_modal = false;
+        state->show_edit_checkin_modal = false;
+        state->selected_check_in_index = 0;
+        ClearModalFields(state);
+        RefreshActiveCheckIns(state);
+        state->status_message = "Resumed the " + DescribeSessionStart(*session) + " session.";
+        state->page = kPageActiveNet;
+    }
+
+    void CloseOpenNetAndStartNew(AppState* state)
+    {
+        CancelConfirmPrompt(state);
+        state->db->CloseNetInstance(state->resume_instance.id,
+                                    static_cast<std::int64_t>(std::time(nullptr)));
+        RefreshNets(state);
+        ResetStartNetFlow(state);
+        state->page = kPageSelectRole;
+    }
+
+    void RequestCloseActiveNet(AppState* state)
+    {
+        std::string name = state->active_net_name.empty() ? "this net" : state->active_net_name;
+        ShowConfirmPrompt(
+            state, ConfirmPrompt::kCloseNet, "Close Net",
+            {"Close " + name + " (" + CountCheckIns(state->active_check_ins.size()) + ")?",
+             "It moves to History (F6 on the net list), where you can still view and export it. "
+             "A closed session can't be reopened for logging."});
+    }
+
+    void CloseActiveNet(AppState* state)
+    {
+        CancelConfirmPrompt(state);
+        state->db->CloseNetInstance(state->active_instance.id,
+                                    static_cast<std::int64_t>(std::time(nullptr)));
+        std::string closed_name = state->active_net_name;
+        std::size_t check_ins = state->active_check_ins.size();
+        state->active_check_ins.clear();
+        state->active_display_rows.clear();
+        state->show_new_station_modal = false;
+        state->show_edit_checkin_modal = false;
+        ClearModalFields(state);
+        ResetStartNetFlow(state);
+        RefreshNets(state);
+        state->status_message =
+            "Closed " + closed_name + " (" + CountCheckIns(check_ins) + "). It's in History (F6).";
+        state->page = kPageNetList;
     }
 
     void ResetCreateNetForm(AppState* state)
@@ -488,6 +678,7 @@ namespace ql
 
     bool LogStationCheckIn(AppState* state)
     {
+        state->modal_station.callsign = NormalizeCallsign(state->modal_station.callsign);
         if (state->modal_station.callsign.empty())
         {
             state->form_error = "Callsign is required.";
@@ -507,7 +698,18 @@ namespace ql
         CheckIn check_in;
         check_in.net_instance_id = state->active_instance.id;
         check_in.callsign = state->modal_station.callsign;
-        check_in.sequence_number = static_cast<int>(state->active_check_ins.size()) + 1;
+        // One past the highest number so far, not the count: after a
+        // check-in is deleted the numbers have a gap, and counting would hand
+        // out a number that's already on the list.
+        // Read fresh rather than from active_check_ins: someone else may be
+        // logging this same session (see ResumeOpenNet).
+        int highest_sequence = 0;
+        for (const CheckIn& existing :
+             state->db->GetCheckInsForNetInstance(state->active_instance.id))
+        {
+            highest_sequence = std::max(highest_sequence, existing.sequence_number);
+        }
+        check_in.sequence_number = highest_sequence + 1;
         check_in.signal_report = state->modal_signal_report;
         check_in.remarks = state->modal_remarks;
         check_in.comment = state->modal_comment;
@@ -552,6 +754,14 @@ namespace ql
 
         int old_role = state->edit_checkin_original.designated_role;
         int new_role = RoleFromRoleChoiceIndex(state, state->edit_checkin_role_choice_index);
+        // The operator's own check-in holds the role they started the net
+        // in, which isn't among the choices the form offers (see
+        // RoleChoiceLabels) -- so the form reads "No additional role" for it,
+        // and saving that would strip the operator's role from the net.
+        if (old_role != kRoleNone && old_role == state->active_instance.operator_role)
+        {
+            new_role = old_role;
+        }
 
         CheckIn check_in = state->edit_checkin_original;
         check_in.signal_report = state->edit_checkin_signal_report;
@@ -617,7 +827,9 @@ namespace ql
         const NetInstance& selected = state->history_instances[state->selected_history_index];
         if (selected.status == NetInstanceStatus::kOpen)
         {
-            state->form_error = "Close this net (from the Active Net page) before deleting it.";
+            state->form_error =
+                "That session is still open. Resume it (F3 on the net list), close it with F4, "
+                "then delete it.";
             return;
         }
 
@@ -1061,9 +1273,8 @@ namespace ql
                 if (instance.status == NetInstanceStatus::kOpen)
                 {
                     state->form_error =
-                        "That net session is still open. Close it (from the Active Net page) "
-                        "before "
-                        "deleting it.";
+                        "That session is still open. Resume it (F3 on the net list), close it "
+                        "with F4, then delete it.";
                     return;
                 }
                 std::size_t check_ins = state->db->GetCheckInsForNetInstance(instance.id).size();
@@ -1268,10 +1479,18 @@ namespace ql
             state->form_error = "Username and public key are both required.";
             return;
         }
+        std::string public_key;
+        std::string key_error;
+        if (!ValidatePublicKey(state->new_user_public_key, &public_key, &key_error))
+        {
+            state->status_message.clear();
+            state->form_error = key_error;
+            return;
+        }
 
         User user;
         user.username = state->new_user_username;
-        user.public_key = state->new_user_public_key;
+        user.public_key = public_key;
         user.created_at = static_cast<std::int64_t>(std::time(nullptr));
         state->db->CreateUser(user);
 
@@ -1385,10 +1604,22 @@ namespace ql
             return;
         }
 
-        ApplyNetSlice(state->db, *slice);
+        try
+        {
+            ApplyNetSlice(state->db, *slice, static_cast<std::int64_t>(std::time(nullptr)));
+        }
+        catch (const std::exception& e)
+        {
+            RefreshNets(state);
+            state->status_message.clear();
+            state->form_error = std::string("Import failed: ") + e.what();
+            return;
+        }
         RefreshNets(state);
         state->form_error.clear();
-        state->status_message = "Imported \"" + slice->net.name + "\".";
+        state->status_message = "Imported \"" + slice->net.name +
+                                "\". It's listed with today's date as \"imported\", so you can "
+                                "tell it apart from a net of the same name.";
         state->page = kPageNetList;
     }
 
@@ -1530,6 +1761,7 @@ namespace ql
 
     bool SaveNetStationForm(AppState* state)
     {
+        state->saved_station.callsign = NormalizeCallsign(state->saved_station.callsign);
         if (state->saved_station.callsign.empty())
         {
             state->form_error = "Callsign is required.";

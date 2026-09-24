@@ -18,13 +18,16 @@ namespace ql
 
     static ftxui::Element ErrorLine(const std::string& message)
     {
-        return message.empty() ? ftxui::text("") : ftxui::text(message) | ftxui::color(kColorError);
+        // A paragraph, so a long message wraps rather than being cut off at
+        // the edge of the screen.
+        return message.empty() ? ftxui::text("")
+                               : ftxui::paragraph(message) | ftxui::color(kColorError);
     }
 
     static ftxui::Element StatusLine(const std::string& message)
     {
         return message.empty() ? ftxui::text("")
-                               : ftxui::text(message) | ftxui::color(kColorSuccess);
+                               : ftxui::paragraph(message) | ftxui::color(kColorSuccess);
     }
 
     static ftxui::Element FieldLabel(const std::string& label)
@@ -408,6 +411,51 @@ namespace ql
         return ftxui::Modal(std::move(page), modal, &state->show_row_delete_confirm_modal);
     }
 
+    // A ConfirmPrompt (see AppState::confirm_prompt): its title, its lines,
+    // and the keys that answer it.
+    class ConfirmPromptRenderer
+    {
+    public:
+        explicit ConfirmPromptRenderer(AppState* state) : state_(state) {}
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Elements rows;
+            rows.push_back(ftxui::text(state_->confirm_prompt_title) | ftxui::bold |
+                           ftxui::color(kColorHeading));
+            rows.push_back(Separator());
+            for (std::size_t i = 0; i < state_->confirm_prompt_lines.size(); ++i)
+            {
+                ftxui::Element line = ftxui::paragraph(state_->confirm_prompt_lines[i]);
+                rows.push_back(i == 0 ? line | ftxui::bold | ftxui::color(kColorLabel)
+                                      : line | ftxui::color(kColorHint));
+            }
+            rows.push_back(Separator());
+            if (state_->confirm_prompt == ConfirmPrompt::kResumeNet)
+            {
+                rows.push_back(KeyHintRow(
+                    {{"F2/Enter", "Resume"}, {"F3", "Close It & Start New"}, {"Esc", "Cancel"}}));
+            }
+            else
+            {
+                rows.push_back(KeyHintRow({{"F2/Enter", "Close Net"}, {"Esc", "Keep Logging"}}));
+            }
+            return ftxui::vbox(rows) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 64) |
+                   ftxui::border | ftxui::color(kColorFrame);
+        }
+
+    private:
+        AppState* state_;
+    };
+
+    // Wraps `page` so a ConfirmPrompt can pop up over it.
+    static ftxui::Component WithConfirmPrompt(AppState* state, ftxui::Component page)
+    {
+        ftxui::Component modal =
+            ftxui::Renderer(ftxui::Container::Vertical({}), ConfirmPromptRenderer(state));
+        return ftxui::Modal(std::move(page), modal, &state->show_confirm_prompt);
+    }
+
     // ---- Net list page ---------------------------------------------------
 
     class NetListRenderer
@@ -479,8 +527,8 @@ namespace ql
 
         ftxui::Component root = ftxui::Container::Vertical({net_menu});
         ftxui::Component main_view = ftxui::Renderer(root, NetListRenderer(state, net_menu));
-        return ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
-                            &state->show_zmodem_confirm_modal);
+        return WithConfirmPrompt(state, ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
+                                                     &state->show_zmodem_confirm_modal));
     }
 
     // ---- Create-net page ---------------------------------------------------
@@ -721,7 +769,7 @@ namespace ql
             }
             else if (state_->show_new_station_modal)
             {
-                hints = {{"F2", "Log & Continue"}, {"Esc", "Log & Close"}};
+                hints = {{"F2", "Log & Continue"}, {"F3", "Log & Close"}, {"Esc", "Cancel"}};
             }
             else
             {
@@ -787,7 +835,8 @@ namespace ql
             rows.push_back(FieldLabel("Additional Role (optional):"));
             rows.push_back(role_choice_menu_->Render());
             rows.push_back(Separator());
-            rows.push_back(KeyHintRow({{"F2", "Log & Continue"}, {"Esc", "Log & Close"}}));
+            rows.push_back(
+                KeyHintRow({{"F2", "Log & Continue"}, {"F3", "Log & Close"}, {"Esc", "Cancel"}}));
             rows.push_back(ErrorLine(state_->form_error));
 
             return ftxui::vbox(rows) | ftxui::border | ftxui::color(kColorHeading);
@@ -945,9 +994,10 @@ namespace ql
             ftxui::Modal(main_view, modal_view, &state->show_new_station_modal);
         ftxui::Component with_edit_checkin_modal =
             ftxui::Modal(with_new_station_modal, edit_modal_view, &state->show_edit_checkin_modal);
-        return WithRowDeleteConfirm(
-            state, ftxui::Modal(with_edit_checkin_modal, BuildZmodemConfirmModal(state),
-                                &state->show_zmodem_confirm_modal));
+        return WithConfirmPrompt(
+            state, WithRowDeleteConfirm(
+                       state, ftxui::Modal(with_edit_checkin_modal, BuildZmodemConfirmModal(state),
+                                           &state->show_zmodem_confirm_modal)));
     }
 
     // ---- Settings page ---------------------------------------------------
@@ -1479,8 +1529,8 @@ namespace ql
                 Separator(),
                 ftxui::hbox({FieldLabel("Username:    "), input_username_->Render()}),
                 ftxui::hbox({FieldLabel("Public Key:  "), input_public_key_->Render()}),
-                HintText("Paste a full authorized_keys-style line, e.g. from "
-                         "~/.ssh/id_ed25519.pub -- \"ssh-ed25519 AAAA... comment\"."),
+                HintParagraph("Paste a full authorized_keys-style line, e.g. from "
+                              "~/.ssh/id_ed25519.pub -- \"ssh-ed25519 AAAA... comment\"."),
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });

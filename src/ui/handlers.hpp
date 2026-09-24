@@ -8,12 +8,14 @@
 namespace ql
 {
 
-    // An Input's on_change: uppercases `*field` in place as the operator
-    // types, e.g. entering "aa4fa" reads back as "AA4FA" immediately rather
-    // than only once saved. Deliberately takes the field directly instead of
-    // an AppState* (unlike every other handler here) since it's reused across
-    // unrelated forms (Enter Callsign, Settings, edit-net's saved-station
-    // form) that share nothing but "this Input holds a callsign".
+    // An Input's on_change for a callsign field: normalizes `*field` in
+    // place as the operator types (see NormalizeCallsign), e.g. entering
+    // "aa4fa" reads back as "AA4FA" immediately rather than only once saved,
+    // and a stray space never makes it into a saved callsign. Deliberately
+    // takes the field directly instead of an AppState* (unlike every other
+    // handler here) since it's reused across unrelated forms (Enter
+    // Callsign, Settings, edit-net's saved-station form) that share nothing
+    // but "this Input holds a callsign".
     class UppercaseFieldHandler
     {
     public:
@@ -80,7 +82,8 @@ namespace ql
     };
 
     // F3 on the net list page: moves to role selection, unless there are no
-    // recurring nets to start yet.
+    // recurring nets to start yet -- or asks about resuming first, if the
+    // net has a session open (see StartSelectedNet).
     class StartSelectedNetHandler
     {
     public:
@@ -209,7 +212,7 @@ namespace ql
         AppState* state_;
     };
 
-    // Escape inside the New Station modal: logs the current entry if a
+    // F3 inside the New Station modal: logs the current entry if a
     // callsign was typed, then closes the modal.
     class LogAndCloseHandler
     {
@@ -222,8 +225,21 @@ namespace ql
         AppState* state_;
     };
 
-    // F4 on the active-net page: closes out the net instance and returns to
-    // the net list.
+    // Escape inside the New Station modal: closes it without logging,
+    // discarding whatever was typed.
+    class CancelNewStationHandler
+    {
+    public:
+        explicit CancelNewStationHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // F2/Enter on the active-net page's Close Net confirmation: closes out
+    // the net instance and returns to the net list (see CloseActiveNet).
     class CloseNetInstanceHandler
     {
     public:

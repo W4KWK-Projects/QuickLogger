@@ -11,6 +11,13 @@ namespace ql
     // case as the operator types, rather than only once saved).
     std::string ToUpperAscii(const std::string& value);
 
+    // A callsign as typed, reduced to what a callsign can contain: ASCII
+    // letters (uppercased), digits and '/' (for portable/prefix forms like
+    // "W4KWK/M" or "VE3/W4KWK"). Everything else -- a stray space, a pasted
+    // tab, punctuation -- is dropped, so "w4kwk " and "W4KWK" are the same
+    // station rather than two.
+    std::string NormalizeCallsign(const std::string& value);
+
     // A place name reduced to a form that compares equal however it was
     // written: uppercase, periods dropped, and the accented letters Census
     // uses (e.g. Puerto Rico's "Loíza") folded to plain ASCII the way FCC

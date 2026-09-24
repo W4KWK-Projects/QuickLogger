@@ -28,7 +28,48 @@
 namespace ql
 {
 
-    static const char* kUlsZipUrl = "https://data.fcc.gov/download/pub/uls/complete/l_amat.zip";
+    DataSources DefaultDataSources()
+    {
+        DataSources sources;
+        sources.uls_zip_url = "https://data.fcc.gov/download/pub/uls/complete/l_amat.zip";
+        // Census Bureau ZCTA gazetteer: approximate lat/lon centroid per US
+        // ZIP code, used to estimate distance for the proximity autocomplete
+        // (see AppendNearbyUlsSuggestions in app_state.cpp). Centroids are
+        // effectively permanent, so this is fetched once and never re-fetched,
+        // unlike the ULS license data. The filename is year-prefixed by
+        // Census; if this URL 404s in the future, it needs updating to a newer
+        // edition (and the matching extracted filename).
+        sources.zip_gazetteer_url =
+            "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2023_Gazetteer/"
+            "2023_Gaz_zcta_national.zip";
+        sources.zip_gazetteer_file_name = "2023_Gaz_zcta_national.txt";
+        // The three Census files the ZIP-to-county data is built from (see
+        // FetchAndLoadZipCounties). FCC's ULS data has no county field
+        // anywhere in it (confirmed against a real downloaded l_amat.zip:
+        // EN.dat's 30 fields cover only street/city/state/zip, and the only
+        // other candidate file, CO.dat, turned out to be license status
+        // "Comments", not counties). County boundaries are effectively
+        // permanent, so -- like the centroids -- these are fetched once and
+        // never re-fetched. All three are plain pipe- or comma-delimited text.
+        //
+        // 2020 ZIP (ZCTA) to county: every county each ZIP overlaps, with the
+        // land area of each overlap, and the county names.
+        sources.zcta_county_url =
+            "https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/"
+            "tab20_zcta520_county20_natl.txt";
+        // 2010 ZIP to county, which unlike the 2020 edition also counts the
+        // *people* in each overlap -- the better guide to which county a ZIP
+        // belongs to, since land area can put a ZIP in the county that owns
+        // an empty ridge rather than the one its residents live in.
+        sources.zcta_county_population_url =
+            "https://www2.census.gov/geo/docs/maps-data/data/rel/zcta_county_rel_10.txt";
+        // 2020 ZIP to county subdivision: every town/city/township (or, in
+        // some states, census division) each ZIP overlaps, with its county.
+        sources.zcta_county_subdivision_url =
+            "https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/"
+            "tab20_zcta520_cousub20_natl.txt";
+        return sources;
+    }
 
     // Field positions below are 0-indexed and were confirmed against a real
     // downloaded l_amat.zip (FCC PUBACC amateur database), not assumed from
@@ -51,45 +92,6 @@ namespace ql
     // AM.dat ("AM" record): amateur-specific data.
     static constexpr std::size_t kAmUniqueSystemId = 1;
     static constexpr std::size_t kAmOperatorClass = 5;
-
-    // Census Bureau ZCTA gazetteer: approximate lat/lon centroid per US ZIP
-    // code, used to estimate distance for the saved-station form's ULS
-    // proximity autocomplete (see RefreshSavedStationSuggestions in
-    // app_state.cpp). Centroids are effectively permanent (population-
-    // weighted ZIP centers barely move year to year), so this is fetched
-    // once and never re-fetched, unlike the ULS license data. The filename
-    // is year-prefixed by Census; if this URL 404s in the future, it needs
-    // updating to a newer edition (and the matching extracted filename below).
-    static const char* kZipGazetteerUrl =
-        "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2023_Gazetteer/"
-        "2023_Gaz_zcta_national.zip";
-    static const char* kZipGazetteerFileName = "2023_Gaz_zcta_national.txt";
-
-    // The three Census files the ZIP-to-county data is built from (see
-    // FetchAndLoadZipCounties). FCC's ULS data has no county field anywhere
-    // in it (confirmed against a real downloaded l_amat.zip: EN.dat's 30
-    // fields cover only street/city/state/zip, and the only other candidate
-    // file, CO.dat, turned out to be license status "Comments", not
-    // counties). County boundaries are effectively permanent, so -- like the
-    // centroids -- these are fetched once and never re-fetched. All three are
-    // plain pipe- or comma-delimited text, not zipped.
-    //
-    // 2020 ZIP (ZCTA) to county: every county each ZIP overlaps, with the
-    // land area of each overlap, and the county names.
-    static const char* kZctaCountyUrl =
-        "https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/"
-        "tab20_zcta520_county20_natl.txt";
-    // 2010 ZIP to county, which unlike the 2020 edition also counts the
-    // *people* in each overlap -- the better guide to which county a ZIP
-    // belongs to, since land area can put a ZIP in the county that owns an
-    // empty ridge rather than the one its residents live in.
-    static const char* kZctaCountyPopulationUrl =
-        "https://www2.census.gov/geo/docs/maps-data/data/rel/zcta_county_rel_10.txt";
-    // 2020 ZIP to county subdivision: every town/city/township (or, in some
-    // states, census division) each ZIP overlaps, with its county.
-    static const char* kZctaCountySubdivisionUrl =
-        "https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/"
-        "tab20_zcta520_cousub20_natl.txt";
 
     // A ZIP with at least this share of its people (or, lacking population
     // figures, its land) in one county is simply "in" that county; below
@@ -537,12 +539,16 @@ namespace ql
             }
         }
 
+        // Licenses no longer in the file have expired or been cancelled.
+        db->DeleteUlsStationsNotIn(licenses.stations);
+
         *out_records = static_cast<std::int64_t>(total);
         return true;
     }
 
-    static bool LoadUls(const std::string& cache_dir, Database* db, ProgressReporter* reporter,
-                        int base, int span, std::int64_t* out_records, std::string* error)
+    static bool LoadUls(const DataSources& sources, const std::string& cache_dir, Database* db,
+                        ProgressReporter* reporter, int base, int span, std::int64_t* out_records,
+                        std::string* error)
     {
         // Download ~60% of this step's time, extraction ~5%, parsing the
         // rest -- roughly how long each takes on a typical connection.
@@ -551,7 +557,7 @@ namespace ql
         std::string zip_path = cache_dir + "/l_amat.zip";
 
         reporter->BeginStep("Downloading FCC license data", base, download_span);
-        if (!DownloadFile(kUlsZipUrl, zip_path, 1800L, reporter, error))
+        if (!DownloadFile(sources.uls_zip_url, zip_path, 1800L, reporter, error))
         {
             return false;
         }
@@ -569,26 +575,28 @@ namespace ql
 
     // ---- ZIP centroids -----------------------------------------------------
 
-    static bool FetchAndLoadZipCentroids(const std::string& cache_dir, Database* db,
-                                         ProgressReporter* reporter, std::string* error)
+    static bool FetchAndLoadZipCentroids(const DataSources& sources, const std::string& cache_dir,
+                                         Database* db, ProgressReporter* reporter,
+                                         std::string* error)
     {
         std::string zip_path = cache_dir + "/zip_gazetteer.zip";
-        if (!DownloadFile(kZipGazetteerUrl, zip_path, 300L, reporter, error))
+        if (!DownloadFile(sources.zip_gazetteer_url, zip_path, 300L, reporter, error))
         {
             return false;
         }
 
-        if (!ExtractZipEntries(zip_path, cache_dir, {kZipGazetteerFileName}, error))
+        if (!ExtractZipEntries(zip_path, cache_dir, {sources.zip_gazetteer_file_name}, error))
         {
             *error = "Failed to extract the ZIP gazetteer archive: " + *error;
             return false;
         }
 
-        std::string txt_path = cache_dir + "/" + kZipGazetteerFileName;
+        std::string txt_path = cache_dir + "/" + sources.zip_gazetteer_file_name;
         std::ifstream file(txt_path);
         if (!file.good())
         {
-            *error = "Extraction did not produce " + std::string(kZipGazetteerFileName) + ".";
+            *error =
+                "Extraction did not produce " + std::string(sources.zip_gazetteer_file_name) + ".";
             return false;
         }
 
@@ -726,9 +734,9 @@ namespace ql
     //     more than one county within the ZIP (a town split by the line
     //     itself, like Bethlehem, PA), the county with more of that town's
     //     land in the ZIP wins.
-    static bool FetchAndLoadZipCounties(const std::string& cache_dir, Database* db,
-                                        ProgressReporter* reporter, int base, int span,
-                                        std::string* error)
+    static bool FetchAndLoadZipCounties(const DataSources& sources, const std::string& cache_dir,
+                                        Database* db, ProgressReporter* reporter, int base,
+                                        int span, std::string* error)
     {
         // The three downloads (about 6, 7 and 16 MB) get a third of the
         // step's progress each.
@@ -736,18 +744,20 @@ namespace ql
         std::string population_path = cache_dir + "/zcta_county_population.txt";
         std::string subdivision_path = cache_dir + "/zcta_county_subdivision.txt";
         reporter->BeginStep("Downloading county data", base, span / 3);
-        if (!DownloadFile(kZctaCountyUrl, county_path, 300L, reporter, error))
+        if (!DownloadFile(sources.zcta_county_url, county_path, 300L, reporter, error))
         {
             return false;
         }
         reporter->BeginStep("Downloading county data", base + span / 3, span / 3);
-        if (!DownloadFile(kZctaCountyPopulationUrl, population_path, 300L, reporter, error))
+        if (!DownloadFile(sources.zcta_county_population_url, population_path, 300L, reporter,
+                          error))
         {
             return false;
         }
         reporter->BeginStep("Downloading county data", base + 2 * (span / 3),
                             span - 2 * (span / 3));
-        if (!DownloadFile(kZctaCountySubdivisionUrl, subdivision_path, 300L, reporter, error))
+        if (!DownloadFile(sources.zcta_county_subdivision_url, subdivision_path, 300L, reporter,
+                          error))
         {
             return false;
         }
@@ -1015,7 +1025,8 @@ namespace ql
     }
 
     std::string RunDataRefresh(Database* db, const std::string& db_path,
-                               const DataRefreshPlan& plan, bool (*should_stop)())
+                               const DataRefreshPlan& plan, bool (*should_stop)(),
+                               const DataSources& sources)
     {
         std::string cache_dir = UlsCacheDir(db_path);
         EnsureDirectory(cache_dir);
@@ -1040,7 +1051,7 @@ namespace ql
             std::int64_t started_at = Now();
             std::int64_t records = 0;
             std::string error;
-            bool ok = LoadUls(cache_dir, db, &reporter, base, span, &records, &error);
+            bool ok = LoadUls(sources, cache_dir, db, &reporter, base, span, &records, &error);
             if (reporter.StopRequested())
             {
                 return "interrupted";
@@ -1056,7 +1067,7 @@ namespace ql
             std::int64_t started_at = Now();
             std::string error;
             reporter.BeginStep("Downloading ZIP code locations", base, span);
-            bool ok = FetchAndLoadZipCentroids(cache_dir, db, &reporter, &error);
+            bool ok = FetchAndLoadZipCentroids(sources, cache_dir, db, &reporter, &error);
             if (reporter.StopRequested())
             {
                 return "interrupted";
@@ -1071,7 +1082,8 @@ namespace ql
             int span = 100 - base;
             std::int64_t started_at = Now();
             std::string error;
-            bool ok = FetchAndLoadZipCounties(cache_dir, db, &reporter, base, span, &error);
+            bool ok =
+                FetchAndLoadZipCounties(sources, cache_dir, db, &reporter, base, span, &error);
             if (reporter.StopRequested())
             {
                 return "interrupted";

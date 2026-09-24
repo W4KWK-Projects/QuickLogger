@@ -28,6 +28,18 @@ namespace ql
         return std::string(buffer);
     }
 
+    std::string FormatLocalDate(std::int64_t unix_time)
+    {
+        if (unix_time <= 0)
+        {
+            return "";
+        }
+        std::tm local_time = LocalTime(static_cast<std::time_t>(unix_time));
+        char buffer[16];
+        std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", &local_time);
+        return std::string(buffer);
+    }
+
     std::tm LocalTime(std::time_t time_value)
     {
         std::tm result{};

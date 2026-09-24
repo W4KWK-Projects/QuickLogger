@@ -60,9 +60,11 @@ namespace ql
         return slice;
     }
 
-    std::int64_t ApplyNetSlice(Database* db, const NetSlice& slice)
+    std::int64_t ApplyNetSlice(Database* db, const NetSlice& slice, std::int64_t imported_at)
     {
-        std::int64_t new_net_id = db->CreateNet(slice.net);
+        Net net = slice.net;
+        net.imported_at = imported_at;
+        std::int64_t new_net_id = db->CreateNet(net);
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
 
         for (const NetSliceSavedStation& saved : slice.saved_stations)
@@ -115,7 +117,7 @@ namespace ql
         try
         {
             Database dest(dest_path, /*use_wal=*/false);
-            ApplyNetSlice(&dest, slice);
+            ApplyNetSlice(&dest, slice, slice.net.imported_at);
         }
         catch (const std::exception& e)
         {
@@ -145,6 +147,7 @@ namespace ql
             NetSlice slice;
             slice.net = nets[0];
 
+            std::unordered_set<std::string> known_callsigns;
             std::vector<Station> saved = source.GetSavedStationsForNet(slice.net.id);
             for (const Station& station : saved)
             {
@@ -153,12 +156,28 @@ namespace ql
                 entry.default_remarks =
                     source.GetSavedNetStationRemarks(slice.net.id, station.callsign);
                 slice.saved_stations.push_back(std::move(entry));
+                known_callsigns.insert(ToUpperAscii(station.callsign));
             }
 
             slice.instances = source.GetNetInstancesForNet(slice.net.id);
             for (const NetInstance& instance : slice.instances)
             {
                 std::vector<CheckIn> check_ins = source.GetCheckInsForNetInstance(instance.id);
+                for (const CheckIn& check_in : check_ins)
+                {
+                    // A station that checked in but isn't saved to the net
+                    // (e.g. removed from its saved stations since) -- its
+                    // check-ins need its stations row on the importing side.
+                    std::string upper = ToUpperAscii(check_in.callsign);
+                    if (known_callsigns.insert(upper).second)
+                    {
+                        std::optional<Station> station = source.FindStationByCallsign(upper);
+                        if (station.has_value())
+                        {
+                            slice.other_stations.push_back(*station);
+                        }
+                    }
+                }
                 slice.check_ins.insert(slice.check_ins.end(), check_ins.begin(), check_ins.end());
             }
 

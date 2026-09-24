@@ -15,7 +15,7 @@ namespace ql
 
     void UppercaseFieldHandler::operator()() const
     {
-        *field_ = ToUpperAscii(*field_);
+        *field_ = NormalizeCallsign(*field_);
     }
 
     void ZipCodeFieldHandler::operator()() const
@@ -59,6 +59,7 @@ namespace ql
         net.default_frequency = state_->new_net_frequency;
         net.default_location = state_->new_net_location;
         net.recurrence_description = state_->new_net_recurrence;
+        net.created_at = static_cast<std::int64_t>(std::time(nullptr));
         state_->db->CreateNet(net);
 
         RefreshNets(state_);
@@ -91,13 +92,7 @@ namespace ql
 
     void StartSelectedNetHandler::operator()() const
     {
-        if (state_->nets.empty())
-        {
-            state_->form_error = "Create a recurring net first.";
-            return;
-        }
-        ResetStartNetFlow(state_);
-        state_->page = kPageSelectRole;
+        StartSelectedNet(state_);
     }
 
     void ShowAdHocNetPageHandler::operator()() const
@@ -123,6 +118,7 @@ namespace ql
         net.mode = state_->new_net_mode;
         net.default_frequency = state_->new_net_frequency;
         net.default_location = state_->new_net_location;
+        net.created_at = static_cast<std::int64_t>(std::time(nullptr));
         std::int64_t new_net_id = state_->db->CreateNet(net);
 
         RefreshNets(state_);
@@ -286,7 +282,7 @@ namespace ql
 
     void SavedStationCallsignChangeHandler::operator()() const
     {
-        state_->saved_station.callsign = ToUpperAscii(state_->saved_station.callsign);
+        state_->saved_station.callsign = NormalizeCallsign(state_->saved_station.callsign);
         RefreshSavedStationSuggestions(state_);
     }
 
@@ -742,7 +738,7 @@ namespace ql
 
     void CallsignSuggestHandler::operator()() const
     {
-        state_->modal_station.callsign = ToUpperAscii(state_->modal_station.callsign);
+        state_->modal_station.callsign = NormalizeCallsign(state_->modal_station.callsign);
         RefreshCallsignSuggestions(state_);
     }
 
@@ -774,16 +770,15 @@ namespace ql
         state_->show_new_station_modal = false;
     }
 
+    void CancelNewStationHandler::operator()() const
+    {
+        ClearModalFields(state_);
+        state_->show_new_station_modal = false;
+    }
+
     void CloseNetInstanceHandler::operator()() const
     {
-        state_->db->CloseNetInstance(state_->active_instance.id,
-                                     static_cast<std::int64_t>(std::time(nullptr)));
-        state_->active_check_ins.clear();
-        state_->active_display_rows.clear();
-        state_->show_new_station_modal = false;
-        ClearModalFields(state_);
-        ResetStartNetFlow(state_);
-        state_->page = kPageNetList;
+        CloseActiveNet(state_);
     }
 
     void EditSelectedCheckInHandler::operator()() const
@@ -862,6 +857,12 @@ namespace ql
             }
             return true;
         }
+        if (event == ftxui::Event::F3 && state_->show_new_station_modal)
+        {
+            LogAndCloseHandler log_and_close(state_);
+            log_and_close();
+            return true;
+        }
         if (event == ftxui::Event::F3 && !modal_open)
         {
             StartRowPick(state_, RowPickAction::kEditCheckIn);
@@ -869,8 +870,7 @@ namespace ql
         }
         if (event == ftxui::Event::F4 && !modal_open)
         {
-            CloseNetInstanceHandler close_net(state_);
-            close_net();
+            RequestCloseActiveNet(state_);
             return true;
         }
         if (event == ftxui::Event::F5 && !modal_open)
@@ -894,8 +894,8 @@ namespace ql
             }
             if (state_->show_new_station_modal)
             {
-                LogAndCloseHandler log_and_close(state_);
-                log_and_close();
+                CancelNewStationHandler cancel_new_station(state_);
+                cancel_new_station();
                 return true;
             }
         }
@@ -1094,6 +1094,33 @@ namespace ql
         return event != ftxui::Event::Custom;
     }
 
+    // Every key while a ConfirmPrompt is showing; anything but its own keys
+    // is swallowed, so nothing happens behind it.
+    static bool HandleConfirmPromptKey(AppState* state, const ftxui::Event& event)
+    {
+        bool yes = event == ftxui::Event::F2 || event == ftxui::Event::Return;
+        if (event == ftxui::Event::Escape)
+        {
+            CancelConfirmPrompt(state);
+        }
+        else if (state->confirm_prompt == ConfirmPrompt::kResumeNet)
+        {
+            if (yes)
+            {
+                ResumeOpenNet(state);
+            }
+            else if (event == ftxui::Event::F3)
+            {
+                CloseOpenNetAndStartNew(state);
+            }
+        }
+        else if (state->confirm_prompt == ConfirmPrompt::kCloseNet && yes)
+        {
+            CloseActiveNet(state);
+        }
+        return event != ftxui::Event::Custom;
+    }
+
     bool AppKeyHandler::operator()(const ftxui::Event& event) const
     {
         // A delete confirmation, or a list in pick mode, takes every key
@@ -1113,6 +1140,10 @@ namespace ql
         if (state_->row_pick_action != RowPickAction::kNone)
         {
             return HandleRowPickKey(state_, event);
+        }
+        if (state_->show_confirm_prompt)
+        {
+            return HandleConfirmPromptKey(state_, event);
         }
 
         if (state_->page == kPageNetList)

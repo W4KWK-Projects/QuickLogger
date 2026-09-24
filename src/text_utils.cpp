@@ -15,6 +15,25 @@ namespace ql
         return result;
     }
 
+    std::string NormalizeCallsign(const std::string& value)
+    {
+        std::string result;
+        result.reserve(value.size());
+        for (char c : value)
+        {
+            unsigned char byte = static_cast<unsigned char>(c);
+            if (std::isalnum(byte) != 0 && byte < 0x80)
+            {
+                result.push_back(static_cast<char>(std::toupper(byte)));
+            }
+            else if (c == '/')
+            {
+                result.push_back(c);
+            }
+        }
+        return result;
+    }
+
     // The plain letter for a UTF-8 character from the Latin-1 Supplement
     // (encoded as 0xC3 followed by `second_byte`), or 0 if it isn't an
     // accented letter this cares about.

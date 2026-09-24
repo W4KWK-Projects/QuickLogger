@@ -56,6 +56,15 @@ namespace ql
         kRemoveUser,            // Manage Users, F3
     };
 
+    // A yes/no-style question that pops up over the page before an action
+    // that can't be taken back (see AppState::confirm_prompt).
+    enum class ConfirmPrompt
+    {
+        kNone,
+        kResumeNet,  // Starting a net that already has a session open.
+        kCloseNet,   // F4 on the active net.
+    };
+
     // The on-screen lists a RowPickAction picks from.
     enum class PickList
     {
@@ -121,6 +130,14 @@ namespace ql
         // RowPickAction). Same bare-Renderer-modal shape as the ZMODEM
         // confirmation above.
         bool show_delete_net_confirm_modal = false;
+
+        // A ConfirmPrompt showing over the page: which one, and its text.
+        // `resume_instance` is the open session kResumeNet offers to resume.
+        bool show_confirm_prompt = false;
+        ConfirmPrompt confirm_prompt = ConfirmPrompt::kNone;
+        std::string confirm_prompt_title;
+        std::vector<std::string> confirm_prompt_lines;
+        NetInstance resume_instance;
 
         // Row picking (see RowPickAction). While row_pick_action isn't
         // kNone, the list it belongs to shows row_pick_numbers[i] beside row
@@ -343,8 +360,32 @@ namespace ql
     };
 
     // Reloads AppState::nets/net_names from the database. Call once at
-    // startup and after any change that adds or removes a Net.
+    // startup and after any change that adds or removes a Net. Each label is
+    // the net's name, when it was created or imported (so two nets with the
+    // same name can be told apart), and "session open" if one is.
     void RefreshNets(AppState* state);
+
+    // F3/Enter on the net list: starts a new session of the highlighted net
+    // -- unless the net already has a session open (someone is logging it
+    // right now, or a session ended without being closed, e.g. a dropped
+    // SSH connection), in which case it first asks whether to resume that
+    // session or close it and start a new one (ConfirmPrompt::kResumeNet).
+    void StartSelectedNet(AppState* state);
+
+    // The kResumeNet answers: carry on logging the open session, or close it
+    // and go on to start a new one.
+    void ResumeOpenNet(AppState* state);
+    void CloseOpenNetAndStartNew(AppState* state);
+
+    // F4 on the active net: asks before closing it (ConfirmPrompt::kCloseNet)
+    // -- a closed session can't be reopened.
+    void RequestCloseActiveNet(AppState* state);
+
+    // Closes the active session and returns to the net list.
+    void CloseActiveNet(AppState* state);
+
+    // Esc on any ConfirmPrompt: closes it, doing nothing.
+    void CancelConfirmPrompt(AppState* state);
 
     // Clears the create-net form fields and any validation error.
     void ResetCreateNetForm(AppState* state);
@@ -624,7 +665,9 @@ namespace ql
     // of, if the username already exists -- see Database::CreateUser) a
     // user from AppState::new_user_username/new_user_public_key, then
     // clears the form and refreshes the list. Sets AppState::form_error
-    // instead if either field is blank.
+    // instead, saving nothing, if either field is blank or the key isn't a
+    // valid OpenSSH public key (see ValidatePublicKey), saying what's wrong
+    // and what a key should look like.
     void AddUserFromForm(AppState* state);
 
     // F3 on the Manage Users page: deletes the highlighted user

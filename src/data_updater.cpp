@@ -112,7 +112,7 @@ namespace ql
         job.started_at = Now();
         try
         {
-            job.status = RunDataRefresh(db, db_path, plan, ShouldStop);
+            job.status = RunDataRefresh(db, db_path, plan, ShouldStop, DefaultDataSources());
         }
         catch (const std::exception& e)
         {

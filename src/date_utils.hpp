@@ -22,4 +22,8 @@ namespace ql
     // is stored (see NetInstance::started_at).
     std::string FormatLocalTimeOfDay(std::int64_t unix_time);
 
+    // The local date of a Unix timestamp as "2026-09-24" (the same form as
+    // CurrentDateIso8601), or an empty string for 0 or less ("not recorded").
+    std::string FormatLocalDate(std::int64_t unix_time);
+
 }  // namespace ql

@@ -92,6 +92,35 @@ On first run, you'll be taken straight to Settings to set your callsign
 and home ZIP code (required before anything else is usable). After that,
 you land on the Recurring Nets list.
 
+### Running a net
+
+On **Recurring Nets**, highlight a net and press **F3** (or Enter), pick
+your role, confirm your callsign, and the net starts with you logged as
+check-in #1. **F2** opens the New Station window:
+
+| Key | What it does |
+|---|---|
+| F2 | Log this station and clear the form for the next one |
+| F3 | Log this station and close the window |
+| Esc | Close the window without logging anything |
+
+**F4** closes the net when you're done. It asks first, since a closed
+session can't be reopened for logging; it stays in **History** (F6), where
+you can still view and export it.
+
+**Picking up where you left off.** If a session ends without F4 — an SSH
+connection drops, a terminal is closed — the session stays open, and the
+net shows *session open* in the list. Starting that net again offers to
+**Resume** it (F2/Enter), carrying on the same log, or to **close it and
+start a new session** (F3). The same applies if someone else is logging
+that net right now: resuming joins their log.
+
+**Telling nets apart.** The list shows when each net was created, or, for
+one brought in with **F9 (Import Net)**, when it was imported — so if you
+import a net with the same name as one of yours, you can tell which is
+which and delete the one you don't want. (Nets created before this was
+recorded show no date.)
+
 ### Editing and deleting by number
 
 Wherever a list has an edit or delete key, pressing it numbers every row.
@@ -396,6 +425,7 @@ The resulting binary is `build\Release\QuickLogger.exe`.
 | `-DQUICKLOGGER_ENABLE_SSH=OFF` | `ON` (`OFF` on Windows) | Leave out the built-in SSH server, and with it the libssh requirement. The result is a console-only QuickLogger. |
 | `-DCMAKE_BUILD_TYPE=Release` | none | Optimized build (recommended). Not used by Visual Studio; pass `--config Release` at build time instead. |
 | `-DFETCHCONTENT_SOURCE_DIR_FTXUI=<path>` | unset | Use a local FTXUI checkout instead of downloading one — see below. |
+| `-DQUICKLOGGER_BUILD_TESTS=OFF` | `ON` | Skip building the test suite (see below). |
 
 If CMake can't find libssh even though it's installed, point it at the
 install with `-Dlibssh_DIR=<directory containing libssh-config.cmake>`; a
@@ -411,6 +441,21 @@ at tag `v5.0.0` somewhere ahead of time and pass its location:
 ```
 cmake -S . -B build -DFETCHCONTENT_SOURCE_DIR_FTXUI=/path/to/FTXUI
 ```
+
+### Running the tests
+
+The build also produces `quicklogger_tests`, which checks the database,
+logging, numbered edit/delete, autocomplete, county lookup, the station-data
+refresh, ZIP extraction and net import/export. Each test works in its own
+temporary directory and never touches your `quicklogger.db` or the network
+(the FCC and Census downloads are stood in for by small local files).
+
+```
+ctest --test-dir build --output-on-failure
+```
+
+Or run `build/quicklogger_tests` directly; give it part of a test's name
+(e.g. `build/quicklogger_tests Autocomplete`) to run only the matching tests.
 
 ---
 
@@ -439,9 +484,12 @@ the first SSH user:
    Then press **F2 (Add)**. If they don't have a key yet, see
    [Creating your SSH key](#creating-your-ssh-key) below.
 
-The key isn't checked when you add it — a mangled or truncated paste is
-accepted and then simply never lets that person in. If someone can't log
-in, remove the entry (F3) and re-add it with a fresh paste.
+The key is checked when you add it. A private key, a PuTTY-format key, a
+line missing its `ssh-ed25519` (or other type) at the start, or one cut
+short while copying is refused with a message saying what's wrong and what
+the line should look like. Extra spaces or a trailing line break from the
+paste are tidied up. If someone still can't log in, check they're offering
+the key you added (see *If you have more than one key* below).
 
 That person can now connect:
 
