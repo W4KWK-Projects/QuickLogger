@@ -18,9 +18,10 @@ namespace ql
     // main() -- like the SSH listener, and for the same reason (THE FORK RULE
     // in ssh_server.hpp): it must be forked before the calling process opens
     // the database or starts a thread. It stops on its own if the process
-    // that started it goes away. On Windows there's no fork(), and no SSH
-    // sessions to outlive, so it runs as a thread of the console process
-    // instead.
+    // that started it goes away. Each refresh runs in a further short-lived
+    // child of the updater, so the memory a refresh needs is returned as soon
+    // as it's done. On Windows there's no fork(), and no SSH sessions to
+    // outlive, so it runs as a thread of the console process instead.
     //
     // Only one updater per process; Start a second time is a no-op.
     void StartDataUpdater(const std::string& db_path);

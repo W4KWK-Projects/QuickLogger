@@ -125,6 +125,91 @@ namespace ql
         return true;
     }
 
+#if !defined(_WIN32)
+
+    // Whether a refresh is due, from a database connection that's closed
+    // again before this returns -- the caller may fork next (THE FORK RULE,
+    // ssh_server.hpp).
+    static bool IsRefreshDue(const std::string& db_path)
+    {
+        Database db(db_path);
+        return DataRefreshPlanHasWork(PlanDataRefresh(&db, Now()));
+    }
+
+    // Runs one refresh in a child process, and waits for it. A refresh needs
+    // a few hundred MB for a minute (the whole FCC license list in memory);
+    // done in a process that then exits, every byte goes back to the system
+    // at once, and the updater itself stays at a couple of MB for the week
+    // until the next one. (Freeing it in-process isn't enough: the C
+    // library keeps freed memory reserved for reuse -- measured on macOS at
+    // ~250 MB still held after a refresh.) A stop request is passed on to
+    // the child, which winds down and records the run as interrupted.
+    static void RunRefreshInChildProcess(const std::string& db_path)
+    {
+        pid_t updater_pid = ::getpid();
+        pid_t pid = fork();
+        if (pid < 0)
+        {
+            std::fprintf(stderr, "Station data updater: could not start a refresh.\n");
+            return;
+        }
+        if (pid == 0)
+        {
+            // Stop if the updater goes away, just as the updater stops if
+            // the app does.
+            g_parent_pid = updater_pid;
+            int exit_code = 0;
+            try
+            {
+                Database db(db_path);
+                RunRefreshIfDue(&db, db_path);
+            }
+            catch (const std::exception& e)
+            {
+                std::fprintf(stderr, "Station data updater: %s\n", e.what());
+                exit_code = 1;
+            }
+            _exit(exit_code);
+        }
+
+        bool stop_sent = false;
+        while (::waitpid(pid, nullptr, WNOHANG) == 0)
+        {
+            if (ShouldStop() && !stop_sent)
+            {
+                ::kill(pid, SIGTERM);
+                stop_sent = true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+    }
+
+    static void RunUpdaterLoop(const std::string& db_path)
+    {
+        while (!ShouldStop())
+        {
+            try
+            {
+                if (IsRefreshDue(db_path))
+                {
+                    RunRefreshInChildProcess(db_path);
+                }
+                SleepUnlessStopped(kPollSeconds);
+            }
+            catch (const std::exception& e)
+            {
+                // Most likely the database was briefly unavailable; the run
+                // (if any) is left for the next attempt to pick up.
+                std::fprintf(stderr, "Station data updater: %s\n", e.what());
+                SleepUnlessStopped(60);
+            }
+        }
+    }
+
+#else  // _WIN32
+
+    // No fork() on Windows: the refresh runs right here in the updater
+    // thread, and the memory it used stays with the process afterward.
     static void RunUpdaterLoop(const std::string& db_path)
     {
         while (!ShouldStop())
@@ -140,13 +225,13 @@ namespace ql
             }
             catch (const std::exception& e)
             {
-                // Most likely the database was briefly unavailable; the run
-                // (if any) is left for the next attempt to pick up.
                 std::fprintf(stderr, "Station data updater: %s\n", e.what());
                 SleepUnlessStopped(60);
             }
         }
     }
+
+#endif
 
 #if !defined(_WIN32)
 
