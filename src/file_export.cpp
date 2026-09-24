@@ -2,8 +2,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <random>
+#include <system_error>
 #include <utility>
 
 namespace ql
@@ -57,6 +60,30 @@ namespace ql
         return std::filesystem::is_directory(dir, error);
     }
 
+    std::string TemporaryPathFor(const std::string& path)
+    {
+        // The clock and a random number together: unique across processes
+        // (SSH sessions) as well as within one.
+        std::random_device random;
+        return path + ".tmp-" +
+               std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "-" +
+               std::to_string(random());
+    }
+
+    bool ReplaceWithFile(const std::string& temp_path, const std::string& path, std::string* error)
+    {
+        std::error_code rename_error;
+        std::filesystem::rename(temp_path, path, rename_error);
+        if (rename_error)
+        {
+            std::error_code ignored;
+            std::filesystem::remove(temp_path, ignored);
+            *error = "Could not replace " + path + ": " + rename_error.message();
+            return false;
+        }
+        return true;
+    }
+
     bool WriteExportFile(const std::string& path, const std::vector<std::string>& lines,
                          std::string* error)
     {
@@ -66,22 +93,29 @@ namespace ql
             EnsureDirectory(path.substr(0, slash));
         }
 
-        std::ofstream file(path, std::ios::trunc);
-        if (!file.is_open())
+        std::string temp_path = TemporaryPathFor(path);
         {
-            *error = "Could not open " + path + " for writing.";
-            return false;
+            std::ofstream file(temp_path, std::ios::trunc);
+            if (!file.is_open())
+            {
+                *error = "Could not open " + path + " for writing.";
+                return false;
+            }
+            for (const std::string& line : lines)
+            {
+                file << line << "\n";
+            }
+            file.flush();
+            if (!file.good())
+            {
+                file.close();
+                std::error_code ignored;
+                std::filesystem::remove(temp_path, ignored);
+                *error = "Failed while writing " + path + ".";
+                return false;
+            }
         }
-        for (const std::string& line : lines)
-        {
-            file << line << "\n";
-        }
-        if (!file.good())
-        {
-            *error = "Failed while writing " + path + ".";
-            return false;
-        }
-        return true;
+        return ReplaceWithFile(temp_path, path, error);
     }
 
     std::string SanitizeFilenameComponent(const std::string& text)

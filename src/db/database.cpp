@@ -871,6 +871,28 @@ CREATE TABLE IF NOT EXISTS users (
         return sqlite3_last_insert_rowid(db_);
     }
 
+    std::int64_t Database::AddCheckInAtNextSequence(const CheckIn& check_in)
+    {
+        Statement statement(db_, R"sql(
+        INSERT INTO check_ins
+            (net_instance_id, callsign, sequence_number, signal_report,
+             remarks, comment, checked_in_at, designated_role)
+        VALUES (?1, ?2,
+                (SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM check_ins
+                 WHERE net_instance_id = ?1),
+                ?3, ?4, ?5, ?6, ?7);
+    )sql");
+        statement.BindInt64(0, check_in.net_instance_id);
+        statement.BindText(1, ToUpperAscii(check_in.callsign));
+        statement.BindText(2, check_in.signal_report);
+        statement.BindText(3, check_in.remarks);
+        statement.BindText(4, check_in.comment);
+        statement.BindInt64(5, check_in.checked_in_at);
+        statement.BindInt64(6, check_in.designated_role);
+        statement.Step();
+        return sqlite3_last_insert_rowid(db_);
+    }
+
     std::vector<CheckIn> Database::GetCheckInsForNetInstance(std::int64_t net_instance_id)
     {
         Statement statement(db_, R"sql(

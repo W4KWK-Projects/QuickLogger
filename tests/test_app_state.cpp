@@ -663,6 +663,26 @@ namespace ql
               std::string::npos);
     }
 
+    QL_TEST(LicenseSuggestionsSkipStationsRemovedSinceTheyLoaded)
+    {
+        Fixture f;
+        LoadZipData(f.db());
+        f.db()->BulkUpsertUlsStations(
+            {MakeStation("K4AAA", "STAYS", "37415"), MakeStation("K4AAB", "EXPIRES", "37402")}, 0,
+            2, 1);
+        f.StartNet("Skywarn");
+        f.state.modal_station.callsign = "K4AA";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 2);
+        CHECK_EQ(f.state.modal_callsign_suggestions[1].name, std::string("EXPIRES"));
+
+        // A station data refresh drops K4AAB; the in-memory list still has it.
+        f.db()->DeleteUlsStationsNotIn({MakeStation("K4AAA")});
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 1);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("K4AAA"));
+    }
+
     QL_TEST(AutocompleteShowsAtMostEight)
     {
         Fixture f;

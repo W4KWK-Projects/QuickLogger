@@ -357,6 +357,15 @@ namespace ql
         std::vector<std::string> nearby_zip3_prefixes;
         // The origin ZIP the two above were computed for.
         std::string nearby_zips_origin;
+        // Every ULS licensee near that origin, nearest first, in the order
+        // Database::SearchNearbyUlsStations returns them. Loaded once per
+        // origin (and again after kNearbyUlsReloadSeconds, to pick up a
+        // station data refresh) so each keystroke is a substring scan in
+        // memory rather than a database query: with many sessions typing at
+        // once, that query was most of the server's CPU. A few hundred KB.
+        std::vector<NearbyUlsCallsign> nearby_uls_callsigns;
+        std::string nearby_uls_origin;
+        std::int64_t nearby_uls_loaded_at = 0;
         // Autocomplete candidates for the saved-station mini-form (see
         // RefreshSavedStationSuggestions), refreshed live as the operator
         // types the callsign: tier 1 (already known to this net, real

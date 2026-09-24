@@ -366,6 +366,39 @@ namespace ql
         CHECK_EQ(check_ins[2].sequence_number, 3);
     }
 
+    QL_TEST(NextSequenceNumberIsOnePastTheHighest)
+    {
+        TempDir dir;
+        Database db(dir.File("q.db"));
+        std::int64_t net = AddTestNet(&db, "A");
+        std::int64_t session = AddTestInstance(&db, net, "2026-01-01", 100, "W4KWK");
+        std::int64_t other = AddTestInstance(&db, net, "2026-01-08", 200, "W4KWK");
+        AddTestCheckIn(&db, other, "K4ZZZ", 9);  // Another session's numbers don't count.
+        for (const char* callsign : {"K4AAA", "K4BBB", "K4CCC"})
+        {
+            db.RecordManualCheckInStation(MakeStation(callsign), 1);
+        }
+        CheckIn check_in;
+        check_in.net_instance_id = session;
+        check_in.callsign = "K4AAA";
+        db.AddCheckInAtNextSequence(check_in);
+        check_in.callsign = "K4BBB";
+        std::int64_t second = db.AddCheckInAtNextSequence(check_in);
+        check_in.callsign = "K4CCC";
+        db.AddCheckInAtNextSequence(check_in);
+        db.DeleteCheckIn(second);
+        // Recorded after the delete, which clears out unused stations.
+        db.RecordManualCheckInStation(MakeStation("K4DDD"), 1);
+        check_in.callsign = "K4DDD";
+        db.AddCheckInAtNextSequence(check_in);
+        std::vector<CheckIn> check_ins = db.GetCheckInsForNetInstance(session);
+        REQUIRE(check_ins.size() == 3);
+        CHECK_EQ(check_ins[0].sequence_number, 1);
+        CHECK_EQ(check_ins[1].sequence_number, 3);
+        CHECK_EQ(check_ins[2].sequence_number, 4);
+        CHECK_EQ(check_ins[2].callsign, std::string("K4DDD"));
+    }
+
     // ---- Deletes and station cleanup ---------------------------------------------
 
     QL_TEST(RemovingTheLastUseOfAStationDeletesItsDetails)

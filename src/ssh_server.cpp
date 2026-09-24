@@ -326,6 +326,37 @@ namespace ql
         return static_cast<int>(count);
     }
 
+    // True once `pid` has exited (or was already reaped: SIGCHLD is ignored
+    // process-wide, see SshAcceptLoop, so the kernel may have done it).
+    static bool ChildHasExited(pid_t pid)
+    {
+        pid_t reaped = waitpid(pid, nullptr, WNOHANG);
+        return reaped == pid || (reaped == -1 && errno == ECHILD);
+    }
+
+    // Ends a session's child process. Asks first (SIGTERM), then insists
+    // (SIGKILL) if it hasn't gone within a couple of seconds -- a child that
+    // is stuck, e.g. blocked writing a screen update nobody will ever read,
+    // must never keep its connection's process waiting forever.
+    static void StopSessionChild(pid_t pid)
+    {
+        if (ChildHasExited(pid))
+        {
+            return;
+        }
+        kill(pid, SIGTERM);
+        for (int i = 0; i < 40; ++i)
+        {
+            if (ChildHasExited(pid))
+            {
+                return;
+            }
+            ::usleep(50000);
+        }
+        kill(pid, SIGKILL);
+        waitpid(pid, nullptr, 0);
+    }
+
     // Runs the whole lifecycle of one already-accepted connection: key
     // exchange, auth, channel/pty/shell setup, then relays bytes between
     // the pty and the SSH channel until either side goes away. Called in
@@ -447,15 +478,7 @@ namespace ql
         {
             ssh_event_dopoll(event, 200);
 
-            int status = 0;
-            pid_t reaped = waitpid(state.child_pid, &status, WNOHANG);
-            // SIGCHLD is ignored process-wide (see SshAcceptLoop), which
-            // auto-reaps children at the kernel level -- if that already
-            // happened before this call, waitpid correctly reports
-            // ECHILD ("no such child") rather than the pid, since there's
-            // nothing left to wait for. Both outcomes mean the same
-            // thing here: the child is gone.
-            if (reaped == state.child_pid || (reaped == -1 && errno == ECHILD))
+            if (ChildHasExited(state.child_pid))
             {
                 break;
             }
@@ -477,14 +500,15 @@ namespace ql
             }
         }
 
-        if (waitpid(state.child_pid, nullptr, WNOHANG) == 0)
-        {
-            kill(state.child_pid, SIGTERM);
-            waitpid(state.child_pid, nullptr, 0);
-        }
-
+        // Close the pty before stopping the child, not after. Once the
+        // client is gone nothing reads the pty any more, so a child in the
+        // middle of drawing a screen can be blocked writing to it; closing
+        // our end fails that write and hangs up its terminal. Stopping it
+        // first instead left both processes waiting on each other forever
+        // (seen under load: 43 of ~500 dropped connections leaked this way).
         ssh_event_remove_fd(event, state.pty_master_fd);
         ::close(state.pty_master_fd);
+        StopSessionChild(state.child_pid);
         ssh_event_free(event);
 
         ssh_channel_send_eof(state.channel);

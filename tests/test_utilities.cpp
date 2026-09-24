@@ -2,6 +2,7 @@
 // file handling.
 
 #include <algorithm>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -434,6 +435,24 @@ namespace ql
         CHECK(WriteExportFile(path, {"one", "two"}, &error));
         CHECK_EQ(ReadTextFile(path), std::string("one\ntwo\n"));
         CHECK(error.empty());
+    }
+
+    QL_TEST(WriteExportFileReplacesTheFileWhole)
+    {
+        TempDir dir;
+        std::string path = dir.File("log.txt");
+        std::string error;
+        CHECK(WriteExportFile(path, {"a much longer first version", "with two lines"}, &error));
+        CHECK(WriteExportFile(path, {"short"}, &error));
+        CHECK_EQ(ReadTextFile(path), std::string("short\n"));
+        // Nothing left behind from building it.
+        std::size_t files = 0;
+        for (const std::filesystem::directory_entry& entry :
+             std::filesystem::directory_iterator(std::filesystem::path(path).parent_path()))
+        {
+            files += entry.is_regular_file() ? 1 : 0;
+        }
+        CHECK_EQ(files, std::size_t{1});
     }
 
     QL_TEST(WriteExportFileReportsAnUnwritablePath)

@@ -110,24 +110,26 @@ namespace ql
         {
             EnsureDirectory(dest_path.substr(0, slash));
         }
-        // A stale file at this exact path (e.g. re-exporting the same net)
-        // would otherwise merge with the new data instead of being replaced,
-        // since Database's constructor only creates tables that don't
-        // already exist.
-        std::error_code remove_error;
-        std::filesystem::remove(dest_path, remove_error);
-
+        // Built at a fresh temporary path, then moved into place: writing
+        // straight to dest_path would merge with a stale file there (e.g.
+        // re-exporting the same net), since Database's constructor only
+        // creates tables that don't already exist -- and with another session
+        // exporting the same net at the same moment, both would write into
+        // one file, leaving it with two nets that can't be imported.
+        std::string temp_path = TemporaryPathFor(dest_path);
         try
         {
-            Database dest(dest_path, /*use_wal=*/false);
+            Database dest(temp_path, /*use_wal=*/false);
             ApplyNetSlice(&dest, slice, slice.net.imported_at);
         }
         catch (const std::exception& e)
         {
+            std::error_code remove_error;
+            std::filesystem::remove(temp_path, remove_error);
             *error = e.what();
             return false;
         }
-        return true;
+        return ReplaceWithFile(temp_path, dest_path, error);
     }
 
     std::optional<NetSlice> ReadNetSliceFile(const std::string& source_path, std::string* error)

@@ -150,6 +150,11 @@ namespace ql
 
         // Check-ins (one station's check-in during one NetInstance).
         std::int64_t AddCheckIn(const CheckIn& check_in);
+        // Adds `check_in` as the next one in its session: one past the
+        // highest sequence number so far (ignoring check_in.sequence_number).
+        // The number is worked out inside the INSERT itself, so two people
+        // logging the same session at the same moment can't both get it.
+        std::int64_t AddCheckInAtNextSequence(const CheckIn& check_in);
         std::vector<CheckIn> GetCheckInsForNetInstance(std::int64_t net_instance_id);
         void UpdateCheckIn(const CheckIn& check_in);
         // Removes one check-in entry entirely (e.g. logged in error). Does not
@@ -207,7 +212,8 @@ namespace ql
         int DeleteUlsStationsNotIn(const std::vector<Station>& current);
         // Autocomplete's FCC tier: ULS stations whose callsign contains
         // `substring` (case-insensitive) and who live near the operator,
-        // nearest first (then by callsign), at most `limit` of them. "Near"
+        // nearest first (then by callsign), at most `limit` of them (-1 for
+        // no limit; an empty `substring` matches every station). "Near"
         // is a ZIP in `nearby_zips` (see NearbyZips in geo_utils.hpp, which
         // also supplies each one's distance), or -- listed after those, with
         // an unknown distance -- a ZIP with no centroid on file (e.g. a PO

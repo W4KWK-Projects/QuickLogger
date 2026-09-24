@@ -35,11 +35,23 @@ namespace ql
     // else. Returns false if the directory doesn't exist afterward.
     bool EnsureDirectory(const std::string& dir);
 
+    // A not-yet-existing path next to `path` to build a file at before
+    // moving it into place with ReplaceWithFile, so that two sessions
+    // exporting the same file at once (the same net's log on the same day)
+    // can't interleave their writes: each writes its own temporary file and
+    // the last move wins, whole.
+    std::string TemporaryPathFor(const std::string& path);
+
+    // Moves `temp_path` to `path`, replacing any file there. On failure,
+    // removes `temp_path`, sets `error` and returns false.
+    bool ReplaceWithFile(const std::string& temp_path, const std::string& path, std::string* error);
+
     // Writes `lines` to `path`, one per line (LF-terminated), overwriting
-    // any existing file there. Creates `path`'s parent directory first
-    // (see EnsureDirectory) so callers don't need the exports directory to
-    // already exist. Returns true on success; on failure, `error` is set to
-    // a short message.
+    // any existing file there (via TemporaryPathFor/ReplaceWithFile, so a
+    // reader never sees it half-written). Creates `path`'s parent directory
+    // first (see EnsureDirectory) so callers don't need the exports
+    // directory to already exist. Returns true on success; on failure,
+    // `error` is set to a short message.
     bool WriteExportFile(const std::string& path, const std::vector<std::string>& lines,
                          std::string* error);
 

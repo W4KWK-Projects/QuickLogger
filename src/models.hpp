@@ -178,6 +178,16 @@ namespace ql
         double miles = -1.0;
     };
 
+    // Just the callsign and distance of a nearby ULS station: what the
+    // autocomplete keeps in memory for every licensee near the net (see
+    // AppState::nearby_uls_callsigns), with the rest of a station's details
+    // looked up only for the few that match what's typed.
+    struct NearbyUlsCallsign
+    {
+        std::string callsign;
+        double miles = -1.0;
+    };
+
     // The county a US ZIP code is in, for filling in Station::county (FCC's
     // ULS data has none). For a ZIP that crosses a county line, this is the
     // county where most of its residents live -- see FetchAndLoadZipCounties

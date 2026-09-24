@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <ctime>
 #include <exception>
+#include <optional>
 #include <utility>
 
 #include <ftxui/component/component_base.hpp>
@@ -788,24 +789,15 @@ namespace ql
         CheckIn check_in;
         check_in.net_instance_id = state->active_instance.id;
         check_in.callsign = state->modal_station.callsign;
-        // One past the highest number so far, not the count: after a
-        // check-in is deleted the numbers have a gap, and counting would hand
-        // out a number that's already on the list.
-        // Read fresh rather than from active_check_ins: someone else may be
-        // logging this same session (see ResumeOpenNet).
-        int highest_sequence = 0;
-        for (const CheckIn& existing :
-             state->db->GetCheckInsForNetInstance(state->active_instance.id))
-        {
-            highest_sequence = std::max(highest_sequence, existing.sequence_number);
-        }
-        check_in.sequence_number = highest_sequence + 1;
         check_in.signal_report = state->modal_signal_report;
         check_in.remarks = state->modal_remarks;
         check_in.comment = state->modal_comment;
         check_in.checked_in_at = now;
         check_in.designated_role = RoleFromRoleChoiceIndex(state, state->modal_role_choice_index);
-        check_in.id = state->db->AddCheckIn(check_in);
+        // Numbered one past the highest so far (not the count: after a
+        // delete the numbers have a gap), worked out by the database so two
+        // people logging this same session (see ResumeOpenNet) can't collide.
+        check_in.id = state->db->AddCheckInAtNextSequence(check_in);
 
         if (check_in.designated_role != kRoleNone)
         {
@@ -2028,14 +2020,20 @@ namespace ql
             origin_it->second.lat, origin_it->second.lon, state->zip_centroids_cache);
     }
 
+    // How long AppState::nearby_uls_callsigns is trusted before it's
+    // reloaded, so a long session picks up the weekly station data refresh.
+    static constexpr std::int64_t kNearbyUlsReloadSeconds = 3600;
+
     // Autocomplete's last tier, shared by the New Station modal and the
     // saved-station form: ULS-imported stations matching `typed` whose ZIP is
     // within geo_utils::kNearbyRadiusMiles of the net's ZIP (`net_zip`) or,
     // failing that, the operator's own, nearest first (see RefreshNearbyZips
-    // and Database::SearchNearbyUlsStations). Appended after whatever
-    // `suggestions` already holds (the this-net and other-nets tiers),
-    // skipping callsigns already there, until `max_suggestions` is reached.
-    // Nothing is added if neither ZIP is recognized.
+    // and Database::SearchNearbyUlsStations). Matched in memory against
+    // AppState::nearby_uls_callsigns, so only the matches are read from the
+    // database. Appended after whatever `suggestions` already holds (the
+    // this-net and other-nets tiers), skipping callsigns already there,
+    // until `max_suggestions` is reached. Nothing is added if neither ZIP is
+    // recognized.
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed,
                                            const std::string& net_zip, std::size_t max_suggestions,
                                            std::vector<Station>* suggestions,
@@ -2051,22 +2049,38 @@ namespace ql
             return;
         }
 
-        // Enough extra to still fill the list after dropping callsigns the
-        // earlier tiers already show.
-        int limit = static_cast<int>(max_suggestions + suggestions->size());
-        std::vector<NearbyUlsStation> candidates = state->db->SearchNearbyUlsStations(
-            typed, state->nearby_zips, state->nearby_zip3_prefixes, limit);
+        std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+        if (state->nearby_uls_origin != state->nearby_zips_origin ||
+            now - state->nearby_uls_loaded_at > kNearbyUlsReloadSeconds)
+        {
+            // An empty substring matches every nearby station; no limit.
+            std::vector<NearbyUlsStation> all = state->db->SearchNearbyUlsStations(
+                "", state->nearby_zips, state->nearby_zip3_prefixes, -1);
+            state->nearby_uls_callsigns.clear();
+            state->nearby_uls_callsigns.reserve(all.size());
+            for (const NearbyUlsStation& station : all)
+            {
+                state->nearby_uls_callsigns.push_back({station.station.callsign, station.miles});
+            }
+            state->nearby_uls_origin = state->nearby_zips_origin;
+            state->nearby_uls_loaded_at = now;
+        }
 
-        for (const NearbyUlsStation& candidate : candidates)
+        std::string upper = ToUpperAscii(typed);
+        for (const NearbyUlsCallsign& candidate : state->nearby_uls_callsigns)
         {
             if (suggestions->size() >= max_suggestions)
             {
                 break;
             }
+            if (candidate.callsign.find(upper) == std::string::npos)
+            {
+                continue;
+            }
             bool already_known = false;
             for (const Station& existing : *suggestions)
             {
-                if (existing.callsign == candidate.station.callsign)
+                if (existing.callsign == candidate.callsign)
                 {
                     already_known = true;
                     break;
@@ -2076,8 +2090,15 @@ namespace ql
             {
                 continue;
             }
-            suggestions->push_back(candidate.station);
-            labels->push_back(FormatUlsSuggestion(candidate.station, candidate.miles));
+            // Gone if the station data was refreshed since the list loaded.
+            std::optional<Station> station =
+                state->db->FindUlsStationByCallsign(candidate.callsign);
+            if (!station.has_value())
+            {
+                continue;
+            }
+            suggestions->push_back(*station);
+            labels->push_back(FormatUlsSuggestion(*station, candidate.miles));
         }
     }
 
