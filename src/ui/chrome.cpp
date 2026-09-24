@@ -84,6 +84,12 @@ namespace ql
         return std::move(content) | ftxui::border | ftxui::color(kColorFrame);
     }
 
+    ftxui::Element DialogFramed(ftxui::Element content)
+    {
+        return std::move(content) | ftxui::color(kColorFrame) |
+               ftxui::borderStyled(kColorDialogBorder);
+    }
+
     ftxui::Element KeyHintRow(const std::vector<KeyHint>& hints)
     {
         ftxui::Elements pieces;

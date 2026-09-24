@@ -82,6 +82,10 @@ namespace ql
     // `content` inside a light-blue border.
     ftxui::Element Framed(ftxui::Element content);
 
+    // Framed, for a box inside a dialog: its border in the dialog border's
+    // color.
+    ftxui::Element DialogFramed(ftxui::Element content);
+
     // A single keyboard shortcut shown in a page's or modal's key legend, e.g.
     // {"F2", "Save"}. Since mouse use can't be assumed, every action a page or
     // modal offers should have an entry somewhere on screen.

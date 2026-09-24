@@ -813,7 +813,7 @@ namespace ql
                     ? ftxui::text("")
                     : ftxui::vbox({
                           HintText("Matches: Up/Down to choose, Enter to pick the one marked >"),
-                          Framed(ftxui::vbox({
+                          DialogFramed(ftxui::vbox({
                               ColumnHeader(FormatCallsignSuggestionHeaderRow()),
                               suggestion_menu_->Render(),
                           })),
