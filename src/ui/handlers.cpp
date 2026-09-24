@@ -262,8 +262,34 @@ namespace ql
         SaveEditNetForm(state_);
     }
 
+    // True if nothing at all has been typed into the saved-station form.
+    static bool SavedStationFormIsBlank(const AppState* state)
+    {
+        const Station& station = state->saved_station;
+        return station.callsign.empty() && station.name.empty() && station.member_id.empty() &&
+               station.street_address.empty() && station.city.empty() && station.county.empty() &&
+               station.state.empty() && station.zip.empty() && station.grid_square.empty() &&
+               state->saved_station_remarks.empty();
+    }
+
     void SaveNetStationFormHandler::operator()() const
     {
+        if (state_->saved_station.callsign.empty())
+        {
+            // Nothing to save yet: rather than just complaining, take the
+            // operator to the callsign field -- F3 is how people reach for
+            // "add a station" here, and the field is otherwise six Tab-stops
+            // down the page. Only say something if they'd already filled in
+            // other fields and just left the callsign out.
+            state_->form_error = SavedStationFormIsBlank(state_)
+                                     ? std::string()
+                                     : std::string("Enter a callsign to save this station.");
+            if (state_->saved_station_callsign_input)
+            {
+                state_->saved_station_callsign_input->TakeFocus();
+            }
+            return;
+        }
         SaveNetStationForm(state_);
     }
 

@@ -449,7 +449,9 @@ namespace ql
     };
 
     // F3 on the edit-net page: adds the saved-station mini-form's callsign as a
-    // known station for this net.
+    // known station for this net -- or, when no callsign has been entered yet,
+    // moves the cursor to the callsign field so one can be (the quick way down
+    // to the form from anywhere on the page, like F6).
     class SaveNetStationFormHandler
     {
     public:
