@@ -435,7 +435,7 @@ namespace ql
             if (state_->confirm_prompt == ConfirmPrompt::kResumeNet)
             {
                 rows.push_back(KeyHintRow(
-                    {{"F2/Enter", "Resume"}, {"F3", "Close It & Start New"}, {"Esc", "Cancel"}}));
+                    {{"F2/Enter", "Resume"}, {"F3", "Close & Start New"}, {"Esc", "Cancel"}}));
             }
             else
             {
@@ -676,8 +676,7 @@ namespace ql
                 ErrorLine(state_->form_error),
             });
 
-            return PageChrome("Enter Callsign", content,
-                              {{"F2/Enter", "Start Net"}, {"Esc", "Back"}});
+            return PageChrome("Enter Callsign", content, {{"F2/Enter", "Start"}, {"Esc", "Back"}});
         }
 
     private:
@@ -775,8 +774,8 @@ namespace ql
             else
             {
                 hints = {
-                    {"F2", "New Check-In"}, {"F3", "Edit Check-In"}, {"F4", "Close/Save"},
-                    {"F5", "Del Check-In"}, {"F7", "Export"},
+                    {"F2", "Check In"}, {"F3", "Edit"},   {"F4", "Close/Save"},
+                    {"F5", "Delete"},   {"F7", "Export"},
                 };
             }
             return PageChrome(page_title, content, hints);
@@ -1096,7 +1095,7 @@ namespace ql
             std::vector<KeyHint> hints = {{"F2", "Save"}};
             if (state_->is_console_session)
             {
-                hints.push_back({"F3", "Refresh Station Data"});
+                hints.push_back({"F3", "Refresh Data"});
                 hints.push_back({"F4", "Manage Users"});
             }
             hints.push_back({"Esc", "Cancel"});
@@ -1166,7 +1165,7 @@ namespace ql
                 ErrorLine(state_->form_error),
             });
 
-            return PageChrome("Ad Hoc Net", content, {{"F2", "Start Net"}, {"Esc", "Cancel"}});
+            return PageChrome("Ad Hoc Net", content, {{"F2", "Start"}, {"Esc", "Cancel"}});
         }
 
     private:
@@ -1260,11 +1259,9 @@ namespace ql
             {
                 return PageChrome("History: " + net_name, content, PickKeyHints(state_));
             }
-            return PageChrome("History: " + net_name, content,
-                              {{"F4", "Delete Check-In"},
-                               {"F5", "Delete Session"},
-                               {"F7", "Export"},
-                               {"Esc", "Back"}});
+            return PageChrome(
+                "History: " + net_name, content,
+                {{"F4", "Del Check-In"}, {"F5", "Del Session"}, {"F7", "Export"}, {"Esc", "Back"}});
         }
 
     private:
@@ -1428,7 +1425,7 @@ namespace ql
                                   {"F4", "Remove"},
                                   {"F6", "Add Station"},
                                   {"F7", "Export"},
-                                  {"F8", "Delete Net"},
+                                  {"F8", "Del Net"},
                                   {"F9", "Edit Station"},
                                   {"Esc", "Cancel"},
                               });
