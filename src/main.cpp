@@ -8,6 +8,7 @@
 #include <string>
 #include <thread>
 
+#include "data_updater.hpp"
 #include "interactive_session.hpp"
 
 // The built-in SSH server is an optional part of the build (CMake option
@@ -18,9 +19,7 @@
 #endif
 
 constexpr int kDefaultSshPort = 2222;
-// Only the SSH server takes the path as an argument (the interactive
-// session opens "quicklogger.db" itself), hence unused without it.
-[[maybe_unused]] constexpr const char* kDbPath = "quicklogger.db";
+constexpr const char* kDbPath = "quicklogger.db";
 
 #ifdef QUICKLOGGER_WITH_SSH
 constexpr bool kSshCompiledIn = true;
@@ -79,6 +78,11 @@ static int RunQuickLogger(int argc, char** argv)
 
     CliOptions options = ParseArgs(argc, argv);
 
+    // Keeps the shared station data loaded and current for every session
+    // (see data_updater.hpp). Like the SSH listener below, started before
+    // this process opens the database or starts any thread.
+    ql::StartDataUpdater(kDbPath);
+
 #ifdef QUICKLOGGER_WITH_SSH
     if (options.headless)
     {
@@ -134,6 +138,7 @@ static int RunQuickLogger(int argc, char** argv)
 #ifdef QUICKLOGGER_WITH_SSH
     ql::StopSshServerProcess(ssh_listener_pid);
 #endif
+    ql::StopDataUpdater();
     return exit_code;
 }
 

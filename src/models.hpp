@@ -8,16 +8,16 @@ namespace ql
 
     // Where a Station's contact data came from, so the UI can decide whether
     // it's safe to overwrite with a fresh lookup or whether the user's own
-    // edits should be preserved.
+    // edits should be preserved. (1 was once reserved for QRZ lookups, which
+    // were never built; it's left unused so stored values keep their meaning.)
     enum class StationDataSource
     {
         kManual = 0,
-        kQrz = 1,
         kUls = 2,
     };
 
     // A callsign the logger has ever seen, independent of any particular net.
-    // Most fields are normally populated from QRZ/the FCC ULS database, but
+    // Most fields are normally populated from the FCC ULS database, but
     // user-entered overrides are preserved when that data isn't available.
     struct Station
     {
@@ -113,17 +113,30 @@ namespace ql
         int designated_role = kRoleNone;
     };
 
-    // Persisted state of one bulk-import job (e.g. "uls"), so its ongoing/
-    // complete status survives page navigation and app restarts. See
-    // Database::GetImportRunStatus/UpsertImportRunStatus.
+    // Persisted state of one background data job, keyed by `source`. Two
+    // kinds of row share this shape (see data_updater.hpp):
+    //   - one row per dataset ("uls", "zip_centroids", "zip_county_data")
+    //     recording the outcome of its last load -- status, when, how many
+    //     records, and the error if it failed;
+    //   - the "data_refresh" row, which is the updater's lock and live
+    //     progress report: while `status` is "running" it's rewritten every
+    //     few seconds with the current phase/percent and a fresh
+    //     heartbeat_at, so every session can show progress by reading it,
+    //     and a run whose heartbeat stops (its process was killed) can be
+    //     told apart from one that's still going.
     struct ImportRunStatus
     {
         std::string source;                // e.g. "uls".
-        std::string status = "never_run";  // "never_run" | "running" | "complete" | "failed".
+        std::string status = "never_run";  // "never_run" | "running" | "complete" | "failed"
+                                           // | "interrupted".
         std::int64_t started_at = 0;       // Unix timestamp.
         std::int64_t completed_at = 0;     // Unix timestamp; 0 if never completed.
         std::int64_t records_imported = 0;
         std::string last_error;
+        std::string phase;              // While running: e.g. "Downloading".
+        int percent = 0;                // While running: 0-100.
+        std::int64_t heartbeat_at = 0;  // While running: last progress write.
+        std::int64_t requested_at = 0;  // When a refresh was last asked for by hand.
     };
 
     // Approximate center point of a US ZIP code (from the Census Bureau's
@@ -137,34 +150,28 @@ namespace ql
         double lon = 0.0;
     };
 
-    // Which county a US ZIP code falls in, from the Census Bureau's ZCTA-to-
-    // county relationship file. A ZCTA can span more than one county; this
-    // is whichever county has the largest land-area overlap with it (see
-    // FetchAndLoadZipCounties). Used to backfill Station::county for a
-    // ULS-sourced station, which has no county field at all in FCC's data
-    // -- see BackfillCountyFromZip and AppState::zip_county_by_zip (loaded
-    // once, not queried live, same rationale as zip_centroids_cache).
+    // The county a US ZIP code is in, for filling in Station::county (FCC's
+    // ULS data has none). For a ZIP that crosses a county line, this is the
+    // county where most of its residents live -- see FetchAndLoadZipCounties
+    // in uls_import.cpp. Loaded once per process into
+    // AppState::zip_county_by_zip rather than queried live.
     struct ZipCounty
     {
         std::string zip;
         std::string county;
     };
 
-    // A (city, state) -> county mapping derived entirely from data already
-    // on hand: for every city/state pair seen in uls_stations, whichever
-    // county its member ZIPs' zip_counties entries agree on most often (see
-    // Database::ComputeCityCounties). A city is unambiguous even when one
-    // of its ZIPs straddles a county line close to evenly -- which is
-    // exactly the case ZipCounty's own area-based ZIP lookup can get wrong
-    // (see kZipCountyOverrides in uls_import.cpp) -- so BackfillCountyFromZip
-    // prefers this over the raw per-ZIP lookup when a station's city/state
-    // are known. Not persisted as a table: recomputed into
-    // AppState::city_county_by_city_state once per process run, same
-    // loaded-once-and-cached rationale as zip_county_by_zip.
-    struct CityCounty
+    // For a ZIP that crosses a county line: a town/city/township inside it
+    // and the county that town is in, so a station whose address names that
+    // town gets the right county even when most of the ZIP's residents live
+    // in a different one. `place` is uppercase with its Census suffix
+    // removed ("NEWTON", not "Newton city"), ready to compare against a
+    // station's city. Loaded alongside ZipCounty; see
+    // AppState::zip_place_county_by_key.
+    struct ZipPlaceCounty
     {
-        std::string city;
-        std::string state;
+        std::string zip;
+        std::string place;
         std::string county;
     };
 

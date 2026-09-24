@@ -8,6 +8,8 @@
 namespace ql
 {
 
+    class Database;
+
     // A single keyboard shortcut shown in a page's or modal's key legend, e.g.
     // {"F2", "Save"}. Since mouse use can't be assumed, every action a page or
     // modal offers should have an entry somewhere on screen.
@@ -22,9 +24,18 @@ namespace ql
     // box, alongside PageChrome's full-width BottomBar for whole pages.
     ftxui::Element KeyHintRow(const std::vector<KeyHint>& hints);
 
+    // Where TopBar reads the station-data notice from (see
+    // DescribeStationDataNotice in uls_import.hpp). Set once per session,
+    // before the first frame; until then, or with nullptr, no notice shows.
+    // A process-wide setting because every page's TopBar needs it and each
+    // process runs exactly one session.
+    void SetTopBarNoticeDatabase(Database* db);
+
     // A full-width colored title bar for the top of a page, naming the app and
     // the page currently shown, with the local time (to the minute) at the
-    // right end.
+    // right end -- and, while the shared station data is loading or missing,
+    // a short notice saying so just left of the clock, so people know lookups
+    // aren't fully working yet whatever page they're on.
     ftxui::Element TopBar(const std::string& page_title);
 
     // A full-width colored legend bar for the bottom of a page. Packs as many

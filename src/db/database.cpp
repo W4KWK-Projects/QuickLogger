@@ -107,6 +107,13 @@ CREATE TABLE IF NOT EXISTS zip_counties (
     county TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS zip_place_counties (
+    zip TEXT NOT NULL,
+    place TEXT NOT NULL,
+    county TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (zip, place)
+);
+
 CREATE TABLE IF NOT EXISTS users (
     username TEXT PRIMARY KEY,
     public_key TEXT NOT NULL,
@@ -274,6 +281,10 @@ CREATE TABLE IF NOT EXISTS users (
         EnsureColumnExists(db_, "net_instances", "operator_role", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(db_, "net_instances", "started_at", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(db_, "check_ins", "designated_role", "INTEGER NOT NULL DEFAULT -1");
+        EnsureColumnExists(db_, "import_runs", "phase", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(db_, "import_runs", "percent", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(db_, "import_runs", "heartbeat_at", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(db_, "import_runs", "requested_at", "INTEGER NOT NULL DEFAULT 0");
 
         // One-time migration for databases created before ULS import moved
         // to its own table (uls_stations): any leftover data_source=2 (kUls)
@@ -288,6 +299,14 @@ CREATE TABLE IF NOT EXISTS users (
                      "last_updated FROM stations WHERE data_source = 2;",
                      nullptr, nullptr, nullptr);
         sqlite3_exec(db_, "DELETE FROM stations WHERE data_source = 2;", nullptr, nullptr, nullptr);
+
+        // One-time fix-up for ULS rows imported before uls_import.cpp
+        // trimmed FCC's run-together ZIP+4 values ("307524915") to five
+        // digits: every ZIP lookup (county, distance) is keyed on the
+        // five-digit form, so those rows got neither until the next weekly
+        // refresh rewrote them. Idempotent -- a no-op once none remain.
+        sqlite3_exec(db_, "UPDATE uls_stations SET zip = substr(zip, 1, 5) WHERE length(zip) > 5;",
+                     nullptr, nullptr, nullptr);
     }
 
     void Database::UpsertStation(const Station& station)
@@ -820,7 +839,8 @@ CREATE TABLE IF NOT EXISTS users (
     std::optional<ImportRunStatus> Database::GetImportRunStatus(const std::string& source)
     {
         Statement statement(db_, R"sql(
-        SELECT source, status, started_at, completed_at, records_imported, last_error
+        SELECT source, status, started_at, completed_at, records_imported, last_error,
+               phase, percent, heartbeat_at, requested_at
         FROM import_runs WHERE source = ?;
     )sql");
         statement.BindText(0, source);
@@ -835,39 +855,86 @@ CREATE TABLE IF NOT EXISTS users (
         result.completed_at = statement.ColumnInt64(3);
         result.records_imported = statement.ColumnInt64(4);
         result.last_error = statement.ColumnText(5);
+        result.phase = statement.ColumnText(6);
+        result.percent = static_cast<int>(statement.ColumnInt64(7));
+        result.heartbeat_at = statement.ColumnInt64(8);
+        result.requested_at = statement.ColumnInt64(9);
         return result;
     }
 
-    bool Database::TryClaimImportRun(const std::string& source, std::int64_t started_at)
+    bool Database::TryClaimImportRun(const std::string& source, std::int64_t now,
+                                     std::int64_t stale_after_seconds)
     {
         Statement statement(db_, R"sql(
-        INSERT INTO import_runs (source, status, started_at, completed_at, records_imported, last_error)
-        VALUES (?, 'running', ?, 0, 0, '')
+        INSERT INTO import_runs
+            (source, status, started_at, completed_at, records_imported, last_error,
+             phase, percent, heartbeat_at)
+        VALUES (?, 'running', ?, 0, 0, '', 'Starting', 0, ?)
         ON CONFLICT(source) DO UPDATE SET
             status = 'running',
             started_at = excluded.started_at,
             completed_at = 0,
             records_imported = 0,
-            last_error = ''
-        WHERE import_runs.status != 'running';
+            last_error = '',
+            phase = 'Starting',
+            percent = 0,
+            heartbeat_at = excluded.heartbeat_at
+        WHERE import_runs.status != 'running' OR import_runs.heartbeat_at < ?;
     )sql");
         statement.BindText(0, source);
-        statement.BindInt64(1, started_at);
+        statement.BindInt64(1, now);
+        statement.BindInt64(2, now);
+        statement.BindInt64(3, now - stale_after_seconds);
         statement.Step();
         return sqlite3_changes(db_) > 0;
     }
 
-    void Database::UpsertImportRunStatus(const ImportRunStatus& status)
+    void Database::UpdateImportProgress(const std::string& source, const std::string& phase,
+                                        int percent, std::int64_t records_imported,
+                                        std::int64_t now)
     {
         Statement statement(db_, R"sql(
-        INSERT INTO import_runs (source, status, started_at, completed_at, records_imported, last_error)
-        VALUES (?,?,?,?,?,?)
+        UPDATE import_runs
+        SET phase = ?, percent = ?, records_imported = ?, heartbeat_at = ?
+        WHERE source = ?;
+    )sql");
+        statement.BindText(0, phase);
+        statement.BindInt64(1, percent);
+        statement.BindInt64(2, records_imported);
+        statement.BindInt64(3, now);
+        statement.BindText(4, source);
+        statement.Step();
+    }
+
+    void Database::RequestImportRun(const std::string& source, std::int64_t now)
+    {
+        Statement statement(db_, R"sql(
+        INSERT INTO import_runs (source, requested_at) VALUES (?, ?)
+        ON CONFLICT(source) DO UPDATE SET requested_at = excluded.requested_at;
+    )sql");
+        statement.BindText(0, source);
+        statement.BindInt64(1, now);
+        statement.Step();
+    }
+
+    void Database::UpsertImportRunStatus(const ImportRunStatus& status)
+    {
+        // requested_at is deliberately left alone: it records a request, and
+        // only RequestImportRun sets it.
+        Statement statement(db_, R"sql(
+        INSERT INTO import_runs
+            (source, status, started_at, completed_at, records_imported, last_error,
+             phase, percent, heartbeat_at)
+        VALUES (?,?,?,?,?,?,?,?,?)
         ON CONFLICT(source) DO UPDATE SET
             status = excluded.status,
             started_at = excluded.started_at,
             completed_at = excluded.completed_at,
             records_imported = excluded.records_imported,
-            last_error = excluded.last_error;
+            last_error = excluded.last_error,
+            phase = excluded.phase,
+            percent = excluded.percent,
+            heartbeat_at = excluded.heartbeat_at;
     )sql");
         statement.BindText(0, status.source);
         statement.BindText(1, status.status);
@@ -875,6 +942,9 @@ CREATE TABLE IF NOT EXISTS users (
         statement.BindInt64(3, status.completed_at);
         statement.BindInt64(4, status.records_imported);
         statement.BindText(5, status.last_error);
+        statement.BindText(6, status.phase);
+        statement.BindInt64(7, status.percent);
+        statement.BindInt64(8, status.heartbeat_at);
         statement.Step();
     }
 
@@ -1022,29 +1092,34 @@ CREATE TABLE IF NOT EXISTS users (
         return results;
     }
 
-    void Database::BulkUpsertZipCounties(const std::vector<ZipCounty>& batch)
+    void Database::ReplaceZipCountyData(const std::vector<ZipCounty>& zip_counties,
+                                        const std::vector<ZipPlaceCounty>& zip_place_counties)
     {
-        Statement statement(db_, R"sql(
-        INSERT INTO zip_counties (zip, county) VALUES (?, ?)
-        ON CONFLICT(zip) DO UPDATE SET county = excluded.county;
-    )sql");
-
         sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
-        for (const ZipCounty& zip_county : batch)
+        sqlite3_exec(db_, "DELETE FROM zip_counties;", nullptr, nullptr, nullptr);
+        sqlite3_exec(db_, "DELETE FROM zip_place_counties;", nullptr, nullptr, nullptr);
+
+        Statement insert_zip(db_, "INSERT INTO zip_counties (zip, county) VALUES (?, ?);");
+        for (const ZipCounty& zip_county : zip_counties)
         {
-            statement.Reset();
-            statement.BindText(0, zip_county.zip);
-            statement.BindText(1, zip_county.county);
-            statement.Step();
+            insert_zip.Reset();
+            insert_zip.BindText(0, zip_county.zip);
+            insert_zip.BindText(1, zip_county.county);
+            insert_zip.Step();
+        }
+
+        Statement insert_place(db_, R"sql(
+        INSERT OR REPLACE INTO zip_place_counties (zip, place, county) VALUES (?, ?, ?);
+    )sql");
+        for (const ZipPlaceCounty& zip_place : zip_place_counties)
+        {
+            insert_place.Reset();
+            insert_place.BindText(0, zip_place.zip);
+            insert_place.BindText(1, zip_place.place);
+            insert_place.BindText(2, zip_place.county);
+            insert_place.Step();
         }
         sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
-    }
-
-    bool Database::HasAnyZipCounties()
-    {
-        Statement statement(db_, "SELECT EXISTS(SELECT 1 FROM zip_counties LIMIT 1);");
-        statement.Step();
-        return statement.ColumnInt64(0) != 0;
     }
 
     std::vector<ZipCounty> Database::GetAllZipCounties()
@@ -1061,49 +1136,26 @@ CREATE TABLE IF NOT EXISTS users (
         return results;
     }
 
-    std::vector<CityCounty> Database::ComputeCityCounties()
+    std::vector<ZipPlaceCounty> Database::GetAllZipPlaceCounties()
     {
-        // FCC's EN.dat has inconsistent city-name casing across records
-        // (confirmed on real data: "CHATTANOOGA" and "Chattanooga" both
-        // appear) -- grouping on the raw column would tally each casing's
-        // votes separately instead of combining them, which could pick the
-        // wrong county for a city whose vote is otherwise close. UPPER()
-        // both sides of the join key and the GROUP BY so every casing
-        // variant counts toward the same total.
-        Statement statement(db_, R"sql(
-        SELECT UPPER(u.city), UPPER(u.state), z.county, COUNT(*) AS votes
-        FROM uls_stations u
-        JOIN zip_counties z ON z.zip = u.zip
-        WHERE u.city != '' AND u.state != '' AND z.county != ''
-        GROUP BY UPPER(u.city), UPPER(u.state), z.county
-        ORDER BY UPPER(u.city), UPPER(u.state), votes DESC;
-    )sql");
-
-        std::vector<CityCounty> results;
-        std::string last_city;
-        std::string last_state;
-        bool have_last = false;
+        Statement statement(db_, "SELECT zip, place, county FROM zip_place_counties;");
+        std::vector<ZipPlaceCounty> results;
         while (statement.Step())
         {
-            std::string city = statement.ColumnText(0);
-            std::string state = statement.ColumnText(1);
-            if (have_last && city == last_city && state == last_state)
-            {
-                // A later row for the same (city, state) has fewer votes
-                // (ORDER BY ... votes DESC) -- the first one seen is the
-                // winner.
-                continue;
-            }
-            CityCounty city_county;
-            city_county.city = city;
-            city_county.state = state;
-            city_county.county = statement.ColumnText(2);
-            results.push_back(city_county);
-            last_city = city;
-            last_state = state;
-            have_last = true;
+            ZipPlaceCounty zip_place;
+            zip_place.zip = statement.ColumnText(0);
+            zip_place.place = statement.ColumnText(1);
+            zip_place.county = statement.ColumnText(2);
+            results.push_back(zip_place);
         }
         return results;
+    }
+
+    bool Database::HasAnyUlsStations()
+    {
+        Statement statement(db_, "SELECT EXISTS(SELECT 1 FROM uls_stations LIMIT 1);");
+        statement.Step();
+        return statement.ColumnInt64(0) != 0;
     }
 
     void Database::CreateUser(const User& user)

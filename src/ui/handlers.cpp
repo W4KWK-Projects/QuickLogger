@@ -6,6 +6,7 @@
 
 #include "../date_utils.hpp"
 #include "../text_utils.hpp"
+#include "../uls_import.hpp"
 
 namespace ql
 {
@@ -863,6 +864,7 @@ namespace ql
     {
         state_->settings_form = state_->settings;
         state_->form_error.clear();
+        state_->status_message.clear();
         state_->page = kPageSettings;
     }
 
@@ -899,9 +901,16 @@ namespace ql
         state_->page = kPageNetList;
     }
 
-    void StartUlsImportHandler::operator()() const
+    void RequestStationDataRefreshHandler::operator()() const
     {
-        StartUlsImport(state_->db_path, &state_->uls_import_progress, state_->screen);
+        if (!state_->is_console_session)
+        {
+            return;
+        }
+        state_->db->RequestImportRun(kDataRefreshJob,
+                                     static_cast<std::int64_t>(std::time(nullptr)));
+        state_->form_error.clear();
+        state_->status_message = "Station data refresh requested; it starts within a few seconds.";
     }
 
     void ShowManageUsersPageHandler::operator()() const
@@ -962,10 +971,10 @@ namespace ql
             save();
             return true;
         }
-        if (event == ftxui::Event::F3)
+        if (event == ftxui::Event::F3 && state_->is_console_session)
         {
-            StartUlsImportHandler start_import(state_);
-            start_import();
+            RequestStationDataRefreshHandler request_refresh(state_);
+            request_refresh();
             return true;
         }
         if (event == ftxui::Event::F4 && state_->is_console_session)
@@ -1010,12 +1019,6 @@ namespace ql
 
     void QuitHandler::operator()() const
     {
-        if (state_->uls_import_progress.running.load())
-        {
-            state_->form_error =
-                "Cannot quit while the ULS import is running. Please wait for it to finish.";
-            return;
-        }
         state_->screen->ExitLoopClosure()();
     }
 

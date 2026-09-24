@@ -5,19 +5,16 @@
 #include <cstdio>
 #include <ctime>
 #include <fstream>
-#include <mutex>
-#include <thread>
+#include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
-
-#include <ftxui/component/event.hpp>
-#include <ftxui/component/screen_interactive.hpp>
 
 #include "date_utils.hpp"
 #include "db/database.hpp"
 #include "file_export.hpp"
 #include "models.hpp"
-#include "ui/app_state.hpp"
+#include "text_utils.hpp"
 #include "zip_extract.hpp"
 
 namespace ql
@@ -47,6 +44,51 @@ namespace ql
     static constexpr std::size_t kAmUniqueSystemId = 1;
     static constexpr std::size_t kAmOperatorClass = 5;
 
+    // Census Bureau ZCTA gazetteer: approximate lat/lon centroid per US ZIP
+    // code, used to estimate distance for the saved-station form's ULS
+    // proximity autocomplete (see RefreshSavedStationSuggestions in
+    // app_state.cpp). Centroids are effectively permanent (population-
+    // weighted ZIP centers barely move year to year), so this is fetched
+    // once and never re-fetched, unlike the ULS license data. The filename
+    // is year-prefixed by Census; if this URL 404s in the future, it needs
+    // updating to a newer edition (and the matching extracted filename below).
+    static const char* kZipGazetteerUrl =
+        "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2023_Gazetteer/"
+        "2023_Gaz_zcta_national.zip";
+    static const char* kZipGazetteerFileName = "2023_Gaz_zcta_national.txt";
+
+    // The three Census files the ZIP-to-county data is built from (see
+    // FetchAndLoadZipCounties). FCC's ULS data has no county field anywhere
+    // in it (confirmed against a real downloaded l_amat.zip: EN.dat's 30
+    // fields cover only street/city/state/zip, and the only other candidate
+    // file, CO.dat, turned out to be license status "Comments", not
+    // counties). County boundaries are effectively permanent, so -- like the
+    // centroids -- these are fetched once and never re-fetched. All three are
+    // plain pipe- or comma-delimited text, not zipped.
+    //
+    // 2020 ZIP (ZCTA) to county: every county each ZIP overlaps, with the
+    // land area of each overlap, and the county names.
+    static const char* kZctaCountyUrl =
+        "https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/"
+        "tab20_zcta520_county20_natl.txt";
+    // 2010 ZIP to county, which unlike the 2020 edition also counts the
+    // *people* in each overlap -- the better guide to which county a ZIP
+    // belongs to, since land area can put a ZIP in the county that owns an
+    // empty ridge rather than the one its residents live in.
+    static const char* kZctaCountyPopulationUrl =
+        "https://www2.census.gov/geo/docs/maps-data/data/rel/zcta_county_rel_10.txt";
+    // 2020 ZIP to county subdivision: every town/city/township (or, in some
+    // states, census division) each ZIP overlaps, with its county.
+    static const char* kZctaCountySubdivisionUrl =
+        "https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/"
+        "tab20_zcta520_cousub20_natl.txt";
+
+    // A ZIP with at least this share of its people (or, lacking population
+    // figures, its land) in one county is simply "in" that county; below
+    // it, the ZIP straddles a county line and the town a station gives as
+    // its city decides (see ZipPlaceCounty).
+    static constexpr double kSingleCountyShare = 0.95;
+
     static std::string UlsCacheDir(const std::string& db_path)
     {
         std::string::size_type slash = db_path.find_last_of('/');
@@ -54,20 +96,20 @@ namespace ql
         return dir + "/uls_cache";
     }
 
-    static std::vector<std::string> SplitPipeDelimited(const std::string& line)
+    static std::vector<std::string> SplitOn(const std::string& line, char separator)
     {
         std::vector<std::string> fields;
         std::string::size_type start = 0;
         while (true)
         {
-            std::string::size_type pipe = line.find('|', start);
-            if (pipe == std::string::npos)
+            std::string::size_type found = line.find(separator, start);
+            if (found == std::string::npos)
             {
                 fields.push_back(line.substr(start));
                 break;
             }
-            fields.push_back(line.substr(start, pipe - start));
-            start = pipe + 1;
+            fields.push_back(line.substr(start, found - start));
+            start = found + 1;
         }
         return fields;
     }
@@ -130,6 +172,11 @@ namespace ql
         return std::string(buffer);
     }
 
+    static std::int64_t Now()
+    {
+        return static_cast<std::int64_t>(std::time(nullptr));
+    }
+
     static std::int64_t CountLines(const std::string& path)
     {
         std::ifstream file(path);
@@ -142,34 +189,92 @@ namespace ql
         return count;
     }
 
+    // Writes the refresh job's progress (see kDataRefreshJob) and answers
+    // "should we stop?". The work is split into steps, each owning a slice
+    // [base, base + span) of the overall 0-100%; a step reports how far
+    // through itself it is, and this maps that onto the overall figure.
+    // Writes are throttled to one a second -- a progress row rewritten on
+    // every downloaded chunk would be thousands of pointless writes.
+    class ProgressReporter
+    {
+    public:
+        ProgressReporter(Database* db, bool (*should_stop)()) : db_(db), should_stop_(should_stop)
+        {
+        }
+
+        void BeginStep(const std::string& phase, int base, int span)
+        {
+            phase_ = phase;
+            base_ = base;
+            span_ = span;
+            Write(base_);
+        }
+
+        // `fraction` is how far through the current step, 0.0-1.0.
+        void Report(double fraction, std::int64_t records)
+        {
+            records_ = records;
+            if (fraction < 0.0)
+            {
+                fraction = 0.0;
+            }
+            if (fraction > 1.0)
+            {
+                fraction = 1.0;
+            }
+            if (Now() - last_write_ >= 1)
+            {
+                Write(base_ + static_cast<int>(fraction * span_));
+            }
+        }
+
+        [[nodiscard]] bool StopRequested() const
+        {
+            return should_stop_ != nullptr && should_stop_();
+        }
+
+    private:
+        void Write(int percent)
+        {
+            last_write_ = Now();
+            db_->UpdateImportProgress(kDataRefreshJob, phase_, percent, records_, last_write_);
+        }
+
+        Database* db_;
+        bool (*should_stop_)();
+        std::string phase_;
+        int base_ = 0;
+        int span_ = 0;
+        std::int64_t records_ = 0;
+        std::int64_t last_write_ = 0;
+    };
+
     static size_t CurlWriteToFile(char* ptr, size_t size, size_t nmemb, void* userdata)
     {
         std::FILE* file = static_cast<std::FILE*>(userdata);
         return std::fwrite(ptr, size, nmemb, file);
     }
 
+    // Reports download progress, and aborts the transfer (non-zero return)
+    // once a stop has been requested.
     static int CurlProgressCallback(void* userdata, curl_off_t dltotal, curl_off_t dlnow,
                                     curl_off_t /*ultotal*/, curl_off_t /*ulnow*/)
     {
-        UlsImportProgress* progress = static_cast<UlsImportProgress*>(userdata);
+        ProgressReporter* reporter = static_cast<ProgressReporter*>(userdata);
         if (dltotal > 0)
         {
-            // Download maps to the first 70% of the overall progress bar --
-            // see ParseAndImport for the remaining 75-100% (extraction gets a
-            // fixed jump to 70-75%, set directly by the caller).
-            int percent = static_cast<int>((dlnow * 70) / dltotal);
-            progress->percent.store(percent);
+            reporter->Report(static_cast<double>(dlnow) / static_cast<double>(dltotal), 0);
         }
-        return 0;
+        return reporter->StopRequested() ? 1 : 0;
     }
 
-    static bool DownloadUlsZip(const std::string& zip_path, UlsImportProgress* progress,
-                               std::string* error)
+    static bool DownloadFile(const std::string& url, const std::string& dest_path,
+                             long timeout_seconds, ProgressReporter* reporter, std::string* error)
     {
-        std::FILE* file = std::fopen(zip_path.c_str(), "wb");
+        std::FILE* file = std::fopen(dest_path.c_str(), "wb");
         if (file == nullptr)
         {
-            *error = "Failed to open " + zip_path + " for writing.";
+            *error = "Failed to open " + dest_path + " for writing.";
             return false;
         }
 
@@ -181,15 +286,15 @@ namespace ql
             return false;
         }
 
-        curl_easy_setopt(curl, CURLOPT_URL, kUlsZipUrl);
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, CurlWriteToFile);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, CurlProgressCallback);
-        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, progress);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, reporter);
         curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 1800L);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_seconds);
         curl_easy_setopt(curl, CURLOPT_USERAGENT, "QuickLogger/1.0");
 
         CURLcode result = curl_easy_perform(curl);
@@ -204,6 +309,8 @@ namespace ql
         return true;
     }
 
+    // ---- FCC ULS license data ----------------------------------------------
+
     static bool ExtractUlsZip(const std::string& cache_dir, const std::string& zip_path,
                               std::string* error)
     {
@@ -211,15 +318,6 @@ namespace ql
         {
             *error = "Failed to extract the FCC ULS archive: " + *error;
             return false;
-        }
-        for (const char* name : {"HD.dat", "EN.dat", "AM.dat"})
-        {
-            std::ifstream check(cache_dir + "/" + name);
-            if (!check.good())
-            {
-                *error = std::string("Extraction did not produce ") + name + ".";
-                return false;
-            }
         }
         return true;
     }
@@ -240,7 +338,7 @@ namespace ql
         std::string line;
         while (std::getline(file, line))
         {
-            std::vector<std::string> fields = SplitPipeDelimited(line);
+            std::vector<std::string> fields = SplitOn(line, '|');
             if (fields.empty() || fields[0] != "EN")
             {
                 continue;
@@ -263,7 +361,7 @@ namespace ql
         std::string line;
         while (std::getline(file, line))
         {
-            std::vector<std::string> fields = SplitPipeDelimited(line);
+            std::vector<std::string> fields = SplitOn(line, '|');
             if (fields.empty() || fields[0] != "AM")
             {
                 continue;
@@ -275,13 +373,18 @@ namespace ql
     }
 
     static bool ParseAndImport(const std::string& cache_dir, Database* db,
-                               UlsImportProgress* progress, std::int64_t* out_records,
+                               ProgressReporter* reporter, std::int64_t* out_records,
                                std::string* error)
     {
         std::unordered_map<std::string, UlsEntityFields> entities =
             ParseEntityFile(cache_dir + "/EN.dat");
         std::unordered_map<std::string, std::string> license_classes =
             ParseAmateurFile(cache_dir + "/AM.dat");
+        if (reporter->StopRequested())
+        {
+            *error = "Interrupted.";
+            return false;
+        }
 
         std::string hd_path = cache_dir + "/HD.dat";
         std::int64_t total_lines = CountLines(hd_path);
@@ -298,7 +401,7 @@ namespace ql
             return false;
         }
 
-        std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+        std::int64_t now = Now();
         constexpr std::size_t kBatchSize = 1000;
         std::vector<Station> batch;
         batch.reserve(kBatchSize);
@@ -308,7 +411,7 @@ namespace ql
         while (std::getline(file, line))
         {
             ++line_number;
-            std::vector<std::string> fields = SplitPipeDelimited(line);
+            std::vector<std::string> fields = SplitOn(line, '|');
             if (fields.size() <= kHdLicenseStatus || fields[0] != "HD")
             {
                 continue;
@@ -352,9 +455,13 @@ namespace ql
             {
                 db->BulkUpsertUlsStations(batch, now);
                 batch.clear();
-                progress->records_imported.store(imported);
-                int percent = 75 + static_cast<int>((line_number * 25) / total_lines);
-                progress->percent.store(percent > 100 ? 100 : percent);
+                reporter->Report(
+                    static_cast<double>(line_number) / static_cast<double>(total_lines), imported);
+                if (reporter->StopRequested())
+                {
+                    *error = "Interrupted.";
+                    return false;
+                }
             }
         }
         if (!batch.empty())
@@ -362,100 +469,43 @@ namespace ql
             db->BulkUpsertUlsStations(batch, now);
         }
 
-        progress->records_imported.store(imported);
         *out_records = imported;
         return true;
     }
 
-    // Census Bureau ZCTA gazetteer: approximate lat/lon centroid per US ZIP
-    // code, used to estimate distance for the saved-station form's ULS
-    // proximity autocomplete (see DescribeUlsImportStatus's callers and
-    // RefreshSavedStationSuggestions in app_state.cpp). Centroids are
-    // effectively permanent (population-weighted ZIP centers barely move
-    // year to year), so this is fetched once and never re-fetched, unlike
-    // the ULS license data. The filename is year-prefixed by Census; if this
-    // URL 404s in the future, it needs updating to a newer edition (and the
-    // matching extracted filename below).
-    static const char* kZipGazetteerUrl =
-        "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2023_Gazetteer/"
-        "2023_Gaz_zcta_national.zip";
-    static const char* kZipGazetteerFileName = "2023_Gaz_zcta_national.txt";
-
-    // Census Bureau ZCTA-to-county relationship file: which county(ies) each
-    // ZIP code overlaps, used to backfill Station::county for a ULS-sourced
-    // station (see BackfillCountyFromZip in app_state.cpp) -- FCC's ULS data
-    // has no county field anywhere in it (confirmed against a real
-    // downloaded l_amat.zip: EN.dat's 30 fields cover only street/city/
-    // state/zip, and the only other candidate file, CO.dat, turned out to be
-    // license status "Comments", not counties). Unlike the gazetteer above,
-    // this is served as a plain pipe-delimited text file, not zipped. County
-    // boundaries are effectively permanent, so -- like the centroids -- this
-    // is fetched once and never re-fetched.
-    static const char* kZctaCountyUrl =
-        "https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/"
-        "tab20_zcta520_county20_natl.txt";
-
-    static std::vector<std::string> SplitTabDelimited(const std::string& line)
+    static bool LoadUls(const std::string& cache_dir, Database* db, ProgressReporter* reporter,
+                        int base, int span, std::int64_t* out_records, std::string* error)
     {
-        std::vector<std::string> fields;
-        std::string::size_type start = 0;
-        while (true)
+        // Download ~60% of this step's time, extraction ~5%, parsing the
+        // rest -- roughly how long each takes on a typical connection.
+        int download_span = span * 60 / 100;
+        int extract_span = span * 5 / 100;
+        std::string zip_path = cache_dir + "/l_amat.zip";
+
+        reporter->BeginStep("Downloading FCC license data", base, download_span);
+        if (!DownloadFile(kUlsZipUrl, zip_path, 1800L, reporter, error))
         {
-            std::string::size_type tab = line.find('\t', start);
-            if (tab == std::string::npos)
-            {
-                fields.push_back(line.substr(start));
-                break;
-            }
-            fields.push_back(line.substr(start, tab - start));
-            start = tab + 1;
+            return false;
         }
-        return fields;
+
+        reporter->BeginStep("Unpacking FCC license data", base + download_span, extract_span);
+        if (!ExtractUlsZip(cache_dir, zip_path, error))
+        {
+            return false;
+        }
+
+        reporter->BeginStep("Importing FCC license data", base + download_span + extract_span,
+                            span - download_span - extract_span);
+        return ParseAndImport(cache_dir, db, reporter, out_records, error);
     }
 
-    static bool DownloadFileNoProgress(const std::string& url, const std::string& dest_path,
-                                       std::string* error)
-    {
-        std::FILE* file = std::fopen(dest_path.c_str(), "wb");
-        if (file == nullptr)
-        {
-            *error = "Failed to open " + dest_path + " for writing.";
-            return false;
-        }
-
-        CURL* curl = curl_easy_init();
-        if (curl == nullptr)
-        {
-            std::fclose(file);
-            *error = "Failed to initialize libcurl.";
-            return false;
-        }
-
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, CurlWriteToFile);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-        curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "QuickLogger/1.0");
-
-        CURLcode result = curl_easy_perform(curl);
-        std::fclose(file);
-        curl_easy_cleanup(curl);
-
-        if (result != CURLE_OK)
-        {
-            *error = std::string("Gazetteer download failed: ") + curl_easy_strerror(result);
-            return false;
-        }
-        return true;
-    }
+    // ---- ZIP centroids -----------------------------------------------------
 
     static bool FetchAndLoadZipCentroids(const std::string& cache_dir, Database* db,
-                                         std::string* error)
+                                         ProgressReporter* reporter, std::string* error)
     {
         std::string zip_path = cache_dir + "/zip_gazetteer.zip";
-        if (!DownloadFileNoProgress(kZipGazetteerUrl, zip_path, error))
+        if (!DownloadFile(kZipGazetteerUrl, zip_path, 300L, reporter, error))
         {
             return false;
         }
@@ -481,7 +531,7 @@ namespace ql
         batch.reserve(kBatchSize);
         while (std::getline(file, line))
         {
-            std::vector<std::string> fields = SplitTabDelimited(line);
+            std::vector<std::string> fields = SplitOn(line, '\t');
             if (fields.size() < 7)
             {
                 continue;
@@ -511,10 +561,11 @@ namespace ql
         return true;
     }
 
-    // The relationship file's NAMELSAD_COUNTY_20 field spells out the full
-    // legal name (e.g. "Hamilton County"), but the app just wants the bare
-    // name to display (e.g. "Hamilton") -- the column header/context already
-    // says "County".
+    // ---- ZIP to county -----------------------------------------------------
+
+    // The relationship files spell out the county's full legal name (e.g.
+    // "Hamilton County"), but the app just wants the bare name to display
+    // (e.g. "Hamilton") -- the column header/context already says "County".
     static std::string StripCountySuffix(const std::string& county)
     {
         const std::string suffix = " County";
@@ -526,375 +577,545 @@ namespace ql
         return county;
     }
 
-    // A ZCTA that straddles a county line has its land area split across
-    // both counties' rows in the relationship file; FetchAndLoadZipCounties
-    // picks whichever split has the larger AREALAND_PART, which is right
-    // for the overwhelming majority of ZIPs but can disagree with the
-    // county the ZIP is actually associated with (its USPS-designated city,
-    // where its addresses/population actually are) when the split is close
-    // to even -- there's no population or address data in this file to
-    // break the tie correctly. Confirmed 2026-09-22: ZIP 37419 (Chattanooga,
-    // TN) splits ~52%/48% Marion/Hamilton by land area, but is a Hamilton
-    // County ZIP by every practical measure (a real user's own callsign is
-    // registered there). Rather than a general fix (would need real
-    // population-weighted data, e.g. HUD's USPS crosswalk, which requires
-    // registration), corrected by hand as each is found.
-    struct ZipCountyOverride
+    static double ParseDoubleOr(const std::string& text, double fallback)
     {
-        const char* zip;
-        const char* county;
-    };
-    // A plain constant array rather than a std::unordered_map, so there's
-    // nothing to construct (or fail to construct) at program startup; it's
-    // a handful of entries, searched once per ZIP during an import.
-    static constexpr ZipCountyOverride kZipCountyOverrides[] = {
-        {"37419", "Hamilton"},
-    };
-
-    // The hand-corrected county for `zip`, or nullptr if it has none.
-    static const char* ZipCountyOverrideFor(const std::string& zip)
-    {
-        for (const ZipCountyOverride& entry : kZipCountyOverrides)
-        {
-            if (zip == entry.zip)
-            {
-                return entry.county;
-            }
-        }
-        return nullptr;
-    }
-
-    static bool FetchAndLoadZipCounties(const std::string& cache_dir, Database* db,
-                                        std::string* error)
-    {
-        std::string txt_path = cache_dir + "/zcta_county.txt";
-        if (!DownloadFileNoProgress(kZctaCountyUrl, txt_path, error))
-        {
-            return false;
-        }
-
-        std::ifstream file(txt_path);
-        if (!file.good())
-        {
-            *error = "Failed to open the downloaded ZCTA-county file.";
-            return false;
-        }
-
-        std::string line;
-        std::getline(file, line);  // Header row.
-
-        // A ZCTA can span more than one county (see tab20_zcta520_county20_natl's
-        // format); keep whichever has the largest land-area overlap
-        // (AREALAND_PART, field 16) as that ZIP's county.
-        std::unordered_map<std::string, std::string> best_county_by_zip;
-        std::unordered_map<std::string, double> best_area_by_zip;
-        while (std::getline(file, line))
-        {
-            std::vector<std::string> fields = SplitPipeDelimited(line);
-            if (fields.size() < 17)
-            {
-                continue;
-            }
-            const std::string& zip = fields[1];
-            const std::string& county = fields[10];
-            if (zip.empty() || county.empty())
-            {
-                continue;
-            }
-            double area = 0.0;
-            try
-            {
-                area = std::stod(fields[16]);
-            }
-            catch (const std::exception&)
-            {
-                continue;
-            }
-
-            std::unordered_map<std::string, double>::const_iterator existing =
-                best_area_by_zip.find(zip);
-            if (existing == best_area_by_zip.end() || area > existing->second)
-            {
-                best_area_by_zip[zip] = area;
-                best_county_by_zip[zip] = county;
-            }
-        }
-
-        std::vector<ZipCounty> batch;
-        batch.reserve(best_county_by_zip.size());
-        for (const std::pair<const std::string, std::string>& entry : best_county_by_zip)
-        {
-            ZipCounty zip_county;
-            zip_county.zip = entry.first;
-            const char* override_county = ZipCountyOverrideFor(entry.first);
-            zip_county.county = override_county != nullptr ? std::string(override_county)
-                                                           : StripCountySuffix(entry.second);
-            batch.push_back(zip_county);
-        }
-        db->BulkUpsertZipCounties(batch);
-        return true;
-    }
-
-    // Runs the whole fetch->extract->parse->import pipeline on whatever
-    // thread calls operator()(). A named functor (not a lambda) per this
-    // project's coding convention, spawned via std::thread(...).detach() by
-    // StartUlsImport.
-    class UlsImportWorker
-    {
-    public:
-        UlsImportWorker(std::string db_path, UlsImportProgress* progress,
-                        ftxui::ScreenInteractive* screen)
-            : db_path_(std::move(db_path)), progress_(progress), screen_(screen)
-        {
-        }
-
-        void operator()() const
-        {
-            std::string cache_dir = UlsCacheDir(db_path_);
-            EnsureDirectory(cache_dir);
-            std::string zip_path = cache_dir + "/l_amat.zip";
-            std::int64_t started_at = static_cast<std::int64_t>(std::time(nullptr));
-            std::string error;
-
-            progress_->phase.store(UlsImportPhase::kDownloading);
-            PostRedraw();
-            bool ok = DownloadUlsZip(zip_path, progress_, &error);
-
-            if (ok)
-            {
-                progress_->phase.store(UlsImportPhase::kExtracting);
-                progress_->percent.store(70);
-                PostRedraw();
-                ok = ExtractUlsZip(cache_dir, zip_path, &error);
-            }
-
-            if (ok)
-            {
-                progress_->phase.store(UlsImportPhase::kParsing);
-                progress_->percent.store(75);
-                PostRedraw();
-            }
-
-            ImportRunStatus status;
-            status.source = "uls";
-            status.started_at = started_at;
-            std::int64_t records_imported = 0;
-
-            try
-            {
-                Database db(db_path_);
-                if (ok)
-                {
-                    ok = ParseAndImport(cache_dir, &db, progress_, &records_imported, &error);
-                }
-                if (ok && !db.HasAnyZipCentroids())
-                {
-                    // Best-effort and independent of the ULS import's own
-                    // success/failure status: if this fails, the saved-station
-                    // form's proximity autocomplete just has no data yet
-                    // rather than the whole import being reported as failed.
-                    // Tracked as its own import_runs row (source
-                    // "zip_centroids") specifically so a failure here is
-                    // visible and retried on the *next* F3/auto-trigger even
-                    // if ULS itself already shows "complete" and won't be
-                    // re-attempted again for up to a week -- see
-                    // DescribeUlsImportStatus, which surfaces this row.
-                    std::string geocode_error;
-                    bool geocode_ok = FetchAndLoadZipCentroids(cache_dir, &db, &geocode_error);
-                    ImportRunStatus geocode_status;
-                    geocode_status.source = "zip_centroids";
-                    geocode_status.started_at = started_at;
-                    geocode_status.completed_at = static_cast<std::int64_t>(std::time(nullptr));
-                    geocode_status.status = geocode_ok ? "complete" : "failed";
-                    geocode_status.last_error = geocode_ok ? "" : geocode_error;
-                    db.UpsertImportRunStatus(geocode_status);
-                }
-                if (ok && !db.HasAnyZipCounties())
-                {
-                    // Same independent, best-effort treatment as the
-                    // centroid geocode step above, and for the same reason:
-                    // a failure here shouldn't fail the whole ULS import,
-                    // just leave Station::county unbackfilled for ULS-sourced
-                    // stations until the next retry.
-                    std::string county_error;
-                    bool county_ok = FetchAndLoadZipCounties(cache_dir, &db, &county_error);
-                    ImportRunStatus county_status;
-                    county_status.source = "zip_counties";
-                    county_status.started_at = started_at;
-                    county_status.completed_at = static_cast<std::int64_t>(std::time(nullptr));
-                    county_status.status = county_ok ? "complete" : "failed";
-                    county_status.last_error = county_ok ? "" : county_error;
-                    db.UpsertImportRunStatus(county_status);
-                }
-                status.completed_at = static_cast<std::int64_t>(std::time(nullptr));
-                status.records_imported = records_imported;
-                status.status = ok ? "complete" : "failed";
-                status.last_error = ok ? "" : error;
-                db.UpsertImportRunStatus(status);
-            }
-            catch (const std::exception& e)
-            {
-                ok = false;
-                status.completed_at = static_cast<std::int64_t>(std::time(nullptr));
-                status.records_imported = records_imported;
-                status.status = "failed";
-                status.last_error = e.what();
-                try
-                {
-                    Database fallback_db(db_path_);
-                    fallback_db.UpsertImportRunStatus(status);
-                }
-                // NOLINTNEXTLINE(bugprone-empty-catch): deliberately ignored, see below.
-                catch (const std::exception&)
-                {
-                    // Nothing more we can do; the in-memory progress below
-                    // still reflects the failure for this run.
-                }
-            }
-
-            progress_->phase.store(ok ? UlsImportPhase::kComplete : UlsImportPhase::kFailed);
-            progress_->percent.store(ok ? 100 : progress_->percent.load());
-            if (!ok)
-            {
-                std::lock_guard<std::mutex> lock(progress_->error_mutex);
-                progress_->last_error = status.last_error;
-            }
-            progress_->running.store(false);
-            PostRedraw();
-        }
-
-    private:
-        void PostRedraw() const
-        {
-            if (screen_ != nullptr)
-            {
-                screen_->PostEvent(ftxui::Event::Custom);
-            }
-        }
-
-        std::string db_path_;
-        UlsImportProgress* progress_;
-        ftxui::ScreenInteractive* screen_;
-    };
-
-    void StartUlsImport(const std::string& db_path, UlsImportProgress* progress,
-                        ftxui::ScreenInteractive* screen)
-    {
-        if (progress->running.load())
-        {
-            return;
-        }
-
-        std::int64_t started_at = static_cast<std::int64_t>(std::time(nullptr));
         try
         {
-            Database db(db_path);
-            if (!db.TryClaimImportRun("uls", started_at))
-            {
-                // Another connection -- most likely a second instance of the
-                // app pointed at this same quicklogger.db, auto-triggering
-                // at startup within the same moment -- already claimed this
-                // import. Don't launch a second worker: it would download to
-                // and unzip into the same uls_cache/ files the other
-                // worker's already using, and race it writing the same
-                // uls_stations rows.
-                return;
-            }
+            return std::stod(text);
         }
-        // NOLINTNEXTLINE(bugprone-empty-catch): deliberately ignored, see below.
         catch (const std::exception&)
         {
-            // Couldn't even check -- fall through and let the worker try its
-            // own connection and report its own failure, same as before.
+            return fallback;
         }
-
-        progress->running.store(true);
-        progress->percent.store(0);
-        progress->phase.store(UlsImportPhase::kDownloading);
-
-        std::thread(UlsImportWorker(db_path, progress, screen)).detach();
     }
 
-    std::string DescribeUlsImportStatus(const AppState* state)
+    // One county a ZIP overlaps, with how much of the ZIP is in it.
+    struct ZipCountyShare
     {
-        const UlsImportProgress& progress = state->uls_import_progress;
-        if (progress.running.load())
-        {
-            UlsImportPhase phase = progress.phase.load();
-            int percent = progress.percent.load();
-            if (phase == UlsImportPhase::kDownloading)
-            {
-                return "ULS import: in progress -- downloading (" + std::to_string(percent) + "%).";
-            }
-            if (phase == UlsImportPhase::kExtracting)
-            {
-                return "ULS import: in progress -- extracting (" + std::to_string(percent) + "%).";
-            }
-            std::int64_t records = progress.records_imported.load();
-            return "ULS import: in progress -- importing (" + std::to_string(percent) + "%, " +
-                   std::to_string(records) + " records so far).";
-        }
+        std::string county_geoid;
+        double land_area = 0.0;
+        double share = 0.0;  // Filled in once all the rows for the ZIP are known.
+    };
 
-        // Not running: read the persisted row fresh rather than caching it on
-        // AppState, so the displayed status can't go stale while sitting on
-        // the Settings page across the exact frame a background run finishes
-        // (same "just query it, it's cheap" precedent as NetHistoryRenderer).
-        std::optional<ImportRunStatus> status = state->db->GetImportRunStatus("uls");
-        if (status.has_value() && status->status == "failed")
-        {
-            return "ULS import failed at " + FormatTimestamp(status->completed_at) + ": " +
-                   status->last_error + ". Press F3 to retry.";
-        }
-        if (status.has_value() && status->status == "complete")
-        {
-            std::string message = "ULS station database: last updated " +
-                                  FormatTimestamp(status->completed_at) + ", " +
-                                  std::to_string(status->records_imported) + " records.";
-            std::optional<ImportRunStatus> geocode_status =
-                state->db->GetImportRunStatus("zip_centroids");
-            if (geocode_status.has_value() && geocode_status->status == "failed")
-            {
-                message += " ZIP proximity data failed to load (" + geocode_status->last_error +
-                           "); saved-station ULS matches are unavailable until this succeeds. "
-                           "Press F3 to retry.";
-            }
-            std::optional<ImportRunStatus> county_status =
-                state->db->GetImportRunStatus("zip_counties");
-            if (county_status.has_value() && county_status->status == "failed")
-            {
-                message += " ZIP-to-county data failed to load (" + county_status->last_error +
-                           "); County won't be filled in for ULS-sourced stations until this "
-                           "succeeds. Press F3 to retry.";
-            }
-            return message;
-        }
-        return "ULS station database: never imported. Press F3 to import now (~1M+ records, "
-               "several minutes).";
+    // A town inside a straddling ZIP, and the county that won it so far.
+    struct PlaceCandidate
+    {
+        std::string county;
+        double land_area = 0.0;
+    };
+
+    // Words that on their own are just part of a Census label, never a town
+    // name a station would give as its city ("District 6" -> "DISTRICT").
+    static bool IsGenericPlaceWord(const std::string& name)
+    {
+        return name.empty() || name == "DISTRICT" || name == "PRECINCT" || name == "WARD" ||
+               name == "BEAT" || name == "ELECTION DISTRICT";
     }
 
-    bool ShouldAutoStartUlsImport(const std::optional<ImportRunStatus>& status, std::int64_t now)
+    // The forms a Census county-subdivision name might take as a mailing
+    // city: the name as-is, and with its type suffix removed -- "Newton
+    // city" -> "NEWTON", "Hanover township" -> "HANOVER", "Cayey
+    // barrio-pueblo" -> "CAYEY", "Cleveland CCD" -> "CLEVELAND", and the few
+    // two-word suffixes, "Canton charter township" -> "CANTON". (Only those
+    // known two-word suffixes are stripped as a pair -- dropping any last two
+    // words would turn "North Hempstead town" into "NORTH".)
+    static std::vector<std::string> PlaceNameVariants(const std::string& census_name)
     {
-        if (!status.has_value())
+        std::string full = NormalizePlaceName(census_name);
+        std::vector<std::string> variants;
+        if (!IsGenericPlaceWord(full))
         {
-            return true;
+            variants.push_back(full);
         }
-        if (status->status == "failed" || status->status == "running")
+        for (const char* suffix : {" CHARTER TOWNSHIP", " CENSUS SUBAREA"})
         {
-            // A "running" status found at startup can only be from a
-            // previous run that crashed (a clean quit is blocked while
-            // running -- see QuitHandler) -- treat it as stale, not ongoing.
-            return true;
+            std::string two_word_suffix(suffix);
+            if (full.size() > two_word_suffix.size() &&
+                full.compare(full.size() - two_word_suffix.size(), two_word_suffix.size(),
+                             two_word_suffix) == 0)
+            {
+                variants.push_back(full.substr(0, full.size() - two_word_suffix.size()));
+                return variants;
+            }
         }
-        if (status->status == "complete")
+        std::string::size_type last_space = full.find_last_of(' ');
+        if (last_space != std::string::npos)
         {
-            return (now - status->completed_at) > kUlsStalenessThresholdSeconds;
+            std::string without_suffix = full.substr(0, last_space);
+            if (!IsGenericPlaceWord(without_suffix))
+            {
+                variants.push_back(without_suffix);
+            }
         }
+        return variants;
+    }
+
+    // Builds the ZIP-to-county data from the three Census files:
+    //
+    //  1. For every ZIP, the counties it overlaps (2020 file), each weighted
+    //     by its share of the ZIP's people (2010 file) -- or its share of the
+    //     ZIP's land where there are no population figures (a ZIP created
+    //     after 2010, or one whose county codes have changed since). The
+    //     county with the biggest share is the ZIP's county (ZipCounty).
+    //     Weighting by people rather than land is what gets e.g. 37419
+    //     (Chattanooga) right: 93% of its residents are in Hamilton County,
+    //     though 53% of its land is in Marion.
+    //
+    //  2. For every ZIP that straddles a county line (no county holds
+    //     kSingleCountyShare of it), the towns inside it and each town's
+    //     county (ZipPlaceCounty), from the county-subdivision file. A
+    //     station whose city names one of those towns gets that town's
+    //     county, even when most of the ZIP's people are elsewhere -- e.g.
+    //     02467 (Chestnut Hill) is split between Boston (Suffolk), Newton
+    //     (Middlesex) and Brookline (Norfolk). Where a town's name appears in
+    //     more than one county within the ZIP (a town split by the line
+    //     itself, like Bethlehem, PA), the county with more of that town's
+    //     land in the ZIP wins.
+    static bool FetchAndLoadZipCounties(const std::string& cache_dir, Database* db,
+                                        ProgressReporter* reporter, int base, int span,
+                                        std::string* error)
+    {
+        // The three downloads (about 6, 7 and 16 MB) get a third of the
+        // step's progress each.
+        std::string county_path = cache_dir + "/zcta_county.txt";
+        std::string population_path = cache_dir + "/zcta_county_population.txt";
+        std::string subdivision_path = cache_dir + "/zcta_county_subdivision.txt";
+        reporter->BeginStep("Downloading county data", base, span / 3);
+        if (!DownloadFile(kZctaCountyUrl, county_path, 300L, reporter, error))
+        {
+            return false;
+        }
+        reporter->BeginStep("Downloading county data", base + span / 3, span / 3);
+        if (!DownloadFile(kZctaCountyPopulationUrl, population_path, 300L, reporter, error))
+        {
+            return false;
+        }
+        reporter->BeginStep("Downloading county data", base + 2 * (span / 3),
+                            span - 2 * (span / 3));
+        if (!DownloadFile(kZctaCountySubdivisionUrl, subdivision_path, 300L, reporter, error))
+        {
+            return false;
+        }
+
+        // 2020 ZIP -> county overlaps. Fields: 1 GEOID_ZCTA5_20,
+        // 9 GEOID_COUNTY_20, 10 NAMELSAD_COUNTY_20, 16 AREALAND_PART.
+        std::unordered_map<std::string, std::vector<ZipCountyShare>> shares_by_zip;
+        std::unordered_map<std::string, std::string> county_names;
+        {
+            std::ifstream file(county_path);
+            if (!file.good())
+            {
+                *error = "Failed to open the downloaded ZIP-county file.";
+                return false;
+            }
+            std::string line;
+            std::getline(file, line);  // Header row.
+            while (std::getline(file, line))
+            {
+                std::vector<std::string> fields = SplitOn(line, '|');
+                if (fields.size() < 17 || fields[1].empty() || fields[9].empty())
+                {
+                    continue;
+                }
+                ZipCountyShare share;
+                share.county_geoid = fields[9];
+                share.land_area = ParseDoubleOr(fields[16], 0.0);
+                shares_by_zip[fields[1]].push_back(share);
+                county_names[fields[9]] = StripCountySuffix(fields[10]);
+            }
+        }
+        if (shares_by_zip.empty())
+        {
+            *error = "The ZIP-county file was empty.";
+            return false;
+        }
+
+        // 2010 population per ZIP/county overlap. Comma-separated; fields:
+        // 0 ZCTA5, 3 GEOID (county), 4 POPPT, 8 ZPOP.
+        std::unordered_map<std::string, std::unordered_map<std::string, double>> population_share;
+        {
+            std::ifstream file(population_path);
+            std::string line;
+            std::getline(file, line);  // Header row.
+            while (std::getline(file, line))
+            {
+                std::vector<std::string> fields = SplitOn(line, ',');
+                if (fields.size() < 9)
+                {
+                    continue;
+                }
+                double zip_population = ParseDoubleOr(fields[8], 0.0);
+                if (zip_population <= 0.0)
+                {
+                    continue;
+                }
+                population_share[fields[0]][fields[3]] =
+                    ParseDoubleOr(fields[4], 0.0) / zip_population;
+            }
+        }
+
+        std::vector<ZipCounty> zip_counties;
+        zip_counties.reserve(shares_by_zip.size());
+        std::unordered_set<std::string> straddling_zips;
+        for (std::pair<const std::string, std::vector<ZipCountyShare>>& entry : shares_by_zip)
+        {
+            std::vector<ZipCountyShare>& shares = entry.second;
+
+            // Population shares, if the 2010 figures cover this ZIP's 2020
+            // counties (most of its people accounted for); land otherwise.
+            std::unordered_map<std::string, std::unordered_map<std::string, double>>::const_iterator
+                population_it = population_share.find(entry.first);
+            double population_covered = 0.0;
+            if (population_it != population_share.end())
+            {
+                for (const ZipCountyShare& share : shares)
+                {
+                    std::unordered_map<std::string, double>::const_iterator county_it =
+                        population_it->second.find(share.county_geoid);
+                    if (county_it != population_it->second.end())
+                    {
+                        population_covered += county_it->second;
+                    }
+                }
+            }
+            double total_land = 0.0;
+            for (const ZipCountyShare& share : shares)
+            {
+                total_land += share.land_area;
+            }
+            for (ZipCountyShare& share : shares)
+            {
+                if (population_covered >= 0.9)
+                {
+                    std::unordered_map<std::string, double>::const_iterator county_it =
+                        population_it->second.find(share.county_geoid);
+                    share.share =
+                        county_it != population_it->second.end() ? county_it->second : 0.0;
+                }
+                else
+                {
+                    share.share = total_land > 0.0 ? share.land_area / total_land
+                                                   : 1.0 / static_cast<double>(shares.size());
+                }
+            }
+
+            const ZipCountyShare* best = &shares.front();
+            for (const ZipCountyShare& share : shares)
+            {
+                if (share.share > best->share)
+                {
+                    best = &share;
+                }
+            }
+            ZipCounty zip_county;
+            zip_county.zip = entry.first;
+            zip_county.county = county_names[best->county_geoid];
+            zip_counties.push_back(zip_county);
+            if (best->share < kSingleCountyShare)
+            {
+                straddling_zips.insert(entry.first);
+            }
+        }
+
+        // Towns within the straddling ZIPs. Fields: 1 GEOID_ZCTA5_20,
+        // 9 GEOID_COUSUB_20 (its first five digits are the county),
+        // 10 NAMELSAD_COUSUB_20, 16 AREALAND_PART.
+        std::unordered_map<std::string, PlaceCandidate> best_by_zip_place;
+        {
+            std::ifstream file(subdivision_path);
+            if (!file.good())
+            {
+                *error = "Failed to open the downloaded ZIP-town file.";
+                return false;
+            }
+            std::string line;
+            std::getline(file, line);  // Header row.
+            while (std::getline(file, line))
+            {
+                std::vector<std::string> fields = SplitOn(line, '|');
+                if (fields.size() < 17 || fields[9].size() < 5 ||
+                    straddling_zips.count(fields[1]) == 0)
+                {
+                    continue;
+                }
+                std::unordered_map<std::string, std::string>::const_iterator county_it =
+                    county_names.find(fields[9].substr(0, 5));
+                if (county_it == county_names.end())
+                {
+                    continue;
+                }
+                double land_area = ParseDoubleOr(fields[16], 0.0);
+                for (const std::string& place : PlaceNameVariants(fields[10]))
+                {
+                    PlaceCandidate& candidate = best_by_zip_place[fields[1] + "|" + place];
+                    if (candidate.county.empty() || land_area > candidate.land_area)
+                    {
+                        candidate.county = county_it->second;
+                        candidate.land_area = land_area;
+                    }
+                }
+            }
+        }
+
+        std::vector<ZipPlaceCounty> zip_place_counties;
+        zip_place_counties.reserve(best_by_zip_place.size());
+        for (const std::pair<const std::string, PlaceCandidate>& entry : best_by_zip_place)
+        {
+            std::string::size_type bar = entry.first.find('|');
+            ZipPlaceCounty zip_place;
+            zip_place.zip = entry.first.substr(0, bar);
+            zip_place.place = entry.first.substr(bar + 1);
+            zip_place.county = entry.second.county;
+            zip_place_counties.push_back(zip_place);
+        }
+
+        db->ReplaceZipCountyData(zip_counties, zip_place_counties);
         return true;
     }
 
-    bool ShouldRetryAuxiliaryImport(const std::optional<ImportRunStatus>& status)
+    // ---- Planning and running a refresh ------------------------------------
+
+    static bool IsRetryDue(const ImportRunStatus& status, std::int64_t now, bool requested)
     {
-        return status.has_value() && status->status == "failed";
+        return requested || now - status.started_at >= kFailedLoadRetrySeconds;
+    }
+
+    DataRefreshPlan PlanDataRefresh(Database* db, std::int64_t now)
+    {
+        std::optional<ImportRunStatus> job = db->GetImportRunStatus(kDataRefreshJob);
+        bool requested = job.has_value() && job->requested_at > job->started_at;
+
+        DataRefreshPlan plan;
+
+        std::optional<ImportRunStatus> uls = db->GetImportRunStatus(kUlsDataset);
+        if (!uls.has_value() || uls->status != "complete")
+        {
+            // Never loaded; failed; or a "running" row left behind by an
+            // older version of the app, which ran imports inside a session.
+            plan.uls =
+                !uls.has_value() || uls->status != "failed" || IsRetryDue(*uls, now, requested);
+        }
+        else
+        {
+            plan.uls = requested || now - uls->completed_at > kUlsStalenessThresholdSeconds;
+        }
+
+        if (!db->HasAnyZipCentroids())
+        {
+            std::optional<ImportRunStatus> centroids = db->GetImportRunStatus(kZipCentroidsDataset);
+            plan.zip_centroids = !centroids.has_value() || centroids->status != "failed" ||
+                                 IsRetryDue(*centroids, now, requested);
+        }
+
+        std::optional<ImportRunStatus> counties = db->GetImportRunStatus(kZipCountyDataset);
+        if (!counties.has_value() || counties->status != "complete")
+        {
+            plan.zip_counties = !counties.has_value() || counties->status != "failed" ||
+                                IsRetryDue(*counties, now, requested);
+        }
+        return plan;
+    }
+
+    bool DataRefreshPlanHasWork(const DataRefreshPlan& plan)
+    {
+        return plan.uls || plan.zip_centroids || plan.zip_counties;
+    }
+
+    // Records one dataset's outcome. A failure keeps the figures from the
+    // last good load (completed_at, records) so "last updated" stays true,
+    // and stamps started_at with this attempt for the retry timer.
+    static void RecordDatasetOutcome(Database* db, const std::string& dataset, bool ok,
+                                     std::int64_t started_at, std::int64_t records,
+                                     const std::string& error)
+    {
+        ImportRunStatus status;
+        std::optional<ImportRunStatus> previous = db->GetImportRunStatus(dataset);
+        if (previous.has_value())
+        {
+            status = *previous;
+        }
+        status.source = dataset;
+        status.started_at = started_at;
+        status.phase.clear();
+        status.percent = 0;
+        status.heartbeat_at = 0;
+        if (ok)
+        {
+            status.status = "complete";
+            status.completed_at = Now();
+            status.records_imported = records;
+            status.last_error.clear();
+        }
+        else
+        {
+            status.status = "failed";
+            status.last_error = error;
+        }
+        db->UpsertImportRunStatus(status);
+    }
+
+    std::string RunDataRefresh(Database* db, const std::string& db_path,
+                               const DataRefreshPlan& plan, bool (*should_stop)())
+    {
+        std::string cache_dir = UlsCacheDir(db_path);
+        EnsureDirectory(cache_dir);
+        ProgressReporter reporter(db, should_stop);
+
+        // Each planned step's share of the overall percentage, by roughly how
+        // long it takes.
+        int uls_weight = plan.uls ? 90 : 0;
+        int centroid_weight = plan.zip_centroids ? 4 : 0;
+        int county_weight = plan.zip_counties ? 6 : 0;
+        int total_weight = uls_weight + centroid_weight + county_weight;
+        if (total_weight == 0)
+        {
+            return "complete";
+        }
+        int base = 0;
+        bool all_ok = true;
+
+        if (plan.uls)
+        {
+            int span = 100 * uls_weight / total_weight;
+            std::int64_t started_at = Now();
+            std::int64_t records = 0;
+            std::string error;
+            bool ok = LoadUls(cache_dir, db, &reporter, base, span, &records, &error);
+            if (reporter.StopRequested())
+            {
+                return "interrupted";
+            }
+            RecordDatasetOutcome(db, kUlsDataset, ok, started_at, records, error);
+            all_ok = all_ok && ok;
+            base += span;
+        }
+
+        if (plan.zip_centroids)
+        {
+            int span = 100 * centroid_weight / total_weight;
+            std::int64_t started_at = Now();
+            std::string error;
+            reporter.BeginStep("Downloading ZIP code locations", base, span);
+            bool ok = FetchAndLoadZipCentroids(cache_dir, db, &reporter, &error);
+            if (reporter.StopRequested())
+            {
+                return "interrupted";
+            }
+            RecordDatasetOutcome(db, kZipCentroidsDataset, ok, started_at, 0, error);
+            all_ok = all_ok && ok;
+            base += span;
+        }
+
+        if (plan.zip_counties)
+        {
+            int span = 100 - base;
+            std::int64_t started_at = Now();
+            std::string error;
+            bool ok = FetchAndLoadZipCounties(cache_dir, db, &reporter, base, span, &error);
+            if (reporter.StopRequested())
+            {
+                return "interrupted";
+            }
+            RecordDatasetOutcome(db, kZipCountyDataset, ok, started_at, 0, error);
+            all_ok = all_ok && ok;
+        }
+
+        return all_ok ? "complete" : "failed";
+    }
+
+    // ---- Status text ---------------------------------------------------------
+
+    // The refresh job, if one is running right now (heartbeat still fresh).
+    static std::optional<ImportRunStatus> RunningJob(Database* db, std::int64_t now)
+    {
+        std::optional<ImportRunStatus> job = db->GetImportRunStatus(kDataRefreshJob);
+        if (job.has_value() && job->status == "running" &&
+            now - job->heartbeat_at <= kJobStaleAfterSeconds)
+        {
+            return job;
+        }
+        return std::nullopt;
+    }
+
+    // Percent rounded down to a multiple of 5, so the text (and so the
+    // screen) only changes -- and only costs a redraw -- 20 times per run.
+    static std::string RoundedPercent(int percent)
+    {
+        return std::to_string(percent / 5 * 5) + "%";
+    }
+
+    static bool UlsDataLoaded(const std::optional<ImportRunStatus>& uls)
+    {
+        return uls.has_value() && uls->completed_at > 0 && uls->records_imported > 0;
+    }
+
+    std::string DescribeStationDataStatus(Database* db, std::int64_t now, bool can_request_refresh)
+    {
+        std::string message;
+        std::optional<ImportRunStatus> job = RunningJob(db, now);
+        if (job.has_value())
+        {
+            message =
+                "Updating station data: " + job->phase + ", " + RoundedPercent(job->percent) + ". ";
+        }
+
+        std::optional<ImportRunStatus> uls = db->GetImportRunStatus(kUlsDataset);
+        if (uls.has_value() && UlsDataLoaded(uls))
+        {
+            message += "FCC license data last updated " + FormatTimestamp(uls->completed_at) +
+                       " (" + std::to_string(uls->records_imported) + " records).";
+        }
+        else if (!job.has_value())
+        {
+            message += "FCC license data not loaded yet; it downloads automatically.";
+        }
+        if (uls.has_value() && uls->status == "failed")
+        {
+            message += " The last attempt (" + FormatTimestamp(uls->started_at) +
+                       ") failed: " + uls->last_error + " It will be retried automatically.";
+        }
+
+        std::optional<ImportRunStatus> centroids = db->GetImportRunStatus(kZipCentroidsDataset);
+        if (centroids.has_value() && centroids->status == "failed" && !db->HasAnyZipCentroids())
+        {
+            message += " ZIP location data failed to load (" + centroids->last_error +
+                       "), so the saved-station proximity search has no data yet.";
+        }
+        std::optional<ImportRunStatus> counties = db->GetImportRunStatus(kZipCountyDataset);
+        if (counties.has_value() && counties->status == "failed")
+        {
+            message += " County data failed to load (" + counties->last_error +
+                       "), so County may be missing or less accurate.";
+        }
+
+        if (can_request_refresh && !job.has_value())
+        {
+            message += " Press F3 to refresh now.";
+        }
+        return message;
+    }
+
+    std::string DescribeStationDataNotice(Database* db, std::int64_t now, bool* is_problem)
+    {
+        *is_problem = false;
+        std::optional<ImportRunStatus> uls = db->GetImportRunStatus(kUlsDataset);
+        bool loaded = UlsDataLoaded(uls);
+        std::optional<ImportRunStatus> job = RunningJob(db, now);
+        if (job.has_value())
+        {
+            return std::string(loaded ? "Updating" : "Loading") + " station data " +
+                   RoundedPercent(job->percent);
+        }
+        if (loaded)
+        {
+            return "";
+        }
+        if (uls.has_value() && uls->status == "failed")
+        {
+            *is_problem = true;
+            return "Station data download failed; will retry";
+        }
+        return "Station data not loaded yet";
     }
 
 }  // namespace ql

@@ -11,4 +11,11 @@ namespace ql
     // case as the operator types, rather than only once saved).
     std::string ToUpperAscii(const std::string& value);
 
+    // A place name reduced to a form that compares equal however it was
+    // written: uppercase, periods dropped, and the accented letters Census
+    // uses (e.g. Puerto Rico's "Loíza") folded to plain ASCII the way FCC
+    // and USPS spell them ("LOIZA"). Used to match a station's city against
+    // Census town names -- see ZipPlaceCounty.
+    std::string NormalizePlaceName(const std::string& value);
+
 }  // namespace ql

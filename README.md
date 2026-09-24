@@ -38,9 +38,10 @@ On every platform:
   emulator. (On Windows: Windows Terminal, or the console in Windows 10 or
   later.) QuickLogger takes over the whole terminal window.
 - **Internet access** for the first launch, which downloads the FCC's amateur
-  license database (about 200 MB) and the Census ZIP-code gazetteer, and
-  refreshes them about weekly. Without it the rest of QuickLogger still
-  works, but callsign and ZIP lookups have no data to draw on.
+  license database (about 200 MB) and some Census ZIP-code and county files
+  (about 30 MB, once), and refreshes the FCC data about weekly. Without it
+  the rest of QuickLogger still works, but callsign, ZIP and county lookups
+  have no data to draw on.
 - **Write access to the directory you launch it from** — it keeps its data
   there (see [Files it creates](#files-it-creates)).
 
@@ -89,10 +90,35 @@ offer and tells you so.
 
 On first run, you'll be taken straight to Settings to set your callsign
 and home ZIP code (required before anything else is usable). After that,
-you land on the Recurring Nets list. The FCC database import starts by
-itself in the background the first time (and about weekly after that); it
-takes a minute or two, the rest of the app stays usable meanwhile, and
-QuickLogger won't quit until it has finished.
+you land on the Recurring Nets list.
+
+### Station data
+
+QuickLogger looks callsigns up in its own copy of the FCC's amateur license
+database, and fills in each station's county from Census data. It downloads
+and refreshes all of this by itself, in the background, for everyone using
+the instance — nobody needs to (or can) start it by hand:
+
+- The first download starts as soon as QuickLogger launches and takes a
+  minute or two. Until it's done, a yellow **Loading station data NN%**
+  notice shows at the top of every screen, local or over SSH, and callsign
+  lookups won't find anyone yet. The rest of the app works meanwhile.
+- After that, the FCC data is refreshed about weekly (a yellow **Updating
+  station data** notice shows while it runs; lookups keep working from the
+  previous copy). A failed download is retried automatically every hour.
+- **Settings** shows when the data was last updated. At the local console
+  only, **F3** there refreshes it right away.
+- Quitting the console session in the middle of a download is fine: an
+  unfinished first download or weekly refresh starts over the next time
+  QuickLogger runs. (A refresh asked for with F3 just waits for its regular
+  turn.)
+
+**How county is worked out.** FCC records have no county, so QuickLogger
+uses the station's ZIP code. Most ZIPs lie in one county. For the few
+thousand that cross a county line, the station's city decides when it names
+a town inside that ZIP (a Newton address in 02467 is Middlesex, a Boston one
+Suffolk); otherwise the ZIP counts as being in whichever county most of its
+residents live in.
 
 ### Files it creates
 
@@ -102,12 +128,14 @@ beyond that):
 
 - `quicklogger.db` — the shared SQLite database (nets, stations, check-in
   history, the SSH user roster — everything except personal settings)
-- `settings.txt` — your own callsign/ZIP/QRZ credentials (local console
-  session only; never included in any export)
+- `settings.txt` — your own callsign and home ZIP (local console session
+  only; never included in any export)
 - `settings/` — one settings file per SSH login user (see below)
 - `exports/`, `imports/` — where "download"/"upload" style features
   (net-slice export/import, ZMODEM) read and write files
-- `uls_cache/` — a cache for the FCC ULS station-database import
+- `uls_cache/` — downloaded FCC and Census files (see
+  [Station data](#station-data)); safe to delete while QuickLogger isn't
+  running
 - `ssh_host_ed25519_key` — the SSH server's host key (see below)
 
 ### Running on Windows
@@ -396,12 +424,14 @@ console in that moment.
 
 ### How it runs
 
-Launched normally, QuickLogger starts its SSH listener as a small separate
-helper process alongside the console session — you'll see two `QuickLogger`
-entries in `ps`. That's intentional (a process that has the database open
-can't safely fork off SSH sessions; SQLite doesn't allow it), not a stray.
-The helper exits on its own when the console session quits or dies. With
-`--headless` there's no console session, so a single process does both jobs.
+Launched normally, QuickLogger starts two small helper processes alongside
+the console session — the SSH listener and the station-data updater — so
+you'll see three `QuickLogger` entries in `ps` (two with `--headless`, where
+there's no console session and the main process is the listener). That's
+intentional, not strays: a process that has the database open can't safely
+fork off others (SQLite doesn't allow it), and the updater has to outlive any
+one session. Both helpers exit on their own when the process that started
+them quits or dies.
 
 ### Firewall / networking
 

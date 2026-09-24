@@ -56,6 +56,7 @@ set(quicklogger_sources
     src/zmodem_send.cpp
     src/zip_extract.cpp
     src/uls_import.cpp
+    src/data_updater.cpp
     src/db/database.cpp
     src/db/sqlite_statement.cpp
     src/ui/app_state.cpp

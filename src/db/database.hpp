@@ -55,9 +55,8 @@ namespace ql
         // e.g. "4FA" matches "AA4FA". This is autocomplete's second tier: any
         // station known elsewhere in the system (i.e. from another net),
         // ranked below stations known to this specific net
-        // (SearchNetStationsByCallsignSubstring) but ahead of the not-yet-built
-        // third tier, QRZ/ULS -- which will be a separate query appended after
-        // this one once it exists, not merged into it.
+        // (SearchNetStationsByCallsignSubstring). A ULS tier, if added, would
+        // be a separate query appended after this one, not merged into it.
         std::vector<Station> SearchStationsByCallsignSubstring(const std::string& substring);
         // Matches any callsign containing `substring` (case-insensitive) among
         // stations that have either checked into a past instance of `net_id`,
@@ -157,21 +156,26 @@ namespace ql
         void ClearCheckInRoleForInstance(std::int64_t net_instance_id, int role,
                                          std::int64_t except_check_in_id);
 
-        // Bulk-import bookkeeping (e.g. the FCC ULS station database import),
-        // so a background import's ongoing/complete status survives page
-        // navigation and app restarts. `source` is a short fixed key, e.g. "uls".
+        // Background-data bookkeeping (see ImportRunStatus in models.hpp and
+        // data_updater.hpp). `source` is a short fixed key, e.g. "uls".
         std::optional<ImportRunStatus> GetImportRunStatus(const std::string& source);
+        // Writes everything except requested_at (see RequestImportRun).
         void UpsertImportRunStatus(const ImportRunStatus& status);
-        // Atomically marks `source`'s row "running" as of `started_at`, but
-        // only if it isn't already "running" -- an UPSERT whose DO UPDATE
-        // carries a WHERE clause, so this is a single indivisible statement
-        // rather than a separate read-then-write (which two connections
-        // racing to start the same import at once, e.g. two instances of the
-        // app auto-triggering at startup within the same moment, could both
-        // pass). Returns whether this call actually acquired the claim; a
-        // caller that gets false must not start its own worker/download,
-        // since another connection already owns this import.
-        bool TryClaimImportRun(const std::string& source, std::int64_t started_at);
+        // Atomically marks `source`'s row "running" as of `now` -- but only
+        // if it isn't already running, or it is but its heartbeat is older
+        // than `stale_after_seconds` (the process running it died). A single
+        // UPSERT with a WHERE on its DO UPDATE, so two processes racing for
+        // the same job can't both win. Returns whether this call got the
+        // claim; a caller that gets false must not do the job.
+        bool TryClaimImportRun(const std::string& source, std::int64_t now,
+                               std::int64_t stale_after_seconds);
+        // Progress report for a claimed, running job: phase text, percent,
+        // records so far, and a fresh heartbeat.
+        void UpdateImportProgress(const std::string& source, const std::string& phase, int percent,
+                                  std::int64_t records_imported, std::int64_t now);
+        // Records that someone asked for `source` to be refreshed now (the
+        // updater notices requested_at is newer than the last run's start).
+        void RequestImportRun(const std::string& source, std::int64_t now);
 
         // The full FCC ULS license database, kept in its own table rather
         // than merged into `stations` -- deliberately separate so that
@@ -213,27 +217,17 @@ namespace ql
         std::vector<ZipCentroid> GetAllZipCentroids();
         bool HasAnyZipCentroids();
 
-        // Which county each US ZIP code falls in (from the Census Bureau's
-        // ZCTA-to-county relationship file), used to backfill Station::county
-        // for a ULS-sourced station -- FCC's ULS data has no county field at
-        // all. Same loaded-once-and-cached rationale as the centroids above
-        // (see AppState::zip_county_by_zip); BulkUpsertZipCounties is a plain
-        // overwrite-on-conflict batch upsert.
-        void BulkUpsertZipCounties(const std::vector<ZipCounty>& batch);
+        // ZIP-to-county data (see ZipCounty/ZipPlaceCounty in models.hpp and
+        // FetchAndLoadZipCounties in uls_import.cpp). Replaced wholesale in
+        // one transaction -- it's derived from Census files, never edited.
+        // The getters are meant to be called once per process and cached
+        // (see AppState::zip_county_by_zip), not queried live.
+        void ReplaceZipCountyData(const std::vector<ZipCounty>& zip_counties,
+                                  const std::vector<ZipPlaceCounty>& zip_place_counties);
         std::vector<ZipCounty> GetAllZipCounties();
-        bool HasAnyZipCounties();
+        std::vector<ZipPlaceCounty> GetAllZipPlaceCounties();
 
-        // Derives a (city, state) -> county mapping by joining uls_stations
-        // against zip_counties and, for each city/state pair, picking
-        // whichever county its member ZIPs agree on most often -- more
-        // reliable than a single ZIP's own zip_counties entry when that ZIP
-        // straddles a county line close to evenly (see CityCounty's doc
-        // comment). Not persisted; recomputed and cached in
-        // AppState::city_county_by_city_state once per process run. Rows
-        // are returned ordered by (city, state, votes DESC), so the caller
-        // can just keep the first row seen per (city, state) rather than
-        // needing a second query to find the max.
-        std::vector<CityCounty> ComputeCityCounties();
+        bool HasAnyUlsStations();
 
         // Login identities for the built-in SSH server (see ssh_server.hpp)
         // -- global/shared data, like Net, even though each user's

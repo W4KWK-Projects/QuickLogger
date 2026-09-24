@@ -43,6 +43,7 @@ namespace ql
             return settings;
         }
 
+        bool has_obsolete_credentials = false;
         std::string line;
         while (std::getline(file, line))
         {
@@ -59,20 +60,21 @@ namespace ql
             {
                 settings.callsign = value;
             }
-            else if (key == "qrz_username")
-            {
-                settings.qrz_username = value;
-            }
-            else if (key == "qrz_password")
-            {
-                settings.qrz_password = value;
-            }
             else if (key == "location")
             {
                 settings.location = value;
             }
+            else if (key == "qrz_username" || key == "qrz_password")
+            {
+                has_obsolete_credentials = true;
+            }
         }
+        file.close();
 
+        if (has_obsolete_credentials)
+        {
+            SaveSettings(path, settings);
+        }
         return settings;
     }
 
@@ -80,8 +82,6 @@ namespace ql
     {
         std::ofstream file(path, std::ios::trunc);
         file << "callsign=" << settings.callsign << "\n";
-        file << "qrz_username=" << settings.qrz_username << "\n";
-        file << "qrz_password=" << settings.qrz_password << "\n";
         file << "location=" << settings.location << "\n";
     }
 

@@ -4,8 +4,12 @@
 #include <condition_variable>
 #include <cstdint>
 #include <ctime>
+#include <exception>
+#include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
+#include <utility>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
@@ -14,35 +18,38 @@
 #include "settings.hpp"
 #include "uls_import.hpp"
 #include "ui/app_state.hpp"
+#include "ui/chrome.hpp"
 #include "ui/handlers.hpp"
 #include "ui/pages.hpp"
 
 namespace ql
 {
 
-    // Makes the top bar's clock advance, using as little terminal traffic as
-    // possible. FTXUI only redraws in response to an event, so on an idle
-    // screen the clock would freeze at whatever minute the last keypress
-    // happened in. This thread posts one redraw event when the minute
-    // changes -- one screen update per minute, and nothing in between (an
-    // SSH session pays for every redraw in bytes on the wire).
+    // Redraws the screen when -- and only when -- something it shows has
+    // changed on its own, without a keypress: the top bar's clock ticking
+    // over to a new minute, or the shared station data's status (see
+    // DescribeStationDataNotice / DescribeStationDataStatus) moving on. FTXUI
+    // only redraws in response to an event, and every redraw costs an SSH
+    // session a screenful of bytes on the wire, so this posts one only when
+    // the visible text would actually differ.
     //
-    // It sleeps until the next minute boundary, but never for more than
-    // kMaxSleep at a stretch, and only posts if the minute really did change
-    // when it wakes. The cap costs no traffic (waking up sends nothing); it
-    // means a system clock that was stepped or a machine that was suspended
-    // -- when a long sleep can overrun the boundary -- is noticed within
-    // kMaxSleep instead of up to a minute later. Construct it after the
-    // screen and before screen.Loop(); it stops and joins on destruction.
-    class ClockTicker
+    // It wakes at the next minute boundary or the next status check,
+    // whichever comes first: every kStatusPollIdle normally, every
+    // kStatusPollBusy while the station data is loading (so its percentage
+    // keeps moving). Waking and checking costs nothing but a local database
+    // read. The clock waits are capped at kStatusPollIdle too, so a stepped
+    // system clock or a resume from suspend is noticed promptly. Construct it
+    // after the screen and before screen.Loop(); it stops and joins on
+    // destruction.
+    class ScreenTicker
     {
     public:
-        explicit ClockTicker(ftxui::ScreenInteractive* screen)
-            : screen_(screen), thread_(&ClockTicker::Run, this)
+        ScreenTicker(ftxui::ScreenInteractive* screen, std::string db_path)
+            : screen_(screen), db_path_(std::move(db_path)), thread_(&ScreenTicker::Run, this)
         {
         }
 
-        ~ClockTicker()
+        ~ScreenTicker()
         {
             {
                 std::lock_guard<std::mutex> lock(mutex_);
@@ -52,31 +59,69 @@ namespace ql
             thread_.join();
         }
 
-        ClockTicker(const ClockTicker&) = delete;
-        ClockTicker& operator=(const ClockTicker&) = delete;
+        ScreenTicker(const ScreenTicker&) = delete;
+        ScreenTicker& operator=(const ScreenTicker&) = delete;
 
     private:
-        static std::int64_t CurrentMinute()
+        static std::int64_t Now()
         {
-            return static_cast<std::int64_t>(std::time(nullptr)) / 60;
+            return static_cast<std::int64_t>(std::time(nullptr));
+        }
+
+        // Everything about the station data that's shown anywhere, as one
+        // string to compare; empty if the database can't be read.
+        static std::string StatusSignature(Database* db, bool* busy)
+        {
+            *busy = false;
+            if (db == nullptr)
+            {
+                return "";
+            }
+            try
+            {
+                std::int64_t now = Now();
+                bool is_problem = false;
+                std::string notice = DescribeStationDataNotice(db, now, &is_problem);
+                *busy = !notice.empty();
+                return notice + "|" + DescribeStationDataStatus(db, now, true);
+            }
+            catch (const std::exception&)
+            {
+                return "";
+            }
         }
 
         void Run()
         {
-            std::int64_t drawn_minute = CurrentMinute();
+            // This thread's own connection: SQLite connections aren't shared
+            // across threads here, and the UI thread's is busy with the UI.
+            std::unique_ptr<Database> db;
+            try
+            {
+                db = std::make_unique<Database>(db_path_);
+            }
+            // NOLINTNEXTLINE(bugprone-empty-catch): deliberately ignored, see below.
+            catch (const std::exception&)
+            {
+                // No status watching, just the clock.
+            }
+
+            std::int64_t drawn_minute = Now() / 60;
+            bool busy = false;
+            std::string drawn_status = StatusSignature(db.get(), &busy);
             while (true)
             {
-                // Until just past the next minute boundary (the margin keeps
-                // a wake-up that lands a hair early from spinning), or the
-                // cap, whichever comes first.
                 std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
                 std::chrono::system_clock::time_point next_minute =
                     std::chrono::floor<std::chrono::minutes>(now) + std::chrono::minutes(1);
+                // The margin keeps a wake-up that lands a hair early from
+                // missing the minute change.
                 std::chrono::system_clock::duration wait_time =
                     next_minute - now + std::chrono::milliseconds(200);
-                if (wait_time > kMaxSleep)
+                std::chrono::system_clock::duration poll = busy ? kStatusPollBusy : kStatusPollIdle;
+                if (wait_time > poll)
                 {
-                    wait_time = kMaxSleep;
+                    wait_time = poll;
                 }
                 {
                     std::unique_lock<std::mutex> lock(mutex_);
@@ -91,18 +136,31 @@ namespace ql
                     }
                 }
 
-                std::int64_t minute = CurrentMinute();
+                bool changed = false;
+                std::int64_t minute = Now() / 60;
                 if (minute != drawn_minute)
                 {
                     drawn_minute = minute;
+                    changed = true;
+                }
+                std::string status = StatusSignature(db.get(), &busy);
+                if (status != drawn_status)
+                {
+                    drawn_status = status;
+                    changed = true;
+                }
+                if (changed)
+                {
                     screen_->PostEvent(ftxui::Event::Custom);
                 }
             }
         }
 
-        static constexpr std::chrono::seconds kMaxSleep{30};
+        static constexpr std::chrono::seconds kStatusPollIdle{10};
+        static constexpr std::chrono::seconds kStatusPollBusy{3};
 
         ftxui::ScreenInteractive* screen_;
+        std::string db_path_;
         std::mutex mutex_;
         std::condition_variable wake_;
         bool stop_ = false;
@@ -135,24 +193,6 @@ namespace ql
         }
 
         ql::RefreshNets(&state);
-
-        // Kick off a fresh FCC ULS import automatically if one has never run,
-        // previously failed, is stuck "running" (only possible if a prior run
-        // crashed, since a clean quit is blocked while one is active), the last
-        // completed run is more than a week old, or either auxiliary step (the
-        // ZIP-centroid geocode or the ZIP-to-county lookup) specifically failed
-        // last time (which a fresh, still-recent `uls` row would otherwise mask
-        // for up to a week -- see ShouldRetryAuxiliaryImport). Every session
-        // shares the same import_runs bookkeeping, so only one of however many
-        // concurrent sessions are open at a given moment actually ends up
-        // starting a redundant import -- see Database::TryClaimImportRun.
-        std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
-        if (ql::ShouldAutoStartUlsImport(db.GetImportRunStatus("uls"), now) ||
-            ql::ShouldRetryAuxiliaryImport(db.GetImportRunStatus("zip_centroids")) ||
-            ql::ShouldRetryAuxiliaryImport(db.GetImportRunStatus("zip_counties")))
-        {
-            ql::StartUlsImport(state.db_path, &state.uls_import_progress, &screen);
-        }
 
         ftxui::Component net_list_page = ql::BuildNetListPage(&state);
         ftxui::Component create_net_page = ql::BuildCreateNetPage(&state);
@@ -189,14 +229,16 @@ namespace ql
         // ql::AppKeyHandler for the full explanation. SafeAppEventDispatcher
         // wraps AppKeyHandler the same way ftxui::CatchEvent would, but also
         // guards against a Database exception (e.g. a write that times out
-        // because another connection -- another session, or this one's own
-        // background ULS import thread -- is mid-transaction) taking down the
-        // whole session.
+        // because another connection -- another session, or the station data
+        // updater -- is mid-transaction) taking down the whole session.
         ftxui::Component ui = ftxui::Make<ql::SafeAppEventDispatcher>(tab, &state);
+
+        // The top bar's station-data notice reads this session's database.
+        SetTopBarNoticeDatabase(&db);
 
         // Declared after `screen` so it is stopped and joined before `screen`
         // is destroyed.
-        ClockTicker clock_ticker(&screen);
+        ScreenTicker screen_ticker(&screen, state.db_path);
 
         screen.Loop(ui);
     }

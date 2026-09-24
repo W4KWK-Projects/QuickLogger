@@ -1,12 +1,15 @@
 #include "pages.hpp"
 
 #include <cstddef>
+#include <cstdint>
+#include <ctime>
 #include <utility>
 
 #include <ftxui/component/component_options.hpp>
 #include <ftxui/dom/elements.hpp>
 
 #include "../date_utils.hpp"
+#include "../uls_import.hpp"
 #include "chrome.hpp"
 #include "handlers.hpp"
 
@@ -741,13 +744,10 @@ namespace ql
     {
     public:
         SettingsRenderer(AppState* state, ftxui::Component input_callsign,
-                         ftxui::Component input_location, ftxui::Component input_qrz_username,
-                         ftxui::Component input_qrz_password)
+                         ftxui::Component input_location)
             : state_(state),
               input_callsign_(std::move(input_callsign)),
-              input_location_(std::move(input_location)),
-              input_qrz_username_(std::move(input_qrz_username)),
-              input_qrz_password_(std::move(input_qrz_password))
+              input_location_(std::move(input_location))
         {
         }
 
@@ -756,25 +756,27 @@ namespace ql
             ftxui::Element content = ftxui::vbox({
                 ftxui::hbox({FieldLabel("My Callsign*: "), input_callsign_->Render()}),
                 ftxui::hbox({FieldLabel("My ZIP Code*: "), input_location_->Render()}),
-                ftxui::hbox({FieldLabel("QRZ Username: "), input_qrz_username_->Render()}),
-                ftxui::hbox({FieldLabel("QRZ Password: "), input_qrz_password_->Render()}),
                 ftxui::text("* Required") | ftxui::dim,
                 ftxui::separator(),
-                ftxui::text("My ZIP Code is a plain 5-digit US ZIP code (digits only), used to "
-                            "find nearby ULS stations when saving a station to a net.") |
+                ftxui::paragraph("My ZIP Code is a plain 5-digit US ZIP code (digits only), used "
+                                 "to find nearby licensed stations when saving a station to a "
+                                 "net. Never included when the database is exported.") |
                     ftxui::dim,
-                ftxui::text(
-                    "QRZ credentials are optional; used later for looking up station info.") |
-                    ftxui::dim,
-                ftxui::text("Never included when the database is exported.") | ftxui::dim,
                 ftxui::separator(),
-                ftxui::text(DescribeUlsImportStatus(state_)) | ftxui::color(ftxui::Color::Cyan),
+                ftxui::text("Station data (shared by everyone, kept up to date automatically):") |
+                    ftxui::bold,
+                ftxui::paragraph(DescribeStationDataStatus(
+                    state_->db, static_cast<std::int64_t>(std::time(nullptr)),
+                    state_->is_console_session)) |
+                    ftxui::color(ftxui::Color::Cyan),
+                StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
 
-            std::vector<KeyHint> hints = {{"F2", "Save"}, {"F3", "Import ULS"}};
+            std::vector<KeyHint> hints = {{"F2", "Save"}};
             if (state_->is_console_session)
             {
+                hints.push_back({"F3", "Refresh Station Data"});
                 hints.push_back({"F4", "Manage Users"});
             }
             hints.push_back({"Esc", "Cancel"});
@@ -785,8 +787,6 @@ namespace ql
         AppState* state_;
         ftxui::Component input_callsign_;
         ftxui::Component input_location_;
-        ftxui::Component input_qrz_username_;
-        ftxui::Component input_qrz_password_;
     };
 
     ftxui::Component BuildSettingsPage(AppState* state)
@@ -799,24 +799,13 @@ namespace ql
         location_option.on_change = ZipCodeFieldHandler(&state->settings_form.location);
         ftxui::Component input_location =
             ftxui::Input(&state->settings_form.location, "5-digit ZIP", location_option);
-        ftxui::Component input_qrz_username =
-            ftxui::Input(&state->settings_form.qrz_username, "Optional", SingleLineInputOption());
-
-        ftxui::InputOption password_option;
-        password_option.multiline = false;
-        password_option.password = true;
-        ftxui::Component input_qrz_password =
-            ftxui::Input(&state->settings_form.qrz_password, "Optional", password_option);
 
         ftxui::Component root = ftxui::Container::Vertical({
             input_callsign,
             input_location,
-            input_qrz_username,
-            input_qrz_password,
         });
 
-        return ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_location,
-                                                      input_qrz_username, input_qrz_password));
+        return ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_location));
     }
 
     // ---- Ad hoc net page ---------------------------------------------------

@@ -926,8 +926,8 @@ namespace ql
             state->active_instance.net_id, state->modal_station.callsign);
         std::size_t tier1_count = state->modal_callsign_suggestions.size();
 
-        // Tier 2: callers known to other nets (today's stand-in for the
-        // not-yet-built QRZ/ULS tier -- see SearchStationsByCallsignSubstring).
+        // Tier 2: callers known to other nets (see
+        // SearchStationsByCallsignSubstring).
         std::vector<Station> other_matches =
             state->db->SearchStationsByCallsignSubstring(state->modal_station.callsign);
         AppendNewSuggestions(&state->modal_callsign_suggestions, other_matches);
@@ -956,6 +956,9 @@ namespace ql
 
         Station selected = state->modal_callsign_suggestions[state->selected_suggestion_index];
         state->modal_station = selected;
+        // Fill County in now, so it shows in the form as soon as the station
+        // is picked rather than only once it's saved.
+        BackfillCountyFromZip(state, &state->modal_station);
 
         std::string default_remarks =
             state->db->GetSavedNetStationRemarks(state->active_instance.net_id, selected.callsign);
@@ -1141,7 +1144,9 @@ namespace ql
     }
 
     // Same rationale and lazy/self-correcting behavior as
-    // EnsureZipCentroidsCached above, for AppState::zip_county_by_zip.
+    // EnsureZipCentroidsCached above, for AppState::zip_county_by_zip and
+    // zip_place_county_by_key (loaded together; the second is legitimately
+    // small, so emptiness of the first is what says "not loaded yet").
     static void EnsureZipCountiesCached(AppState* state)
     {
         if (!state->zip_county_by_zip.empty())
@@ -1153,22 +1158,11 @@ namespace ql
         {
             state->zip_county_by_zip[zip_county.zip] = zip_county.county;
         }
-    }
-
-    // Same rationale and lazy/self-correcting behavior as
-    // EnsureZipCentroidsCached above, for AppState::city_county_by_city_state.
-    static void EnsureCityCountiesCached(AppState* state)
-    {
-        if (!state->city_county_by_city_state.empty())
+        std::vector<ZipPlaceCounty> zip_places = state->db->GetAllZipPlaceCounties();
+        for (const ZipPlaceCounty& zip_place : zip_places)
         {
-            return;
-        }
-        std::vector<CityCounty> city_counties = state->db->ComputeCityCounties();
-        for (const CityCounty& city_county : city_counties)
-        {
-            std::string key =
-                ToUpperAscii(city_county.city) + "|" + ToUpperAscii(city_county.state);
-            state->city_county_by_city_state[key] = city_county.county;
+            state->zip_place_county_by_key[zip_place.zip + "|" + zip_place.place] =
+                zip_place.county;
         }
     }
 
@@ -1295,47 +1289,39 @@ namespace ql
 
         state->saved_station =
             state->saved_station_suggestions[state->selected_saved_station_suggestion_index];
+        // Fill County in now, so it shows in the form as soon as the station
+        // is picked rather than only once it's saved. (ULS records never
+        // carry a county, so a ULS suggestion always needs this.)
+        BackfillCountyFromZip(state, &state->saved_station);
         state->saved_station_suggestions.clear();
         state->saved_station_suggestion_labels.clear();
     }
 
     void BackfillCountyFromZip(AppState* state, Station* station)
     {
-        if (!station->county.empty())
-        {
-            return;
-        }
-
-        // Prefer the city-based lookup: a city is unambiguous even when one
-        // of its ZIPs straddles a county line close to evenly, which is
-        // exactly where the ZIP-based lookup below can pick the wrong side
-        // (see CityCounty in models.hpp).
-        if (!station->city.empty() && !station->state.empty())
-        {
-            EnsureCityCountiesCached(state);
-            std::string key = ToUpperAscii(station->city) + "|" + ToUpperAscii(station->state);
-            std::unordered_map<std::string, std::string>::const_iterator city_it =
-                state->city_county_by_city_state.find(key);
-            if (city_it != state->city_county_by_city_state.end())
-            {
-                station->county = city_it->second;
-                return;
-            }
-        }
-
-        if (station->zip.empty())
+        if (!station->county.empty() || station->zip.empty())
         {
             return;
         }
 
         // A handful of already-persisted stations predate uls_import.cpp's
         // NormalizeZip5 fix and still carry a 9-digit ZIP+4 (e.g.
-        // "374152623") rather than a plain 5-digit ZIP -- zip_county_by_zip
-        // is keyed on the latter, so truncate defensively here too rather
-        // than only at import time.
+        // "374152623") rather than a plain 5-digit ZIP -- the tables are
+        // keyed on the latter, so truncate defensively here too rather than
+        // only at import time.
         std::string zip5 = station->zip.size() > 5 ? station->zip.substr(0, 5) : station->zip;
 
         EnsureZipCountiesCached(state);
+        if (!station->city.empty())
+        {
+            std::unordered_map<std::string, std::string>::const_iterator place_it =
+                state->zip_place_county_by_key.find(zip5 + "|" + NormalizePlaceName(station->city));
+            if (place_it != state->zip_place_county_by_key.end())
+            {
+                station->county = place_it->second;
+                return;
+            }
+        }
         std::unordered_map<std::string, std::string>::const_iterator it =
             state->zip_county_by_zip.find(zip5);
         if (it != state->zip_county_by_zip.end())

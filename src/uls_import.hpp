@@ -1,89 +1,78 @@
 #pragma once
 
-#include <atomic>
 #include <cstdint>
-#include <mutex>
-#include <optional>
 #include <string>
-
-#include "models.hpp"
-
-namespace ftxui
-{
-    class ScreenInteractive;
-}
 
 namespace ql
 {
 
-    struct AppState;
+    class Database;
 
-    // How far along a running FCC ULS import is. Read every render frame by
-    // the Settings page, written only by the background import thread -- see
-    // StartUlsImport. Embedded by value in AppState (which lives for the
-    // whole process), never copied, only ever accessed by pointer.
-    enum class UlsImportPhase
-    {
-        kIdle,
-        kDownloading,
-        kExtracting,
-        kParsing,
-        kComplete,
-        kFailed,
-    };
+    // The station data QuickLogger downloads for itself: the FCC ULS amateur
+    // license database (callsign -> name/address/license class), the Census
+    // ZIP gazetteer (ZIP -> lat/lon, for the saved-station proximity search)
+    // and the Census ZIP-to-county data (for Station::county). All of it is
+    // shared by every session, kept up to date automatically by the data
+    // updater (see data_updater.hpp) -- never by a particular session or
+    // user -- and reported through import_runs rows (see ImportRunStatus):
 
-    struct UlsImportProgress
-    {
-        std::atomic<bool> running{false};
-        std::atomic<UlsImportPhase> phase{UlsImportPhase::kIdle};
-        std::atomic<int> percent{0};
-        std::atomic<std::int64_t> records_imported{0};
+    // One row per dataset, recording its last load.
+    constexpr const char* kUlsDataset = "uls";
+    constexpr const char* kZipCentroidsDataset = "zip_centroids";
+    // Named "_data" rather than reusing the older "zip_counties" row, which
+    // described an earlier, less accurate way of building the same table --
+    // a database carrying only that older row gets the new data loaded once.
+    constexpr const char* kZipCountyDataset = "zip_county_data";
+    // The refresh job itself: the updater's lock and live progress report.
+    constexpr const char* kDataRefreshJob = "data_refresh";
 
-        // last_error is written once (when a run fails) and read occasionally
-        // for display; a plain std::string isn't safely readable across
-        // threads without synchronization even for "just display", hence the
-        // mutex rather than an atomic.
-        std::mutex error_mutex;
-        std::string last_error;
-    };
-
-    // FCC republishes the ULS amateur database weekly; treat a completed
-    // import older than this as due for a refresh.
+    // FCC republishes the ULS amateur database weekly; a completed load
+    // older than this is due for a refresh.
     constexpr std::int64_t kUlsStalenessThresholdSeconds = std::int64_t{7} * 24 * 60 * 60;
+    // How long after a failed load before it's tried again on its own.
+    constexpr std::int64_t kFailedLoadRetrySeconds = std::int64_t{60} * 60;
+    // A "running" job whose heartbeat is older than this belongs to a process
+    // that died; another updater may take it over.
+    constexpr std::int64_t kJobStaleAfterSeconds = 120;
 
-    // No-op if progress->running is already true. Otherwise spawns a detached
-    // background thread that downloads the current FCC ULS amateur database,
-    // extracts it, parses it, and batch-upserts it into `db_path`'s stations
-    // table (opening its own Database connection -- never touches the
-    // caller's), writing its own final import_runs row when done. Calls
-    // screen->PostEvent(ftxui::Event::Custom) periodically so a live
-    // percentage repaints while the import runs.
-    void StartUlsImport(const std::string& db_path, UlsImportProgress* progress,
-                        ftxui::ScreenInteractive* screen);
+    // Which datasets are due for (re)loading right now.
+    struct DataRefreshPlan
+    {
+        bool uls = false;
+        bool zip_centroids = false;
+        bool zip_counties = false;
+    };
 
-    // Settings-page display helper: one status line describing the live
-    // AppState::uls_import_progress if a run is in progress, otherwise the
-    // persisted import_runs row for "uls" (read fresh via AppState::db, not
-    // cached, so the text can't go stale while sitting on the page).
-    std::string DescribeUlsImportStatus(const AppState* state);
+    // Works out what's due: a dataset that has never loaded, whose last
+    // attempt failed more than kFailedLoadRetrySeconds ago, or (ULS only)
+    // whose last load is more than a week old. A refresh requested by hand
+    // (Database::RequestImportRun on kDataRefreshJob) makes the ULS data and
+    // anything that failed due immediately.
+    DataRefreshPlan PlanDataRefresh(Database* db, std::int64_t now);
 
-    // Whether a fresh automatic import should be kicked off at startup:
-    // never run, a previous run failed, a previous run is stuck "running"
-    // (only possible if it crashed, since a clean quit is blocked while an
-    // import is running -- see QuitHandler), or the last completed run is
-    // older than kUlsStalenessThresholdSeconds.
-    bool ShouldAutoStartUlsImport(const std::optional<ImportRunStatus>& status, std::int64_t now);
+    // True if `plan` has anything to do.
+    bool DataRefreshPlanHasWork(const DataRefreshPlan& plan);
 
-    // Whether one of StartUlsImport's small, independent auxiliary steps
-    // (the ZIP-centroid geocode -- see FetchAndLoadZipCentroids -- or the
-    // ZIP-to-county lookup -- see FetchAndLoadZipCounties) needs retrying:
-    // it previously failed (e.g. a network hiccup) and hasn't succeeded
-    // since. Checked separately from ShouldAutoStartUlsImport because a
-    // `uls` row that's "complete" and fresh (<7 days) would otherwise mask a
-    // failed `zip_centroids`/`zip_counties` row for up to a week, silently
-    // leaving the saved-station form's proximity autocomplete (or
-    // ULS-sourced County backfill) unavailable with no way to notice short
-    // of manually pressing F3.
-    bool ShouldRetryAuxiliaryImport(const std::optional<ImportRunStatus>& status);
+    // Loads everything in `plan`, synchronously, reporting progress on the
+    // kDataRefreshJob row (which the caller must already have claimed with
+    // Database::TryClaimImportRun) and recording each dataset's outcome on
+    // its own row. Calls `should_stop` regularly and gives up promptly once
+    // it returns true. Downloads go into a uls_cache/ directory next to
+    // `db_path`. Returns "complete", "failed" or "interrupted", for the job
+    // row.
+    std::string RunDataRefresh(Database* db, const std::string& db_path,
+                               const DataRefreshPlan& plan, bool (*should_stop)());
+
+    // One or two sentences for the Settings page describing the station
+    // data: whether it's loaded and how current, any failure, and a refresh
+    // in progress. `can_request_refresh` adds the "Press F3" hint (local
+    // console only).
+    std::string DescribeStationDataStatus(Database* db, std::int64_t now, bool can_request_refresh);
+
+    // A short notice for the top bar of every page while the station data
+    // isn't fully usable or is being refreshed ("Loading station data
+    // 45%"), or an empty string when there's nothing to say. `is_problem`
+    // is set when the data is missing and the last attempt failed.
+    std::string DescribeStationDataNotice(Database* db, std::int64_t now, bool* is_problem);
 
 }  // namespace ql

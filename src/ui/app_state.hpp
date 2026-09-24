@@ -9,7 +9,6 @@
 #include "../db/database.hpp"
 #include "../models.hpp"
 #include "../settings.hpp"
-#include "../uls_import.hpp"
 
 namespace ql
 {
@@ -46,7 +45,7 @@ namespace ql
     struct AppState
     {
         Database* db = nullptr;
-        std::string db_path;  // Passed to StartUlsImport, which opens its own connection.
+        std::string db_path;
         ftxui::ScreenInteractive* screen = nullptr;
         // True for the session launched directly by main() at the real
         // console; false for a session handed off from an SSH connection
@@ -119,16 +118,6 @@ namespace ql
         AppSettings settings;
         AppSettings settings_form;
 
-        // FCC ULS background import, triggered from the Settings page (F3) or
-        // automatically at startup when stale -- see uls_import.hpp. This is
-        // the live, in-memory state a running import thread updates; once it
-        // finishes, DescribeUlsImportStatus reads the persisted import_runs
-        // row straight from the database on every render instead of caching
-        // it here, so the displayed status can never go stale while sitting
-        // on the Settings page (the query is cheap, same as e.g.
-        // NetHistoryRenderer's per-frame check-in query).
-        UlsImportProgress uls_import_progress;
-
         // In-memory cache of the whole zip_centroids table (see
         // EnsureZipCentroidsCached in app_state.cpp), so proximity lookups
         // for the saved-station form's ULS tier (RefreshNearbyZip3Prefixes,
@@ -141,19 +130,12 @@ namespace ql
         std::vector<ZipCentroid> zip_centroids_cache;
         std::unordered_map<std::string, ZipCentroid> zip_centroids_by_zip;
 
-        // Same idea as the pair above, but for the ZIP-to-county lookup used
-        // by BackfillCountyFromZip to fill in Station::county for a
-        // ULS-sourced station (which has no county field in FCC's data at
-        // all). Maps straight to the county string since there's nothing
-        // else per-ZIP worth caching here.
+        // Same idea as the pair above, for the ZIP-to-county data used by
+        // BackfillCountyFromZip: each ZIP's county, and -- for ZIPs that cross
+        // a county line -- the county of each town inside them, keyed on
+        // "<ZIP>|<TOWN>" (see ZipPlaceCounty in models.hpp).
         std::unordered_map<std::string, std::string> zip_county_by_zip;
-
-        // City+state -> county, keyed on "<CITY>|<STATE>" (both uppercased),
-        // from Database::ComputeCityCounties -- preferred over
-        // zip_county_by_zip in BackfillCountyFromZip, since a city is
-        // unambiguous even when one of its ZIPs straddles a county line
-        // close to evenly (see CityCounty's doc comment in models.hpp).
-        std::unordered_map<std::string, std::string> city_county_by_city_state;
+        std::unordered_map<std::string, std::string> zip_place_county_by_key;
 
         // Net list page: the recurring nets a user can select and start.
         std::vector<Net> nets;
@@ -202,8 +184,7 @@ namespace ql
         // Callsign autocomplete suggestions, refreshed live as the operator
         // types (see RefreshCallsignSuggestions). Tier 1 (stations known to
         // this specific net, via real check-ins or SaveNetStation) is listed
-        // ahead of tier 2 (stations known to other nets -- today's stand-in
-        // for the not-yet-built QRZ/ULS tier). Kept in sync 1:1 with
+        // ahead of tier 2 (stations known to other nets). Kept in sync 1:1 with
         // `modal_callsign_suggestion_labels` by index.
         std::vector<Station> modal_callsign_suggestions;
         std::vector<std::string> modal_callsign_suggestion_labels;
@@ -661,18 +642,16 @@ namespace ql
 
     // Fills in `station->county` if it's currently blank -- a no-op
     // otherwise, so it's safe to call on every station about to be
-    // persisted regardless of where its data came from. Prefers
-    // AppState::city_county_by_city_state (keyed on `station`'s city+state)
-    // over AppState::zip_county_by_zip (keyed on its ZIP) when both are
-    // available: a city is unambiguous even when one of its ZIPs straddles
-    // a county line close to evenly, which is exactly where the ZIP-based
-    // lookup can pick the wrong side (see CityCounty in models.hpp). Both
-    // caches lazily load from the database on first use. This exists
-    // specifically because ULS has no county field at all in its data, so a
-    // ULS-sourced station's county would otherwise stay permanently blank;
-    // call this right before RecordManualCheckInStation/SaveNetStation for
-    // any Station that might be ULS-sourced (or just manually entered with
-    // a ZIP but no county).
+    // persisted regardless of where its data came from. Uses the station's
+    // ZIP: if that ZIP crosses a county line and the station's city is one
+    // of the towns inside it, that town's county; otherwise the ZIP's own
+    // county (where most of its residents live). See ZipCounty and
+    // ZipPlaceCounty in models.hpp. The lookup tables load lazily from the
+    // database on first use. This exists because ULS has no county field at
+    // all, so a ULS-sourced station's county would otherwise stay blank;
+    // call it right before RecordManualCheckInStation/SaveNetStation for any
+    // Station that might be ULS-sourced (or manually entered with a ZIP but
+    // no county).
     void BackfillCountyFromZip(AppState* state, Station* station);
 
 }  // namespace ql

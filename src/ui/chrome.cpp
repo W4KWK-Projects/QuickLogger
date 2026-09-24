@@ -1,11 +1,15 @@
 #include "chrome.hpp"
 
+#include <cstdint>
 #include <ctime>
+#include <exception>
+#include <string>
 #include <utility>
 
 #include <ftxui/screen/terminal.hpp>
 
 #include "../date_utils.hpp"
+#include "../uls_import.hpp"
 
 namespace ql
 {
@@ -58,14 +62,56 @@ namespace ql
         return ftxui::hbox(pieces);
     }
 
+    static Database* g_notice_db = nullptr;
+
+    void SetTopBarNoticeDatabase(Database* db)
+    {
+        g_notice_db = db;
+    }
+
+    // The station-data notice as a colored badge, or an empty element.
+    static ftxui::Element StationDataNotice()
+    {
+        if (g_notice_db == nullptr)
+        {
+            return ftxui::text("");
+        }
+        bool is_problem = false;
+        std::string notice;
+        try
+        {
+            notice = DescribeStationDataNotice(
+                g_notice_db, static_cast<std::int64_t>(std::time(nullptr)), &is_problem);
+        }
+        catch (const std::exception&)
+        {
+            return ftxui::text("");
+        }
+        if (notice.empty())
+        {
+            return ftxui::text("");
+        }
+        ftxui::Element badge = ftxui::text(" " + notice + " ");
+        if (is_problem)
+        {
+            return ftxui::hbox({badge | ftxui::bgcolor(ftxui::Color::Red) |
+                                    ftxui::color(ftxui::Color::White) | ftxui::bold,
+                                ftxui::text(" ")});
+        }
+        return ftxui::hbox(
+            {badge | ftxui::bgcolor(ftxui::Color::YellowLight) | ftxui::color(ftxui::Color::Black),
+             ftxui::text(" ")});
+    }
+
     ftxui::Element TopBar(const std::string& page_title)
     {
         return ftxui::hbox({
                    ftxui::text(" QuickLogger ") | ftxui::bold,
                    ftxui::text("— " + page_title + " "),
                    ftxui::filler(),
+                   StationDataNotice(),
                    // Local time, to the minute. It's computed each time the bar is
-                   // drawn; ClockTicker (interactive_session.cpp) is what makes a
+                   // drawn; ScreenTicker (interactive_session.cpp) is what makes a
                    // redraw happen when the minute changes.
                    ftxui::text(FormatLocalTimeOfDay(std::time(nullptr)) + " "),
                }) |

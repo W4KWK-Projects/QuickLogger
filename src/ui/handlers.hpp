@@ -792,13 +792,15 @@ namespace ql
         AppState* state_;
     };
 
-    // F3 on the settings page: starts the background FCC ULS import (see
-    // uls_import.hpp) if one isn't already running; no-op otherwise. Used for
-    // both the very first import and any forced re-run.
-    class StartUlsImportHandler
+    // F3 on the settings page, local console only: asks the data updater (see
+    // data_updater.hpp) to refresh the shared station data now rather than
+    // waiting for its weekly schedule. Only the console gets this -- the data
+    // is shared, so one SSH user shouldn't be able to set off a download for
+    // everyone. A no-op anywhere else.
+    class RequestStationDataRefreshHandler
     {
     public:
-        explicit StartUlsImportHandler(AppState* state) : state_(state) {}
+        explicit RequestStationDataRefreshHandler(AppState* state) : state_(state) {}
 
         void operator()() const;
 
