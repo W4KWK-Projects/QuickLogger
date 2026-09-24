@@ -23,7 +23,7 @@ This README has two halves: **[Running QuickLogger](#running-quicklogger)** (wha
 
 ## Download (macOS)
 
-Each [release](https://github.com/W4KWK/QuickLogger/releases) has a ready-to-run macOS binary for Apple Silicon Macs, built for macOS 13 or later: `QuickLogger-<version>-macos-arm64.tar.gz`. On other platforms, [build it](#building-quicklogger).
+Each [release](https://github.com/W4KWK-Projects/QuickLogger/releases) has a ready-to-run macOS binary for Apple Silicon Macs, built for macOS 13 or later: `QuickLogger-<version>-macos-arm64.tar.gz`. On other platforms, [build it](#building-quicklogger).
 
 1. Install its one outside library: `brew install libssh`.
 2. Unpack it: `tar xzf QuickLogger-<version>-macos-arm64.tar.gz`.
