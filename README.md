@@ -74,6 +74,8 @@ The net-log/database-slice export and import features can push and pull files ov
 
 On first run, you'll be taken straight to Settings to set your callsign and home ZIP code (required before anything else is usable). After that, you land on the Recurring Nets list.
 
+Settings (F4 on the Recurring Nets list) also has **Time Format**: the 12-hour clock (3:42 PM, the default) or the 24-hour clock (15:42), for every time QuickLogger shows or exports. Each SSH user chooses their own. Times are stored in UTC and shown in the time zone of the computer QuickLogger runs on.
+
 ### Running a net
 
 On **Recurring Nets**, highlight a net and press **F3** (or Enter), pick your role, confirm your callsign, and the net starts with you logged as check-in #1. **F2** opens the New Station window:
@@ -84,7 +86,7 @@ On **Recurring Nets**, highlight a net and press **F3** (or Enter), pick your ro
 | F3 | Log this station and close the window |
 | Esc | Close the window without logging anything |
 
-**F4** closes the net when you're done. It asks first, since a closed session can't be reopened for logging; it stays in **History** (F6), where you can still view and export it.
+**F4** closes the net when you're done. It asks first, since a closed session can't be reopened for logging; it stays in **History** (F6), with the times it started and ended, where you can still view and export it.
 
 **Picking up where you left off.** If a session ends without F4 — an SSH connection drops, a terminal is closed — the session stays open, and the net shows *session open* in the list. Starting that net again offers to **Resume** it (F2/Enter), carrying on the same log, or to **close it and start a new session** (F3). The same applies if someone else is logging that net right now: resuming joins their log.
 

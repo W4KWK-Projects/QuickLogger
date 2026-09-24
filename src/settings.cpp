@@ -64,6 +64,10 @@ namespace ql
             {
                 settings.location = value;
             }
+            else if (key == "time_format")
+            {
+                settings.use_24_hour_clock = value == "24h";
+            }
             else if (key == "qrz_username" || key == "qrz_password")
             {
                 has_obsolete_credentials = true;
@@ -83,6 +87,7 @@ namespace ql
         std::ofstream file(path, std::ios::trunc);
         file << "callsign=" << settings.callsign << "\n";
         file << "location=" << settings.location << "\n";
+        file << "time_format=" << (settings.use_24_hour_clock ? "24h" : "12h") << "\n";
     }
 
     bool SettingsAreComplete(const AppSettings& settings)

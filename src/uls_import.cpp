@@ -211,18 +211,6 @@ namespace ql
         return "";
     }
 
-    static std::string FormatTimestamp(std::int64_t unix_time)
-    {
-        if (unix_time <= 0)
-        {
-            return "";
-        }
-        std::tm local_time = LocalTime(static_cast<std::time_t>(unix_time));
-        char buffer[32];
-        std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M %p", &local_time);
-        return std::string(buffer);
-    }
-
     static std::int64_t Now()
     {
         return static_cast<std::int64_t>(std::time(nullptr));
@@ -1136,7 +1124,7 @@ namespace ql
         std::optional<ImportRunStatus> uls = db->GetImportRunStatus(kUlsDataset);
         if (uls.has_value() && UlsDataLoaded(uls))
         {
-            message += "FCC license data last updated " + FormatTimestamp(uls->completed_at) +
+            message += "FCC license data last updated " + FormatLocalDateTime(uls->completed_at) +
                        " (" + std::to_string(uls->records_imported) + " records).";
         }
         else if (!job.has_value())
@@ -1145,7 +1133,7 @@ namespace ql
         }
         if (uls.has_value() && uls->status == "failed")
         {
-            message += " The last attempt (" + FormatTimestamp(uls->started_at) +
+            message += " The last attempt (" + FormatLocalDateTime(uls->started_at) +
                        ") failed: " + uls->last_error + " It will be retried automatically.";
         }
 

@@ -178,6 +178,12 @@ namespace ql
         std::string settings_path;
         AppSettings settings;
         AppSettings settings_form;
+        // The Settings page's clock choice (0 = 12-hour, 1 = 24-hour), an
+        // index into settings_time_format_labels for its Toggle; copied into
+        // settings_form.use_24_hour_clock on save.
+        std::vector<std::string> settings_time_format_labels{"12-hour (3:42 PM)",
+                                                             "24-hour (15:42)"};
+        int settings_time_format_index = 0;
 
         // In-memory cache of the whole zip_centroids table (see
         // EnsureZipCentroidsCached in app_state.cpp), so proximity lookups
@@ -360,6 +366,16 @@ namespace ql
         std::vector<std::string> saved_station_suggestion_labels;
         int selected_saved_station_suggestion_index = 0;
     };
+
+    // Loads the Settings page's working copy (AppState::settings_form and the
+    // clock choice) from the saved settings. Call when opening the page.
+    void OpenSettingsForm(AppState* state);
+
+    // F2 on Settings: validates and saves AppState::settings_form (with the
+    // clock choice) and applies it -- including switching every time shown
+    // to the chosen clock. Returns false, setting AppState::form_error, if
+    // the callsign or ZIP code is missing.
+    bool SaveSettingsForm(AppState* state);
 
     // Reloads AppState::nets/net_names from the database. Call once at
     // startup and after any change that adds or removes a Net. Each label is

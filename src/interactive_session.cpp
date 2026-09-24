@@ -14,6 +14,7 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 
+#include "date_utils.hpp"
 #include "db/database.hpp"
 #include "settings.hpp"
 #include "uls_import.hpp"
@@ -179,6 +180,7 @@ namespace ql
         state.is_console_session = is_console_session;
         state.settings_path = settings_path;
         state.settings = ql::LoadSettings(state.settings_path);
+        ql::SetUse24HourClock(state.settings.use_24_hour_clock);
 
         // First launch (or an upgrade from before the ZIP code became required):
         // force the operator through Settings before anything else. Mirrors
@@ -188,7 +190,7 @@ namespace ql
         // SettingsAreComplete is still false, so Esc can't bypass this.
         if (!ql::SettingsAreComplete(state.settings))
         {
-            state.settings_form = state.settings;
+            ql::OpenSettingsForm(&state);
             state.page = ql::kPageSettings;
         }
 

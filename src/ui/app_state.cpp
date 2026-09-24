@@ -61,17 +61,21 @@ namespace ql
     static constexpr int kNameColumnWidth = 20;
     static constexpr int kMemberIdColumnWidth = 10;
     static constexpr int kCountyColumnWidth = 14;
-    static constexpr int kDateColumnWidth = 12;
+    // The net-history columns below are kept tight enough that a whole row
+    // (with the End column) still fits an 80-column terminal.
+    static constexpr int kDateColumnWidth = 10;
     // "03:42 PM" -- the net's start time, right after its date. Blank for a
     // net logged before start times were recorded.
     static constexpr int kStartTimeColumnWidth = 8;
+    // "05:10 PM" -- when the net was closed. Blank while it's still open.
+    static constexpr int kEndTimeColumnWidth = 8;
     // Sized to fit the longest header label that lands in each of these
-    // columns ("Alternate NC", 12 chars) plus a little padding -- the row
-    // shows the bare callsign, no "NC:"/"Alt:"/"Log:" prefix, since the
-    // header above it already names the column.
-    static constexpr int kNetControlColumnWidth = 14;
-    static constexpr int kAlternateNcColumnWidth = 14;
-    static constexpr int kLoggerColumnWidth = 14;
+    // columns ("Alternate NC", 12 chars; the space between columns is the
+    // padding) -- the row shows the bare callsign, no "NC:"/"Alt:"/"Log:"
+    // prefix, since the header above it already names the column.
+    static constexpr int kNetControlColumnWidth = 12;
+    static constexpr int kAlternateNcColumnWidth = 12;
+    static constexpr int kLoggerColumnWidth = 12;
 
     // Every header below sits above an ftxui::Menu, not a plain text list.
     // Menu's default entry renderer always prepends a 2-character indicator
@@ -87,13 +91,15 @@ namespace ql
         const char* status = instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed";
         char buffer[256];
         std::string start_time = FormatLocalTimeOfDay(instance.started_at);
+        std::string end_time = FormatLocalTimeOfDay(instance.closed_at);
         std::snprintf(
-            buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s", kDateColumnWidth,
-            kDateColumnWidth, instance.instance_date.c_str(), kStartTimeColumnWidth,
-            kStartTimeColumnWidth, start_time.c_str(), kNetControlColumnWidth,
-            kNetControlColumnWidth, instance.net_control_callsign.c_str(), kAlternateNcColumnWidth,
-            kAlternateNcColumnWidth, instance.alternate_net_control_callsign.c_str(),
-            kLoggerColumnWidth, kLoggerColumnWidth, instance.logger_callsign.c_str(), status);
+            buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
+            kDateColumnWidth, kDateColumnWidth, instance.instance_date.c_str(),
+            kStartTimeColumnWidth, kStartTimeColumnWidth, start_time.c_str(), kEndTimeColumnWidth,
+            kEndTimeColumnWidth, end_time.c_str(), kNetControlColumnWidth, kNetControlColumnWidth,
+            instance.net_control_callsign.c_str(), kAlternateNcColumnWidth, kAlternateNcColumnWidth,
+            instance.alternate_net_control_callsign.c_str(), kLoggerColumnWidth, kLoggerColumnWidth,
+            instance.logger_callsign.c_str(), status);
         return std::string(buffer);
     }
 
@@ -101,12 +107,12 @@ namespace ql
     {
         // Same field widths as FormatNetInstanceRow.
         char buffer[256];
-        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
+        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
                       kDateColumnWidth, kDateColumnWidth, "Date", kStartTimeColumnWidth,
-                      kStartTimeColumnWidth, "Start", kNetControlColumnWidth,
-                      kNetControlColumnWidth, "Net Control", kAlternateNcColumnWidth,
-                      kAlternateNcColumnWidth, "Alternate NC", kLoggerColumnWidth,
-                      kLoggerColumnWidth, "Logger", "Status");
+                      kStartTimeColumnWidth, "Start", kEndTimeColumnWidth, kEndTimeColumnWidth,
+                      "End", kNetControlColumnWidth, kNetControlColumnWidth, "Net Control",
+                      kAlternateNcColumnWidth, kAlternateNcColumnWidth, "Alternate NC",
+                      kLoggerColumnWidth, kLoggerColumnWidth, "Logger", "Status");
         return std::string(kMenuEntryIndicatorWidth, ' ') + buffer;
     }
 
@@ -261,6 +267,20 @@ namespace ql
         return when;
     }
 
+    // When a closed session ended: "05:10 PM", with its date in front if
+    // that's not the day it started (a net that ran past midnight). Empty
+    // while it's open.
+    static std::string DescribeSessionEnd(const NetInstance& instance)
+    {
+        if (instance.closed_at <= 0)
+        {
+            return "";
+        }
+        std::string end_date = FormatLocalDate(instance.closed_at);
+        std::string end_time = FormatLocalTimeOfDay(instance.closed_at);
+        return end_date == instance.instance_date ? end_time : end_date + " " + end_time;
+    }
+
     static std::string CountCheckIns(std::size_t count)
     {
         return std::to_string(count) + (count == 1 ? " check-in" : " check-ins");
@@ -362,8 +382,20 @@ namespace ql
     void CloseOpenNetAndStartNew(AppState* state)
     {
         CancelConfirmPrompt(state);
-        state->db->CloseNetInstance(state->resume_instance.id,
-                                    static_cast<std::int64_t>(std::time(nullptr)));
+        // Nobody closed this session when it ended, so "now" could be days
+        // later. Its last check-in is the best record of when it ended (or
+        // its start, if nothing was logged).
+        std::int64_t ended_at = state->resume_instance.started_at;
+        for (const CheckIn& check_in :
+             state->db->GetCheckInsForNetInstance(state->resume_instance.id))
+        {
+            ended_at = std::max(ended_at, check_in.checked_in_at);
+        }
+        if (ended_at <= 0)
+        {
+            ended_at = static_cast<std::int64_t>(std::time(nullptr));
+        }
+        state->db->CloseNetInstance(state->resume_instance.id, ended_at);
         RefreshNets(state);
         ResetStartNetFlow(state);
         state->page = kPageSelectRole;
@@ -396,6 +428,33 @@ namespace ql
         state->status_message =
             "Closed " + closed_name + " (" + CountCheckIns(check_ins) + "). It's in History (F6).";
         state->page = kPageNetList;
+    }
+
+    void OpenSettingsForm(AppState* state)
+    {
+        state->settings_form = state->settings;
+        state->settings_time_format_index = state->settings.use_24_hour_clock ? 1 : 0;
+    }
+
+    bool SaveSettingsForm(AppState* state)
+    {
+        if (state->settings_form.callsign.empty())
+        {
+            state->form_error = "Your callsign is required.";
+            return false;
+        }
+        if (state->settings_form.location.size() != 5)
+        {
+            state->form_error = "Your ZIP code is required and must be 5 digits.";
+            return false;
+        }
+
+        state->settings_form.use_24_hour_clock = state->settings_time_format_index == 1;
+        SaveSettings(state->settings_path, state->settings_form);
+        state->settings = state->settings_form;
+        SetUse24HourClock(state->settings.use_24_hour_clock);
+        state->form_error.clear();
+        return true;
     }
 
     void ResetCreateNetForm(AppState* state)
@@ -1278,16 +1337,12 @@ namespace ql
                     return;
                 }
                 std::size_t check_ins = state->db->GetCheckInsForNetInstance(instance.id).size();
-                std::string when = instance.instance_date;
-                std::string start_time = FormatLocalTimeOfDay(instance.started_at);
-                if (!start_time.empty())
-                {
-                    when += " " + start_time;
-                }
+                std::string ended = DescribeSessionEnd(instance);
                 state->row_delete_title = "Delete Net Session";
-                state->row_delete_lines.emplace_back("Delete the " + when + " session (" +
-                                                     std::to_string(check_ins) + " check-in" +
-                                                     (check_ins == 1 ? "" : "s") + ")?");
+                state->row_delete_lines.emplace_back(
+                    "Delete the " + DescribeSessionStart(instance) + " session (" +
+                    (ended.empty() ? "" : "ended " + ended + ", ") + CountCheckIns(check_ins) +
+                    ")?");
                 state->row_delete_lines.emplace_back("Its whole log is deleted.");
                 break;
             }
@@ -1449,10 +1504,7 @@ namespace ql
         std::string last_login = "never logged in";
         if (user.last_login_at > 0)
         {
-            std::tm local_time = LocalTime(static_cast<std::time_t>(user.last_login_at));
-            char buffer[32];
-            std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M %p", &local_time);
-            last_login = std::string("last login ") + buffer;
+            last_login = "last login " + FormatLocalDateTime(user.last_login_at);
         }
         return user.username + "  (" + last_login + ")";
     }
@@ -1523,6 +1575,10 @@ namespace ql
         if (instance.started_at > 0)
         {
             lines.push_back("Start Time: " + FormatLocalTimeOfDay(instance.started_at));
+        }
+        if (instance.closed_at > 0)
+        {
+            lines.push_back("End Time: " + DescribeSessionEnd(instance));
         }
         lines.push_back("Net Control: " + instance.net_control_callsign);
         lines.push_back("Alternate NC: " + instance.alternate_net_control_callsign);

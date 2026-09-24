@@ -904,7 +904,7 @@ namespace ql
 
     void ShowSettingsPageHandler::operator()() const
     {
-        state_->settings_form = state_->settings;
+        OpenSettingsForm(state_);
         state_->form_error.clear();
         state_->status_message.clear();
         state_->page = kPageSettings;
@@ -912,21 +912,10 @@ namespace ql
 
     void SaveSettingsHandler::operator()() const
     {
-        if (state_->settings_form.callsign.empty())
+        if (SaveSettingsForm(state_))
         {
-            state_->form_error = "Your callsign is required.";
-            return;
+            state_->page = kPageNetList;
         }
-        if (state_->settings_form.location.size() != 5)
-        {
-            state_->form_error = "Your ZIP code is required and must be 5 digits.";
-            return;
-        }
-
-        SaveSettings(state_->settings_path, state_->settings_form);
-        state_->settings = state_->settings_form;
-        state_->form_error.clear();
-        state_->page = kPageNetList;
     }
 
     void CancelSettingsHandler::operator()() const

@@ -86,6 +86,25 @@ namespace ql
         CHECK(text.substr(6) == "AM" || text.substr(6) == "PM");
     }
 
+    QL_TEST(TimesCanBeShownOnThe24HourClock)
+    {
+        std::int64_t evening = 1790000000;  // Some moment; compare against strftime.
+        std::tm local = LocalTime(static_cast<std::time_t>(evening));
+        char expected[8];
+        std::strftime(expected, sizeof(expected), "%H:%M", &local);
+
+        SetUse24HourClock(true);
+        std::string time = FormatLocalTimeOfDay(evening);
+        std::string date_time = FormatLocalDateTime(evening);
+        CHECK(Use24HourClock());
+        SetUse24HourClock(false);  // Back to the default for other tests.
+
+        CHECK_EQ(time, std::string(expected));
+        CHECK_EQ(date_time, FormatLocalDate(evening) + " " + expected);
+        CHECK_EQ(FormatLocalTimeOfDay(evening).size(), std::size_t{8});  // "hh:mm AM"
+        CHECK_EQ(FormatLocalDateTime(0), std::string(""));
+    }
+
     QL_TEST(FormatLocalDateIsIsoOrBlank)
     {
         CHECK_EQ(FormatLocalDate(0), std::string(""));
@@ -236,6 +255,12 @@ namespace ql
         AppSettings loaded = LoadSettings(dir.File("settings.txt"));
         CHECK_EQ(loaded.callsign, std::string("W4KWK"));
         CHECK_EQ(loaded.location, std::string("37415"));
+        CHECK(!loaded.use_24_hour_clock);  // 12-hour unless chosen.
+
+        settings.use_24_hour_clock = true;
+        SaveSettings(dir.File("settings.txt"), settings);
+        CHECK(ReadTextFile(dir.File("settings.txt")).find("time_format=24h") != std::string::npos);
+        CHECK(LoadSettings(dir.File("settings.txt")).use_24_hour_clock);
     }
 
     QL_TEST(SettingsFromAMissingFileAreEmpty)

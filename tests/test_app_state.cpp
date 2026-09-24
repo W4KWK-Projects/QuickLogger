@@ -313,10 +313,56 @@ namespace ql
         TypeRowPickDigit(&f.state, '1');
         FinishRowPick(&f.state);
         REQUIRE(f.state.show_row_delete_confirm_modal);
-        CHECK(f.state.row_delete_lines[0].find("(2 check-ins)") != std::string::npos);
+        // Closed on another day than it started, so the end shows its date.
+        CHECK(f.state.row_delete_lines[0].find("(ended " + FormatLocalDate(2000) + " " +
+                                               FormatLocalTimeOfDay(2000) + ", 2 check-ins)") !=
+              std::string::npos);
         ConfirmRowDelete(&f.state);
         CHECK(f.state.history_instances.empty());
         CHECK_EQ(f.state.status_message, std::string("Net session deleted."));
+    }
+
+    QL_TEST(HistoryShowsWhenEachSessionEnded)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        RefreshNetHistory(&f.state);
+        std::string header = FormatNetInstanceHeaderRow();
+        std::string::size_type end_column = header.find("End") - 2;  // Menu gutter.
+        REQUIRE(f.state.history_instance_labels.size() == 1);
+        CHECK_EQ(f.state.history_instance_labels[0].substr(end_column, 8), std::string(8, ' '));
+
+        std::int64_t ended = 1790003600;
+        f.db()->CloseNetInstance(f.state.active_instance.id, ended);
+        RefreshNetHistory(&f.state);
+        CHECK_EQ(f.state.history_instance_labels[0].substr(end_column, 8),
+                 FormatLocalTimeOfDay(ended));
+        CHECK_EQ(header.find("Net Control") - header.find("End"), std::size_t{9});
+    }
+
+    QL_TEST(ExportedLogIncludesTheEndTime)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        ExportNetLog(&f.state, "Skywarn", f.state.active_instance, f.state.active_check_ins);
+        std::string open_log = ReadTextFile(f.dir().File("exports/Skywarn_2026-09-24_log.txt"));
+        CHECK(open_log.find("End Time:") == std::string::npos);
+
+        NetInstance closed = f.state.active_instance;
+        closed.instance_date = FormatLocalDate(1790000000);
+        closed.closed_at = 1790000000 + 3600;
+        ExportNetLog(&f.state, "Skywarn", closed, f.state.active_check_ins);
+        std::string log =
+            ReadTextFile(f.dir().File("exports/Skywarn_" + closed.instance_date + "_log.txt"));
+        CHECK(log.find("End Time: " + FormatLocalTimeOfDay(closed.closed_at) + "\n") !=
+              std::string::npos);
+
+        // Past midnight: the end date is shown too.
+        closed.closed_at = 1790000000 + 86400;
+        ExportNetLog(&f.state, "Skywarn", closed, f.state.active_check_ins);
+        log = ReadTextFile(f.dir().File("exports/Skywarn_" + closed.instance_date + "_log.txt"));
+        CHECK(log.find("End Time: " + FormatLocalDate(closed.closed_at) + " " +
+                       FormatLocalTimeOfDay(closed.closed_at)) != std::string::npos);
     }
 
     QL_TEST(DeletingAHistoryCheckInClearsItsRole)
@@ -478,7 +524,10 @@ namespace ql
         StartSelectedNet(&f.state);
         REQUIRE(f.state.show_confirm_prompt);
         CloseOpenNetAndStartNew(&f.state);
-        CHECK(f.db()->GetNetInstanceById(old_session)->status == NetInstanceStatus::kClosed);
+        std::optional<NetInstance> old = f.db()->GetNetInstanceById(old_session);
+        CHECK(old->status == NetInstanceStatus::kClosed);
+        // Ended when its last check-in was logged, not whenever it got closed.
+        CHECK_EQ(old->closed_at, f.db()->GetCheckInsForNetInstance(old_session)[0].checked_in_at);
         CHECK_EQ(f.state.page, kPageSelectRole);
         CHECK(f.state.net_names[0].find("session open") == std::string::npos);
     }
@@ -701,6 +750,32 @@ namespace ql
         CHECK_EQ(header.find("Remarks"), row.find("remarks here"));
         CHECK(row.find("Too Long To Fit") == std::string::npos);  // Truncated.
         CHECK_EQ(FormatCheckInHeaderRow(true), "  " + header);
+    }
+
+    // ---- Settings -------------------------------------------------------------------
+
+    QL_TEST(ChoosingThe24HourClockAppliesEverywhere)
+    {
+        Fixture f;
+        f.state.settings_path = f.dir().File("settings.txt");
+        OpenSettingsForm(&f.state);
+        CHECK_EQ(f.state.settings_time_format_index, 0);
+        f.state.settings_time_format_index = 1;
+        REQUIRE(SaveSettingsForm(&f.state));
+        bool applied = Use24HourClock();
+        std::string shown = FormatLocalTimeOfDay(1790000000);
+        SetUse24HourClock(false);  // Back to the default for other tests.
+
+        CHECK(applied);
+        CHECK(f.state.settings.use_24_hour_clock);
+        CHECK(shown.find('M') == std::string::npos);  // No AM/PM.
+        CHECK(LoadSettings(f.state.settings_path).use_24_hour_clock);
+        OpenSettingsForm(&f.state);
+        CHECK_EQ(f.state.settings_time_format_index, 1);
+
+        f.state.settings_form.location = "374";
+        CHECK(!SaveSettingsForm(&f.state));
+        CHECK(!f.state.form_error.empty());
     }
 
     // ---- Import and export ---------------------------------------------------------

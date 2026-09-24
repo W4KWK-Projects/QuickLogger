@@ -18,6 +18,9 @@ namespace ql
         // ZIP, not free text like Net::default_location, since it's looked
         // up directly in the ZIP-centroid table.
         std::string location;
+        // Show times on the 24-hour clock ("15:42") instead of the 12-hour
+        // one ("03:42 PM"). Stored as time_format=24h/12h; 12-hour if absent.
+        bool use_24_hour_clock = false;
     };
 
     // Reads settings from `path`. Returns a default (empty) AppSettings if the

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <ctime>
+#include <memory>
 #include <utility>
 
 #include <ftxui/component/component_options.hpp>
@@ -1003,16 +1004,69 @@ namespace ql
                                            &state->show_zmodem_confirm_modal)));
     }
 
+    // A horizontal radio choice (the Settings page's Time Format): the chosen
+    // entry has the filled circle and is bold, and it's inverted while the
+    // choice has keyboard focus. Pair with ToggleGap as elements_infix and
+    // with focused_entry bound to the same int as selected, so the focus
+    // highlight and the choice can't point at different entries.
+    static ftxui::Element ToggleEntryTransform(const ftxui::EntryState& state)
+    {
+#if defined(_WIN32)
+        const char* marker = state.active ? "(*) " : "( ) ";
+#else
+        const char* marker = state.active ? "◉ " : "○ ";
+#endif
+        ftxui::Element element =
+            ftxui::hbox({ftxui::text(marker), ftxui::text(state.label)}) | ftxui::color(kColorData);
+        if (state.active)
+        {
+            element = element | ftxui::bold;
+        }
+        if (state.focused)
+        {
+            element = element | ftxui::inverted;
+        }
+        return element;
+    }
+
+    static ftxui::Element ToggleGap()
+    {
+        return ftxui::text("   ");
+    }
+
+    // Hands every key to its one child except Tab/Shift-Tab, which it leaves
+    // unhandled so the page's container moves focus to the next field.
+    // FTXUI's Menu otherwise takes Tab as "next entry" -- for a two-choice
+    // setting like Time Format, merely tabbing past it would flip it.
+    class IgnoreTab : public ftxui::ComponentBase
+    {
+    public:
+        explicit IgnoreTab(ftxui::Component child)
+        {
+            Add(std::move(child));
+        }
+
+        bool OnEvent(ftxui::Event event) override
+        {
+            if (event == ftxui::Event::Tab || event == ftxui::Event::TabReverse)
+            {
+                return false;
+            }
+            return ftxui::ComponentBase::OnEvent(event);
+        }
+    };
+
     // ---- Settings page ---------------------------------------------------
 
     class SettingsRenderer
     {
     public:
         SettingsRenderer(AppState* state, ftxui::Component input_callsign,
-                         ftxui::Component input_location)
+                         ftxui::Component input_location, ftxui::Component time_format_toggle)
             : state_(state),
               input_callsign_(std::move(input_callsign)),
-              input_location_(std::move(input_location))
+              input_location_(std::move(input_location)),
+              time_format_toggle_(std::move(time_format_toggle))
         {
         }
 
@@ -1021,11 +1075,15 @@ namespace ql
             ftxui::Element content = ftxui::vbox({
                 ftxui::hbox({FieldLabel("My Callsign*: "), input_callsign_->Render()}),
                 ftxui::hbox({FieldLabel("My ZIP Code*: "), input_location_->Render()}),
+                ftxui::hbox({FieldLabel("Time Format:  "), time_format_toggle_->Render()}),
                 HintText("* Required"),
                 Separator(),
                 HintParagraph("My ZIP Code is a plain 5-digit US ZIP code (digits only), used "
                               "to find nearby licensed stations when saving a station to a "
                               "net. Never included when the database is exported."),
+                HintParagraph("Time Format (Left/Right to change) sets how every time is shown "
+                              "and exported. Times are shown in the time zone of the computer "
+                              "QuickLogger runs on."),
                 Separator(),
                 Heading("Station data (shared by everyone, kept up to date automatically):"),
                 ftxui::paragraph(DescribeStationDataStatus(
@@ -1050,6 +1108,7 @@ namespace ql
         AppState* state_;
         ftxui::Component input_callsign_;
         ftxui::Component input_location_;
+        ftxui::Component time_format_toggle_;
     };
 
     ftxui::Component BuildSettingsPage(AppState* state)
@@ -1063,12 +1122,22 @@ namespace ql
         ftxui::Component input_location =
             ftxui::Input(&state->settings_form.location, "5-digit ZIP", location_option);
 
+        ftxui::MenuOption time_format_option = ftxui::MenuOption::Toggle();
+        time_format_option.entries_option.transform = ToggleEntryTransform;
+        time_format_option.elements_infix = ToggleGap;
+        time_format_option.focused_entry = &state->settings_time_format_index;
+        ftxui::Component time_format_toggle = std::make_shared<IgnoreTab>(
+            ftxui::Menu(&state->settings_time_format_labels, &state->settings_time_format_index,
+                        time_format_option));
+
         ftxui::Component root = ftxui::Container::Vertical({
             input_callsign,
             input_location,
+            time_format_toggle,
         });
 
-        return ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_location));
+        return ftxui::Renderer(
+            root, SettingsRenderer(state, input_callsign, input_location, time_format_toggle));
     }
 
     // ---- Ad hoc net page ---------------------------------------------------

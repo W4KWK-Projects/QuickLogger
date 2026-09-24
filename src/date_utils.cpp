@@ -16,6 +16,18 @@ namespace ql
         return std::string(buffer);
     }
 
+    static bool g_use_24_hour_clock = false;
+
+    void SetUse24HourClock(bool use_24_hour_clock)
+    {
+        g_use_24_hour_clock = use_24_hour_clock;
+    }
+
+    bool Use24HourClock()
+    {
+        return g_use_24_hour_clock;
+    }
+
     std::string FormatLocalTimeOfDay(std::int64_t unix_time)
     {
         if (unix_time <= 0)
@@ -24,8 +36,18 @@ namespace ql
         }
         std::tm local_time = LocalTime(static_cast<std::time_t>(unix_time));
         char buffer[32];
-        std::strftime(buffer, sizeof(buffer), "%I:%M %p", &local_time);
+        std::strftime(buffer, sizeof(buffer), g_use_24_hour_clock ? "%H:%M" : "%I:%M %p",
+                      &local_time);
         return std::string(buffer);
+    }
+
+    std::string FormatLocalDateTime(std::int64_t unix_time)
+    {
+        if (unix_time <= 0)
+        {
+            return "";
+        }
+        return FormatLocalDate(unix_time) + " " + FormatLocalTimeOfDay(unix_time);
     }
 
     std::string FormatLocalDate(std::int64_t unix_time)
