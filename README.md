@@ -92,6 +92,29 @@ On first run, you'll be taken straight to Settings to set your callsign
 and home ZIP code (required before anything else is usable). After that,
 you land on the Recurring Nets list.
 
+### Callsign autocomplete
+
+Wherever you enter a station's callsign — the New Station window while
+logging a net (F2 on the active net), and the station form on a net's Edit
+Net page — matches appear below the field as you type. You can type any part
+of the callsign, in upper or lower case: `kwk` finds W4KWK. Matches are
+listed in this order:
+
+1. Stations known to **this net** (they've checked in before, or are saved
+   to it), marked *(this net)*.
+2. Stations known to **other nets**, marked *(other net)*.
+3. **Licensed stations near you** from the FCC data (within about 70 miles
+   of the home ZIP in Settings), marked *(ULS, ~N mi)*.
+
+Up to 8 matches show at once; the FCC ones fill whatever room the first two
+groups leave. The match marked **>** is the one Enter picks. Press
+**Up/Down** to move the marker. You stay in the Callsign field, so you can
+keep typing to narrow the list. Picking a match fills in the rest of the
+station's details (name, address, county, and so on).
+
+If nothing matches, just type the whole callsign. Pressing Enter then looks
+it up exactly, including in the FCC data at any distance.
+
 ### Saving stations to a net
 
 On a net's **Edit Net** page (F7 from the Recurring Nets list), the station
