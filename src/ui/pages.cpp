@@ -383,7 +383,7 @@ namespace ql
         {
             ftxui::Elements rows;
             rows.push_back(ftxui::text(state_->row_delete_title) | ftxui::bold |
-                           ftxui::color(kColorError));
+                           ftxui::color(kColorDanger));
             rows.push_back(DialogSeparator());
             for (std::size_t i = 0; i < state_->row_delete_lines.size(); ++i)
             {
@@ -398,7 +398,7 @@ namespace ql
             // Long lines wrap rather than stretching the box across the
             // whole screen.
             return ftxui::vbox(rows) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 64) |
-                   ftxui::color(kColorError) | ftxui::borderStyled(kColorDialogBorder);
+                   ftxui::color(kColorDanger) | ftxui::borderStyled(kColorDialogBorder);
         }
 
     private:
@@ -423,8 +423,7 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Elements rows;
-            rows.push_back(ftxui::text(state_->confirm_prompt_title) | ftxui::bold |
-                           ftxui::color(kColorHeading));
+            rows.push_back(Heading(state_->confirm_prompt_title));
             rows.push_back(DialogSeparator());
             for (std::size_t i = 0; i < state_->confirm_prompt_lines.size(); ++i)
             {
@@ -443,7 +442,7 @@ namespace ql
                 rows.push_back(KeyHintRow({{"F2/Enter", "Close Net"}, {"Esc", "Keep Logging"}}));
             }
             return ftxui::vbox(rows) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 64) |
-                   ftxui::color(kColorFrame) | ftxui::borderStyled(kColorDialogBorder);
+                   ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder);
         }
 
     private:
@@ -671,7 +670,7 @@ namespace ql
 
             ftxui::Element content = ftxui::vbox({
                 ftxui::hbox({ftxui::text("Role: ") | ftxui::color(kColorLabel),
-                             ftxui::text(role_label) | ftxui::bold | ftxui::color(kColorRole)}),
+                             ftxui::text(role_label) | ftxui::bold | ftxui::color(kColorData)}),
                 Separator(),
                 ftxui::hbox({FieldLabel("Callsign: "), input_callsign_->Render()}),
                 ErrorLine(state_->form_error),
@@ -730,7 +729,7 @@ namespace ql
                 ftxui::text("Date: ") | ftxui::color(kColorLabel),
                 ftxui::text(started) | ftxui::color(kColorHeading),
                 ftxui::text("   Role: ") | ftxui::color(kColorLabel),
-                ftxui::text(role_label) | ftxui::color(kColorRole),
+                ftxui::text(role_label) | ftxui::color(kColorData),
                 ftxui::text("   Callsign: ") | ftxui::color(kColorLabel),
                 ftxui::text(state_->operator_callsign) | ftxui::bold | ftxui::color(kColorData),
             });
@@ -776,7 +775,7 @@ namespace ql
             else
             {
                 hints = {
-                    {"F2", "New Check-In"},     {"F3", "Edit Check-In"}, {"F4", "Close/Save"},
+                    {"F2", "New Check-In"}, {"F3", "Edit Check-In"}, {"F4", "Close/Save"},
                     {"F5", "Del Check-In"}, {"F7", "Export"},
                 };
             }
@@ -877,7 +876,7 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Elements rows;
-            rows.push_back(ftxui::text("Edit Check-In") | ftxui::bold | ftxui::color(kColorRole));
+            rows.push_back(Heading("Edit Check-In"));
             rows.push_back(DialogSeparator());
             rows.push_back(ftxui::hbox({FieldLabel("Callsign:      "),
                                         ftxui::text(state_->edit_checkin_original.callsign)}));
@@ -894,7 +893,7 @@ namespace ql
             rows.push_back(DialogSeparator());
             rows.push_back(KeyHintRow({{"F2", "Save"}, {"Esc", "Cancel"}}));
 
-            return ftxui::vbox(rows) | ftxui::color(kColorRole) |
+            return ftxui::vbox(rows) | ftxui::color(kColorHeading) |
                    ftxui::borderStyled(kColorDialogBorder);
         }
 
@@ -1313,7 +1312,7 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Elements rows;
-            rows.push_back(ftxui::text("Delete Net") | ftxui::bold | ftxui::color(kColorError));
+            rows.push_back(ftxui::text("Delete Net") | ftxui::bold | ftxui::color(kColorDanger));
             rows.push_back(DialogSeparator());
             rows.push_back(ftxui::text("Permanently delete \"" + state_->edit_net_name + "\"?") |
                            ftxui::color(kColorLabel));
@@ -1323,7 +1322,7 @@ namespace ql
             rows.push_back(ftxui::text("be undone."));
             rows.push_back(DialogSeparator());
             rows.push_back(KeyHintRow({{"F2/Enter", "Delete"}, {"Esc", "Cancel"}}));
-            return ftxui::vbox(rows) | ftxui::color(kColorError) |
+            return ftxui::vbox(rows) | ftxui::color(kColorDanger) |
                    ftxui::borderStyled(kColorDialogBorder);
         }
 

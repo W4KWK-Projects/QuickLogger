@@ -34,31 +34,34 @@ namespace ql
     //                     otherwise; the colored header and frame around
     //                     them carry the color
     //   Hints / help      cyan                     (HintText, HintParagraph)
-    //   Success messages  light green; errors light red
+    //   Success messages  light green; errors bright red (256-color)
     //   Frames, lines     light blue               (Framed, Separator)
-    //   Operator's role   light magenta
-    //   Row numbers       light red -- the numbers beside a list's rows while
+    //   Row numbers       bright red -- the numbers beside a list's rows while
     //                     picking one to edit or delete by number
     //   Dialog borders    bright blue (256-color) on every dialog, brighter
     //                     than the page frames, so it reads as raised above
     //                     the page behind it
-    //   Dialog contents   light cyan (new station, ZMODEM), light magenta
-    //                     (edit check-in), light red (delete)
+    //   Dialog titles     light cyan (Heading) on every dialog except the
+    //                     ones that delete something, which are bright red
+    //                     (256-color) throughout, title and text alike
     constexpr ftxui::Color::Palette16 kColorHeading = ftxui::Color::CyanLight;
     constexpr ftxui::Color::Palette16 kColorLabel = ftxui::Color::YellowLight;
     constexpr ftxui::Color::Palette16 kColorData = ftxui::Color::GreenLight;
     constexpr ftxui::Color::Palette16 kColorListRow = ftxui::Color::White;
     constexpr ftxui::Color::Palette16 kColorHint = ftxui::Color::Cyan;
     constexpr ftxui::Color::Palette16 kColorSuccess = ftxui::Color::GreenLight;
-    constexpr ftxui::Color::Palette16 kColorError = ftxui::Color::RedLight;
     constexpr ftxui::Color::Palette16 kColorFrame = ftxui::Color::BlueLight;
-    constexpr ftxui::Color::Palette16 kColorRole = ftxui::Color::MagentaLight;
-    constexpr ftxui::Color::Palette16 kColorPickNumber = ftxui::Color::RedLight;
     // A 256-color blue, brighter than the 16-color light blue the page
     // frames use (which many terminal themes draw as a mid blue), so a
     // dialog's edge stands out from the page under it. Terminals limited to
     // 16 colors get the nearest one instead.
     constexpr ftxui::Color::Palette256 kColorDialogBorder = ftxui::Color::DodgerBlue1;
+    // A 256-color pure red for errors, pick-mode row numbers and dialogs
+    // that delete something; the 16-color light red reads as a dark red in
+    // many terminal themes.
+    constexpr ftxui::Color::Palette256 kColorDanger = ftxui::Color::Red1;
+    constexpr ftxui::Color::Palette256 kColorError = kColorDanger;
+    constexpr ftxui::Color::Palette256 kColorPickNumber = kColorDanger;
 
     // A section heading ("Recurring Nets", "Saved Stations:").
     ftxui::Element Heading(const std::string& text);
