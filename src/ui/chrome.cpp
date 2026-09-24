@@ -136,7 +136,7 @@ namespace ql
     ftxui::Element TopBar(const std::string& page_title)
     {
         return ftxui::hbox({
-                   ftxui::text(" QuickLogger ") | ftxui::bold | ftxui::color(kColorLabel),
+                   ftxui::text("QuickLogger ") | ftxui::bold | ftxui::color(kColorLabel),
                    ftxui::text("— ") | ftxui::color(kColorHeading),
                    ftxui::text(page_title + " ") | ftxui::bold | ftxui::color(kColorHeading),
                    ftxui::filler(),
