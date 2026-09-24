@@ -53,6 +53,7 @@ set(quicklogger_sources
     src/date_utils.cpp
     src/settings.cpp
     src/text_utils.cpp
+    src/callsign_rules.cpp
     src/version.cpp
     src/geo_utils.cpp
     src/file_export.cpp

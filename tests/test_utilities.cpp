@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "../src/callsign_rules.hpp"
 #include "../src/date_utils.hpp"
 #include "../src/file_export.hpp"
 #include "../src/geo_utils.hpp"
@@ -51,6 +52,85 @@ namespace ql
         CHECK_EQ(ExtractZipCode("Hamilton County"), std::string(""));
         CHECK_EQ(ExtractZipCode("TN"), std::string(""));
         CHECK_EQ(ExtractZipCode(""), std::string(""));
+    }
+
+    QL_TEST(CallsignRulesAcceptUsAndCanadianFormats)
+    {
+        CHECK(IsValidCallsign("K1A"));
+        CHECK(IsValidCallsign("W0Z"));
+        CHECK(IsValidCallsign("N5Y"));
+        CHECK(IsValidCallsign("W1AW"));
+        CHECK(IsValidCallsign("N1NJA"));
+        CHECK(IsValidCallsign("AB0C"));
+        CHECK(IsValidCallsign("AL7A"));
+        CHECK(IsValidCallsign("AK6SE"));
+        CHECK(IsValidCallsign("NZ9WA"));
+        CHECK(IsValidCallsign("KA2DOG"));
+        CHECK(IsValidCallsign("WB4XYZ"));
+        CHECK(IsValidCallsign("KL7ABC"));
+        CHECK(IsValidCallsign("NH6ABC"));
+        CHECK(IsValidCallsign("NP4ABC"));
+        CHECK(IsValidCallsign("KP4AB"));
+        CHECK(IsValidCallsign("KH6ABC"));
+        CHECK(IsValidCallsign("WP4ABC"));
+        CHECK(IsValidCallsign("AF1EMA"));
+        CHECK(IsValidCallsign("NF9EMA"));
+        CHECK(IsValidCallsign("VE3ABC"));
+        CHECK(IsValidCallsign("VA3XY"));
+        CHECK(IsValidCallsign("VE0ABC"));
+        CHECK(IsValidCallsign("VO1ZZ"));
+        CHECK(IsValidCallsign("VY2ZZZ"));
+        CHECK(IsValidCallsign("VY0AB"));
+        CHECK(IsValidCallsign("VY9AA"));
+        CHECK(IsValidCallsign("CY0AAA"));
+        CHECK(IsValidCallsign("CY9SS"));
+        CHECK(IsValidCallsign("CG3A"));
+        CHECK(IsValidCallsign("XM3DEF"));
+        CHECK(IsValidCallsign("VC3ABCDE"));
+        CHECK(IsValidCallsign("VE2008VQ"));
+        CHECK(IsValidCallsign("CG200I"));
+        CHECK(IsValidCallsign("W4KWK/M"));
+        CHECK(IsValidCallsign("W4KWK/P"));
+        CHECK(IsValidCallsign("W4KWK/MM"));
+        CHECK(IsValidCallsign("W4KWK/AE"));
+        CHECK(IsValidCallsign("W4KWK/QRP"));
+        CHECK(IsValidCallsign("W4KWK/4"));
+        CHECK(IsValidCallsign("VE3/W4KWK"));
+        CHECK(IsValidCallsign("KH6/VE3ABC"));
+        CHECK(IsValidCallsign("VE3ABC/W4"));
+        CHECK(IsValidCallsign("W4KWK/VE3"));
+        CHECK(IsValidCallsign("VE3/W4KWK/P"));
+    }
+
+    QL_TEST(CallsignRulesRejectEverythingElse)
+    {
+        CHECK(!IsValidCallsign(""));
+        CHECK(!IsValidCallsign("W4"));
+        CHECK(!IsValidCallsign("4KWK"));
+        CHECK(!IsValidCallsign("W4KWK4"));
+        CHECK(!IsValidCallsign("X1AB"));
+        CHECK(!IsValidCallsign("G4ABC"));
+        CHECK(!IsValidCallsign("DL1ABC"));
+        CHECK(!IsValidCallsign("K1X"));
+        CHECK(!IsValidCallsign("KWK"));
+        CHECK(!IsValidCallsign("W44KWK"));
+        CHECK(!IsValidCallsign("AM1AB"));
+        CHECK(!IsValidCallsign("W1ABCD"));
+        CHECK(!IsValidCallsign("KA1ABCD"));
+        CHECK(!IsValidCallsign("VE3"));
+        CHECK(!IsValidCallsign("VA8ABC"));
+        CHECK(!IsValidCallsign("VO3AB"));
+        CHECK(!IsValidCallsign("VY3AB"));
+        CHECK(!IsValidCallsign("CG0AB"));
+        CHECK(!IsValidCallsign("VE3ABCDEF"));
+        CHECK(!IsValidCallsign("VE12345A"));
+        CHECK(!IsValidCallsign("W4KWK/"));
+        CHECK(!IsValidCallsign("/W4KWK"));
+        CHECK(!IsValidCallsign("W4KWK/QRPP"));
+        CHECK(!IsValidCallsign("W4KWK/12"));
+        CHECK(!IsValidCallsign("ZZ3/W4KWK"));
+        CHECK(!IsValidCallsign("W4KWK/M/P/X"));
+        CHECK(!IsValidCallsign("W4-KWK"));
     }
 
     QL_TEST(NormalizeCallsignKeepsOnlyCallsignCharacters)

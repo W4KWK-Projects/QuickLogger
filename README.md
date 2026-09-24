@@ -124,6 +124,8 @@ Up to 8 matches show at once; the FCC ones fill whatever room the first two grou
 
 If nothing matches, just type the whole callsign. Pressing Enter then looks it up exactly, including in the FCC data at any distance.
 
+Every callsign field accepts only callsigns the US or Canada could issue, with or without a portable indicator such as `/M`, `/P`, `/QRP`, `/4` or `VE3/` in front. Anything else (a typo like `W4KW4`, or a callsign from another country) is refused with a message when you try to save or log it.
+
 ### Saving stations to a net
 
 On a net's **Edit Net** page (F7 from the Recurring Nets list), the station form sits below the net's own details and its list of saved stations. You don't have to Tab down to it: press **F3** (Save Station) while the form's callsign is empty and the cursor jumps straight to the Callsign field (**F6**, Add Station, does the same and also clears the form). Type a callsign, pick a match, fill in anything else, and press **F3** again to save it — the cursor returns to Callsign, ready for the next station.

@@ -781,6 +781,11 @@ namespace ql
     // last time (or the ZIP data has only just loaded).
     void RefreshNearbyZips(AppState* state, const std::string& net_zip);
 
+    // True if `callsign` is a valid US or Canadian call sign (see
+    // IsValidCallsign). Otherwise sets AppState::form_error and returns
+    // false.
+    bool CheckCallsign(AppState* state, const std::string& callsign);
+
     // True if `zip` is acceptable as a net's ZIP: blank or 5 digits.
     // Otherwise sets AppState::form_error and returns false.
     bool CheckNetZip(AppState* state, const std::string& zip);

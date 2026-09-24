@@ -364,13 +364,20 @@ CREATE TABLE IF NOT EXISTS users (
                 }
             }
         }
+        if (fixes.empty())
+        {
+            return;
+        }
+        sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+        Statement update(db_, "UPDATE nets SET default_location = ? WHERE id = ?;");
         for (const std::pair<std::int64_t, std::string>& fix : fixes)
         {
-            Statement update(db_, "UPDATE nets SET default_location = ? WHERE id = ?;");
             update.BindText(0, fix.second);
             update.BindInt64(1, fix.first);
             update.Step();
+            update.Reset();
         }
+        sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
     }
 
     void Database::UpsertStation(const Station& station)

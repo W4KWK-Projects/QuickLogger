@@ -111,6 +111,25 @@ namespace ql
         CHECK_EQ(f.state.active_check_ins[0].designated_role, kRoleNetControl);
     }
 
+    QL_TEST(OnlyValidCallsignsCanBeLogged)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        CHECK(!f.Log("G4ABC"));
+        CHECK(f.state.form_error.find("valid US or Canadian") != std::string::npos);
+        CHECK(!f.Log("W4"));
+        REQUIRE(f.state.active_check_ins.size() == 1);
+        CHECK(f.Log("ve3abc"));
+        CHECK(f.Log("W4KWK/M"));
+        CHECK_EQ(f.state.active_check_ins.size(), std::size_t{3});
+
+        f.state.saved_station.callsign = "G4ABC";
+        CHECK(!SaveNetStationForm(&f.state));
+        f.state.settings_form.callsign = "G4ABC";
+        f.state.settings_form.location = "37415";
+        CHECK(!SaveSettingsForm(&f.state));
+    }
+
     QL_TEST(OperatorDetailsComeFromFccDataWhenUnknown)
     {
         Fixture f;

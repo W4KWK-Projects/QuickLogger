@@ -10,6 +10,7 @@
 
 #include <ftxui/component/component_base.hpp>
 
+#include "../callsign_rules.hpp"
 #include "../date_utils.hpp"
 #include "../file_export.hpp"
 #include "../geo_utils.hpp"
@@ -445,6 +446,10 @@ namespace ql
             state->form_error = "Your callsign is required.";
             return false;
         }
+        if (!CheckCallsign(state, state->settings_form.callsign))
+        {
+            return false;
+        }
         if (state->settings_form.location.size() != 5)
         {
             state->form_error = "Your ZIP code is required and must be 5 digits.";
@@ -456,6 +461,16 @@ namespace ql
         state->settings = state->settings_form;
         SetUse24HourClock(state->settings.use_24_hour_clock);
         state->form_error.clear();
+        return true;
+    }
+
+    bool CheckCallsign(AppState* state, const std::string& callsign)
+    {
+        if (!IsValidCallsign(callsign))
+        {
+            state->form_error = callsign + " isn't a valid US or Canadian call sign.";
+            return false;
+        }
         return true;
     }
 
@@ -753,6 +768,10 @@ namespace ql
         if (state->modal_station.callsign.empty())
         {
             state->form_error = "Callsign is required.";
+            return false;
+        }
+        if (!CheckCallsign(state, state->modal_station.callsign))
+        {
             return false;
         }
 
@@ -1839,6 +1858,10 @@ namespace ql
             state->form_error = "Callsign is required.";
             return false;
         }
+        if (!CheckCallsign(state, state->saved_station.callsign))
+        {
+            return false;
+        }
 
         bool already_saved = false;
         for (const Station& existing : state->edit_net_saved_stations)
@@ -1976,8 +1999,12 @@ namespace ql
     {
         EnsureZipCentroidsCached(state);
         std::unordered_map<std::string, ZipCentroid>::const_iterator origin_it =
-            state->zip_centroids_by_zip.find(net_zip);
-        if (!IsFiveDigitZip(net_zip) || origin_it == state->zip_centroids_by_zip.end())
+            state->zip_centroids_by_zip.end();
+        if (IsFiveDigitZip(net_zip))
+        {
+            origin_it = state->zip_centroids_by_zip.find(net_zip);
+        }
+        if (origin_it == state->zip_centroids_by_zip.end())
         {
             origin_it = state->zip_centroids_by_zip.find(state->settings.location);
         }

@@ -642,6 +642,10 @@ namespace ql
             state_->form_error = "Enter a callsign to continue.";
             return;
         }
+        if (!CheckCallsign(state_, state_->operator_callsign))
+        {
+            return;
+        }
 
         const Net& net = state_->nets[state_->selected_net_index];
 
