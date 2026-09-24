@@ -1,3 +1,5 @@
+<img src="docs/icon.png" alt="QuickLogger icon" width="128" align="right">
+
 # QuickLogger
 
 A terminal (TUI) net-logging application for ham radio operators, with a built-in SSH server so a group of operators can log into a shared, always-running instance directly, without the need to SSH into a host first and then launch the app, and no OS user accounts to provision per operator.
