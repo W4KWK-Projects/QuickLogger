@@ -25,4 +25,15 @@ namespace ql
     // Census town names -- see ZipPlaceCounty.
     std::string NormalizePlaceName(const std::string& value);
 
+    // True if `value` is exactly five ASCII digits -- the form a ZIP code
+    // takes everywhere QuickLogger asks for one (the operator's home ZIP in
+    // Settings, a net's ZIP).
+    bool IsFiveDigitZip(const std::string& value);
+
+    // The ZIP code in free text such as "Chattanooga, TN 37415-2623": the
+    // last run of exactly five digits, or the first five of a run of nine (a
+    // ZIP+4 written without its dash). Empty if there's none -- "Hamilton
+    // County" or "1234 Main St" have no ZIP.
+    std::string ExtractZipCode(const std::string& text);
+
 }  // namespace ql

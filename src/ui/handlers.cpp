@@ -52,6 +52,10 @@ namespace ql
             state_->form_error = "Net name is required.";
             return;
         }
+        if (!CheckNetZip(state_, state_->new_net_location))
+        {
+            return;
+        }
 
         Net net;
         net.name = state_->new_net_name;
@@ -110,6 +114,10 @@ namespace ql
         if (state_->new_net_name.empty())
         {
             state_->form_error = "Net name is required.";
+            return;
+        }
+        if (!CheckNetZip(state_, state_->new_net_location))
+        {
             return;
         }
 
@@ -663,6 +671,7 @@ namespace ql
 
         state_->active_instance = instance;
         state_->active_net_name = net.name;
+        state_->active_net_zip = net.default_location;
         LogOperatorCheckIn(state_);
         state_->form_error.clear();
         state_->status_message.clear();

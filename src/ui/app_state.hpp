@@ -227,6 +227,9 @@ namespace ql
         // check-ins so far.
         NetInstance active_instance;
         std::string active_net_name;
+        // The active net's ZIP (Net::default_location), for nearby-station
+        // autocomplete; see RefreshNearbyZips.
+        std::string active_net_zip;
         std::vector<CheckIn> active_check_ins;
         // One formatted display line per entry in `active_check_ins`, rebuilt by
         // RefreshActiveCheckIns whenever a check-in is added. Kept pre-formatted
@@ -342,17 +345,17 @@ namespace ql
         ftxui::Component new_net_name_input;
         ftxui::Component ad_hoc_net_name_input;
         ftxui::Component edit_net_name_input;
-        // The ZIP codes within geo_utils::kNearbyRadiusMiles of
-        // AppState::settings.location (with their distances, nearest first)
-        // and their ZIP3 prefixes, for the ULS tier of both autocompletes
-        // (the New Station modal and the saved-station form). Recomputed by
-        // RefreshNearbyZips only when that location changes -- see
-        // nearby_zips_origin -- not on every keystroke. Empty if the operator
-        // hasn't set a ZIP or it's not a recognized one, in which case the ULS
-        // tier just stays empty rather than erroring.
+        // The ZIP codes within geo_utils::kNearbyRadiusMiles of the net's ZIP,
+        // or the operator's home ZIP when the net has none (with their
+        // distances, nearest first), and their ZIP3 prefixes, for the ULS tier
+        // of both autocompletes (the New Station modal and the saved-station
+        // form). Recomputed by RefreshNearbyZips only when that origin changes
+        // -- see nearby_zips_origin -- not on every keystroke. Empty if
+        // neither ZIP is a recognized one, in which case the ULS tier just
+        // stays empty rather than erroring.
         std::vector<NearbyZip> nearby_zips;
         std::vector<std::string> nearby_zip3_prefixes;
-        // The AppSettings::location the two above were computed for.
+        // The origin ZIP the two above were computed for.
         std::string nearby_zips_origin;
         // Autocomplete candidates for the saved-station mini-form (see
         // RefreshSavedStationSuggestions), refreshed live as the operator
@@ -770,11 +773,17 @@ namespace ql
     // and refreshes the page.
     void DeleteSelectedHistoryCheckIn(AppState* state);
 
-    // Recomputes AppState::nearby_zips/nearby_zip3_prefixes from
-    // AppState::settings.location. Called by both autocompletes before their
-    // ULS tier; it only does the work when the location has changed since
+    // Recomputes AppState::nearby_zips/nearby_zip3_prefixes around
+    // `net_zip` -- the ZIP of the net being logged or edited -- or, when that
+    // is blank or not a ZIP on file, the operator's home ZIP
+    // (AppState::settings.location). Called by both autocompletes before
+    // their ULS tier; it only does the work when the origin has changed since
     // last time (or the ZIP data has only just loaded).
-    void RefreshNearbyZips(AppState* state);
+    void RefreshNearbyZips(AppState* state, const std::string& net_zip);
+
+    // True if `zip` is acceptable as a net's ZIP: blank or 5 digits.
+    // Otherwise sets AppState::form_error and returns false.
+    bool CheckNetZip(AppState* state, const std::string& zip);
 
     // Reloads AppState::saved_station_suggestions/_labels from
     // AppState::saved_station.callsign, same three-tier priority as

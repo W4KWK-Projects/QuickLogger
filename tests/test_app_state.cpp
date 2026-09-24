@@ -703,6 +703,52 @@ namespace ql
         CHECK(f.state.modal_callsign_suggestions.empty());
     }
 
+    QL_TEST(LicenseSuggestionsCenterOnTheNetsZip)
+    {
+        Fixture f;
+        LoadZipData(f.db());
+        f.db()->BulkUpsertUlsStations({MakeStation("K4AAC", "CHATTANOOGA", "37402"),
+                                       MakeStation("K4AAE", "NASHVILLE", "37201")},
+                                      0, 2, 1);
+        f.StartNet("Skywarn");
+        f.state.active_net_zip = "37201";
+        f.state.modal_station.callsign = "K4AA";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 1);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("K4AAE"));
+        CHECK(f.state.modal_callsign_suggestion_labels[0].find("(ULS, ~0 mi)") !=
+              std::string::npos);
+
+        // A net ZIP with no location on file, or none at all, falls back to
+        // the operator's home ZIP.
+        f.state.active_net_zip = "99999";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 1);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("K4AAC"));
+        f.state.active_net_zip.clear();
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 1);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("K4AAC"));
+    }
+
+    QL_TEST(SavedStationFormCentersOnTheNetsZip)
+    {
+        Fixture f;
+        LoadZipData(f.db());
+        f.db()->BulkUpsertUlsStations({MakeStation("K4AAC", "CHATTANOOGA", "37402"),
+                                       MakeStation("K4AAE", "NASHVILLE", "37201")},
+                                      0, 2, 1);
+        Net net;
+        net.name = "Nashville Net";
+        net.default_location = "37201";
+        std::int64_t net_id = f.db()->CreateNet(net);
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
+        f.state.saved_station.callsign = "K4AA";
+        RefreshSavedStationSuggestions(&f.state);
+        REQUIRE(f.state.saved_station_suggestions.size() == 1);
+        CHECK_EQ(f.state.saved_station_suggestions[0].callsign, std::string("K4AAE"));
+    }
+
     // ---- County fill-in ------------------------------------------------------------
 
     QL_TEST(CountyComesFromTheTownInAStraddlingZip)
@@ -854,6 +900,26 @@ namespace ql
         f.state.edit_net_name = "Renamed";
         CHECK(SaveEditNetForm(&f.state));
         CHECK_EQ(f.state.nets[0].name, std::string("Renamed"));
+    }
+
+    QL_TEST(NetZipMustBeFiveDigitsOrBlank)
+    {
+        Fixture f;
+        Net net;
+        net.name = "Old";
+        net.default_location = "Chattanooga, TN";
+        std::int64_t net_id = f.db()->CreateNet(net);
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
+        CHECK(!SaveEditNetForm(&f.state));
+        CHECK(!f.state.form_error.empty());
+        f.state.edit_net_location = "3740";
+        CHECK(!SaveEditNetForm(&f.state));
+        f.state.edit_net_location = "37402";
+        CHECK(SaveEditNetForm(&f.state));
+        CHECK_EQ(f.db()->GetNetById(net_id)->default_location, std::string("37402"));
+        f.state.edit_net_location.clear();
+        CHECK(SaveEditNetForm(&f.state));
+        CHECK(f.db()->GetNetById(net_id)->default_location.empty());
     }
 
 }  // namespace ql

@@ -55,7 +55,7 @@ namespace ql
                                    table + "'"),
                      std::int64_t{1});
         }
-        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{2});
+        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{3});
         CHECK_EQ(CountRows(dir.File("q.db"),
                            "SELECT COUNT(*) FROM pragma_table_info('import_runs') WHERE name IN "
                            "('phase','percent','heartbeat_at','requested_at')"),
@@ -114,7 +114,7 @@ namespace ql
         )sql");
 
         Database db(path);
-        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{2});
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{3});
         std::vector<Net> nets = db.GetAllNets();
         REQUIRE(nets.size() == 1);
         CHECK_EQ(nets[0].created_at, std::int64_t{0});  // Unknown, not guessed.
@@ -131,6 +131,45 @@ namespace ql
         std::optional<Station> k1csa = db.FindUlsStationByCallsign("K1CSA");
         REQUIRE(k1csa.has_value());
         CHECK_EQ(k1csa->zip, std::string("30752"));
+    }
+
+    QL_TEST(OldNetLocationsBecomeZipsOrBlank)
+    {
+        TempDir dir;
+        std::string path = dir.File("q.db");
+        {
+            Database db(path);
+            AddTestNet(&db, "Has ZIP");
+            AddTestNet(&db, "City Only");
+            AddTestNet(&db, "Already ZIP");
+            AddTestNet(&db, "Empty");
+        }
+        // As a version-1.1 database would have them.
+        RunSql(path, R"sql(
+            UPDATE nets SET default_location = 'Chattanooga, TN 37415-2623' WHERE name = 'Has ZIP';
+            UPDATE nets SET default_location = 'Chattanooga' WHERE name = 'City Only';
+            UPDATE nets SET default_location = '37402' WHERE name = 'Already ZIP';
+            PRAGMA user_version = 2;
+        )sql");
+
+        Database db(path);
+        std::vector<Net> nets = db.GetAllNets();
+        REQUIRE(nets.size() == 4);
+        for (const Net& net : nets)
+        {
+            if (net.name == "Has ZIP")
+            {
+                CHECK_EQ(net.default_location, std::string("37415"));
+            }
+            else if (net.name == "Already ZIP")
+            {
+                CHECK_EQ(net.default_location, std::string("37402"));
+            }
+            else
+            {
+                CHECK(net.default_location.empty());
+            }
+        }
     }
 
     // ---- Stations ----------------------------------------------------------------

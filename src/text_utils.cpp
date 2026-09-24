@@ -15,6 +15,47 @@ namespace ql
         return result;
     }
 
+    bool IsFiveDigitZip(const std::string& value)
+    {
+        if (value.size() != 5)
+        {
+            return false;
+        }
+        for (char c : value)
+        {
+            if (!std::isdigit(static_cast<unsigned char>(c)))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    std::string ExtractZipCode(const std::string& text)
+    {
+        std::string zip;
+        std::size_t i = 0;
+        while (i < text.size())
+        {
+            if (!std::isdigit(static_cast<unsigned char>(text[i])))
+            {
+                ++i;
+                continue;
+            }
+            std::size_t start = i;
+            while (i < text.size() && std::isdigit(static_cast<unsigned char>(text[i])))
+            {
+                ++i;
+            }
+            std::size_t length = i - start;
+            if (length == 5 || length == 9)
+            {
+                zip = text.substr(start, 5);
+            }
+        }
+        return zip;
+    }
+
     std::string NormalizeCallsign(const std::string& value)
     {
         std::string result;

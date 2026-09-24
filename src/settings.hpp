@@ -12,11 +12,11 @@ namespace ql
     struct AppSettings
     {
         std::string callsign;
-        // The operator's own home ZIP code. Used to estimate distance for
-        // the saved-station form's ULS proximity autocomplete (see
-        // geo_utils.hpp) -- not shown or used anywhere else. A plain 5-digit
-        // ZIP, not free text like Net::default_location, since it's looked
-        // up directly in the ZIP-centroid table.
+        // The operator's own home ZIP code: where nearby-station (ULS)
+        // autocomplete measures from when the net has no ZIP of its own (see
+        // Net::default_location and geo_utils.hpp) -- not shown or used
+        // anywhere else. A plain 5-digit ZIP, since it's looked up directly
+        // in the ZIP-centroid table.
         std::string location;
         // Show times on the 24-hour clock ("15:42") instead of the 12-hour
         // one ("03:42 PM"). Stored as time_format=24h/12h; 12-hour if absent.
@@ -35,7 +35,7 @@ namespace ql
     // True if `settings` has every field QuickLogger requires before the
     // operator can use the rest of the app: a callsign and a well-formed
     // 5-digit home ZIP code (AppSettings::location -- needed for the
-    // saved-station form's ULS proximity autocomplete). Checked at startup to
+    // nearby-station autocomplete). Checked at startup to
     // force a first-run trip to Settings, and again before letting Settings be
     // left without saving.
     bool SettingsAreComplete(const AppSettings& settings);

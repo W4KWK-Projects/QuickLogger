@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS users (
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 2;
+    static constexpr int kSchemaVersion = 3;
 
     static int ReadUserVersion(sqlite3* db)
     {
@@ -337,8 +337,40 @@ CREATE TABLE IF NOT EXISTS users (
         sqlite3_exec(db_, "UPDATE uls_stations SET zip = substr(zip, 1, 5) WHERE length(zip) > 5;",
                      nullptr, nullptr, nullptr);
 
+        // One-time fix-up for nets saved before a net's location became a
+        // 5-digit ZIP field: keep the ZIP if the old free text has one
+        // ("Chattanooga, TN 37415"), otherwise blank it ("Hamilton County"),
+        // so an older net can still be saved from Edit Net without first
+        // having to clear a value the form now rejects. A blank ZIP just
+        // means autocomplete measures from the operator's home ZIP.
+        NormalizeNetZips();
+
         std::string set_version = "PRAGMA user_version = " + std::to_string(kSchemaVersion) + ";";
         sqlite3_exec(db_, set_version.c_str(), nullptr, nullptr, nullptr);
+    }
+
+    void Database::NormalizeNetZips()
+    {
+        std::vector<std::pair<std::int64_t, std::string>> fixes;
+        {
+            Statement select(db_, "SELECT id, default_location FROM nets;");
+            while (select.Step())
+            {
+                std::string location = select.ColumnText(1);
+                std::string zip = ExtractZipCode(location);
+                if (zip != location)
+                {
+                    fixes.emplace_back(select.ColumnInt64(0), zip);
+                }
+            }
+        }
+        for (const std::pair<std::int64_t, std::string>& fix : fixes)
+        {
+            Statement update(db_, "UPDATE nets SET default_location = ? WHERE id = ?;");
+            update.BindText(0, fix.second);
+            update.BindInt64(1, fix.first);
+            update.Step();
+        }
     }
 
     void Database::UpsertStation(const Station& station)

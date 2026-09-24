@@ -555,7 +555,7 @@ namespace ql
                 ftxui::hbox({FieldLabel("Name:       "), input_name_->Render()}),
                 ftxui::hbox({FieldLabel("Mode:       "), input_mode_->Render()}),
                 ftxui::hbox({FieldLabel("Frequency:  "), input_frequency_->Render()}),
-                ftxui::hbox({FieldLabel("Location:   "), input_location_->Render()}),
+                ftxui::hbox({FieldLabel("ZIP Code:   "), input_location_->Render()}),
                 ftxui::hbox({FieldLabel("Recurrence: "), input_recurrence_->Render()}),
                 ErrorLine(state_->form_error),
             });
@@ -580,8 +580,10 @@ namespace ql
             ftxui::Input(&state->new_net_mode, "e.g. FM, SSB, Digital", SingleLineInputOption());
         ftxui::Component input_frequency =
             ftxui::Input(&state->new_net_frequency, "e.g. 146.940", SingleLineInputOption());
+        ftxui::InputOption location_option = SingleLineInputOption();
+        location_option.on_change = ZipCodeFieldHandler(&state->new_net_location);
         ftxui::Component input_location =
-            ftxui::Input(&state->new_net_location, "City, county, or ZIP", SingleLineInputOption());
+            ftxui::Input(&state->new_net_location, "5-digit ZIP (optional)", location_option);
         ftxui::Component input_recurrence = ftxui::Input(
             &state->new_net_recurrence, "e.g. Tuesdays 8pm ET", SingleLineInputOption());
 
@@ -1077,8 +1079,9 @@ namespace ql
                 HintText("* Required"),
                 Separator(),
                 HintParagraph("My ZIP Code is a plain 5-digit US ZIP code (digits only), used "
-                              "to find nearby licensed stations when saving a station to a "
-                              "net. Never included when the database is exported."),
+                              "to find nearby licensed stations for nets that have no ZIP "
+                              "code of their own. Never included when the database is "
+                              "exported."),
                 HintParagraph("Time Format (Left/Right to change) sets how every time is shown "
                               "and exported. Times are shown in the time zone of the computer "
                               "QuickLogger runs on."),
@@ -1161,7 +1164,7 @@ namespace ql
                 ftxui::hbox({FieldLabel("Name:      "), input_name_->Render()}),
                 ftxui::hbox({FieldLabel("Mode:      "), input_mode_->Render()}),
                 ftxui::hbox({FieldLabel("Frequency: "), input_frequency_->Render()}),
-                ftxui::hbox({FieldLabel("Location:  "), input_location_->Render()}),
+                ftxui::hbox({FieldLabel("ZIP Code:  "), input_location_->Render()}),
                 ErrorLine(state_->form_error),
             });
 
@@ -1184,8 +1187,10 @@ namespace ql
             ftxui::Input(&state->new_net_mode, "e.g. FM, SSB, Digital", SingleLineInputOption());
         ftxui::Component input_frequency =
             ftxui::Input(&state->new_net_frequency, "e.g. 146.940", SingleLineInputOption());
+        ftxui::InputOption location_option = SingleLineInputOption();
+        location_option.on_change = ZipCodeFieldHandler(&state->new_net_location);
         ftxui::Component input_location =
-            ftxui::Input(&state->new_net_location, "City, county, or ZIP", SingleLineInputOption());
+            ftxui::Input(&state->new_net_location, "5-digit ZIP (optional)", location_option);
 
         ftxui::Component root = ftxui::Container::Vertical({
             input_name,
@@ -1380,7 +1385,7 @@ namespace ql
             rows.push_back(ftxui::hbox({FieldLabel("Name:       "), input_name_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Mode:       "), input_mode_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Frequency:  "), input_frequency_->Render()}));
-            rows.push_back(ftxui::hbox({FieldLabel("Location:   "), input_location_->Render()}));
+            rows.push_back(ftxui::hbox({FieldLabel("ZIP Code:   "), input_location_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Recurrence: "), input_recurrence_->Render()}));
             rows.push_back(Separator());
             rows.push_back(Heading("Saved Stations:"));
@@ -1452,8 +1457,10 @@ namespace ql
             ftxui::Input(&state->edit_net_mode, "e.g. FM, SSB, Digital", SingleLineInputOption());
         ftxui::Component input_frequency =
             ftxui::Input(&state->edit_net_frequency, "e.g. 146.940", SingleLineInputOption());
-        ftxui::Component input_location = ftxui::Input(
-            &state->edit_net_location, "City, county, or ZIP", SingleLineInputOption());
+        ftxui::InputOption location_option = SingleLineInputOption();
+        location_option.on_change = ZipCodeFieldHandler(&state->edit_net_location);
+        ftxui::Component input_location =
+            ftxui::Input(&state->edit_net_location, "5-digit ZIP (optional)", location_option);
         ftxui::Component input_recurrence = ftxui::Input(
             &state->edit_net_recurrence, "e.g. Tuesdays 8pm ET", SingleLineInputOption());
 

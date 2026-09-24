@@ -64,6 +64,9 @@ namespace ql
     {
         Net net = slice.net;
         net.imported_at = imported_at;
+        // A net exported by an older version may carry free text here,
+        // from before this was a ZIP field (see Database::NormalizeNetZips).
+        net.default_location = ExtractZipCode(net.default_location);
         std::int64_t new_net_id = db->CreateNet(net);
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
 

@@ -258,6 +258,10 @@ namespace ql
 
     private:
         void CreateSchema();
+        // Replaces each net's default_location with the ZIP code in it
+        // (ExtractZipCode), or blank if it has none. Part of CreateSchema's
+        // one-time upgrade.
+        void NormalizeNetZips();
 
         sqlite3* db_ = nullptr;
     };

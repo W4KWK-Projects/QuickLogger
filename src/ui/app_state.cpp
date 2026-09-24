@@ -349,11 +349,13 @@ namespace ql
 
         state->active_instance = *session;
         state->active_net_name.clear();
+        state->active_net_zip.clear();
         for (const Net& net : state->nets)
         {
             if (net.id == session->net_id)
             {
                 state->active_net_name = net.name;
+                state->active_net_zip = net.default_location;
             }
         }
         // The header shows who started it, in which role.
@@ -454,6 +456,16 @@ namespace ql
         state->settings = state->settings_form;
         SetUse24HourClock(state->settings.use_24_hour_clock);
         state->form_error.clear();
+        return true;
+    }
+
+    bool CheckNetZip(AppState* state, const std::string& zip)
+    {
+        if (!zip.empty() && !IsFiveDigitZip(zip))
+        {
+            state->form_error = "ZIP code must be 5 digits, or left blank.";
+            return false;
+        }
         return true;
     }
 
@@ -1686,7 +1698,7 @@ namespace ql
     }
 
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed,
-                                           std::size_t max_suggestions,
+                                           const std::string& net_zip, std::size_t max_suggestions,
                                            std::vector<Station>* suggestions,
                                            std::vector<std::string>* labels);
 
@@ -1727,9 +1739,9 @@ namespace ql
                 FormatCallsignSuggestion(state->modal_callsign_suggestions[i], is_this_net));
         }
 
-        // Tier 3: licensed stations near the operator, from the FCC data.
-        AppendNearbyUlsSuggestions(state, state->modal_station.callsign, kMaxSuggestions,
-                                   &state->modal_callsign_suggestions,
+        // Tier 3: licensed stations near the net, from the FCC data.
+        AppendNearbyUlsSuggestions(state, state->modal_station.callsign, state->active_net_zip,
+                                   kMaxSuggestions, &state->modal_callsign_suggestions,
                                    &state->modal_callsign_suggestion_labels);
     }
 
@@ -1773,7 +1785,7 @@ namespace ql
         state->saved_station_suggestion_labels.clear();
 
         RefreshEditNetSavedStations(state);
-        RefreshNearbyZips(state);
+        RefreshNearbyZips(state, state->edit_net_location);
     }
 
     bool SaveEditNetForm(AppState* state)
@@ -1781,6 +1793,10 @@ namespace ql
         if (state->edit_net_name.empty())
         {
             state->form_error = "Net name is required.";
+            return false;
+        }
+        if (!CheckNetZip(state, state->edit_net_location))
+        {
             return false;
         }
 
@@ -1956,19 +1972,24 @@ namespace ql
         }
     }
 
-    void RefreshNearbyZips(AppState* state)
+    void RefreshNearbyZips(AppState* state, const std::string& net_zip)
     {
-        if (state->nearby_zips_origin == state->settings.location && !state->nearby_zips.empty())
+        EnsureZipCentroidsCached(state);
+        std::unordered_map<std::string, ZipCentroid>::const_iterator origin_it =
+            state->zip_centroids_by_zip.find(net_zip);
+        if (!IsFiveDigitZip(net_zip) || origin_it == state->zip_centroids_by_zip.end())
+        {
+            origin_it = state->zip_centroids_by_zip.find(state->settings.location);
+        }
+        std::string origin = origin_it == state->zip_centroids_by_zip.end() ? "" : origin_it->first;
+
+        if (state->nearby_zips_origin == origin && !state->nearby_zips.empty())
         {
             return;
         }
         state->nearby_zips.clear();
         state->nearby_zip3_prefixes.clear();
-        state->nearby_zips_origin = state->settings.location;
-
-        EnsureZipCentroidsCached(state);
-        std::unordered_map<std::string, ZipCentroid>::const_iterator origin_it =
-            state->zip_centroids_by_zip.find(state->settings.location);
+        state->nearby_zips_origin = origin;
         if (origin_it == state->zip_centroids_by_zip.end())
         {
             return;
@@ -1982,13 +2003,14 @@ namespace ql
 
     // Autocomplete's last tier, shared by the New Station modal and the
     // saved-station form: ULS-imported stations matching `typed` whose ZIP is
-    // within geo_utils::kNearbyRadiusMiles of the operator's own ZIP, nearest
-    // first (see Database::SearchNearbyUlsStations). Appended after whatever
+    // within geo_utils::kNearbyRadiusMiles of the net's ZIP (`net_zip`) or,
+    // failing that, the operator's own, nearest first (see RefreshNearbyZips
+    // and Database::SearchNearbyUlsStations). Appended after whatever
     // `suggestions` already holds (the this-net and other-nets tiers),
     // skipping callsigns already there, until `max_suggestions` is reached.
-    // Nothing is added if the operator has no recognized home ZIP.
+    // Nothing is added if neither ZIP is recognized.
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed,
-                                           std::size_t max_suggestions,
+                                           const std::string& net_zip, std::size_t max_suggestions,
                                            std::vector<Station>* suggestions,
                                            std::vector<std::string>* labels)
     {
@@ -1996,7 +2018,7 @@ namespace ql
         {
             return;
         }
-        RefreshNearbyZips(state);
+        RefreshNearbyZips(state, net_zip);
         if (state->nearby_zips.empty())
         {
             return;
@@ -2070,8 +2092,8 @@ namespace ql
         }
 
         // Tier 3: nearby ULS-imported stations.
-        AppendNearbyUlsSuggestions(state, state->saved_station.callsign, kMaxSuggestions,
-                                   &state->saved_station_suggestions,
+        AppendNearbyUlsSuggestions(state, state->saved_station.callsign, state->edit_net_location,
+                                   kMaxSuggestions, &state->saved_station_suggestions,
                                    &state->saved_station_suggestion_labels);
     }
 

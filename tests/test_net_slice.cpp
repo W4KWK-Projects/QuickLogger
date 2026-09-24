@@ -44,6 +44,20 @@ namespace ql
         return net_id;
     }
 
+    QL_TEST(AnOlderNetsFreeTextLocationImportsAsAZip)
+    {
+        TempDir dir;
+        Database dest(dir.File("dest.db"));
+        NetSlice slice;
+        slice.net.name = "Old Export";
+        slice.net.default_location = "Chattanooga, TN 37415";
+        std::int64_t with_zip = ApplyNetSlice(&dest, slice, 1800000000);
+        CHECK_EQ(dest.GetNetById(with_zip)->default_location, std::string("37415"));
+        slice.net.default_location = "Chattanooga";
+        std::int64_t without_zip = ApplyNetSlice(&dest, slice, 1800000000);
+        CHECK(dest.GetNetById(without_zip)->default_location.empty());
+    }
+
     QL_TEST(ANetRoundTripsThroughAFile)
     {
         TempDir dir;

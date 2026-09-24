@@ -3,24 +3,10 @@
 #include <cctype>
 #include <fstream>
 
+#include "text_utils.hpp"
+
 namespace ql
 {
-
-    static bool IsFiveDigitZip(const std::string& value)
-    {
-        if (value.size() != 5)
-        {
-            return false;
-        }
-        for (char c : value)
-        {
-            if (!std::isdigit(static_cast<unsigned char>(c)))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
 
     static std::string Trim(const std::string& value)
     {

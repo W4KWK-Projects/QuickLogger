@@ -40,6 +40,19 @@ namespace ql
         CHECK_EQ(ToUpperAscii("lo\xC3\xADza"), std::string("LO\xC3\xADZA"));
     }
 
+    QL_TEST(ExtractZipCodeFindsTheZipInFreeText)
+    {
+        CHECK_EQ(ExtractZipCode("37415"), std::string("37415"));
+        CHECK_EQ(ExtractZipCode("Chattanooga, TN 37415"), std::string("37415"));
+        CHECK_EQ(ExtractZipCode("37415-2623"), std::string("37415"));
+        CHECK_EQ(ExtractZipCode("374152623"), std::string("37415"));
+        CHECK_EQ(ExtractZipCode("12345 Main St, Chattanooga 37415"), std::string("37415"));
+        CHECK_EQ(ExtractZipCode("1234 Main St"), std::string(""));
+        CHECK_EQ(ExtractZipCode("Hamilton County"), std::string(""));
+        CHECK_EQ(ExtractZipCode("TN"), std::string(""));
+        CHECK_EQ(ExtractZipCode(""), std::string(""));
+    }
+
     QL_TEST(NormalizeCallsignKeepsOnlyCallsignCharacters)
     {
         CHECK_EQ(NormalizeCallsign("w4kwk"), std::string("W4KWK"));

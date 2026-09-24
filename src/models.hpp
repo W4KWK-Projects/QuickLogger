@@ -56,7 +56,11 @@ namespace ql
         std::string name;
         std::string mode;
         std::string default_frequency;
-        std::string default_location;     // City/county/ZIP as entered by the user.
+        // The net's 5-digit ZIP, or empty. Nearby-station autocomplete measures
+        // from it, falling back to the operator's home ZIP. Free text from
+        // before this was a ZIP field is converted on upgrade and on import
+        // (see Database::NormalizeNetZips).
+        std::string default_location;
         std::string default_grid_square;  // Resolved from default_location.
         std::string recurrence_description;
         std::string notes;
