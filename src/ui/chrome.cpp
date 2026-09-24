@@ -74,6 +74,11 @@ namespace ql
         return ftxui::separator() | ftxui::color(kColorFrame);
     }
 
+    ftxui::Element DialogSeparator()
+    {
+        return ftxui::separator() | ftxui::color(kColorDialogBorder);
+    }
+
     ftxui::Element Framed(ftxui::Element content)
     {
         return std::move(content) | ftxui::border | ftxui::color(kColorFrame);
@@ -89,7 +94,9 @@ namespace ql
                              ftxui::color(ftxui::Color::Black));
             pieces.push_back(ftxui::text(" " + hint.label + "  "));
         }
-        return ftxui::hbox(pieces);
+        pieces.push_back(ftxui::filler());
+        return ftxui::hbox(pieces) | ftxui::bgcolor(ftxui::Color::Cyan) |
+               ftxui::color(ftxui::Color::Black);
     }
 
     static Database* g_notice_db = nullptr;
@@ -161,11 +168,7 @@ namespace ql
         ftxui::Elements lines;
         for (const std::vector<KeyHint>& row : rows)
         {
-            lines.push_back(ftxui::hbox({
-                                KeyHintRow(row),
-                                ftxui::filler(),
-                            }) |
-                            ftxui::bgcolor(ftxui::Color::Cyan) | ftxui::color(ftxui::Color::Black));
+            lines.push_back(KeyHintRow(row));
         }
         return ftxui::vbox(lines);
     }

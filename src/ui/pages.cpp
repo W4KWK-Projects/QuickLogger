@@ -223,7 +223,7 @@ namespace ql
         {
             ftxui::Elements rows;
             rows.push_back(Heading("ZMODEM"));
-            rows.push_back(Separator());
+            rows.push_back(DialogSeparator());
             if (state_->zmodem_action == ZmodemAction::kSend)
             {
                 rows.push_back(ftxui::text("Ready to send:"));
@@ -234,7 +234,7 @@ namespace ql
                     ftxui::text("Open your terminal's file-receive (ZMODEM) dialog now, then"));
                 rows.push_back(ftxui::text("press Enter to start. Gives up after about 25s if"));
                 rows.push_back(ftxui::text("nothing responds."));
-                rows.push_back(Separator());
+                rows.push_back(DialogSeparator());
                 rows.push_back(KeyHintRow({{"F2/Enter", "Send"}, {"Esc", "Skip"}}));
             }
             else
@@ -245,11 +245,12 @@ namespace ql
                 rows.push_back(
                     ftxui::text("sending (uploading) the file from your terminal client."));
                 rows.push_back(ftxui::text("Gives up after about 25s if nothing arrives."));
-                rows.push_back(Separator());
+                rows.push_back(DialogSeparator());
                 rows.push_back(KeyHintRow({{"F2/Enter", "Receive"}, {"Esc", "Cancel"}}));
             }
 
-            return ftxui::vbox(rows) | ftxui::border | ftxui::color(kColorHeading);
+            return ftxui::vbox(rows) | ftxui::color(kColorHeading) |
+                   ftxui::borderStyled(kColorDialogBorder);
         }
 
     private:
@@ -382,21 +383,21 @@ namespace ql
             ftxui::Elements rows;
             rows.push_back(ftxui::text(state_->row_delete_title) | ftxui::bold |
                            ftxui::color(kColorError));
-            rows.push_back(Separator());
+            rows.push_back(DialogSeparator());
             for (std::size_t i = 0; i < state_->row_delete_lines.size(); ++i)
             {
                 ftxui::Element line = ftxui::paragraph(state_->row_delete_lines[i]);
                 rows.push_back(i == 0 ? line | ftxui::bold | ftxui::color(kColorLabel)
                                       : line | ftxui::color(kColorHint));
             }
-            rows.push_back(Separator());
+            rows.push_back(DialogSeparator());
             rows.push_back(
                 KeyHintRow({{"F2/Enter", "Yes, " + RowPickVerbFor(state_->row_delete_action)},
                             {"Esc", "Cancel"}}));
             // Long lines wrap rather than stretching the box across the
             // whole screen.
             return ftxui::vbox(rows) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 64) |
-                   ftxui::border | ftxui::color(kColorError);
+                   ftxui::color(kColorError) | ftxui::borderStyled(kColorDialogBorder);
         }
 
     private:
@@ -423,14 +424,14 @@ namespace ql
             ftxui::Elements rows;
             rows.push_back(ftxui::text(state_->confirm_prompt_title) | ftxui::bold |
                            ftxui::color(kColorHeading));
-            rows.push_back(Separator());
+            rows.push_back(DialogSeparator());
             for (std::size_t i = 0; i < state_->confirm_prompt_lines.size(); ++i)
             {
                 ftxui::Element line = ftxui::paragraph(state_->confirm_prompt_lines[i]);
                 rows.push_back(i == 0 ? line | ftxui::bold | ftxui::color(kColorLabel)
                                       : line | ftxui::color(kColorHint));
             }
-            rows.push_back(Separator());
+            rows.push_back(DialogSeparator());
             if (state_->confirm_prompt == ConfirmPrompt::kResumeNet)
             {
                 rows.push_back(KeyHintRow(
@@ -441,7 +442,7 @@ namespace ql
                 rows.push_back(KeyHintRow({{"F2/Enter", "Close Net"}, {"Esc", "Keep Logging"}}));
             }
             return ftxui::vbox(rows) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 64) |
-                   ftxui::border | ftxui::color(kColorFrame);
+                   ftxui::color(kColorFrame) | ftxui::borderStyled(kColorDialogBorder);
         }
 
     private:
@@ -820,7 +821,7 @@ namespace ql
 
             ftxui::Elements rows;
             rows.push_back(Heading("Log Station Check-In"));
-            rows.push_back(Separator());
+            rows.push_back(DialogSeparator());
             ftxui::Elements field_rows = StationFieldRows(inputs_);
             rows.push_back(field_rows[0]);  // Callsign
             rows.push_back(suggestions);
@@ -834,12 +835,13 @@ namespace ql
             rows.push_back(ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
             rows.push_back(FieldLabel("Additional Role (optional):"));
             rows.push_back(role_choice_menu_->Render());
-            rows.push_back(Separator());
+            rows.push_back(DialogSeparator());
             rows.push_back(
                 KeyHintRow({{"F2", "Log & Continue"}, {"F3", "Log & Close"}, {"Esc", "Cancel"}}));
             rows.push_back(ErrorLine(state_->form_error));
 
-            return ftxui::vbox(rows) | ftxui::border | ftxui::color(kColorHeading);
+            return ftxui::vbox(rows) | ftxui::color(kColorHeading) |
+                   ftxui::borderStyled(kColorDialogBorder);
         }
 
     private:
@@ -875,7 +877,7 @@ namespace ql
         {
             ftxui::Elements rows;
             rows.push_back(ftxui::text("Edit Check-In") | ftxui::bold | ftxui::color(kColorRole));
-            rows.push_back(Separator());
+            rows.push_back(DialogSeparator());
             rows.push_back(ftxui::hbox({FieldLabel("Callsign:      "),
                                         ftxui::text(state_->edit_checkin_original.callsign)}));
             for (const ftxui::Element& row : StationFieldRows(inputs_))
@@ -888,10 +890,11 @@ namespace ql
             rows.push_back(ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
             rows.push_back(FieldLabel("Additional Role (optional):"));
             rows.push_back(role_choice_menu_->Render());
-            rows.push_back(Separator());
+            rows.push_back(DialogSeparator());
             rows.push_back(KeyHintRow({{"F2", "Save"}, {"Esc", "Cancel"}}));
 
-            return ftxui::vbox(rows) | ftxui::border | ftxui::color(kColorRole);
+            return ftxui::vbox(rows) | ftxui::color(kColorRole) |
+                   ftxui::borderStyled(kColorDialogBorder);
         }
 
     private:
@@ -1242,16 +1245,17 @@ namespace ql
         {
             ftxui::Elements rows;
             rows.push_back(ftxui::text("Delete Net") | ftxui::bold | ftxui::color(kColorError));
-            rows.push_back(Separator());
+            rows.push_back(DialogSeparator());
             rows.push_back(ftxui::text("Permanently delete \"" + state_->edit_net_name + "\"?") |
                            ftxui::color(kColorLabel));
             rows.push_back(ftxui::text(""));
             rows.push_back(ftxui::text("This removes every occurrence of this net, its full"));
             rows.push_back(ftxui::text("check-in history, and its saved-station list. Cannot"));
             rows.push_back(ftxui::text("be undone."));
-            rows.push_back(Separator());
+            rows.push_back(DialogSeparator());
             rows.push_back(KeyHintRow({{"F2/Enter", "Delete"}, {"Esc", "Cancel"}}));
-            return ftxui::vbox(rows) | ftxui::border | ftxui::color(kColorError);
+            return ftxui::vbox(rows) | ftxui::color(kColorError) |
+                   ftxui::borderStyled(kColorDialogBorder);
         }
 
     private:

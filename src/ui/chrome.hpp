@@ -39,7 +39,10 @@ namespace ql
     //   Operator's role   light magenta
     //   Row numbers       light red -- the numbers beside a list's rows while
     //                     picking one to edit or delete by number
-    //   Modals            light cyan (new station, ZMODEM), light magenta
+    //   Dialog borders    bright blue (256-color) on every dialog, brighter
+    //                     than the page frames, so it reads as raised above
+    //                     the page behind it
+    //   Dialog contents   light cyan (new station, ZMODEM), light magenta
     //                     (edit check-in), light red (delete)
     constexpr ftxui::Color::Palette16 kColorHeading = ftxui::Color::CyanLight;
     constexpr ftxui::Color::Palette16 kColorLabel = ftxui::Color::YellowLight;
@@ -51,6 +54,11 @@ namespace ql
     constexpr ftxui::Color::Palette16 kColorFrame = ftxui::Color::BlueLight;
     constexpr ftxui::Color::Palette16 kColorRole = ftxui::Color::MagentaLight;
     constexpr ftxui::Color::Palette16 kColorPickNumber = ftxui::Color::RedLight;
+    // A 256-color blue, brighter than the 16-color light blue the page
+    // frames use (which many terminal themes draw as a mid blue), so a
+    // dialog's edge stands out from the page under it. Terminals limited to
+    // 16 colors get the nearest one instead.
+    constexpr ftxui::Color::Palette256 kColorDialogBorder = ftxui::Color::DodgerBlue1;
 
     // A section heading ("Recurring Nets", "Saved Stations:").
     ftxui::Element Heading(const std::string& text);
@@ -68,6 +76,9 @@ namespace ql
     // A horizontal rule between sections.
     ftxui::Element Separator();
 
+    // A horizontal rule inside a dialog, in the dialog border's color.
+    ftxui::Element DialogSeparator();
+
     // `content` inside a light-blue border.
     ftxui::Element Framed(ftxui::Element content);
 
@@ -80,9 +91,11 @@ namespace ql
         std::string label;
     };
 
-    // Renders `hints` as a row of colored "key badge + label" pairs. Doesn't
-    // fill the available width -- meant for embedding inside a bordered modal
-    // box, alongside PageChrome's full-width BottomBar for whole pages.
+    // Renders `hints` as a row of "key badge + label" pairs in the bottom
+    // bar's colors (yellow badges, black labels on cyan), filling the width
+    // it's given -- so a modal's key row looks just like the page's bottom
+    // bar rather than taking on the modal's own colors. BottomBar is built
+    // from these.
     ftxui::Element KeyHintRow(const std::vector<KeyHint>& hints);
 
     // Where TopBar reads the station-data notice from (see
