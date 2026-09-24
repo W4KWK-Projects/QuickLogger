@@ -18,19 +18,18 @@ namespace ql
 
     static ftxui::Element ErrorLine(const std::string& message)
     {
-        return message.empty() ? ftxui::text("")
-                               : ftxui::text(message) | ftxui::color(ftxui::Color::Red);
+        return message.empty() ? ftxui::text("") : ftxui::text(message) | ftxui::color(kColorError);
     }
 
     static ftxui::Element StatusLine(const std::string& message)
     {
         return message.empty() ? ftxui::text("")
-                               : ftxui::text(message) | ftxui::color(ftxui::Color::Green);
+                               : ftxui::text(message) | ftxui::color(kColorSuccess);
     }
 
     static ftxui::Element FieldLabel(const std::string& label)
     {
-        return ftxui::text(label) | ftxui::color(ftxui::Color::YellowLight);
+        return ftxui::text(label) | ftxui::color(kColorLabel);
     }
 
     // Same as FTXUI's own DefaultOptionTransform (menu.cpp) -- the "> "/"  "
@@ -48,7 +47,32 @@ namespace ql
     static ftxui::Element AlignedMenuEntryTransform(const ftxui::EntryState& state)
     {
         std::string label = (state.active ? "> " : "  ") + state.label;
-        ftxui::Element element = ftxui::text(std::move(label));
+        ftxui::Element element = ftxui::text(std::move(label)) | ftxui::color(kColorListRow);
+        if (state.focused)
+        {
+            element = element | ftxui::inverted;
+        }
+        return element;
+    }
+
+    // FTXUI's own radio-button look (RadioboxOption::Simple) -- a filled or
+    // empty circle, then the choice -- in the data color, with the chosen
+    // entry bold and the keyboard-focused one inverted.
+    static ftxui::Element RadioEntryTransform(const ftxui::EntryState& state)
+    {
+#if defined(_WIN32)
+        // Windows consoles' fonts often lack the circle glyphs; FTXUI itself
+        // falls back to these there.
+        const char* marker = state.state ? "(*) " : "( ) ";
+#else
+        const char* marker = state.state ? "◉ " : "○ ";
+#endif
+        ftxui::Element element =
+            ftxui::hbox({ftxui::text(marker), ftxui::text(state.label)}) | ftxui::color(kColorData);
+        if (state.active)
+        {
+            element = element | ftxui::bold;
+        }
         if (state.focused)
         {
             element = element | ftxui::inverted;
@@ -79,10 +103,33 @@ namespace ql
     // text entry, so Enter doesn't insert a newline (FTXUI's Input default is
     // multiline, which otherwise corrupts the field and swallows the Enter
     // keypress that on_enter handlers rely on).
+    // How every text field draws itself: what's typed in the data color, the
+    // placeholder dimmed, and the field being edited inverted -- FTXUI's own
+    // default look (InputOption::Default), but in the data color rather than
+    // white. Set on every InputOption in the app.
+    static ftxui::Element ColoredInputTransform(ftxui::InputState state)
+    {
+        ftxui::Element element = std::move(state.element) | ftxui::color(kColorData);
+        if (state.is_placeholder)
+        {
+            element = element | ftxui::dim;
+        }
+        if (state.focused)
+        {
+            element = element | ftxui::inverted;
+        }
+        else if (state.hovered)
+        {
+            element = element | ftxui::bgcolor(ftxui::Color::GrayDark);
+        }
+        return element;
+    }
+
     static ftxui::InputOption SingleLineInputOption()
     {
         ftxui::InputOption option;
         option.multiline = false;
+        option.transform = ColoredInputTransform;
         return option;
     }
 
@@ -172,19 +219,19 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Elements rows;
-            rows.push_back(ftxui::text("ZMODEM") | ftxui::bold | ftxui::color(ftxui::Color::Cyan));
-            rows.push_back(ftxui::separator());
+            rows.push_back(Heading("ZMODEM"));
+            rows.push_back(Separator());
             if (state_->zmodem_action == ZmodemAction::kSend)
             {
                 rows.push_back(ftxui::text("Ready to send:"));
                 rows.push_back(ftxui::text("  " + state_->zmodem_confirm_path) |
-                               ftxui::color(ftxui::Color::YellowLight));
+                               ftxui::color(kColorLabel));
                 rows.push_back(ftxui::text(""));
                 rows.push_back(
                     ftxui::text("Open your terminal's file-receive (ZMODEM) dialog now, then"));
                 rows.push_back(ftxui::text("press Enter to start. Gives up after about 25s if"));
                 rows.push_back(ftxui::text("nothing responds."));
-                rows.push_back(ftxui::separator());
+                rows.push_back(Separator());
                 rows.push_back(KeyHintRow({{"F2/Enter", "Send"}, {"Esc", "Skip"}}));
             }
             else
@@ -195,11 +242,11 @@ namespace ql
                 rows.push_back(
                     ftxui::text("sending (uploading) the file from your terminal client."));
                 rows.push_back(ftxui::text("Gives up after about 25s if nothing arrives."));
-                rows.push_back(ftxui::separator());
+                rows.push_back(Separator());
                 rows.push_back(KeyHintRow({{"F2/Enter", "Receive"}, {"Esc", "Cancel"}}));
             }
 
-            return ftxui::vbox(rows) | ftxui::border | ftxui::color(ftxui::Color::Cyan);
+            return ftxui::vbox(rows) | ftxui::border | ftxui::color(kColorHeading);
         }
 
     private:
@@ -225,22 +272,22 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Element net_list_elem =
-                state_->nets.empty()
-                    ? ftxui::text("No recurring nets yet. Press F2 to create one.") | ftxui::dim
-                    : net_menu_->Render();
+                state_->nets.empty() ? HintText("No recurring nets yet. Press F2 to create one.")
+                                     : net_menu_->Render();
 
             ftxui::Element callsign_hint =
                 state_->settings.callsign.empty()
                     ? ftxui::text("No callsign set -- see Settings (F4)") |
-                          ftxui::color(ftxui::Color::YellowLight)
-                    : ftxui::text("Operating as " + state_->settings.callsign) |
-                          ftxui::color(ftxui::Color::Cyan);
+                          ftxui::color(kColorLabel)
+                    : ftxui::hbox({ftxui::text("Operating as ") | ftxui::color(kColorLabel),
+                                   ftxui::text(state_->settings.callsign) | ftxui::bold |
+                                       ftxui::color(kColorData)});
 
             ftxui::Element content = ftxui::vbox({
                 callsign_hint,
-                ftxui::separator(),
-                ftxui::text("Recurring Nets") | ftxui::bold | ftxui::color(ftxui::Color::Cyan),
-                (net_list_elem | ftxui::border) | ftxui::flex,
+                Separator(),
+                Heading("Recurring Nets"),
+                Framed(net_list_elem) | ftxui::flex,
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
@@ -271,6 +318,7 @@ namespace ql
     {
         ftxui::MenuOption net_menu_option;
         net_menu_option.on_enter = StartSelectedNetHandler(state);
+        net_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component net_menu =
             ftxui::Menu(&state->net_names, &state->selected_net_index, net_menu_option);
 
@@ -367,10 +415,10 @@ namespace ql
             }
 
             ftxui::Element content = ftxui::vbox({
-                ftxui::text("Starting: " + net_name) | ftxui::bold |
-                    ftxui::color(ftxui::Color::Green),
-                ftxui::separator(),
-                ftxui::text("Select your role for this net:"),
+                ftxui::hbox({ftxui::text("Starting: ") | ftxui::color(kColorLabel),
+                             ftxui::text(net_name) | ftxui::bold | ftxui::color(kColorData)}),
+                Separator(),
+                HintText("Select your role for this net:"),
                 role_radiobox_->Render(),
             });
 
@@ -395,6 +443,7 @@ namespace ql
         role_option.entries = &state->role_labels;
         role_option.selected = &state->selected_role_index;
         role_option.focused_entry = &state->selected_role_index;
+        role_option.transform = RadioEntryTransform;
         ftxui::Component role_radiobox = ftxui::Radiobox(role_option);
 
         ftxui::Component root = ftxui::Container::Vertical({role_radiobox});
@@ -416,9 +465,9 @@ namespace ql
             const std::string& role_label = state_->role_labels[state_->selected_role_index];
 
             ftxui::Element content = ftxui::vbox({
-                ftxui::text("Role: " + role_label) | ftxui::bold |
-                    ftxui::color(ftxui::Color::Magenta),
-                ftxui::separator(),
+                ftxui::hbox({ftxui::text("Role: ") | ftxui::color(kColorLabel),
+                             ftxui::text(role_label) | ftxui::bold | ftxui::color(kColorRole)}),
+                Separator(),
                 ftxui::hbox({FieldLabel("Callsign: "), input_callsign_->Render()}),
                 ErrorLine(state_->form_error),
             });
@@ -434,8 +483,7 @@ namespace ql
 
     ftxui::Component BuildEnterCallsignPage(AppState* state)
     {
-        ftxui::InputOption input_option;
-        input_option.multiline = false;
+        ftxui::InputOption input_option = SingleLineInputOption();
         input_option.on_enter = OperatorCallsignSubmitHandler(state);
         input_option.on_change = UppercaseFieldHandler(&state->operator_callsign);
         ftxui::Component input_callsign = ftxui::Input(&state->operator_callsign, "", input_option);
@@ -460,7 +508,7 @@ namespace ql
 
             ftxui::Element check_in_list =
                 state_->active_display_rows.empty()
-                    ? ftxui::text("No check-ins yet.") | ftxui::dim
+                    ? HintText("No check-ins yet.")
                     : check_in_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
 
             // The date the net was started, with the time of day next to it.
@@ -472,27 +520,25 @@ namespace ql
             }
 
             ftxui::Element info_line = ftxui::hbox({
-                ftxui::text("Date: ") | ftxui::dim,
-                ftxui::text(started) | ftxui::color(ftxui::Color::Cyan),
-                ftxui::text("   Role: ") | ftxui::dim,
-                ftxui::text(role_label) | ftxui::color(ftxui::Color::Magenta),
-                ftxui::text("   Callsign: ") | ftxui::dim,
-                ftxui::text(state_->operator_callsign) | ftxui::color(ftxui::Color::YellowLight),
+                ftxui::text("Date: ") | ftxui::color(kColorLabel),
+                ftxui::text(started) | ftxui::color(kColorHeading),
+                ftxui::text("   Role: ") | ftxui::color(kColorLabel),
+                ftxui::text(role_label) | ftxui::color(kColorRole),
+                ftxui::text("   Callsign: ") | ftxui::color(kColorLabel),
+                ftxui::text(state_->operator_callsign) | ftxui::bold | ftxui::color(kColorData),
             });
 
             ftxui::Element content = ftxui::vbox({
                 info_line,
-                ftxui::separator(),
-                (ftxui::vbox({
-                     ftxui::text(FormatCheckInHeaderRow(/*above_menu=*/true)) | ftxui::bold |
-                         ftxui::color(ftxui::Color::Cyan),
-                     check_in_list,
-                 }) |
-                 ftxui::border) |
+                Separator(),
+                Framed(ftxui::vbox({
+                    ColumnHeader(FormatCheckInHeaderRow(/*above_menu=*/true)),
+                    check_in_list,
+                })) |
                     ftxui::flex,
                 state_->show_new_station_modal || state_->show_edit_checkin_modal
                     ? ftxui::text("")
-                    : ftxui::text("Enter or F3 to edit a highlighted check-in.") | ftxui::dim,
+                    : HintText("Enter or F3 to edit a highlighted check-in."),
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
@@ -553,20 +599,16 @@ namespace ql
                 state_->modal_callsign_suggestions.empty()
                     ? ftxui::text("")
                     : ftxui::vbox({
-                          ftxui::text(
-                              "Matches: Up/Down to choose, Enter to pick the one marked >") |
-                              ftxui::dim,
-                          (ftxui::vbox({
-                               ftxui::text(FormatCallsignSuggestionHeaderRow()) | ftxui::dim,
-                               suggestion_menu_->Render(),
-                           }) |
-                           ftxui::border),
+                          HintText("Matches: Up/Down to choose, Enter to pick the one marked >"),
+                          Framed(ftxui::vbox({
+                              ColumnHeader(FormatCallsignSuggestionHeaderRow()),
+                              suggestion_menu_->Render(),
+                          })),
                       });
 
             ftxui::Elements rows;
-            rows.push_back(ftxui::text("Log Station Check-In") | ftxui::bold |
-                           ftxui::color(ftxui::Color::Cyan));
-            rows.push_back(ftxui::separator());
+            rows.push_back(Heading("Log Station Check-In"));
+            rows.push_back(Separator());
             ftxui::Elements field_rows = StationFieldRows(inputs_);
             rows.push_back(field_rows[0]);  // Callsign
             rows.push_back(suggestions);
@@ -580,11 +622,11 @@ namespace ql
             rows.push_back(ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
             rows.push_back(FieldLabel("Additional Role (optional):"));
             rows.push_back(role_choice_menu_->Render());
-            rows.push_back(ftxui::separator());
+            rows.push_back(Separator());
             rows.push_back(KeyHintRow({{"F2", "Log & Continue"}, {"Esc", "Log & Close"}}));
             rows.push_back(ErrorLine(state_->form_error));
 
-            return ftxui::vbox(rows) | ftxui::border | ftxui::color(ftxui::Color::Cyan);
+            return ftxui::vbox(rows) | ftxui::border | ftxui::color(kColorHeading);
         }
 
     private:
@@ -619,9 +661,8 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Elements rows;
-            rows.push_back(ftxui::text("Edit Check-In") | ftxui::bold |
-                           ftxui::color(ftxui::Color::Magenta));
-            rows.push_back(ftxui::separator());
+            rows.push_back(ftxui::text("Edit Check-In") | ftxui::bold | ftxui::color(kColorRole));
+            rows.push_back(Separator());
             rows.push_back(ftxui::hbox({FieldLabel("Callsign:      "),
                                         ftxui::text(state_->edit_checkin_original.callsign)}));
             for (const ftxui::Element& row : StationFieldRows(inputs_))
@@ -634,10 +675,10 @@ namespace ql
             rows.push_back(ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
             rows.push_back(FieldLabel("Additional Role (optional):"));
             rows.push_back(role_choice_menu_->Render());
-            rows.push_back(ftxui::separator());
+            rows.push_back(Separator());
             rows.push_back(KeyHintRow({{"F2", "Save"}, {"Esc", "Cancel"}}));
 
-            return ftxui::vbox(rows) | ftxui::border | ftxui::color(ftxui::Color::Magenta);
+            return ftxui::vbox(rows) | ftxui::border | ftxui::color(kColorRole);
         }
 
     private:
@@ -661,8 +702,7 @@ namespace ql
         ftxui::Component main_view =
             ftxui::Renderer(main_root, ActiveNetRenderer(state, check_in_menu));
 
-        ftxui::InputOption callsign_option;
-        callsign_option.multiline = false;
+        ftxui::InputOption callsign_option = SingleLineInputOption();
         callsign_option.on_enter = CallsignLookupHandler(state);
         callsign_option.on_change = CallsignSuggestHandler(state);
         ftxui::Component input_callsign =
@@ -692,8 +732,11 @@ namespace ql
         // modal_role_choice_index to 0, the *hover* wouldn't reset with it --
         // the next arrow-down would move relative to wherever it was left
         // after the previous check-in, silently landing on the wrong role.
+        ftxui::MenuOption role_choice_menu_option;
+        role_choice_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component role_choice_menu =
-            ftxui::Menu(&state->modal_role_choice_labels, &state->modal_role_choice_index);
+            ftxui::Menu(&state->modal_role_choice_labels, &state->modal_role_choice_index,
+                        role_choice_menu_option);
 
         state->modal_callsign_input = input_callsign;
 
@@ -717,8 +760,11 @@ namespace ql
             ftxui::Input(&state->edit_checkin_remarks, "Remarks", SingleLineInputOption());
         ftxui::Component edit_input_comment =
             ftxui::Input(&state->edit_checkin_comment, "Comment", SingleLineInputOption());
-        ftxui::Component edit_role_choice_menu = ftxui::Menu(
-            &state->edit_checkin_role_choice_labels, &state->edit_checkin_role_choice_index);
+        ftxui::MenuOption edit_role_choice_menu_option;
+        edit_role_choice_menu_option.entries_option.transform = AlignedMenuEntryTransform;
+        ftxui::Component edit_role_choice_menu =
+            ftxui::Menu(&state->edit_checkin_role_choice_labels,
+                        &state->edit_checkin_role_choice_index, edit_role_choice_menu_option);
 
         ftxui::Components edit_modal_components = StationFieldComponents(edit_checkin_inputs);
         edit_modal_components.push_back(edit_input_signal_report);
@@ -757,19 +803,17 @@ namespace ql
             ftxui::Element content = ftxui::vbox({
                 ftxui::hbox({FieldLabel("My Callsign*: "), input_callsign_->Render()}),
                 ftxui::hbox({FieldLabel("My ZIP Code*: "), input_location_->Render()}),
-                ftxui::text("* Required") | ftxui::dim,
-                ftxui::separator(),
-                ftxui::paragraph("My ZIP Code is a plain 5-digit US ZIP code (digits only), used "
-                                 "to find nearby licensed stations when saving a station to a "
-                                 "net. Never included when the database is exported.") |
-                    ftxui::dim,
-                ftxui::separator(),
-                ftxui::text("Station data (shared by everyone, kept up to date automatically):") |
-                    ftxui::bold,
+                HintText("* Required"),
+                Separator(),
+                HintParagraph("My ZIP Code is a plain 5-digit US ZIP code (digits only), used "
+                              "to find nearby licensed stations when saving a station to a "
+                              "net. Never included when the database is exported."),
+                Separator(),
+                Heading("Station data (shared by everyone, kept up to date automatically):"),
                 ftxui::paragraph(DescribeStationDataStatus(
                     state_->db, static_cast<std::int64_t>(std::time(nullptr)),
                     state_->is_console_session)) |
-                    ftxui::color(ftxui::Color::Cyan),
+                    ftxui::color(kColorHeading),
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
@@ -827,9 +871,8 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Element content = ftxui::vbox({
-                ftxui::text("Logs a one-off net without saving it as a recurring net.") |
-                    ftxui::dim,
-                ftxui::separator(),
+                HintText("Logs a one-off net without saving it as a recurring net."),
+                Separator(),
                 ftxui::hbox({FieldLabel("Name:      "), input_name_->Render()}),
                 ftxui::hbox({FieldLabel("Mode:      "), input_mode_->Render()}),
                 ftxui::hbox({FieldLabel("Frequency: "), input_frequency_->Render()}),
@@ -895,31 +938,25 @@ namespace ql
 
             ftxui::Element instance_list =
                 state_->history_instances.empty()
-                    ? ftxui::text("No past instances of this net yet.") | ftxui::dim
+                    ? HintText("No past instances of this net yet.")
                     : instance_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element checkin_list =
                 state_->history_check_in_labels.empty()
-                    ? ftxui::text(state_->history_instances.empty() ? ""
-                                                                    : "No check-ins were logged.") |
-                          ftxui::dim
+                    ? HintText(state_->history_instances.empty() ? "" : "No check-ins were logged.")
                     : checkin_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element content = ftxui::vbox({
-                (ftxui::vbox({
-                     ftxui::text(FormatNetInstanceHeaderRow()) | ftxui::bold |
-                         ftxui::color(ftxui::Color::Cyan),
-                     instance_list,
-                 }) |
-                 ftxui::border) |
+                Framed(ftxui::vbox({
+                    ColumnHeader(FormatNetInstanceHeaderRow()),
+                    instance_list,
+                })) |
                     ftxui::flex,
-                ftxui::separator(),
-                (ftxui::vbox({
-                     ftxui::text(FormatCheckInHeaderRow(/*above_menu=*/true)) | ftxui::bold |
-                         ftxui::color(ftxui::Color::Cyan),
-                     checkin_list,
-                 }) |
-                 ftxui::border) |
+                Separator(),
+                Framed(ftxui::vbox({
+                    ColumnHeader(FormatCheckInHeaderRow(/*above_menu=*/true)),
+                    checkin_list,
+                })) |
                     ftxui::flex,
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
@@ -974,18 +1011,17 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Elements rows;
-            rows.push_back(ftxui::text("Delete Net") | ftxui::bold |
-                           ftxui::color(ftxui::Color::Red));
-            rows.push_back(ftxui::separator());
+            rows.push_back(ftxui::text("Delete Net") | ftxui::bold | ftxui::color(kColorError));
+            rows.push_back(Separator());
             rows.push_back(ftxui::text("Permanently delete \"" + state_->edit_net_name + "\"?") |
-                           ftxui::color(ftxui::Color::YellowLight));
+                           ftxui::color(kColorLabel));
             rows.push_back(ftxui::text(""));
             rows.push_back(ftxui::text("This removes every occurrence of this net, its full"));
             rows.push_back(ftxui::text("check-in history, and its saved-station list. Cannot"));
             rows.push_back(ftxui::text("be undone."));
-            rows.push_back(ftxui::separator());
+            rows.push_back(Separator());
             rows.push_back(KeyHintRow({{"F2/Enter", "Delete"}, {"Esc", "Cancel"}}));
-            return ftxui::vbox(rows) | ftxui::border | ftxui::color(ftxui::Color::Red);
+            return ftxui::vbox(rows) | ftxui::border | ftxui::color(kColorError);
         }
 
     private:
@@ -1024,21 +1060,18 @@ namespace ql
         {
             ftxui::Element saved_station_list =
                 state_->edit_net_saved_stations.empty()
-                    ? ftxui::text("No saved stations yet.") | ftxui::dim
+                    ? HintText("No saved stations yet.")
                     : saved_station_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element suggestions =
                 state_->saved_station_suggestions.empty()
                     ? ftxui::text("")
                     : ftxui::vbox({
-                          ftxui::text(
-                              "Matches: Up/Down to choose, Enter to pick the one marked >") |
-                              ftxui::dim,
-                          (ftxui::vbox({
-                               ftxui::text(FormatCallsignSuggestionHeaderRow()) | ftxui::dim,
-                               saved_station_suggestion_menu_->Render(),
-                           }) |
-                           ftxui::border),
+                          HintText("Matches: Up/Down to choose, Enter to pick the one marked >"),
+                          Framed(ftxui::vbox({
+                              ColumnHeader(FormatCallsignSuggestionHeaderRow()),
+                              saved_station_suggestion_menu_->Render(),
+                          })),
                       });
 
             ftxui::Elements rows;
@@ -1047,19 +1080,15 @@ namespace ql
             rows.push_back(ftxui::hbox({FieldLabel("Frequency:  "), input_frequency_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Location:   "), input_location_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Recurrence: "), input_recurrence_->Render()}));
-            rows.push_back(ftxui::separator());
-            rows.push_back(ftxui::text("Saved Stations:") | ftxui::bold |
-                           ftxui::color(ftxui::Color::Cyan));
-            rows.push_back(
-                (ftxui::vbox({
-                     ftxui::text(FormatSavedStationHeaderRow(/*above_menu=*/true)) | ftxui::dim,
-                     saved_station_list,
-                 }) |
-                 ftxui::border) |
-                ftxui::flex);
-            rows.push_back(ftxui::text("Enter picks a station and jumps to its fields below.") |
-                           ftxui::dim);
-            rows.push_back(ftxui::separator());
+            rows.push_back(Separator());
+            rows.push_back(Heading("Saved Stations:"));
+            rows.push_back(Framed(ftxui::vbox({
+                               ColumnHeader(FormatSavedStationHeaderRow(/*above_menu=*/true)),
+                               saved_station_list,
+                           })) |
+                           ftxui::flex);
+            rows.push_back(HintText("Enter picks a station and jumps to its fields below."));
+            rows.push_back(Separator());
             ftxui::Elements field_rows = StationFieldRows(saved_station_inputs_);
             rows.push_back(field_rows[0]);  // Callsign
             rows.push_back(suggestions);
@@ -1179,16 +1208,14 @@ namespace ql
         {
             ftxui::Element file_list =
                 state_->import_net_files.empty()
-                    ? ftxui::text(
+                    ? HintText(
                           "No *.qlnet files in imports/ yet. Press F3 to receive one via "
-                          "ZMODEM.") |
-                          ftxui::dim
+                          "ZMODEM.")
                     : file_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element content = ftxui::vbox({
-                ftxui::text("Files ready to import:") | ftxui::bold |
-                    ftxui::color(ftxui::Color::Cyan),
-                (file_list | ftxui::border) | ftxui::flex,
+                Heading("Files ready to import:"),
+                Framed(file_list) | ftxui::flex,
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
@@ -1207,6 +1234,7 @@ namespace ql
     {
         ftxui::MenuOption file_menu_option;
         file_menu_option.on_enter = ImportSelectedNetSliceHandler(state);
+        file_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component file_menu = ftxui::Menu(
             &state->import_net_files, &state->selected_import_file_index, file_menu_option);
 
@@ -1240,18 +1268,17 @@ namespace ql
         {
             ftxui::Element user_list =
                 state_->manage_users.empty()
-                    ? ftxui::text("No SSH users yet.") | ftxui::dim
+                    ? HintText("No SSH users yet.")
                     : user_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element content = ftxui::vbox({
-                ftxui::text("SSH Users:") | ftxui::bold | ftxui::color(ftxui::Color::Cyan),
-                (user_list | ftxui::border) | ftxui::flex,
-                ftxui::separator(),
+                Heading("SSH Users:"),
+                Framed(user_list) | ftxui::flex,
+                Separator(),
                 ftxui::hbox({FieldLabel("Username:    "), input_username_->Render()}),
                 ftxui::hbox({FieldLabel("Public Key:  "), input_public_key_->Render()}),
-                ftxui::text("Paste a full authorized_keys-style line, e.g. from "
-                            "~/.ssh/id_ed25519.pub -- \"ssh-ed25519 AAAA... comment\".") |
-                    ftxui::dim,
+                HintText("Paste a full authorized_keys-style line, e.g. from "
+                         "~/.ssh/id_ed25519.pub -- \"ssh-ed25519 AAAA... comment\"."),
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
@@ -1269,8 +1296,10 @@ namespace ql
 
     ftxui::Component BuildManageUsersPage(AppState* state)
     {
+        ftxui::MenuOption user_menu_option;
+        user_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component user_menu =
-            ftxui::Menu(&state->manage_users_labels, &state->selected_user_index);
+            ftxui::Menu(&state->manage_users_labels, &state->selected_user_index, user_menu_option);
         ftxui::Component input_username =
             ftxui::Input(&state->new_user_username, "Username", SingleLineInputOption());
         ftxui::Component input_public_key = ftxui::Input(

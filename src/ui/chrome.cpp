@@ -49,12 +49,42 @@ namespace ql
         return rows;
     }
 
+    ftxui::Element Heading(const std::string& text)
+    {
+        return ftxui::text(text) | ftxui::bold | ftxui::color(kColorHeading);
+    }
+
+    ftxui::Element ColumnHeader(const std::string& text)
+    {
+        return ftxui::text(text) | ftxui::color(kColorHeading);
+    }
+
+    ftxui::Element HintText(const std::string& text)
+    {
+        return ftxui::text(text) | ftxui::color(kColorHint);
+    }
+
+    ftxui::Element HintParagraph(const std::string& text)
+    {
+        return ftxui::paragraph(text) | ftxui::color(kColorHint);
+    }
+
+    ftxui::Element Separator()
+    {
+        return ftxui::separator() | ftxui::color(kColorFrame);
+    }
+
+    ftxui::Element Framed(ftxui::Element content)
+    {
+        return std::move(content) | ftxui::border | ftxui::color(kColorFrame);
+    }
+
     ftxui::Element KeyHintRow(const std::vector<KeyHint>& hints)
     {
         ftxui::Elements pieces;
         for (const KeyHint& hint : hints)
         {
-            pieces.push_back(ftxui::text(" " + hint.key + " ") | ftxui::bold |
+            pieces.push_back(ftxui::text(" " + hint.key + " ") |
                              ftxui::bgcolor(ftxui::Color::YellowLight) |
                              ftxui::color(ftxui::Color::Black));
             pieces.push_back(ftxui::text(" " + hint.label + "  "));
@@ -106,16 +136,18 @@ namespace ql
     ftxui::Element TopBar(const std::string& page_title)
     {
         return ftxui::hbox({
-                   ftxui::text(" QuickLogger ") | ftxui::bold,
-                   ftxui::text("— " + page_title + " "),
+                   ftxui::text(" QuickLogger ") | ftxui::bold | ftxui::color(kColorLabel),
+                   ftxui::text("— ") | ftxui::color(kColorHeading),
+                   ftxui::text(page_title + " ") | ftxui::bold | ftxui::color(kColorHeading),
                    ftxui::filler(),
                    StationDataNotice(),
                    // Local time, to the minute. It's computed each time the bar is
                    // drawn; ScreenTicker (interactive_session.cpp) is what makes a
                    // redraw happen when the minute changes.
-                   ftxui::text(FormatLocalTimeOfDay(std::time(nullptr)) + " "),
+                   ftxui::text(FormatLocalTimeOfDay(std::time(nullptr)) + " ") |
+                       ftxui::color(kColorData),
                }) |
-               ftxui::bgcolor(ftxui::Color::Blue) | ftxui::color(ftxui::Color::White);
+               ftxui::bgcolor(ftxui::Color::Blue);
     }
 
     ftxui::Element BottomBar(const std::vector<KeyHint>& hints)
@@ -133,7 +165,7 @@ namespace ql
                                 KeyHintRow(row),
                                 ftxui::filler(),
                             }) |
-                            ftxui::bgcolor(ftxui::Color::Blue) | ftxui::color(ftxui::Color::White));
+                            ftxui::bgcolor(ftxui::Color::Cyan) | ftxui::color(ftxui::Color::Black));
         }
         return ftxui::vbox(lines);
     }
