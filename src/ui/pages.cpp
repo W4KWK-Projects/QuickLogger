@@ -553,7 +553,8 @@ namespace ql
                 state_->modal_callsign_suggestions.empty()
                     ? ftxui::text("")
                     : ftxui::vbox({
-                          ftxui::text("Matches (Enter picks highlighted; Tab to browse):") |
+                          ftxui::text(
+                              "Matches: Up/Down to choose, Enter to pick the one marked >") |
                               ftxui::dim,
                           (ftxui::vbox({
                                ftxui::text(FormatCallsignSuggestionHeaderRow()) | ftxui::dim,
@@ -1030,7 +1031,8 @@ namespace ql
                 state_->saved_station_suggestions.empty()
                     ? ftxui::text("")
                     : ftxui::vbox({
-                          ftxui::text("Matches (Enter picks highlighted; Tab to browse):") |
+                          ftxui::text(
+                              "Matches: Up/Down to choose, Enter to pick the one marked >") |
                               ftxui::dim,
                           (ftxui::vbox({
                                ftxui::text(FormatCallsignSuggestionHeaderRow()) | ftxui::dim,

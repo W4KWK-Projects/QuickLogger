@@ -274,13 +274,15 @@ namespace ql
         ftxui::Component ad_hoc_net_name_input;
         ftxui::Component edit_net_name_input;
         // The ZIP3 prefixes within geo_utils::kNearbyRadiusMiles of
-        // AppState::settings.location, recomputed by RefreshNearbyZip3Prefixes
-        // whenever the edit-net page opens or Settings is saved (not on every
-        // keystroke -- it only depends on the operator's own location, not
-        // what's typed). Empty if the operator hasn't set a ZIP or it's not a
-        // recognized one, in which case the ULS suggestion tier below just
-        // stays empty rather than erroring.
-        std::vector<std::string> saved_station_nearby_zip3_prefixes;
+        // AppState::settings.location, for the ULS tier of both autocompletes
+        // (the New Station modal and the saved-station form). Recomputed by
+        // RefreshNearbyZip3Prefixes only when that location changes -- see
+        // nearby_zip3_origin -- not on every keystroke. Empty if the operator
+        // hasn't set a ZIP or it's not a recognized one, in which case the ULS
+        // tier just stays empty rather than erroring.
+        std::vector<std::string> nearby_zip3_prefixes;
+        // The AppSettings::location nearby_zip3_prefixes was computed for.
+        std::string nearby_zip3_origin;
         // Autocomplete candidates for the saved-station mini-form (see
         // RefreshSavedStationSuggestions), refreshed live as the operator
         // types the callsign: tier 1 (already known to this net, real
@@ -546,8 +548,10 @@ namespace ql
     // AppState::modal_station.callsign: tier 1 (SearchNetStationsByCallsignSubstring
     // against AppState::active_instance.net_id) first, then tier 2
     // (SearchStationsByCallsignSubstring) for anything tier 1 didn't already
-    // surface, capped to a handful of results. Clears the suggestions (rather
-    // than matching everything) when the callsign field is empty.
+    // surface, then tier 3, licensed stations from the FCC data near the
+    // operator's home ZIP (same as the saved-station form's ULS tier), capped
+    // to a handful of results. Clears the suggestions (rather than matching
+    // everything) when the callsign field is empty.
     void RefreshCallsignSuggestions(AppState* state);
 
     // The column-header line for a list of FormatCallsignSuggestion/
@@ -616,17 +620,17 @@ namespace ql
     // nothing selected to delete.
     void DeleteSelectedSavedStationCompletely(AppState* state);
 
-    // Recomputes AppState::saved_station_nearby_zip3_prefixes from
-    // AppState::settings.location. Call when the edit-net page opens and
-    // whenever Settings is saved, since the result only depends on the
-    // operator's own location, not on anything typed in the mini-form.
+    // Recomputes AppState::nearby_zip3_prefixes from
+    // AppState::settings.location. Called by both autocompletes before their
+    // ULS tier; it only does the work when the location has changed since
+    // last time (or the ZIP data has only just loaded).
     void RefreshNearbyZip3Prefixes(AppState* state);
 
     // Reloads AppState::saved_station_suggestions/_labels from
     // AppState::saved_station.callsign, same three-tier priority as
     // RefreshCallsignSuggestions plus a ULS tier: tier 1 (known to this net),
     // tier 2 (known to other nets), then tier 3 (ULS-imported stations whose
-    // ZIP falls in AppState::saved_station_nearby_zip3_prefixes and, when that
+    // ZIP falls in AppState::nearby_zip3_prefixes and, when that
     // station's own ZIP centroid is known, within geo_utils::kNearbyRadiusMiles
     // of the operator's location -- skipped entirely if the operator has no
     // resolvable location set). Capped to a handful of results total; tier 3

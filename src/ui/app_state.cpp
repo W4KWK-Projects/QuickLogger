@@ -910,6 +910,11 @@ namespace ql
         state->show_zmodem_confirm_modal = true;
     }
 
+    static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed,
+                                           std::size_t max_suggestions,
+                                           std::vector<Station>* suggestions,
+                                           std::vector<std::string>* labels);
+
     void RefreshCallsignSuggestions(AppState* state)
     {
         state->modal_callsign_suggestions.clear();
@@ -946,6 +951,11 @@ namespace ql
             state->modal_callsign_suggestion_labels.push_back(
                 FormatCallsignSuggestion(state->modal_callsign_suggestions[i], is_this_net));
         }
+
+        // Tier 3: licensed stations near the operator, from the FCC data.
+        AppendNearbyUlsSuggestions(state, state->modal_station.callsign, kMaxSuggestions,
+                                   &state->modal_callsign_suggestions,
+                                   &state->modal_callsign_suggestion_labels);
     }
 
     void ApplySelectedCallsignSuggestion(AppState* state)
@@ -1168,7 +1178,13 @@ namespace ql
 
     void RefreshNearbyZip3Prefixes(AppState* state)
     {
-        state->saved_station_nearby_zip3_prefixes.clear();
+        if (state->nearby_zip3_origin == state->settings.location &&
+            !state->nearby_zip3_prefixes.empty())
+        {
+            return;
+        }
+        state->nearby_zip3_prefixes.clear();
+        state->nearby_zip3_origin = state->settings.location;
 
         EnsureZipCentroidsCached(state);
         std::unordered_map<std::string, ZipCentroid>::const_iterator origin_it =
@@ -1178,8 +1194,82 @@ namespace ql
             return;
         }
 
-        state->saved_station_nearby_zip3_prefixes = NearbyZip3Prefixes(
+        state->nearby_zip3_prefixes = NearbyZip3Prefixes(
             origin_it->second.lat, origin_it->second.lon, state->zip_centroids_cache);
+    }
+
+    // Autocomplete's last tier, shared by the New Station modal and the
+    // saved-station form: ULS-imported stations matching `typed` whose ZIP is
+    // within geo_utils::kNearbyRadiusMiles of the operator's own ZIP --
+    // coarsely by ZIP3 prefix in SQL, then exactly by ZIP centroid distance
+    // here. Appended after whatever `suggestions` already holds (the
+    // this-net and other-nets tiers), skipping callsigns already there, until
+    // `max_suggestions` is reached. Nothing is added if the operator has no
+    // recognized home ZIP.
+    static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed,
+                                           std::size_t max_suggestions,
+                                           std::vector<Station>* suggestions,
+                                           std::vector<std::string>* labels)
+    {
+        if (suggestions->size() >= max_suggestions)
+        {
+            return;
+        }
+        RefreshNearbyZip3Prefixes(state);
+        if (state->nearby_zip3_prefixes.empty())
+        {
+            return;
+        }
+
+        std::vector<Station> uls_candidates = state->db->SearchUlsStationsByCallsignAndZip3Prefixes(
+            typed, state->nearby_zip3_prefixes);
+        std::unordered_map<std::string, ZipCentroid>::const_iterator origin_it =
+            state->zip_centroids_by_zip.find(state->settings.location);
+        bool has_origin = origin_it != state->zip_centroids_by_zip.end();
+
+        for (const Station& candidate : uls_candidates)
+        {
+            if (suggestions->size() >= max_suggestions)
+            {
+                break;
+            }
+
+            bool already_known = false;
+            for (const Station& existing : *suggestions)
+            {
+                if (existing.callsign == candidate.callsign)
+                {
+                    already_known = true;
+                    break;
+                }
+            }
+            if (already_known)
+            {
+                continue;
+            }
+
+            double distance_miles = -1.0;
+            if (has_origin)
+            {
+                std::unordered_map<std::string, ZipCentroid>::const_iterator candidate_it =
+                    state->zip_centroids_by_zip.find(candidate.zip);
+                if (candidate_it != state->zip_centroids_by_zip.end())
+                {
+                    distance_miles =
+                        DistanceMiles(origin_it->second.lat, origin_it->second.lon,
+                                      candidate_it->second.lat, candidate_it->second.lon);
+                    if (distance_miles > kNearbyRadiusMiles)
+                    {
+                        // The ZIP3 prefix matched but this specific ZIP's
+                        // exact centroid is outside the real radius.
+                        continue;
+                    }
+                }
+            }
+
+            suggestions->push_back(candidate);
+            labels->push_back(FormatUlsSuggestion(candidate, distance_miles));
+        }
     }
 
     void RefreshSavedStationSuggestions(AppState* state)
@@ -1219,65 +1309,10 @@ namespace ql
                 FormatCallsignSuggestion(state->saved_station_suggestions[i], is_this_net));
         }
 
-        // Tier 3: nearby ULS-imported stations (only meaningful if the
-        // operator has a resolvable location set), appended after the
-        // known-station tiers and never duplicating a callsign already found.
-        if (state->saved_station_suggestions.size() < kMaxSuggestions &&
-            !state->saved_station_nearby_zip3_prefixes.empty())
-        {
-            std::vector<Station> uls_candidates =
-                state->db->SearchUlsStationsByCallsignAndZip3Prefixes(
-                    state->saved_station.callsign, state->saved_station_nearby_zip3_prefixes);
-            EnsureZipCentroidsCached(state);
-            std::unordered_map<std::string, ZipCentroid>::const_iterator origin_it =
-                state->zip_centroids_by_zip.find(state->settings.location);
-            bool has_origin = origin_it != state->zip_centroids_by_zip.end();
-
-            for (const Station& candidate : uls_candidates)
-            {
-                if (state->saved_station_suggestions.size() >= kMaxSuggestions)
-                {
-                    break;
-                }
-
-                bool already_known = false;
-                for (const Station& existing : state->saved_station_suggestions)
-                {
-                    if (existing.callsign == candidate.callsign)
-                    {
-                        already_known = true;
-                        break;
-                    }
-                }
-                if (already_known)
-                {
-                    continue;
-                }
-
-                double distance_miles = -1.0;
-                if (has_origin)
-                {
-                    std::unordered_map<std::string, ZipCentroid>::const_iterator candidate_it =
-                        state->zip_centroids_by_zip.find(candidate.zip);
-                    if (candidate_it != state->zip_centroids_by_zip.end())
-                    {
-                        distance_miles =
-                            DistanceMiles(origin_it->second.lat, origin_it->second.lon,
-                                          candidate_it->second.lat, candidate_it->second.lon);
-                        if (distance_miles > kNearbyRadiusMiles)
-                        {
-                            // The ZIP3 prefix matched but this specific ZIP's
-                            // exact centroid is outside the real radius.
-                            continue;
-                        }
-                    }
-                }
-
-                state->saved_station_suggestions.push_back(candidate);
-                state->saved_station_suggestion_labels.push_back(
-                    FormatUlsSuggestion(candidate, distance_miles));
-            }
-        }
+        // Tier 3: nearby ULS-imported stations.
+        AppendNearbyUlsSuggestions(state, state->saved_station.callsign, kMaxSuggestions,
+                                   &state->saved_station_suggestions,
+                                   &state->saved_station_suggestion_labels);
     }
 
     void ApplySelectedSavedStationSuggestion(AppState* state)

@@ -1,8 +1,10 @@
 #include "handlers.hpp"
 
 #include <cctype>
+#include <cstddef>
 #include <ctime>
 #include <exception>
+#include <utility>
 
 #include "../date_utils.hpp"
 #include "../text_utils.hpp"
@@ -357,6 +359,34 @@ namespace ql
         state_->page = kPageNetList;
     }
 
+    // Up/Down while typing in a callsign field that has autocomplete matches
+    // showing: moves the highlighted match (the one Enter picks) without
+    // leaving the field, so the operator can keep typing or choose. Returns
+    // whether it handled the event. Does nothing -- leaving Up/Down to move
+    // between fields as usual -- when the field isn't focused or there are
+    // no matches.
+    static bool MoveSuggestionHighlight(const ftxui::Event& event,
+                                        const ftxui::Component& callsign_input,
+                                        std::size_t suggestion_count, int* selected_index)
+    {
+        if (suggestion_count == 0 || !callsign_input || !callsign_input->Focused())
+        {
+            return false;
+        }
+        int last = static_cast<int>(suggestion_count) - 1;
+        if (event == ftxui::Event::ArrowDown)
+        {
+            *selected_index = *selected_index < last ? *selected_index + 1 : last;
+            return true;
+        }
+        if (event == ftxui::Event::ArrowUp)
+        {
+            *selected_index = *selected_index > 0 ? *selected_index - 1 : 0;
+            return true;
+        }
+        return false;
+    }
+
     bool EditNetKeyHandler::operator()(const ftxui::Event& event) const
     {
         if (state_->show_zmodem_confirm_modal)
@@ -389,6 +419,13 @@ namespace ql
                 cancel();
                 return true;
             }
+            return true;
+        }
+
+        if (MoveSuggestionHighlight(event, state_->saved_station_callsign_input,
+                                    state_->saved_station_suggestions.size(),
+                                    &state_->selected_saved_station_suggestion_index))
+        {
             return true;
         }
 
@@ -710,11 +747,18 @@ namespace ql
             return;
         }
 
+        // Known to some net first; failing that, the FCC data (any
+        // distance -- the full callsign was typed, so there's no guessing).
         std::optional<Station> station =
             state_->db->FindStationByCallsign(state_->modal_station.callsign);
+        if (!station.has_value())
+        {
+            station = state_->db->FindUlsStationByCallsign(state_->modal_station.callsign);
+        }
         if (station.has_value())
         {
-            state_->modal_station = *station;
+            state_->modal_station = std::move(*station);
+            BackfillCountyFromZip(state_, &state_->modal_station);
         }
 
         std::string default_remarks = state_->db->GetSavedNetStationRemarks(
@@ -820,6 +864,14 @@ namespace ql
                 cancel();
                 return true;
             }
+            return true;
+        }
+
+        if (state_->show_new_station_modal &&
+            MoveSuggestionHighlight(event, state_->modal_callsign_input,
+                                    state_->modal_callsign_suggestions.size(),
+                                    &state_->selected_suggestion_index))
+        {
             return true;
         }
 
