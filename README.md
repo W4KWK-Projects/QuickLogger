@@ -19,6 +19,17 @@ This README has two halves: **[Running QuickLogger](#running-quicklogger)** (wha
 
 # Running QuickLogger
 
+## Download (macOS)
+
+Each [release](https://github.com/W4KWK/QuickLogger/releases) has a ready-to-run macOS binary for Apple Silicon Macs, built for macOS 13 or later: `QuickLogger-<version>-macos-arm64.tar.gz`. On other platforms, [build it](#building-quicklogger).
+
+1. Install its one outside library: `brew install libssh`.
+2. Unpack it: `tar xzf QuickLogger-<version>-macos-arm64.tar.gz`.
+3. The binary isn't signed by an Apple-registered developer, so macOS blocks a copy downloaded with a web browser. Clear that once with `xattr -d com.apple.quarantine QuickLogger-<version>-macos-arm64/QuickLogger` (a copy fetched with `curl` or `gh release download` isn't affected).
+4. Move `QuickLogger` into the directory you want its data in, and start it there (see [Starting it](#starting-it)).
+
+Each release also has a `.sha256` file for checking the download: `shasum -a 256 -c QuickLogger-<version>-macos-arm64.tar.gz.sha256`.
+
 ## What you need to run it
 
 On every platform:

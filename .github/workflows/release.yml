@@ -1,0 +1,60 @@
+# Builds the macOS (Apple Silicon) binary for a tagged release and attaches
+# it to that release's GitHub page, creating the page if it doesn't exist
+# yet. Runs on every pushed tag starting with "v" (e.g. v1.1.0); it can also
+# be run by hand for a tag that already exists (Actions > Release binaries >
+# Run workflow), which replaces the binary on that release.
+name: Release binaries
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and attach (e.g. v1.0.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-15
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      # SQLite, libcurl and zlib come with macOS.
+      - name: Install dependencies
+        run: brew install libssh
+
+      # Built to run on macOS 13 and later, not just the runner's version.
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+
+      - name: Build
+        run: cmake --build build -j 3
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: |
+          name="QuickLogger-${TAG#v}-macos-arm64"
+          mkdir -p "dist/$name"
+          cp build/QuickLogger README.md "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
+          echo "ASSET=dist/$name.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Attach to the release
+        run: |
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --title "QuickLogger ${TAG#v}" --generate-notes
+          fi
+          gh release upload "$TAG" "$ASSET" "$ASSET.sha256" --clobber
