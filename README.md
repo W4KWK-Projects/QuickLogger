@@ -113,6 +113,14 @@ the number to type for them.
 | History | F5 | Delete a closed net session and its log |
 | Manage Users | F3 | Remove an SSH user |
 
+On **History**, the top list is the net's past sessions and the bottom list
+is the check-ins of whichever session is highlighted. To delete one check-in
+from a past log, first highlight its session with **Up/Down**. Then press
+**F4**; the bottom list's **#** column holds the numbers to type. The
+confirmation names the station and the session's date. If that check-in
+held the session's Net Control, Alternate NC or Logger role, the role is
+cleared from the session too.
+
 Deleting a whole recurring net is still **F8** on its Edit Net page, which
 asks to confirm first.
 
