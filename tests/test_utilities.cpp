@@ -11,11 +11,23 @@
 #include "../src/public_key.hpp"
 #include "../src/settings.hpp"
 #include "../src/text_utils.hpp"
+#include "../src/version.hpp"
 #include "test_framework.hpp"
 #include "test_helpers.hpp"
 
 namespace ql
 {
+
+    // ---- version ---------------------------------------------------------------
+
+    QL_TEST(VersionComesFromTheBuild)
+    {
+        std::string version = QuickLoggerVersion();
+        CHECK(version != "unknown");
+        // major.minor.patch
+        CHECK_EQ(std::count(version.begin(), version.end(), '.'), std::ptrdiff_t{2});
+        CHECK(version.find_first_not_of("0123456789.") == std::string::npos);
+    }
 
     // ---- text_utils ------------------------------------------------------------
 

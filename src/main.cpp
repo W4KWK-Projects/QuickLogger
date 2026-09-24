@@ -10,6 +10,7 @@
 
 #include "data_updater.hpp"
 #include "interactive_session.hpp"
+#include "version.hpp"
 
 // The built-in SSH server is an optional part of the build (CMake option
 // QUICKLOGGER_ENABLE_SSH, off by default on Windows, where it can't work: it
@@ -77,6 +78,15 @@ static int RunQuickLogger(int argc, char** argv)
     // SSH session's own threads) could call into libcurl. Done before the
     // SSH listener below forks, so every process it leads to inherits an
     // already-initialized libcurl.
+    for (int i = 1; i < argc; ++i)
+    {
+        if (std::string_view(argv[i]) == "--version")
+        {
+            std::printf("QuickLogger %s\n", ql::QuickLoggerVersion());
+            return 0;
+        }
+    }
+
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
     CliOptions options = ParseArgs(argc, argv);

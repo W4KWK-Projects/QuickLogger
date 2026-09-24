@@ -29,6 +29,16 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
+      # The tag must name the version in CMakeLists.txt's project() line, so
+      # the binary reports the version it's released as.
+      - name: Check version
+        run: |
+          version=$(sed -n 's/^project(QuickLogger VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::Tag $TAG doesn't match CMakeLists.txt's version $version"
+            exit 1
+          fi
+
       # SQLite, libcurl and zlib come with macOS.
       - name: Install dependencies
         run: brew install libssh

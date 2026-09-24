@@ -23,6 +23,7 @@
 #include "file_export.hpp"
 #include "models.hpp"
 #include "text_utils.hpp"
+#include "version.hpp"
 #include "zip_extract.hpp"
 
 namespace ql
@@ -340,7 +341,8 @@ namespace ql
         curl_easy_setopt(curl, CURLOPT_XFERINFODATA, reporter);
         curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_seconds);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "QuickLogger/1.0");
+        std::string user_agent = std::string("QuickLogger/") + QuickLoggerVersion();
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent.c_str());
 
         CURLcode result = curl_easy_perform(curl);
         std::fclose(file);

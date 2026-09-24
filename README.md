@@ -415,6 +415,7 @@ Adding/removing SSH users is deliberately only reachable from whoever is physica
 
 - `--ssh-port=N` — listen on port `N` instead of the default **2222**. QuickLogger does not default to port 22, since that's almost always already the machine's real system `sshd`. If you specifically want QuickLogger on port 22 instead (replacing the system's own sshd, or on a machine with no other sshd), you'll need to run it with permission to bind that privileged port (root, or `setcap cap_net_bind_service` on Linux) — pass `--ssh-port=22` once you've arranged that.
 - `--no-ssh` — disable the SSH listener entirely; local console use only.
+- `--version` — print QuickLogger's version and exit. (The version is also shown in the top bar of every page.)
 - `--headless` — skip the local console session entirely and just run the SSH listener, for an unattended server with no one sitting at it. (Note: since Manage Users is console-only, you'll need to add users *before* switching to headless-only operation, or run a normal console session briefly whenever a new user needs adding.)
 
 ### How it runs

@@ -10,6 +10,7 @@
 
 #include "../date_utils.hpp"
 #include "../uls_import.hpp"
+#include "../version.hpp"
 
 namespace ql
 {
@@ -150,6 +151,8 @@ namespace ql
     {
         return ftxui::hbox({
                    ftxui::text("QuickLogger ") | ftxui::bold | ftxui::color(kColorLabel),
+                   ftxui::text(std::string("v") + QuickLoggerVersion() + " ") |
+                       ftxui::color(kColorLabel),
                    ftxui::text("— ") | ftxui::color(kColorHeading),
                    ftxui::text(page_title + " ") | ftxui::bold | ftxui::color(kColorHeading),
                    ftxui::filler(),

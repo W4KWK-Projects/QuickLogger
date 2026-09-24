@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
-project(QuickLogger LANGUAGES CXX)
+# The version shown in the app (see src/version.hpp). A release is tagged
+# "v" + this version, e.g. v1.0.1.
+project(QuickLogger VERSION 1.0.1 LANGUAGES CXX)
 
 # The code needs nothing newer than C++17 (checked by compiling every source
 # file as C++17), so that's what it asks for -- a higher standard would only
@@ -51,6 +53,7 @@ set(quicklogger_sources
     src/date_utils.cpp
     src/settings.cpp
     src/text_utils.cpp
+    src/version.cpp
     src/geo_utils.cpp
     src/file_export.cpp
     src/net_slice.cpp
@@ -96,6 +99,8 @@ if(QUICKLOGGER_ENABLE_SSH)
 endif()
 
 add_library(quicklogger_core STATIC ${quicklogger_sources})
+set_source_files_properties(src/version.cpp PROPERTIES
+    COMPILE_DEFINITIONS "QUICKLOGGER_VERSION=\"${PROJECT_VERSION}\"")
 add_executable(QuickLogger src/main.cpp)
 target_link_libraries(QuickLogger PRIVATE quicklogger_core)
 
