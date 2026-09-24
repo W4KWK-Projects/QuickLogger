@@ -505,11 +505,11 @@ namespace ql
                                   {"F2", "New"},
                                   {"F3/Enter", "Start"},
                                   {"F4", "Settings"},
-                                  {"F5", "Ad Hoc"},
+                                  {"F5", "AdHoc"},
                                   {"F6", "History"},
                                   {"F7", "Edit"},
-                                  {"F8", "Export Net"},
-                                  {"F9", "Import Net"},
+                                  {"F8", "Export"},
+                                  {"F9", "Import"},
                                   {"F10", "Quit"},
                               });
         }
@@ -776,8 +776,8 @@ namespace ql
             else
             {
                 hints = {
-                    {"F2", "New Station"},     {"F3", "Edit Check-In"}, {"F4", "Close/Save Net"},
-                    {"F5", "Delete Check-In"}, {"F7", "Export Log"},
+                    {"F2", "New Check-In"},     {"F3", "Edit Check-In"}, {"F4", "Close/Save"},
+                    {"F5", "Del Check-In"}, {"F7", "Export"},
                 };
             }
             return PageChrome(page_title, content, hints);
