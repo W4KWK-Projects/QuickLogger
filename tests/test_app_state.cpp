@@ -1327,4 +1327,180 @@ namespace ql
         CHECK(f.db()->GetNetById(net_id)->default_location.empty());
     }
 
+    // ---- Help and the seldom-used windows ----------------------------------------
+
+    // A closed earlier session of `net_id` on `date` with these check-ins.
+    static void AddPastSession(Database* db, std::int64_t net_id, const std::string& date,
+                               const std::vector<std::string>& callsigns)
+    {
+        std::int64_t session = AddTestInstance(db, net_id, date, 500, "W4KWK");
+        int number = 1;
+        for (const std::string& callsign : callsigns)
+        {
+            AddTestCheckIn(db, session, callsign, number++);
+        }
+        db->CloseNetInstance(session, 600);
+    }
+
+    QL_TEST(StationHistoryShowsTheirOtherCheckInsToThisNet)
+    {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("Skywarn");
+        AddPastSession(f.db(), net_id, "2026-09-10", {"K4AAA", "K4BBB"});
+        AddPastSession(f.db(), net_id, "2026-09-17", {"K4BBB"});
+        f.Log("K4AAA");
+        StartRowPick(&f.state, RowPickAction::kViewStationHistory);
+        TypeRowPickDigit(&f.state, '2');
+        FinishRowPick(&f.state);
+        CHECK(f.state.info_window == InfoWindow::kStationHistory);
+        CHECK(f.state.show_info_window);
+        CHECK_EQ(f.state.info_title, std::string("Station History: K4AAA"));
+        REQUIRE(f.state.info_rows.size() == 1);  // Not today's.
+        CHECK(f.state.info_rows[0].find("2026-09-10") == 0);
+        CHECK(f.state.info_summary.back().find("1 of 2") != std::string::npos);
+        CloseInfoWindow(&f.state);
+        CHECK(!f.state.show_info_window);
+    }
+
+    QL_TEST(RegularsAreThoseInHalfTheRecentSessionsNotYetHeard)
+    {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("Skywarn");
+        // Four earlier sessions: K4AAA in all, K4BBB in two (half), K4CCC in one.
+        AddPastSession(f.db(), net_id, "2026-09-01", {"K4AAA", "K4BBB"});
+        AddPastSession(f.db(), net_id, "2026-09-08", {"K4AAA", "K4BBB", "K4CCC"});
+        AddPastSession(f.db(), net_id, "2026-09-15", {"K4AAA"});
+        AddPastSession(f.db(), net_id, "2026-09-22", {"K4AAA"});
+        OpenRegulars(&f.state);
+        REQUIRE(f.state.info_rows.size() == 2);
+        CHECK(f.state.info_rows[0].find("K4AAA") == 0);
+        CHECK(f.state.info_rows[0].find("4 of 4") != std::string::npos);
+        CHECK(f.state.info_rows[1].find("K4BBB") == 0);
+        CHECK(f.state.info_rows[1].find("2 of 4") != std::string::npos);
+
+        // Enter on one checks it in: New Check-In opens with it filled in.
+        f.state.info_selected = 1;
+        CheckInSelectedRegular(&f.state);
+        CHECK(!f.state.show_info_window);
+        CHECK(f.state.show_new_station_modal);
+        CHECK_EQ(f.state.modal_station.callsign, std::string("K4BBB"));
+
+        // Once heard, a regular drops off the list.
+        REQUIRE(LogStationCheckIn(&f.state));
+        OpenRegulars(&f.state);
+        REQUIRE(f.state.info_rows.size() == 1);
+        CHECK(f.state.info_rows[0].find("K4AAA") == 0);
+    }
+
+    QL_TEST(SessionSummaryNamesFirstTimers)
+    {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("Skywarn");
+        AddPastSession(f.db(), net_id, "2026-09-10", {"K4AAA", "K4BBB", "K4CCC"});
+        f.Log("K4AAA");
+        f.Log("K4NEW");
+        OpenSessionSummary(&f.state);
+        CHECK(f.state.info_summary[0].find("3 check-ins so far") == 0);
+        CHECK(f.state.info_summary[1].find("averaged 3.0 check-ins") != std::string::npos);
+        // W4KWK, the operator, has only this session too.
+        REQUIRE(f.state.info_rows.size() == 2);
+        CHECK(f.state.info_rows[0].find("W4KWK") != std::string::npos);
+        CHECK(f.state.info_rows[1].find("K4NEW") != std::string::npos);
+    }
+
+    QL_TEST(NetStatisticsAndStationSearch)
+    {
+        Fixture f;
+        std::int64_t net_id = AddTestNet(f.db(), "Skywarn");
+        AddPastSession(f.db(), net_id, "2026-08-10", {"K4AAA", "K4BBB"});
+        AddPastSession(f.db(), net_id, "2026-09-10", {"K4AAA", "K4BBB", "K4CCC", "K4DDD"});
+        RefreshNets(&f.state);
+        OpenNetStatistics(&f.state);
+        CHECK(f.state.info_window == InfoWindow::kNetStatistics);
+        CHECK(f.state.info_summary[0].find("2 sessions, 2026-08-10 to 2026-09-10") == 0);
+        CHECK(f.state.info_summary[1].find("Average 3.0 check-ins a session; most 4") == 0);
+        REQUIRE(f.state.info_rows.size() == 4);
+        CHECK(f.state.info_rows[0].find("K4AAA") == 0);
+
+        OpenStationSearch(&f.state);
+        CHECK(f.state.info_rows.empty());
+        f.state.info_query = "k4a";
+        RefreshStationSearch(&f.state);
+        CHECK_EQ(f.state.info_query, std::string("K4A"));
+        REQUIRE(f.state.info_rows.size() == 2);
+        CHECK(f.state.info_rows[0].find("2026-09-10  Skywarn") == 0);
+
+        // The window's table fits 80 columns, and widens with the terminal.
+        for (const std::string& row : f.state.info_rows)
+        {
+            CHECK(row.size() <= 70);
+        }
+        CHECK(f.state.info_header.find("Name") == std::string::npos);
+        UpdateListWidths(&f.state, 140);
+        CHECK(f.state.info_header.find("Name") != std::string::npos);
+        CHECK(f.state.info_rows[0].find("2026-09-10  Skywarn") == 0);
+    }
+
+    QL_TEST(QuietStationsHaventCheckedInForSixMonths)
+    {
+        Fixture f;
+        std::int64_t net_id = AddTestNet(f.db(), "Skywarn");
+        f.db()->SaveNetStation(net_id, MakeStation("K4NEV"), "", 1);
+        f.db()->SaveNetStation(net_id, MakeStation("K4OLD"), "", 1);
+        f.db()->SaveNetStation(net_id, MakeStation("K4NOW"), "", 1);
+        AddPastSession(f.db(), net_id, "2020-01-01", {"K4OLD"});
+        AddPastSession(f.db(), net_id,
+                       FormatLocalDate(static_cast<std::int64_t>(std::time(nullptr))), {"K4NOW"});
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
+        OpenQuietStations(&f.state);
+        REQUIRE(f.state.info_rows.size() == 2);
+        CHECK(f.state.info_rows[0].find("K4NEV") == 0);
+        CHECK(f.state.info_rows[0].find("never") != std::string::npos);
+        CHECK(f.state.info_rows[1].find("K4OLD") == 0);
+        CHECK(f.state.info_summary[0].find("2 of 3 saved stations") == 0);
+    }
+
+    QL_TEST(HelpExplainsEveryKeyOnThePage)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        f.state.page = kPageActiveNet;
+        OpenHelp(&f.state);
+        CHECK(f.state.info_window == InfoWindow::kHelp);
+        bool found_extra = false;
+        for (const std::string& row : f.state.info_rows)
+        {
+            found_extra =
+                found_extra || (row.find("F8") == 0 && row.find(" *") != std::string::npos);
+        }
+        CHECK(found_extra);
+        CHECK(!f.state.info_summary.empty());  // The note about extra keys.
+        f.state.page = kPageNetList;
+        OpenHelp(&f.state);
+        CHECK(f.state.info_rows[0].find("F2") == 0);
+        CHECK(f.state.info_summary.empty());  // No extra keys there.
+    }
+
+    QL_TEST(StationCardGathersWhatsKnown)
+    {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("Skywarn");
+        f.db()->BulkUpsertUlsStations({MakeStation("K4AAA", "ANN", "37415", "Chattanooga")}, 0, 1,
+                                      1);
+        f.db()->SaveNetStation(net_id, MakeStation("K4AAA", "Ann", "37415", "Chattanooga"), "", 1);
+        f.Log("K4AAA");
+        OpenStationCard(&f.state, "K4AAA");
+        CHECK_EQ(f.state.info_title, std::string("Station: K4AAA"));
+        CHECK(f.state.info_summary[0].find("Ann") != std::string::npos);
+        bool saved_to = false;
+        bool one_check_in = false;
+        for (const std::string& line : f.state.info_summary)
+        {
+            saved_to = saved_to || line.find("Saved to:       Skywarn") == 0;
+            one_check_in = one_check_in || line.find("Check-ins:      1 (") == 0;
+        }
+        CHECK(saved_to);
+        CHECK(one_check_in);
+    }
+
 }  // namespace ql

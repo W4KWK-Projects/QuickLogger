@@ -379,7 +379,10 @@ namespace ql
         return rows;
     }
 
-    // Re-lays out every list for AppState::list_width.
+    static void FormatInfoTable(AppState* state);
+
+    // Re-lays out every list (and an open window's table) for
+    // AppState::list_width.
     static void RelayOutLists(AppState* state)
     {
         state->net_names = FormatNetList(state);
@@ -398,6 +401,7 @@ namespace ql
         state->saved_station_suggestion_labels =
             FormatMatches(state->saved_station_suggestions, state->saved_station_suggestion_sources,
                           state->list_width);
+        FormatInfoTable(state);
     }
 
     void UpdateListWidths(AppState* state, int terminal_width)
@@ -1385,6 +1389,8 @@ namespace ql
                 return PickList::kNets;
             case RowPickAction::kEditCheckIn:
             case RowPickAction::kDeleteCheckIn:
+            case RowPickAction::kViewStationHistory:
+            case RowPickAction::kViewStationCard:
                 return PickList::kActiveCheckIns;
             case RowPickAction::kEditSavedStation:
             case RowPickAction::kRemoveSavedStation:
@@ -1491,6 +1497,9 @@ namespace ql
                 return "Remove";
             case RowPickAction::kResumeAdHocSession:
                 return "Resume";
+            case RowPickAction::kViewStationHistory:
+            case RowPickAction::kViewStationCard:
+                return "View";
             case RowPickAction::kDeleteCheckIn:
             case RowPickAction::kDeleteNetInstance:
             case RowPickAction::kDeleteHistoryCheckIn:
@@ -1728,6 +1737,8 @@ namespace ql
             case RowPickAction::kEditCheckIn:
             case RowPickAction::kEditSavedStation:
             case RowPickAction::kResumeAdHocSession:
+            case RowPickAction::kViewStationHistory:
+            case RowPickAction::kViewStationCard:
                 return;
         }
         state->row_delete_lines.emplace_back("This can't be undone.");
@@ -1795,6 +1806,12 @@ namespace ql
                 return;
             case RowPickAction::kEditCheckIn:
                 OpenEditCheckInForm(state, state->active_check_ins[index]);
+                return;
+            case RowPickAction::kViewStationHistory:
+                OpenStationHistory(state, state->active_check_ins[index]);
+                return;
+            case RowPickAction::kViewStationCard:
+                OpenStationCard(state, state->active_check_ins[index].callsign);
                 return;
             case RowPickAction::kResumeAdHocSession:
             {
@@ -2601,6 +2618,682 @@ namespace ql
         {
             station->county = it->second;
         }
+    }
+
+    // ---- The seldom-used windows ------------------------------------------------
+
+    // The room a window's table gets: the terminal less the window's and
+    // the table's borders, the marker column and a margin. Never less than
+    // at 80 columns.
+    static int InfoTableWidth(int terminal_width)
+    {
+        return std::max(80, terminal_width) - 10;
+    }
+    static constexpr int kInfoTableWidthAt80 = 70;
+
+    // Lays the open window's table out for AppState::list_width (it widens
+    // with the terminal, like the lists).
+    static void FormatInfoTable(AppState* state)
+    {
+        state->info_header.clear();
+        state->info_rows.clear();
+        if (state->info_columns.empty())
+        {
+            return;
+        }
+        ListLayout layout = LayOutList(state->info_columns, InfoTableWidth(state->list_width),
+                                       kInfoTableWidthAt80, 2);
+        // Cut to the table's width: a long last column would otherwise make
+        // the list scroll sideways to show it, hiding the first columns.
+        std::size_t width = static_cast<std::size_t>(InfoTableWidth(state->list_width));
+        state->info_header = FormatListHeading(state->info_columns, layout).substr(0, width);
+        state->info_rows = FormatRows(state->info_cells, layout);
+        for (std::string& row : state->info_rows)
+        {
+            row = row.substr(0, width);
+        }
+    }
+
+    static void ShowInfoWindow(AppState* state, InfoWindow window, const std::string& title,
+                               std::vector<std::string> summary, std::vector<ListColumn> columns,
+                               std::vector<std::vector<std::string>> cells)
+    {
+        state->info_window = window;
+        state->show_info_window = true;
+        state->info_title = title;
+        state->info_summary = std::move(summary);
+        state->info_columns = std::move(columns);
+        state->info_cells = std::move(cells);
+        state->info_selected = 0;
+        state->form_error.clear();
+        state->status_message.clear();
+        FormatInfoTable(state);
+    }
+
+    void CloseInfoWindow(AppState* state)
+    {
+        state->info_window = InfoWindow::kNone;
+        state->show_info_window = false;
+        state->info_summary.clear();
+        state->info_header.clear();
+        state->info_rows.clear();
+        state->info_columns.clear();
+        state->info_cells.clear();
+        state->info_stations.clear();
+        state->info_query.clear();
+        state->info_selected = 0;
+    }
+
+    void MoveInfoSelection(AppState* state, int delta)
+    {
+        int last = static_cast<int>(state->info_rows.size()) - 1;
+        int moved = state->info_selected + delta;
+        state->info_selected = moved < 0 ? 0 : (moved > last ? std::max(last, 0) : moved);
+    }
+
+    static std::string StationName(Database* db, const std::string& callsign)
+    {
+        std::optional<Station> station = db->FindStationByCallsign(callsign);
+        return station.has_value() ? station->name : "";
+    }
+
+    // "13 of the last 20", "1 of 1".
+    static std::string OutOf(int part, int whole)
+    {
+        return std::to_string(part) + " of " + std::to_string(whole);
+    }
+
+    // The active net's other sessions, newest first.
+    static std::vector<NetInstance> OtherSessions(AppState* state)
+    {
+        std::vector<NetInstance> sessions;
+        for (const NetInstance& session :
+             state->db->GetNetInstancesForNet(state->active_instance.net_id))
+        {
+            if (session.id != state->active_instance.id)
+            {
+                sessions.push_back(session);
+            }
+        }
+        return sessions;
+    }
+
+    void OpenStationHistory(AppState* state, const CheckIn& check_in)
+    {
+        std::vector<StationCheckInRecord> records =
+            state->db->GetStationCheckInsForNet(state->active_instance.net_id, check_in.callsign);
+        std::vector<std::vector<std::string>> rows;
+        std::vector<std::int64_t> sessions_in;
+        std::string first_date;
+        for (const StationCheckInRecord& record : records)
+        {
+            if (record.instance.id == state->active_instance.id)
+            {
+                continue;
+            }
+            sessions_in.push_back(record.instance.id);
+            first_date = record.instance.instance_date;
+            rows.push_back(
+                {record.instance.instance_date, FormatLocalTimeOfDay(record.instance.started_at),
+                 std::to_string(record.check_in.sequence_number),
+                 RoleAbbreviation(record.check_in.designated_role), record.check_in.signal_report,
+                 record.check_in.remarks, record.check_in.comment});
+        }
+
+        std::vector<std::string> summary;
+        std::string name = StationName(state->db, check_in.callsign);
+        if (!name.empty())
+        {
+            summary.push_back(name);
+        }
+        if (rows.empty())
+        {
+            summary.emplace_back("No other check-ins to this net.");
+        }
+        else
+        {
+            // Of the net's most recent sessions (not counting this one), how
+            // many this station was in.
+            std::vector<NetInstance> sessions = OtherSessions(state);
+            int recent = 0;
+            int recent_in = 0;
+            for (std::size_t i = 0; i < sessions.size() && recent < 20; ++i)
+            {
+                ++recent;
+                if (std::find(sessions_in.begin(), sessions_in.end(), sessions[i].id) !=
+                    sessions_in.end())
+                {
+                    ++recent_in;
+                }
+            }
+            summary.push_back("Checked in to " + OutOf(recent_in, recent) +
+                              " of this net's most recent other sessions; " +
+                              std::to_string(rows.size()) + " in all since " + first_date + ".");
+        }
+        ShowInfoWindow(state, InfoWindow::kStationHistory, "Station History: " + check_in.callsign,
+                       summary,
+                       {{"Date", 10, 10, 0, 0},
+                        {"Start", 8, 8, 0, 0},
+                        {"#", 3, 3, 0, 0},
+                        {"Role", 5, 5, 0, 0},
+                        {"Signal", 6, 6, 1, 0},
+                        {"Remarks", 20, 40, 0, 3},
+                        {"Comment", 12, 40, 2, 0}},
+                       rows);
+    }
+
+    void OpenRegulars(AppState* state)
+    {
+        std::vector<NetInstance> sessions = OtherSessions(state);
+        if (sessions.size() > 10)
+        {
+            sessions.resize(10);
+        }
+        std::vector<std::string> callsigns;
+        std::vector<int> counts;
+        std::vector<std::string> last_seen;
+        for (const NetInstance& session : sessions)
+        {
+            std::vector<std::string> in_session;
+            for (const CheckIn& check_in : state->db->GetCheckInsForNetInstance(session.id))
+            {
+                if (std::find(in_session.begin(), in_session.end(), check_in.callsign) !=
+                    in_session.end())
+                {
+                    continue;  // Counted once per session.
+                }
+                in_session.push_back(check_in.callsign);
+                std::vector<std::string>::iterator found =
+                    std::find(callsigns.begin(), callsigns.end(), check_in.callsign);
+                if (found == callsigns.end())
+                {
+                    callsigns.push_back(check_in.callsign);
+                    counts.push_back(1);
+                    last_seen.push_back(session.instance_date);  // Newest first.
+                }
+                else
+                {
+                    ++counts[static_cast<std::size_t>(found - callsigns.begin())];
+                }
+            }
+        }
+
+        // Regulars: at least half the sessions looked at, not yet here.
+        std::vector<std::size_t> regulars;
+        int total = static_cast<int>(sessions.size());
+        for (std::size_t i = 0; i < callsigns.size(); ++i)
+        {
+            bool here = false;
+            for (const CheckIn& check_in : state->active_check_ins)
+            {
+                here = here || check_in.callsign == callsigns[i];
+            }
+            if (!here && counts[i] * 2 >= total)
+            {
+                regulars.push_back(i);
+            }
+        }
+        // Most regular first.
+        for (std::size_t i = 1; i < regulars.size(); ++i)
+        {
+            std::size_t j = i;
+            while (j > 0 && (counts[regulars[j]] > counts[regulars[j - 1]] ||
+                             (counts[regulars[j]] == counts[regulars[j - 1]] &&
+                              callsigns[regulars[j]] < callsigns[regulars[j - 1]])))
+            {
+                std::swap(regulars[j], regulars[j - 1]);
+                --j;
+            }
+        }
+
+        std::vector<std::vector<std::string>> rows;
+        state->info_stations.clear();
+        for (std::size_t index : regulars)
+        {
+            std::optional<Station> found = state->db->FindStationByCallsign(callsigns[index]);
+            Station station = found.has_value() ? *found : Station();
+            station.callsign = callsigns[index];
+            rows.push_back(
+                {station.callsign, station.name, OutOf(counts[index], total), last_seen[index]});
+            state->info_stations.push_back(station);
+        }
+
+        std::vector<std::string> summary;
+        if (total == 0)
+        {
+            summary.emplace_back("This net has no earlier sessions yet.");
+        }
+        else if (rows.empty())
+        {
+            summary.push_back("Every station that checked in to at least half of the last " +
+                              std::to_string(total) + " sessions has checked in.");
+        }
+        else
+        {
+            summary.push_back("Checked in to at least half of the last " + std::to_string(total) +
+                              " sessions, but not yet to this one. Enter checks the highlighted "
+                              "one in.");
+        }
+        std::vector<Station> stations = state->info_stations;
+        ShowInfoWindow(state, InfoWindow::kRegulars, "Regulars Not Yet Heard", summary,
+                       {{"Callsign", 10, 10, 0, 0},
+                        {"Name", 24, 30, 0, 1},
+                        {"Sessions", 8, 8, 0, 0},
+                        {"Last Seen", 10, 10, 0, 0}},
+                       rows);
+        state->info_stations = stations;
+    }
+
+    void CheckInSelectedRegular(AppState* state)
+    {
+        if (state->info_stations.empty() ||
+            state->info_selected >= static_cast<int>(state->info_stations.size()))
+        {
+            return;
+        }
+        Station station = state->info_stations[static_cast<std::size_t>(state->info_selected)];
+        CloseInfoWindow(state);
+        if (!EnsureActiveSessionOpen(state, ""))
+        {
+            return;
+        }
+        ClearModalFields(state);
+        state->modal_station = station;
+        BackfillCountyFromZip(state, &state->modal_station);
+        state->modal_remarks =
+            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, station.callsign);
+        state->show_new_station_modal = true;
+        if (state->modal_callsign_input)
+        {
+            state->modal_callsign_input->TakeFocus();
+        }
+    }
+
+    void OpenStationCard(AppState* state, const std::string& callsign)
+    {
+        std::optional<Station> known = state->db->FindStationByCallsign(callsign);
+        std::optional<Station> licensed = state->db->FindUlsStationByCallsign(callsign);
+        Station station =
+            known.has_value() ? *known : (licensed.has_value() ? *licensed : Station());
+        StationActivity activity = state->db->GetStationActivity(callsign);
+
+        std::vector<std::string> summary;
+        std::string address = station.street_address;
+        std::string place = CityAndState(station);
+        if (!station.zip.empty())
+        {
+            place += (place.empty() ? "" : " ") + station.zip;
+        }
+        summary.push_back("Name:           " + station.name);
+        summary.push_back("Address:        " + address +
+                          (address.empty() || place.empty() ? "" : ", ") + place);
+        summary.push_back("County:         " + station.county);
+        summary.push_back("Grid Square:    " + station.grid_square);
+        summary.push_back("Member ID:      " + station.member_id);
+        summary.push_back("License Class:  " +
+                          (licensed.has_value() && !licensed->license_class.empty()
+                               ? licensed->license_class
+                               : std::string("(not in the FCC data)")));
+        if (activity.check_ins == 0)
+        {
+            summary.emplace_back("Check-ins:      none yet");
+        }
+        else
+        {
+            summary.push_back("Check-ins:      " + std::to_string(activity.check_ins) + " (first " +
+                              FormatLocalDate(activity.first_at) + ", latest " +
+                              FormatLocalDate(activity.last_at) + ")");
+        }
+        std::string nets;
+        for (const std::string& net : activity.saved_to_nets)
+        {
+            nets += (nets.empty() ? "" : ", ") + net;
+        }
+        summary.push_back("Saved to:       " + (nets.empty() ? std::string("no nets") : nets));
+        ShowInfoWindow(state, InfoWindow::kStationCard, "Station: " + callsign, summary, {}, {});
+    }
+
+    void OpenSessionSummary(AppState* state)
+    {
+        std::vector<std::vector<std::string>> rows;
+        for (const CheckIn& check_in : state->active_check_ins)
+        {
+            bool first_time = true;
+            for (const StationCheckInRecord& record : state->db->GetStationCheckInsForNet(
+                     state->active_instance.net_id, check_in.callsign))
+            {
+                first_time = first_time && record.instance.id == state->active_instance.id;
+            }
+            if (first_time)
+            {
+                rows.push_back({std::to_string(check_in.sequence_number), check_in.callsign,
+                                StationName(state->db, check_in.callsign)});
+            }
+        }
+
+        std::vector<std::string> summary;
+        summary.push_back(
+            CountCheckIns(state->active_check_ins.size()) + " so far" +
+            (state->active_instance.started_at > 0
+                 ? " (started " + FormatLocalTimeOfDay(state->active_instance.started_at) + ")."
+                 : std::string(".")));
+        std::vector<NetInstance> sessions = OtherSessions(state);
+        if (sessions.size() > 10)
+        {
+            sessions.resize(10);
+        }
+        if (!sessions.empty())
+        {
+            std::int64_t sum = 0;
+            std::int64_t most = 0;
+            for (const NetInstance& session : sessions)
+            {
+                std::int64_t count = 0;
+                std::int64_t newest_id = 0;
+                state->db->GetCheckInSummary(session.id, &count, &newest_id);
+                sum += count;
+                most = std::max(most, count);
+            }
+            char average[32];
+            std::snprintf(average, sizeof(average), "%.1f",
+                          static_cast<double>(sum) / static_cast<double>(sessions.size()));
+            summary.push_back("The last " + std::to_string(sessions.size()) +
+                              " sessions averaged " + average + " check-ins (most " +
+                              std::to_string(most) + ").");
+        }
+        summary.push_back(rows.empty() ? "No first-timers yet."
+                                       : std::to_string(rows.size()) +
+                                             " checking in to this net for the first time:");
+        ShowInfoWindow(state, InfoWindow::kSessionSummary,
+                       "Session Summary: " + state->active_net_name, summary,
+                       rows.empty() ? std::vector<ListColumn>()
+                                    : std::vector<ListColumn>({{"#", 3, 3, 0, 0},
+                                                               {"Callsign", 10, 10, 0, 0},
+                                                               {"Name", 30, 30, 0, 0}}),
+                       rows);
+    }
+
+    void OpenNetStatistics(AppState* state)
+    {
+        if (state->history_ad_hoc ||
+            state->selected_net_index >= static_cast<int>(state->nets.size()))
+        {
+            return;
+        }
+        const Net& net = state->nets[static_cast<std::size_t>(state->selected_net_index)];
+        std::vector<NetInstance> sessions = state->db->GetNetInstancesForNet(net.id);
+
+        std::vector<std::string> summary;
+        if (sessions.empty())
+        {
+            summary.emplace_back("No sessions yet.");
+            ShowInfoWindow(state, InfoWindow::kNetStatistics, "Net Statistics: " + net.name,
+                           summary, {}, {});
+            return;
+        }
+        std::int64_t sum = 0;
+        std::int64_t most = -1;
+        std::string most_date;
+        // Months, newest first: "2026-09", sessions, check-ins.
+        std::vector<std::string> months;
+        std::vector<int> month_sessions;
+        std::vector<std::int64_t> month_check_ins;
+        for (const NetInstance& session : sessions)
+        {
+            std::int64_t count = 0;
+            std::int64_t newest_id = 0;
+            state->db->GetCheckInSummary(session.id, &count, &newest_id);
+            sum += count;
+            if (count > most)
+            {
+                most = count;
+                most_date = session.instance_date;
+            }
+            std::string month = session.instance_date.substr(0, 7);
+            if (months.empty() || months.back() != month)
+            {
+                months.push_back(month);
+                month_sessions.push_back(0);
+                month_check_ins.push_back(0);
+            }
+            ++month_sessions.back();
+            month_check_ins.back() += count;
+        }
+        char average[32];
+        std::snprintf(average, sizeof(average), "%.1f",
+                      static_cast<double>(sum) / static_cast<double>(sessions.size()));
+        summary.push_back(std::to_string(sessions.size()) + " sessions, " +
+                          sessions.back().instance_date + " to " + sessions.front().instance_date +
+                          "; " + std::to_string(sum) + " check-ins in all.");
+        summary.push_back(std::string("Average ") + average + " check-ins a session; most " +
+                          std::to_string(most) + ", on " + most_date + ".");
+        std::string by_month = "Recent months:";
+        for (std::size_t i = 0; i < months.size() && i < 6; ++i)
+        {
+            by_month += (i == 0 ? " " : "; ") + months[i] + " " +
+                        std::to_string(month_sessions[i]) +
+                        (month_sessions[i] == 1 ? " session/" : " sessions/") +
+                        std::to_string(month_check_ins[i]);
+        }
+        summary.push_back(by_month + " check-ins.");
+        summary.emplace_back("Most frequent stations:");
+
+        std::vector<std::vector<std::string>> rows;
+        for (const CallsignTally& tally : state->db->GetTopCallsignsForNet(net.id, 15))
+        {
+            rows.push_back({tally.callsign, StationName(state->db, tally.callsign),
+                            std::to_string(tally.count), tally.last_date});
+        }
+        ShowInfoWindow(state, InfoWindow::kNetStatistics, "Net Statistics: " + net.name, summary,
+                       {{"Callsign", 10, 10, 0, 0},
+                        {"Name", 24, 30, 0, 1},
+                        {"Check-ins", 9, 9, 0, 0},
+                        {"Last", 10, 10, 0, 0}},
+                       rows);
+    }
+
+    // How many check-ins the station search shows at most.
+    static constexpr int kStationSearchLimit = 200;
+
+    void RefreshStationSearch(AppState* state)
+    {
+        state->info_query = NormalizeCallsign(state->info_query);
+        state->info_cells.clear();
+        state->info_selected = 0;
+        state->info_summary.clear();
+        if (state->info_query.size() < 3)
+        {
+            state->info_summary.emplace_back(
+                "Type at least 3 characters of a callsign to see its check-ins to every net.");
+            FormatInfoTable(state);
+            return;
+        }
+        std::vector<StationCheckInRecord> records =
+            state->db->FindCheckInsByCallsign(state->info_query, kStationSearchLimit);
+        for (const StationCheckInRecord& record : records)
+        {
+            state->info_cells.push_back(
+                {record.instance.instance_date, record.net_name, record.check_in.callsign,
+                 StationName(state->db, record.check_in.callsign),
+                 RoleAbbreviation(record.check_in.designated_role), record.check_in.remarks});
+        }
+        state->info_summary.push_back(
+            records.empty() ? std::string("No check-ins found.")
+            : records.size() >= static_cast<std::size_t>(kStationSearchLimit)
+                ? "The newest " + std::to_string(kStationSearchLimit) + " check-ins found:"
+                : std::to_string(records.size()) + " check-ins found:");
+        FormatInfoTable(state);
+    }
+
+    void OpenStationSearch(AppState* state)
+    {
+        ShowInfoWindow(state, InfoWindow::kStationSearch, "Find a Station", {},
+                       {{"Date", 10, 10, 0, 0},
+                        {"Net", 16, 30, 0, 2},
+                        {"Callsign", 10, 13, 0, 99},
+                        {"Name", 20, 24, 1, 3},
+                        {"Role", 5, 5, 0, 0},
+                        {"Remarks", 10, 40, 0, 4}},
+                       {});
+        state->info_query.clear();
+        RefreshStationSearch(state);
+    }
+
+    void OpenQuietStations(AppState* state)
+    {
+        std::string cutoff =
+            FormatLocalDate(static_cast<std::int64_t>(std::time(nullptr)) - 182 * 24 * 3600);
+        std::vector<CallsignTally> tallies = state->db->GetSavedStationActivity(state->edit_net_id);
+        std::vector<std::vector<std::string>> rows;
+        for (const CallsignTally& tally : tallies)
+        {
+            if (!tally.last_date.empty() && tally.last_date >= cutoff)
+            {
+                continue;
+            }
+            rows.push_back({tally.callsign, StationName(state->db, tally.callsign),
+                            tally.last_date.empty() ? "never" : tally.last_date,
+                            std::to_string(tally.count)});
+        }
+        std::vector<std::string> summary;
+        summary.push_back(OutOf(static_cast<int>(rows.size()), static_cast<int>(tallies.size())) +
+                          " saved stations haven't checked in to this net since " + cutoff +
+                          ". To remove one, close this window and use F4.");
+        ShowInfoWindow(state, InfoWindow::kQuietStations, "Quiet Saved Stations", summary,
+                       {{"Callsign", 10, 10, 0, 0},
+                        {"Name", 24, 30, 0, 1},
+                        {"Last", 10, 10, 0, 0},
+                        {"Check-ins", 9, 9, 0, 0}},
+                       rows);
+    }
+
+    // One line of the Help window: a key and what it does; `extra` marks a
+    // seldom-used key that's only on the key bar of a wide enough terminal.
+    struct HelpLine
+    {
+        const char* key;
+        const char* what;
+        bool extra;
+    };
+
+    static std::vector<HelpLine> HelpFor(const AppState* state)
+    {
+        switch (state->page)
+        {
+            case kPageNetList:
+                return {
+                    {"F2", "Create a new recurring net.", false},
+                    {"F3/Enter", "Start the highlighted net, or resume its open session.", false},
+                    {"F4", "Settings: your callsign, home ZIP and time format.", false},
+                    {"F5", "Ad hoc nets: start one, resume one, or see their history.", false},
+                    {"F6", "History of the highlighted net: view, export, delete.", false},
+                    {"F7", "Edit a net (by number): its details and saved stations.", false},
+                    {"F8", "Export the highlighted net to a file to share.", false},
+                    {"F9", "Import a net from a file.", false},
+                    {"F10", "Quit.", false},
+                    {"Up/Down", "Move the highlight.", false},
+                };
+            case kPageCreateNet:
+                return {
+                    {"F2", "Save the new net.", false},
+                    {"Esc", "Cancel.", false},
+                    {"Tab", "Move to the next field (Up/Down too).", false},
+                };
+            case kPageSelectRole:
+                return {
+                    {"Up/Down", "Choose your role for this session.", false},
+                    {"F2/Enter", "Continue.", false},
+                    {"Esc", "Back to the net list.", false},
+                };
+            case kPageEnterCallsign:
+                return {
+                    {"F2/Enter", "Start the net, with you checked in as #1.", false},
+                    {"Esc", "Back to choosing a role.", false},
+                };
+            case kPageActiveNet:
+                return {
+                    {"F2", "Check in a station (the New Check-In window).", false},
+                    {"F3", "Edit a check-in, chosen by its #.", false},
+                    {"F4", "Close this session; it moves to History.", false},
+                    {"F5", "Delete a check-in, chosen by its #.", false},
+                    {"F7", "Export this session's log to a file.", false},
+                    {"F6", "A station's other check-ins to this net (by #).", true},
+                    {"F8", "Regulars who haven't checked in yet; Enter logs one.", true},
+                    {"F9", "Everything known about a station (by #).", true},
+                    {"F10", "This session so far: first-timers, recent average.", true},
+                    {"Up/Down", "Move the highlight; Enter edits that check-in.", false},
+                };
+            case kPageSettings:
+                return {
+                    {"F2", "Save your settings.", false},
+                    {"Esc", "Cancel.", false},
+                    {"F3", "Refresh the station data now (console only).", false},
+                    {"F4", "Manage SSH users (console only).", false},
+                    {"Left/Right", "Change the time format.", false},
+                };
+            case kPageAdHocNet:
+                return {
+                    {"F2", "Start an ad hoc net with the details entered.", false},
+                    {"F3", "Resume an ad hoc session left open (by number).", false},
+                    {"F6", "History of every ad hoc net.", false},
+                    {"Esc", "Back to the net list.", false},
+                };
+            case kPageNetHistory:
+                return {
+                    {"Up/Down", "Choose a session; its check-ins show below.", false},
+                    {"F4", "Delete a check-in from that session (by #).", false},
+                    {"F5", "Delete a closed session (by number).", false},
+                    {"F7", "Export the highlighted session's log.", false},
+                    {"F8", "Statistics for this net.", true},
+                    {"F9", "Find a station's check-ins to every net.", true},
+                    {"Esc", "Back.", false},
+                };
+            case kPageEditNet:
+                return {
+                    {"F2", "Save the net's details and return to the list.", false},
+                    {"F4", "Remove a saved station (by number).", false},
+                    {"F6", "Add a saved station.", false},
+                    {"F7", "Export this net's saved stations to a file.", false},
+                    {"F8", "Delete this net and all its history.", false},
+                    {"F9", "Edit a saved station (by number, or Enter).", false},
+                    {"F5", "Saved stations that haven't checked in lately.", true},
+                    {"Esc", "Back without saving.", false},
+                };
+            case kPageImportNet:
+                return {
+                    {"F2/Enter", "Import the highlighted file.", false},
+                    {"F3", "Receive a file from your terminal (ZMODEM).", false},
+                    {"Esc", "Back.", false},
+                };
+            case kPageManageUsers:
+                return {
+                    {"F2", "Add the SSH user entered (or update their key).", false},
+                    {"F3", "Remove an SSH user (by number).", false},
+                    {"Esc", "Back to Settings.", false},
+                };
+            default:
+                return {};
+        }
+    }
+
+    void OpenHelp(AppState* state)
+    {
+        std::vector<std::vector<std::string>> rows;
+        bool any_extra = false;
+        for (const HelpLine& line : HelpFor(state))
+        {
+            rows.push_back({line.key, std::string(line.what) + (line.extra ? " *" : "")});
+            any_extra = any_extra || line.extra;
+        }
+        std::vector<std::string> summary;
+        if (any_extra)
+        {
+            summary.emplace_back(
+                "* Seldom-used keys: they always work, and appear on the key bar when the "
+                "terminal is wide enough to show them.");
+        }
+        ShowInfoWindow(state, InfoWindow::kHelp, "Help", summary,
+                       {{"Key", 10, 10, 0, 0}, {"What it does", 1, 1, 0, 0}}, rows);
     }
 
 }  // namespace ql

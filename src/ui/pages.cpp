@@ -834,10 +834,18 @@ namespace ql
             }
             else
             {
-                hints = {
-                    {"F2", "Check In"}, {"F3", "Edit"},   {"F4", "Close/Save"},
-                    {"F5", "Delete"},   {"F7", "Export"},
-                };
+                // The seldom-used keys (see InfoWindow) join the bar when
+                // there's room.
+                hints = AddExtraKeysThatFit({{"F2", "Check In"},
+                                             {"F3", "Edit"},
+                                             {"F4", "Close/Save"},
+                                             {"F5", "Delete"},
+                                             {"F7", "Export"}},
+                                            {{"F6", "Stn History"},
+                                             {"F8", "Regulars"},
+                                             {"F9", "Stn Card"},
+                                             {"F10", "Summary"}},
+                                            1);
             }
             return PageChrome(page_title, content, hints);
         }
@@ -1361,9 +1369,18 @@ namespace ql
             {
                 return PageChrome("History: " + net_name, content, PickKeyHints(state_));
             }
-            return PageChrome(
-                "History: " + net_name, content,
-                {{"F4", "Del Check-In"}, {"F5", "Del Session"}, {"F7", "Export"}, {"Esc", "Back"}});
+            std::vector<KeyHint> extras;
+            if (!state_->history_ad_hoc)
+            {
+                extras.push_back({"F8", "Net Stats"});
+            }
+            extras.push_back({"F9", "Find Station"});
+            return PageChrome("History: " + net_name, content,
+                              AddExtraKeysThatFit({{"F4", "Del Check-In"},
+                                                   {"F5", "Del Session"},
+                                                   {"F7", "Export"},
+                                                   {"Esc", "Back"}},
+                                                  extras, 1));
         }
 
     private:
@@ -1513,15 +1530,19 @@ namespace ql
                     {{"F2", "Save & Continue"}, {"F3", "Save & Close"}, {"Esc", "Cancel"}});
             }
             return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(rows),
-                              {
-                                  {"F2", "Save & Close"},
-                                  {"F4", "Remove"},
-                                  {"F6", "Add Station"},
-                                  {"F7", "Export"},
-                                  {"F8", "Del Net"},
-                                  {"F9", "Edit Station"},
-                                  {"Esc", "Cancel"},
-                              });
+                              AddExtraKeysThatFit(
+                                  {
+                                      {"F2", "Save & Close"},
+                                      {"F4", "Remove"},
+                                      {"F6", "Add Station"},
+                                      {"F7", "Export"},
+                                      {"F8", "Del Net"},
+                                      {"F9", "Edit Station"},
+                                      {"Esc", "Cancel"},
+                                  },
+                                  // This bar takes a while to fit on one
+                                  // line; F5 may use a second one.
+                                  {{"F5", "Quiet Stations"}}, 2));
         }
 
     private:
@@ -1766,6 +1787,97 @@ namespace ql
         return WithRowDeleteConfirm(
             state, ftxui::Renderer(root, ManageUsersRenderer(state, user_menu, input_username,
                                                              input_public_key)));
+    }
+
+    // ---- Help and the seldom-used windows (see InfoWindow) -------------------
+
+    class InfoWindowRenderer
+    {
+    public:
+        InfoWindowRenderer(AppState* state, ftxui::Component query_input)
+            : state_(state), query_input_(std::move(query_input))
+        {
+        }
+
+        ftxui::Element operator()() const
+        {
+            int screen_width = ftxui::Terminal::Size().dimx;
+            int screen_height = ftxui::Terminal::Size().dimy;
+
+            ftxui::Elements rows;
+            rows.push_back(Heading(state_->info_title));
+            rows.push_back(DialogSeparator());
+            if (state_->info_window == InfoWindow::kStationSearch)
+            {
+                rows.push_back(ftxui::hbox({FieldLabel("Callsign: "), query_input_->Render()}));
+            }
+            for (const std::string& line : state_->info_summary)
+            {
+                rows.push_back(ftxui::paragraph(line) | ftxui::color(kColorLabel));
+            }
+            if (!state_->info_rows.empty())
+            {
+                ftxui::Elements lines;
+                for (std::size_t i = 0; i < state_->info_rows.size(); ++i)
+                {
+                    bool marked = static_cast<int>(i) == state_->info_selected;
+                    ftxui::Element line =
+                        ftxui::text((marked ? "> " : "  ") + state_->info_rows[i]) |
+                        ftxui::color(kColorListRow);
+                    lines.push_back(marked ? line | ftxui::focus : line);
+                }
+                // As tall as the screen allows -- counting the lines the
+                // summary wraps onto, and everything else the window
+                // draws -- so its key row always shows; the list scrolls to
+                // keep the marked row in view.
+                int text_width = std::max(20, screen_width - 6);
+                int summary_lines = 0;
+                for (const std::string& line : state_->info_summary)
+                {
+                    int length = static_cast<int>(line.size());
+                    summary_lines += std::max(1, (length + text_width - 1) / text_width);
+                }
+                int other_rows =
+                    9 + summary_lines + (state_->info_window == InfoWindow::kStationSearch ? 1 : 0);
+                int room = std::max(3, screen_height - other_rows);
+                int height = std::min(static_cast<int>(lines.size()), room);
+                rows.push_back(DialogFramed(ftxui::vbox({
+                    ColumnHeader("  " + state_->info_header),
+                    ftxui::vbox(lines) | ftxui::vscroll_indicator | ftxui::frame |
+                        ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height),
+                })));
+            }
+            rows.push_back(DialogSeparator());
+            std::vector<KeyHint> keys;
+            if (state_->info_rows.size() > 1)
+            {
+                keys.push_back({"Up/Down", "Scroll"});
+            }
+            if (state_->info_window == InfoWindow::kRegulars && !state_->info_rows.empty())
+            {
+                keys.push_back({"Enter", "Check In"});
+            }
+            keys.push_back({"Esc", "Close"});
+            rows.push_back(KeyHintRow(keys));
+            return ftxui::vbox(rows) |
+                   ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, screen_width - 4) |
+                   ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder);
+        }
+
+    private:
+        AppState* state_;
+        ftxui::Component query_input_;
+    };
+
+    ftxui::Component BuildInfoWindow(AppState* state)
+    {
+        // Only drawn (and only given keys) in the Find a Station window.
+        ftxui::InputOption query_option = SingleLineInputOption();
+        query_option.on_change = InfoQueryChangeHandler(state);
+        ftxui::Component query_input =
+            ftxui::Input(&state->info_query, "Part of a callsign", query_option);
+        return ftxui::Renderer(ftxui::Container::Vertical({query_input}),
+                               InfoWindowRenderer(state, query_input));
     }
 
 }  // namespace ql

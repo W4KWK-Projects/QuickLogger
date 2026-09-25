@@ -204,39 +204,63 @@ CREATE TABLE IF NOT EXISTS users (
         return net;
     }
 
-    static NetInstance ReadNetInstanceRow(const Statement& row)
+    // A NetInstance from the 13 columns starting at `first` (see
+    // kNetInstanceColumns for their order).
+    static NetInstance ReadNetInstanceColumns(const Statement& row, int first)
     {
         NetInstance instance;
-        instance.id = row.ColumnInt64(0);
-        instance.net_id = row.ColumnInt64(1);
-        instance.instance_date = row.ColumnText(2);
-        instance.net_control_callsign = row.ColumnText(3);
-        instance.alternate_net_control_callsign = row.ColumnText(4);
-        instance.logger_callsign = row.ColumnText(5);
-        instance.created_by = row.ColumnText(6);
-        instance.frequency = row.ColumnText(7);
-        instance.location = row.ColumnText(8);
-        instance.status = static_cast<NetInstanceStatus>(row.ColumnInt64(9));
-        instance.closed_at = row.ColumnInt64(10);
-        instance.operator_role = static_cast<int>(row.ColumnInt64(11));
-        instance.started_at = row.ColumnInt64(12);
+        instance.id = row.ColumnInt64(first);
+        instance.net_id = row.ColumnInt64(first + 1);
+        instance.instance_date = row.ColumnText(first + 2);
+        instance.net_control_callsign = row.ColumnText(first + 3);
+        instance.alternate_net_control_callsign = row.ColumnText(first + 4);
+        instance.logger_callsign = row.ColumnText(first + 5);
+        instance.created_by = row.ColumnText(first + 6);
+        instance.frequency = row.ColumnText(first + 7);
+        instance.location = row.ColumnText(first + 8);
+        instance.status = static_cast<NetInstanceStatus>(row.ColumnInt64(first + 9));
+        instance.closed_at = row.ColumnInt64(first + 10);
+        instance.operator_role = static_cast<int>(row.ColumnInt64(first + 11));
+        instance.started_at = row.ColumnInt64(first + 12);
         return instance;
+    }
+
+    static NetInstance ReadNetInstanceRow(const Statement& row)
+    {
+        return ReadNetInstanceColumns(row, 0);
+    }
+
+    // A CheckIn from the 9 columns starting at `first` (see
+    // kCheckInColumns).
+    static CheckIn ReadCheckInColumns(const Statement& row, int first)
+    {
+        CheckIn check_in;
+        check_in.id = row.ColumnInt64(first);
+        check_in.net_instance_id = row.ColumnInt64(first + 1);
+        check_in.callsign = row.ColumnText(first + 2);
+        check_in.sequence_number = static_cast<int>(row.ColumnInt64(first + 3));
+        check_in.signal_report = row.ColumnText(first + 4);
+        check_in.remarks = row.ColumnText(first + 5);
+        check_in.comment = row.ColumnText(first + 6);
+        check_in.checked_in_at = row.ColumnInt64(first + 7);
+        check_in.designated_role = static_cast<int>(row.ColumnInt64(first + 8));
+        return check_in;
     }
 
     static CheckIn ReadCheckInRow(const Statement& row)
     {
-        CheckIn check_in;
-        check_in.id = row.ColumnInt64(0);
-        check_in.net_instance_id = row.ColumnInt64(1);
-        check_in.callsign = row.ColumnText(2);
-        check_in.sequence_number = static_cast<int>(row.ColumnInt64(3));
-        check_in.signal_report = row.ColumnText(4);
-        check_in.remarks = row.ColumnText(5);
-        check_in.comment = row.ColumnText(6);
-        check_in.checked_in_at = row.ColumnInt64(7);
-        check_in.designated_role = static_cast<int>(row.ColumnInt64(8));
-        return check_in;
+        return ReadCheckInColumns(row, 0);
     }
+
+    // The column lists the two readers above expect, for queries that join
+    // net_instances (as i) and check_ins (as c).
+    static const char* const kNetInstanceColumns =
+        "i.id, i.net_id, i.instance_date, i.net_control_callsign, "
+        "i.alternate_net_control_callsign, i.logger_callsign, i.created_by, i.frequency, "
+        "i.location, i.status, i.closed_at, i.operator_role, i.started_at";
+    static const char* const kCheckInColumns =
+        "c.id, c.net_instance_id, c.callsign, c.sequence_number, c.signal_report, c.remarks, "
+        "c.comment, c.checked_in_at, c.designated_role";
 
     Database::Database(const std::string& path, bool use_wal)
     {
@@ -933,6 +957,128 @@ CREATE TABLE IF NOT EXISTS users (
             *count = statement.ColumnInt64(0);
             *newest_id = statement.ColumnInt64(1);
         }
+    }
+
+    // Rows of: net name, then kNetInstanceColumns, then kCheckInColumns.
+    static std::vector<StationCheckInRecord> ReadStationCheckIns(Statement* statement)
+    {
+        std::vector<StationCheckInRecord> records;
+        while (statement->Step())
+        {
+            StationCheckInRecord record;
+            record.net_name = statement->ColumnText(0);
+            record.instance = ReadNetInstanceColumns(*statement, 1);
+            record.check_in = ReadCheckInColumns(*statement, 14);
+            records.push_back(record);
+        }
+        return records;
+    }
+
+    std::vector<StationCheckInRecord> Database::GetStationCheckInsForNet(
+        std::int64_t net_id, const std::string& callsign)
+    {
+        Statement statement(
+            db_, std::string("SELECT n.name, ") + kNetInstanceColumns + ", " + kCheckInColumns +
+                     " FROM check_ins c"
+                     " JOIN net_instances i ON i.id = c.net_instance_id"
+                     " JOIN nets n ON n.id = i.net_id"
+                     " WHERE i.net_id = ? AND c.callsign = ?"
+                     " ORDER BY i.instance_date DESC, i.started_at DESC, i.id DESC;");
+        statement.BindInt64(0, net_id);
+        statement.BindText(1, ToUpperAscii(callsign));
+        return ReadStationCheckIns(&statement);
+    }
+
+    std::vector<StationCheckInRecord> Database::FindCheckInsByCallsign(const std::string& substring,
+                                                                       int limit)
+    {
+        Statement statement(db_, std::string("SELECT n.name, ") + kNetInstanceColumns + ", " +
+                                     kCheckInColumns +
+                                     " FROM check_ins c"
+                                     " JOIN net_instances i ON i.id = c.net_instance_id"
+                                     " JOIN nets n ON n.id = i.net_id"
+                                     " WHERE c.callsign LIKE '%' || ? || '%'"
+                                     " ORDER BY i.instance_date DESC, i.started_at DESC, i.id DESC"
+                                     " LIMIT ?;");
+        statement.BindText(0, ToUpperAscii(substring));
+        statement.BindInt64(1, limit);
+        return ReadStationCheckIns(&statement);
+    }
+
+    std::vector<CallsignTally> Database::GetTopCallsignsForNet(std::int64_t net_id, int limit)
+    {
+        Statement statement(db_, R"sql(
+        SELECT c.callsign, COUNT(*), MAX(i.instance_date)
+        FROM check_ins c JOIN net_instances i ON i.id = c.net_instance_id
+        WHERE i.net_id = ?
+        GROUP BY c.callsign
+        ORDER BY COUNT(*) DESC, c.callsign
+        LIMIT ?;
+    )sql");
+        statement.BindInt64(0, net_id);
+        statement.BindInt64(1, limit);
+        std::vector<CallsignTally> tallies;
+        while (statement.Step())
+        {
+            CallsignTally tally;
+            tally.callsign = statement.ColumnText(0);
+            tally.count = static_cast<int>(statement.ColumnInt64(1));
+            tally.last_date = statement.ColumnText(2);
+            tallies.push_back(tally);
+        }
+        return tallies;
+    }
+
+    std::vector<CallsignTally> Database::GetSavedStationActivity(std::int64_t net_id)
+    {
+        Statement statement(db_, R"sql(
+        SELECT s.callsign, COUNT(i.id), COALESCE(MAX(i.instance_date), '')
+        FROM net_saved_stations s
+        LEFT JOIN check_ins c ON c.callsign = s.callsign
+        LEFT JOIN net_instances i ON i.id = c.net_instance_id AND i.net_id = s.net_id
+        WHERE s.net_id = ?
+        GROUP BY s.callsign
+        ORDER BY COALESCE(MAX(i.instance_date), ''), s.callsign;
+    )sql");
+        statement.BindInt64(0, net_id);
+        std::vector<CallsignTally> tallies;
+        while (statement.Step())
+        {
+            CallsignTally tally;
+            tally.callsign = statement.ColumnText(0);
+            tally.count = static_cast<int>(statement.ColumnInt64(1));
+            tally.last_date = statement.ColumnText(2);
+            tallies.push_back(tally);
+        }
+        return tallies;
+    }
+
+    StationActivity Database::GetStationActivity(const std::string& callsign)
+    {
+        StationActivity activity;
+        {
+            Statement statement(db_, R"sql(
+            SELECT COUNT(*), COALESCE(MIN(checked_in_at), 0), COALESCE(MAX(checked_in_at), 0)
+            FROM check_ins WHERE callsign = ?;
+        )sql");
+            statement.BindText(0, ToUpperAscii(callsign));
+            if (statement.Step())
+            {
+                activity.check_ins = static_cast<int>(statement.ColumnInt64(0));
+                activity.first_at = statement.ColumnInt64(1);
+                activity.last_at = statement.ColumnInt64(2);
+            }
+        }
+        Statement nets(db_, R"sql(
+        SELECT n.name FROM net_saved_stations s JOIN nets n ON n.id = s.net_id
+        WHERE s.callsign = ? ORDER BY n.name COLLATE NOCASE;
+    )sql");
+        nets.BindText(0, ToUpperAscii(callsign));
+        while (nets.Step())
+        {
+            activity.saved_to_nets.push_back(nets.ColumnText(0));
+        }
+        return activity;
     }
 
     std::vector<CheckIn> Database::GetCheckInsForNetInstance(std::int64_t net_instance_id)

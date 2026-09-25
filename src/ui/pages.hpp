@@ -19,4 +19,8 @@ namespace ql
     ftxui::Component BuildImportNetPage(AppState* state);
     ftxui::Component BuildManageUsersPage(AppState* state);
 
+    // The window for AppState::info_window (Help and the seldom-used
+    // windows), shown over whichever page is up.
+    ftxui::Component BuildInfoWindow(AppState* state);
+
 }  // namespace ql

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace ql
 {
@@ -179,6 +180,31 @@ namespace ql
     {
         Station station;
         double miles = -1.0;
+    };
+
+    // One check-in with the session it's in and that session's net's name.
+    struct StationCheckInRecord
+    {
+        std::string net_name;
+        NetInstance instance;
+        CheckIn check_in;
+    };
+
+    // A callsign's check-in count (in some scope) and latest session date.
+    struct CallsignTally
+    {
+        std::string callsign;
+        int count = 0;
+        std::string last_date;
+    };
+
+    // How much a station has checked in, anywhere, and where it's saved.
+    struct StationActivity
+    {
+        int check_ins = 0;
+        std::int64_t first_at = 0;
+        std::int64_t last_at = 0;
+        std::vector<std::string> saved_to_nets;
     };
 
     // Just the callsign and distance of a nearby ULS station: what the

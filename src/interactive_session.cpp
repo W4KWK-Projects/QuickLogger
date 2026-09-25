@@ -292,7 +292,10 @@ namespace ql
         // guards against a Database exception (e.g. a write that times out
         // because another connection -- another session, or the station data
         // updater -- is mid-transaction) taking down the whole session.
-        ftxui::Component ui = ftxui::Make<ql::SafeAppEventDispatcher>(tab, &state);
+        // Help and the seldom-used windows open over whichever page is up.
+        ftxui::Component with_info_window =
+            ftxui::Modal(tab, ql::BuildInfoWindow(&state), &state.show_info_window);
+        ftxui::Component ui = ftxui::Make<ql::SafeAppEventDispatcher>(with_info_window, &state);
 
         // The top bar's station-data notice reads this session's database.
         SetTopBarNoticeDatabase(&db);

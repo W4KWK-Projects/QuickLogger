@@ -11,6 +11,7 @@
 #include "../db/database.hpp"
 #include "../models.hpp"
 #include "../settings.hpp"
+#include "list_columns.hpp"
 
 namespace ql
 {
@@ -57,6 +58,25 @@ namespace ql
         kDeleteHistoryCheckIn,  // History, F4 (a check-in in a past log)
         kRemoveUser,            // Manage Users, F3
         kResumeAdHocSession,    // Ad Hoc Net, F3 (an ad hoc session left open)
+        kViewStationHistory,    // active net, F6 (an extra key; see InfoWindow)
+        kViewStationCard,       // active net, F9 (an extra key)
+    };
+
+    // The seldom-used windows. Their keys always work, but are only shown on
+    // a page's key bar when there's room for them (see AddExtraKeysThatFit);
+    // F1 Help lists them either way. Each is a read-only window over the
+    // page, closed with Esc.
+    enum class InfoWindow
+    {
+        kNone,
+        kStationHistory,  // Active net: a station's other check-ins to this net.
+        kRegulars,        // Active net: regulars not yet checked in this session.
+        kStationCard,     // Active net: everything known about a station.
+        kSessionSummary,  // Active net: this session so far.
+        kNetStatistics,   // History: the whole net.
+        kStationSearch,   // History: a callsign's check-ins to every net.
+        kQuietStations,   // Edit Net: saved stations that haven't checked in lately.
+        kHelp,            // Any page, F1: what each of the page's keys does.
     };
 
     // A yes/no-style question that pops up over the page before an action
@@ -137,6 +157,25 @@ namespace ql
         // The Saved Station window over the Edit Net page (F6 Add Station,
         // F9 Edit Station), holding AppState::saved_station.
         bool show_saved_station_modal = false;
+
+        // The open InfoWindow, if any (show_info_window mirrors it for
+        // ftxui::Modal): a title, summary lines, and a scrollable list of rows
+        // under a column header, one row highlighted.
+        InfoWindow info_window = InfoWindow::kNone;
+        bool show_info_window = false;
+        std::string info_title;
+        std::vector<std::string> info_summary;
+        std::string info_header;
+        std::vector<std::string> info_rows;
+        // The table behind info_header/info_rows (see list_columns.hpp), so
+        // it's laid out again when the terminal is resized.
+        std::vector<ListColumn> info_columns;
+        std::vector<std::vector<std::string>> info_cells;
+        int info_selected = 0;
+        // kRegulars: the station on each row (Enter checks it in).
+        std::vector<Station> info_stations;
+        // kStationSearch: the callsign being searched for.
+        std::string info_query;
 
         // A ConfirmPrompt showing over the page: which one, and its text.
         // `resume_instance` is the open session kResumeNet offers to resume.
@@ -842,6 +881,37 @@ namespace ql
 
     // Closes the Saved Station window, discarding whatever is in it.
     void CloseSavedStationForm(AppState* state);
+
+    // ---- The seldom-used windows (see InfoWindow) ----
+
+    // Active net: `check_in`'s station's other check-ins to this net.
+    void OpenStationHistory(AppState* state, const CheckIn& check_in);
+    // Active net: stations that checked in to at least half of this net's
+    // last 10 sessions (or of all of them, if fewer) but not yet to this one.
+    void OpenRegulars(AppState* state);
+    // Enter in the regulars window: opens New Check-In with the highlighted
+    // station filled in.
+    void CheckInSelectedRegular(AppState* state);
+    // Active net: everything known about `callsign`'s station.
+    void OpenStationCard(AppState* state, const std::string& callsign);
+    // Active net: this session's check-ins so far, its first-timers, and how
+    // it compares with the net's recent sessions.
+    void OpenSessionSummary(AppState* state);
+    // History: statistics for the net whose history is showing.
+    void OpenNetStatistics(AppState* state);
+    // History: a window to search every net's check-ins by callsign, and
+    // re-running that search as AppState::info_query changes.
+    void OpenStationSearch(AppState* state);
+    void RefreshStationSearch(AppState* state);
+    // Edit Net: saved stations that haven't checked in to this net for six
+    // months, or ever.
+    void OpenQuietStations(AppState* state);
+    // F1 on any page: the Help window, explaining every key the page has --
+    // extra keys included, noting they need a wider terminal.
+    void OpenHelp(AppState* state);
+    // Up/Down in an InfoWindow, and Esc.
+    void MoveInfoSelection(AppState* state, int delta);
+    void CloseInfoWindow(AppState* state);
 
     // Removes the highlighted saved station (AppState::selected_saved_station_index)
     // from AppState::edit_net_id and refreshes the saved-station list. If

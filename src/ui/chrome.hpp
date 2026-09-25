@@ -114,9 +114,11 @@ namespace ql
 
     // A full-width colored title bar for the top of a page, naming the app and
     // the page currently shown, with the local time (to the minute) at the
-    // right end -- and, while the shared station data is loading or missing,
-    // a short notice saying so just left of the clock, so people know lookups
-    // aren't fully working yet whatever page they're on.
+    // right end, the F1 Help key just left of it -- it's on every page, so it
+    // lives here rather than taking room on each key bar -- and, while the
+    // shared station data is loading or missing, a short notice saying so,
+    // so people know lookups aren't fully working yet whatever page they're
+    // on.
     ftxui::Element TopBar(const std::string& page_title);
 
     // A full-width colored legend bar for the bottom of a page. Packs as many
@@ -126,6 +128,14 @@ namespace ql
     // fit them all -- a two-line bar is a fallback for a narrow terminal, not
     // a fixed choice made ahead of time.
     ftxui::Element BottomBar(const std::vector<KeyHint>& hints);
+
+    // `hints` followed by as many of `extras`, in order, as fit on this
+    // terminal without the key bar needing more lines than it would anyway,
+    // or than `lines` if that's more (placed before a closing Esc, which
+    // stays last). For a page's seldom-used keys (see InfoWindow in
+    // app_state.hpp), which work whether shown or not.
+    std::vector<KeyHint> AddExtraKeysThatFit(const std::vector<KeyHint>& hints,
+                                             const std::vector<KeyHint>& extras, int lines);
 
     // Same as BottomBar, but `rows` forces each inner vector onto its own
     // line regardless of width -- the primitive BottomBar is built on.

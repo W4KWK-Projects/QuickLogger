@@ -220,6 +220,16 @@ namespace ql
             back();
             return true;
         }
+        if (event == ftxui::Event::F8)
+        {
+            OpenNetStatistics(state_);
+            return true;
+        }
+        if (event == ftxui::Event::F9)
+        {
+            OpenStationSearch(state_);
+            return true;
+        }
         if (event == ftxui::Event::F7)
         {
             ExportNetHistoryLogHandler export_log(state_);
@@ -283,6 +293,11 @@ namespace ql
     void ExportSavedStationsHandler::operator()() const
     {
         ExportSavedStations(state_, state_->edit_net_name, state_->edit_net_saved_stations);
+    }
+
+    void InfoQueryChangeHandler::operator()() const
+    {
+        RefreshStationSearch(state_);
     }
 
     void SavedStationCallsignChangeHandler::operator()() const
@@ -430,6 +445,11 @@ namespace ql
         {
             ExportSavedStationsHandler export_stations(state_);
             export_stations();
+            return true;
+        }
+        if (event == ftxui::Event::F5)
+        {
+            OpenQuietStations(state_);
             return true;
         }
         if (event == ftxui::Event::F8)
@@ -887,6 +907,27 @@ namespace ql
             export_log();
             return true;
         }
+        // The seldom-used keys (see InfoWindow).
+        if (event == ftxui::Event::F6 && !modal_open)
+        {
+            StartRowPick(state_, RowPickAction::kViewStationHistory);
+            return true;
+        }
+        if (event == ftxui::Event::F8 && !modal_open)
+        {
+            OpenRegulars(state_);
+            return true;
+        }
+        if (event == ftxui::Event::F9 && !modal_open)
+        {
+            StartRowPick(state_, RowPickAction::kViewStationCard);
+            return true;
+        }
+        if (event == ftxui::Event::F10 && !modal_open)
+        {
+            OpenSessionSummary(state_);
+            return true;
+        }
         if (event == ftxui::Event::Escape)
         {
             if (state_->show_edit_checkin_modal)
@@ -1113,8 +1154,59 @@ namespace ql
         return event != ftxui::Event::Custom;
     }
 
+    // Keys while an InfoWindow is open: it takes them all, except that in
+    // Find a Station typing goes to its callsign field.
+    static bool HandleInfoWindowKey(AppState* state, const ftxui::Event& event)
+    {
+        if (event == ftxui::Event::Escape)
+        {
+            CloseInfoWindow(state);
+            return true;
+        }
+        if (event == ftxui::Event::ArrowUp || event == ftxui::Event::ArrowDown)
+        {
+            MoveInfoSelection(state, event == ftxui::Event::ArrowUp ? -1 : 1);
+            return true;
+        }
+        if (event == ftxui::Event::PageUp || event == ftxui::Event::PageDown)
+        {
+            MoveInfoSelection(state, event == ftxui::Event::PageUp ? -10 : 10);
+            return true;
+        }
+        if (event == ftxui::Event::Return)
+        {
+            if (state->info_window == InfoWindow::kRegulars)
+            {
+                CheckInSelectedRegular(state);
+            }
+            return true;
+        }
+        if (state->info_window == InfoWindow::kStationSearch && event != ftxui::Event::Custom &&
+            (event.is_character() || event == ftxui::Event::Backspace ||
+             event == ftxui::Event::Delete || event == ftxui::Event::ArrowLeft ||
+             event == ftxui::Event::ArrowRight || event == ftxui::Event::Home ||
+             event == ftxui::Event::End))
+        {
+            return false;  // To the callsign field.
+        }
+        return event != ftxui::Event::Custom;
+    }
+
+    // True while any dialog is open over the page (not counting an
+    // InfoWindow, pick mode or a confirmation, handled before this matters).
+    static bool AnyPageDialogOpen(const AppState* state)
+    {
+        return state->show_new_station_modal || state->show_edit_checkin_modal ||
+               state->show_saved_station_modal || state->show_zmodem_confirm_modal ||
+               state->show_delete_net_confirm_modal;
+    }
+
     bool AppKeyHandler::operator()(const ftxui::Event& event) const
     {
+        if (state_->info_window != InfoWindow::kNone)
+        {
+            return HandleInfoWindowKey(state_, event);
+        }
         // A delete confirmation, or a list in pick mode, takes every key
         // first, whatever page it's on.
         if (state_->show_row_delete_confirm_modal)
@@ -1136,6 +1228,11 @@ namespace ql
         if (state_->show_confirm_prompt)
         {
             return HandleConfirmPromptKey(state_, event);
+        }
+        if (event == ftxui::Event::F1 && !AnyPageDialogOpen(state_))
+        {
+            OpenHelp(state_);
+            return true;
         }
 
         if (state_->page == kPageNetList)

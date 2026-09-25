@@ -161,6 +161,25 @@ namespace ql
         // logging the same session at the same moment can't both get it.
         std::int64_t AddCheckInAtNextSequence(const CheckIn& check_in);
         std::vector<CheckIn> GetCheckInsForNetInstance(std::int64_t net_instance_id);
+
+        // Every check-in `callsign` made to net `net_id`, newest session
+        // first, each with its session and the net's name.
+        std::vector<StationCheckInRecord> GetStationCheckInsForNet(std::int64_t net_id,
+                                                                   const std::string& callsign);
+        // Check-ins to any net by a callsign containing `substring`
+        // (case-insensitive), newest first, at most `limit`.
+        std::vector<StationCheckInRecord> FindCheckInsByCallsign(const std::string& substring,
+                                                                 int limit);
+        // The callsigns that have checked in to net `net_id` most often, with
+        // how many times and their latest session's date.
+        std::vector<CallsignTally> GetTopCallsignsForNet(std::int64_t net_id, int limit);
+        // Each station saved to net `net_id`, with how many times it has
+        // checked in to that net and the date of the latest (empty if never),
+        // least recent first.
+        std::vector<CallsignTally> GetSavedStationActivity(std::int64_t net_id);
+        // How much `callsign` has checked in anywhere, and the nets it's
+        // saved to.
+        StationActivity GetStationActivity(const std::string& callsign);
         // How many check-ins a session has and the newest one's id -- enough
         // to tell cheaply whether someone else has logged or deleted one.
         void GetCheckInSummary(std::int64_t net_instance_id, std::int64_t* count,

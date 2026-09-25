@@ -78,6 +78,18 @@ Settings (F4 on the Recurring Nets list) also has **Time Format**: the 12-hour c
 
 **Wider terminals.** Everything fits an 80×24 terminal. On a wider one, QuickLogger uses the extra width: lists widen their columns and add more (check-ins gain the time, city and state, signal report and comment; the net list shows each net's mode, frequency and schedule; saved stations add city, county, grid and default remarks), and forms such as Edit Net and the check-in windows lay their fields out in two columns from 90 columns up. Resizing the window re-lays everything out straight away. Exported logs always include every column, whatever the terminal's width.
 
+**Help and seldom-used keys.** **F1** on any page (shown at the top right) opens Help, explaining every key the page has. On a wide enough terminal, key bars also show extra keys for things you won't need often, and those keys only work while they're shown:
+
+| Page | Key | What it shows |
+|---|---|---|
+| Active net | F6 | A station's other check-ins to this net (by #) |
+| Active net | F8 | Regulars not yet heard: stations in at least half of the last 10 sessions who haven't checked in yet; Enter checks one in |
+| Active net | F9 | Everything known about a station (by #): address, license class, check-in totals, nets it's saved to |
+| Active net | F10 | This session so far: count, first-timers, and the recent average |
+| History | F8 | Statistics for the net: sessions, averages, busiest session, recent months, most frequent stations |
+| History | F9 | Find a station: its check-ins to every net |
+| Edit Net | F5 | Saved stations that haven't checked in to this net for six months, or ever |
+
 ### Running a net
 
 On **Recurring Nets**, highlight a net and press **F3** (or Enter), pick your role, confirm your callsign, and the net starts with you logged as check-in #1. **F2** opens the New Station window:

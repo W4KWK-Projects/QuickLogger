@@ -1,5 +1,7 @@
 #include "chrome.hpp"
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <ctime>
 #include <exception>
@@ -157,6 +159,9 @@ namespace ql
                    ftxui::text(page_title + " ") | ftxui::bold | ftxui::color(kColorHeading),
                    ftxui::filler(),
                    StationDataNotice(),
+                   ftxui::text(" F1 ") | ftxui::bgcolor(ftxui::Color::YellowLight) |
+                       ftxui::color(ftxui::Color::Black),
+                   ftxui::text(" Help  ") | ftxui::color(kColorLabel),
                    // Local time, to the minute. It's computed each time the bar is
                    // drawn; ScreenTicker (interactive_session.cpp) is what makes a
                    // redraw happen when the minute changes.
@@ -170,6 +175,35 @@ namespace ql
     {
         int width = ftxui::Terminal::Size().dimx;
         return BottomBarRows(WrapKeyHints(hints, width));
+    }
+
+    std::vector<KeyHint> AddExtraKeysThatFit(const std::vector<KeyHint>& hints,
+                                             const std::vector<KeyHint>& extras, int lines)
+    {
+        int width = ftxui::Terminal::Size().dimx;
+        std::size_t most_lines =
+            std::max(WrapKeyHints(hints, width).size(), static_cast<std::size_t>(lines));
+        // Extras go before a closing Esc, which stays last.
+        std::vector<KeyHint> all = hints;
+        std::vector<KeyHint> closing;
+        if (!all.empty() && all.back().key == "Esc")
+        {
+            closing.push_back(all.back());
+            all.pop_back();
+        }
+        for (const KeyHint& extra : extras)
+        {
+            std::vector<KeyHint> candidate = all;
+            candidate.push_back(extra);
+            candidate.insert(candidate.end(), closing.begin(), closing.end());
+            if (WrapKeyHints(candidate, width).size() > most_lines)
+            {
+                break;
+            }
+            all.push_back(extra);
+        }
+        all.insert(all.end(), closing.begin(), closing.end());
+        return all;
     }
 
     ftxui::Element BottomBarRows(const std::vector<std::vector<KeyHint>>& rows)

@@ -501,6 +501,19 @@ namespace ql
         AppState* state_;
     };
 
+    // Each keystroke in the Find a Station window's callsign field: runs the
+    // search again (see RefreshStationSearch).
+    class InfoQueryChangeHandler
+    {
+    public:
+        explicit InfoQueryChangeHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
     // Escape on the edit-net page: returns to the net list.
     class EditNetBackHandler
     {
