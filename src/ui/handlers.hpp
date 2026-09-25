@@ -423,19 +423,23 @@ namespace ql
         AppState* state_;
     };
 
-    // F3 on the edit-net page: adds the saved-station mini-form's callsign as a
-    // known station for this net -- or, when no callsign has been entered yet,
-    // moves the cursor to the callsign field so one can be (the quick way down
-    // to the form from anywhere on the page, like F6).
+    // F2 (Save & Continue) and F3 (Save & Close) in the Saved Station
+    // window: saves the station to this net (see SaveNetStationForm), then
+    // either clears the window for the next one or closes it. With nothing
+    // typed at all, F3 just closes the window.
     class SaveNetStationFormHandler
     {
     public:
-        explicit SaveNetStationFormHandler(AppState* state) : state_(state) {}
+        SaveNetStationFormHandler(AppState* state, bool close_after)
+            : state_(state), close_after_(close_after)
+        {
+        }
 
         void operator()() const;
 
     private:
         AppState* state_;
+        bool close_after_;
     };
 
     // F7 on the edit-net page: writes this net's whole saved-station list to
@@ -499,10 +503,8 @@ namespace ql
         AppState* state_;
     };
 
-    // Enter on the edit-net page's saved-stations list: loads the highlighted
-    // station's fields into the mini-form and moves focus there, so more
-    // details can be added (or existing ones corrected) and saved back via
-    // SaveNetStationFormHandler.
+    // Enter on the edit-net page's saved-stations list: opens the highlighted
+    // station in the Saved Station window (see LoadSavedStationIntoForm).
     class LoadSavedStationHandler
     {
     public:
@@ -514,12 +516,7 @@ namespace ql
         AppState* state_;
     };
 
-    // F6 on the edit-net page: clears the saved-station mini-form (so it's
-    // ready for a brand new callsign rather than whatever was last loaded or
-    // just saved) and moves focus straight to its callsign field, skipping
-    // the six Tab-stops (Name/Mode/Frequency/Location/Recurrence/the
-    // saved-station list) that otherwise sit between wherever focus is and
-    // the field an operator visiting this page is usually here for.
+    // F6 on the edit-net page: opens the Saved Station window, empty.
     class AddNewSavedStationHandler
     {
     public:
@@ -543,10 +540,11 @@ namespace ql
         AppState* state_;
     };
 
-    // Global key handling for the edit-net page: F2 Save & Close, F3 Save Station,
-    // F4 Remove Station (unsave from this net), F5 Delete Station (purge
-    // entirely), F6 Add Station, F7 Export Stations, F8 Delete Net (this
-    // whole net and its history, via a confirmation modal), Escape Back.
+    // Global key handling for the edit-net page: F2 Save & Close, F4 Remove
+    // Station (unsave from this net), F6 Add Station, F7 Export Stations, F8
+    // Delete Net (this whole net and its history, via a confirmation modal),
+    // F9 Edit Station, Escape Back. While the Saved Station window is open:
+    // F2 Save & Continue, F3 Save & Close, Escape Cancel.
     class EditNetKeyHandler
     {
     public:

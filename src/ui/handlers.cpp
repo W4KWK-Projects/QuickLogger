@@ -256,11 +256,13 @@ namespace ql
     {
         if (state_->saved_station.callsign.empty())
         {
-            // Nothing to save yet: rather than just complaining, take the
-            // operator to the callsign field -- F3 is how people reach for
-            // "add a station" here, and the field is otherwise six Tab-stops
-            // down the page. Only say something if they'd already filled in
-            // other fields and just left the callsign out.
+            if (close_after_ && SavedStationFormIsBlank(state_))
+            {
+                CloseSavedStationForm(state_);
+                return;
+            }
+            // Only say something if other fields were filled in and just the
+            // callsign left out; either way, the cursor goes to it.
             state_->form_error = SavedStationFormIsBlank(state_)
                                      ? std::string()
                                      : std::string("Enter a callsign to save this station.");
@@ -270,7 +272,10 @@ namespace ql
             }
             return;
         }
-        SaveNetStationForm(state_);
+        if (SaveNetStationForm(state_) && close_after_)
+        {
+            CloseSavedStationForm(state_);
+        }
     }
 
     void ExportSavedStationsHandler::operator()() const
@@ -302,23 +307,11 @@ namespace ql
         }
         LoadSavedStationIntoForm(
             state_, state_->edit_net_saved_stations[state_->selected_saved_station_index]);
-        if (state_->saved_station_callsign_input)
-        {
-            state_->saved_station_callsign_input->TakeFocus();
-        }
     }
 
     void AddNewSavedStationHandler::operator()() const
     {
-        state_->saved_station = Station();
-        state_->saved_station_remarks.clear();
-        state_->form_error.clear();
-        state_->saved_station_suggestions.clear();
-        state_->saved_station_suggestion_labels.clear();
-        if (state_->saved_station_callsign_input)
-        {
-            state_->saved_station_callsign_input->TakeFocus();
-        }
+        OpenNewSavedStationForm(state_);
     }
 
     void EditNetBackHandler::operator()() const
@@ -390,23 +383,34 @@ namespace ql
             return true;
         }
 
-        if (MoveSuggestionHighlight(event, state_->saved_station_callsign_input,
-                                    state_->saved_station_suggestions.size(),
-                                    &state_->selected_saved_station_suggestion_index))
+        if (state_->show_saved_station_modal)
         {
-            return true;
+            if (MoveSuggestionHighlight(event, state_->saved_station_callsign_input,
+                                        state_->saved_station_suggestions.size(),
+                                        &state_->selected_saved_station_suggestion_index))
+            {
+                return true;
+            }
+            if (event == ftxui::Event::F2 || event == ftxui::Event::F3)
+            {
+                SaveNetStationFormHandler save_station(state_, event == ftxui::Event::F3);
+                save_station();
+                return true;
+            }
+            if (event == ftxui::Event::Escape)
+            {
+                CloseSavedStationForm(state_);
+                return true;
+            }
+            // Every other key goes to the window's fields; none of the
+            // page's own keys apply while it's open.
+            return false;
         }
 
         if (event == ftxui::Event::F2)
         {
             SaveEditNetHandler save(state_);
             save();
-            return true;
-        }
-        if (event == ftxui::Event::F3)
-        {
-            SaveNetStationFormHandler save_station(state_);
-            save_station();
             return true;
         }
         if (event == ftxui::Event::F4)

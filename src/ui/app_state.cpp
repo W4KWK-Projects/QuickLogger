@@ -1679,10 +1679,6 @@ namespace ql
             }
             case RowPickAction::kEditSavedStation:
                 LoadSavedStationIntoForm(state, state->edit_net_saved_stations[index]);
-                if (state->saved_station_callsign_input)
-                {
-                    state->saved_station_callsign_input->TakeFocus();
-                }
                 return;
             default:
                 if (list == PickList::kNetInstances)
@@ -2016,12 +2012,8 @@ namespace ql
         state->edit_net_location = net.default_location;
         state->edit_net_recurrence = net.recurrence_description;
 
-        state->saved_station = Station();
-        state->saved_station_remarks.clear();
-        state->form_error.clear();
+        CloseSavedStationForm(state);
         state->status_message.clear();
-        state->saved_station_suggestions.clear();
-        state->saved_station_suggestion_labels.clear();
 
         RefreshEditNetSavedStations(state);
         RefreshNearbyZips(state, state->edit_net_location);
@@ -2108,8 +2100,11 @@ namespace ql
                                       state->saved_station_remarks, now);
         }
 
+        state->status_message = "Saved " + state->saved_station.callsign + ".";
         state->saved_station = Station();
         state->saved_station_remarks.clear();
+        state->saved_station_suggestions.clear();
+        state->saved_station_suggestion_labels.clear();
         state->form_error.clear();
         RefreshEditNetSavedStations(state);
 
@@ -2126,10 +2121,36 @@ namespace ql
 
     void LoadSavedStationIntoForm(AppState* state, const Station& saved)
     {
+        CloseSavedStationForm(state);
         state->saved_station = saved;
         state->saved_station_remarks =
             state->db->GetSavedNetStationRemarks(state->edit_net_id, saved.callsign);
+        state->show_saved_station_modal = true;
+        if (state->saved_station_callsign_input)
+        {
+            state->saved_station_callsign_input->TakeFocus();
+        }
+    }
+
+    void OpenNewSavedStationForm(AppState* state)
+    {
+        CloseSavedStationForm(state);
+        state->status_message.clear();
+        state->show_saved_station_modal = true;
+        if (state->saved_station_callsign_input)
+        {
+            state->saved_station_callsign_input->TakeFocus();
+        }
+    }
+
+    void CloseSavedStationForm(AppState* state)
+    {
+        state->saved_station = Station();
+        state->saved_station_remarks.clear();
+        state->saved_station_suggestions.clear();
+        state->saved_station_suggestion_labels.clear();
         state->form_error.clear();
+        state->show_saved_station_modal = false;
     }
 
     void RemoveSelectedSavedNetStation(AppState* state)

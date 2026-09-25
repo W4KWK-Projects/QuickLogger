@@ -1111,6 +1111,35 @@ namespace ql
         CHECK_EQ(f.state.status_message, std::string("Saved Renamed."));
     }
 
+    QL_TEST(SavedStationsAreEditedInTheirOwnWindow)
+    {
+        Fixture f;
+        std::int64_t net_id = AddTestNet(f.db(), "Skywarn");
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
+        CHECK(!f.state.show_saved_station_modal);
+
+        OpenNewSavedStationForm(&f.state);
+        CHECK(f.state.show_saved_station_modal);
+        f.state.saved_station.callsign = "K4AAA";
+        f.state.saved_station.name = "Ann";
+        f.state.saved_station_remarks = "mobile";
+        CHECK(SaveNetStationForm(&f.state));
+        CHECK_EQ(f.state.status_message, std::string("Saved K4AAA."));
+        CHECK(f.state.saved_station.callsign.empty());  // Ready for the next one.
+        REQUIRE(f.state.edit_net_saved_stations.size() == 1);
+
+        CloseSavedStationForm(&f.state);
+        CHECK(!f.state.show_saved_station_modal);
+
+        LoadSavedStationIntoForm(&f.state, f.state.edit_net_saved_stations[0]);
+        CHECK(f.state.show_saved_station_modal);
+        CHECK_EQ(f.state.saved_station.name, std::string("Ann"));
+        CHECK_EQ(f.state.saved_station_remarks, std::string("mobile"));
+        f.state.saved_station.name = "Changed";
+        CloseSavedStationForm(&f.state);  // Esc: nothing saved.
+        CHECK_EQ(f.db()->FindStationByCallsign("K4AAA")->name, std::string("Ann"));
+    }
+
     QL_TEST(NetZipMustBeFiveDigitsOrBlank)
     {
         Fixture f;

@@ -103,7 +103,7 @@ Wherever a list has an edit or delete key, pressing it numbers every row. Type t
 | Recurring Nets | F7 | Edit a net |
 | Ad Hoc Net | F3 | Resume an ad hoc session that's still open |
 | Active net (while logging) | F3 / F5 | Edit / delete a check-in |
-| Edit Net | F9 | Load a saved station into the form below |
+| Edit Net | F9 | Open a saved station in the Saved Station window |
 | Edit Net | F4 | Remove a saved station from this net |
 | History | F4 | Delete one check-in from the highlighted session's log |
 | History | F5 | Delete a closed net session and its log |
@@ -117,7 +117,7 @@ Deleting a whole recurring net is still **F8** on its Edit Net page, which asks 
 
 ### Callsign autocomplete
 
-Wherever you enter a station's callsign — the New Station window while logging a net (F2 on the active net), and the station form on a net's Edit Net page — matches appear below the field as you type. You can type any part of the callsign, in upper or lower case: `kwk` finds W4KWK. Matches are listed in this order:
+Wherever you enter a station's callsign — the New Station window while logging a net (F2 on the active net), and the Saved Station window on a net's Edit Net page — matches appear below the field as you type. You can type any part of the callsign, in upper or lower case: `kwk` finds W4KWK. Matches are listed in this order:
 
 1. Stations known to **this net** (they've checked in before, or are saved to it), marked *(this net)*.
 2. Stations known to **other nets**, marked *(other net)*.
@@ -131,7 +131,7 @@ Every callsign field accepts only callsigns the US or Canada could issue, with o
 
 ### Saving stations to a net
 
-On a net's **Edit Net** page (F7 from the Recurring Nets list), the station form sits below the net's own details and its list of saved stations. You don't have to Tab down to it: press **F3** (Save Station) while the form's callsign is empty and the cursor jumps straight to the Callsign field (**F6**, Add Station, does the same and also clears the form). Type a callsign, pick a match, fill in anything else, and press **F3** again to save it — the cursor returns to Callsign, ready for the next station.
+On a net's **Edit Net** page (F7 from the Recurring Nets list), the net's details sit above its list of saved stations. **F6** (Add Station) opens the Saved Station window with the cursor in the Callsign field. Type a callsign, pick a match, fill in anything else, and press **F2** (Save & Continue) to save it and clear the window for the next station, or **F3** (Save & Close) to save it and close the window. **Esc** closes it without saving. **F9** (Edit Station), or Enter on a highlighted station, opens an existing one in the same window. **F2** on the page itself saves the net's details and returns to the net list.
 
 ### Station data
 

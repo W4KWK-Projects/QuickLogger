@@ -1,5 +1,6 @@
 #include "pages.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <ctime>
@@ -8,6 +9,7 @@
 
 #include <ftxui/component/component_options.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/screen/terminal.hpp>
 
 #include "../date_utils.hpp"
 #include "../uls_import.hpp"
@@ -17,17 +19,19 @@
 namespace ql
 {
 
+    // Error and status lines take no room at all while there's nothing to
+    // say, leaving it to the page's lists on a small terminal.
     static ftxui::Element ErrorLine(const std::string& message)
     {
         // A paragraph, so a long message wraps rather than being cut off at
         // the edge of the screen.
-        return message.empty() ? ftxui::text("")
+        return message.empty() ? ftxui::emptyElement()
                                : ftxui::paragraph(message) | ftxui::color(kColorError);
     }
 
     static ftxui::Element StatusLine(const std::string& message)
     {
-        return message.empty() ? ftxui::text("")
+        return message.empty() ? ftxui::emptyElement()
                                : ftxui::paragraph(message) | ftxui::color(kColorSuccess);
     }
 
@@ -355,7 +359,7 @@ namespace ql
     {
         if (!IsPicking(state, list))
         {
-            return ftxui::text("");
+            return ftxui::emptyElement();
         }
         return ftxui::hbox({
             ftxui::text(RowPickPrompt(state) + "  ") | ftxui::bold | ftxui::color(kColorLabel),
@@ -1292,7 +1296,7 @@ namespace ql
                                                          : FormatNetInstanceHeaderRow())),
                     instance_list,
                 })) |
-                    ftxui::flex,
+                    ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, SessionBoxHeight()),
                 PickPrompt(state_, PickList::kNetInstances),
                 Separator(),
                 Framed(ftxui::vbox({
@@ -1315,6 +1319,20 @@ namespace ql
         }
 
     private:
+        // The sessions box's fixed height (its border and header included),
+        // with the check-ins box below taking the rest. Sharing the space
+        // flexibly let a long check-in list squeeze the sessions down to
+        // nothing on an 80x24 terminal. Up to a third of the screen, but at
+        // least three rows -- or just enough for however many sessions there
+        // are, if fewer.
+        int SessionBoxHeight() const
+        {
+            int rows = static_cast<int>(state_->history_instances.size());
+            int most = std::max(3, (ftxui::Terminal::Size().dimy - 10) / 3);
+            rows = std::max(1, std::min(rows, most));
+            return rows + 3;
+        }
+
         AppState* state_;
         ftxui::Component instance_menu_;
         ftxui::Component checkin_menu_;
@@ -1388,20 +1406,14 @@ namespace ql
     public:
         EditNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
                         ftxui::Component input_frequency, ftxui::Component input_location,
-                        ftxui::Component input_recurrence, ftxui::Component saved_station_menu,
-                        StationFieldInputs saved_station_inputs,
-                        ftxui::Component saved_station_suggestion_menu,
-                        ftxui::Component saved_station_remarks_input)
+                        ftxui::Component input_recurrence, ftxui::Component saved_station_menu)
             : state_(state),
               input_name_(std::move(input_name)),
               input_mode_(std::move(input_mode)),
               input_frequency_(std::move(input_frequency)),
               input_location_(std::move(input_location)),
               input_recurrence_(std::move(input_recurrence)),
-              saved_station_menu_(std::move(saved_station_menu)),
-              saved_station_inputs_(std::move(saved_station_inputs)),
-              saved_station_suggestion_menu_(std::move(saved_station_suggestion_menu)),
-              saved_station_remarks_input_(std::move(saved_station_remarks_input))
+              saved_station_menu_(std::move(saved_station_menu))
         {
         }
 
@@ -1409,22 +1421,11 @@ namespace ql
         {
             ftxui::Element saved_station_list =
                 state_->edit_net_saved_stations.empty()
-                    ? HintText("No saved stations yet.")
+                    ? HintText("No saved stations yet. F6 adds one.")
                     : PickableRows(state_, PickList::kSavedStations,
                                    state_->edit_net_saved_station_labels,
                                    state_->selected_saved_station_index, saved_station_menu_) |
                           ftxui::frame | ftxui::vscroll_indicator;
-
-            ftxui::Element suggestions =
-                state_->saved_station_suggestions.empty()
-                    ? ftxui::text("")
-                    : ftxui::vbox({
-                          HintText("Matches: Up/Down to choose, Enter to pick the one marked >"),
-                          Framed(ftxui::vbox({
-                              ColumnHeader(FormatCallsignSuggestionHeaderRow()),
-                              saved_station_suggestion_menu_->Render(),
-                          })),
-                      });
 
             ftxui::Elements rows;
             rows.push_back(ftxui::hbox({FieldLabel("Name:       "), input_name_->Render()}));
@@ -1440,38 +1441,27 @@ namespace ql
                                saved_station_list,
                            })) |
                            ftxui::flex);
-            if (IsPicking(state_, PickList::kSavedStations))
-            {
-                rows.push_back(PickPrompt(state_, PickList::kSavedStations));
-            }
-            else
-            {
-                rows.push_back(
-                    HintText("F9 (or Enter on a highlighted station) loads a station into the "
-                             "fields below; F4 removes one."));
-            }
-            rows.push_back(Separator());
-            ftxui::Elements field_rows = StationFieldRows(saved_station_inputs_);
-            rows.push_back(field_rows[0]);  // Callsign
-            rows.push_back(suggestions);
-            for (std::size_t i = 1; i < field_rows.size(); ++i)
-            {
-                rows.push_back(field_rows[i]);
-            }
-            rows.push_back(ftxui::hbox(
-                {FieldLabel("Default Remarks: "), saved_station_remarks_input_->Render()}));
+            rows.push_back(PickPrompt(state_, PickList::kSavedStations));
             rows.push_back(StatusLine(state_->status_message));
-            rows.push_back(ErrorLine(state_->form_error));
+            if (!state_->show_saved_station_modal)
+            {
+                rows.push_back(ErrorLine(state_->form_error));
+            }
 
             if (state_->row_pick_action != RowPickAction::kNone)
             {
                 return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(rows),
                                   PickKeyHints(state_));
             }
+            if (state_->show_saved_station_modal)
+            {
+                return PageChrome(
+                    "Edit Net: " + state_->edit_net_name, ftxui::vbox(rows),
+                    {{"F2", "Save & Continue"}, {"F3", "Save & Close"}, {"Esc", "Cancel"}});
+            }
             return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(rows),
                               {
                                   {"F2", "Save & Close"},
-                                  {"F3", "Save Station"},
                                   {"F4", "Remove"},
                                   {"F6", "Add Station"},
                                   {"F7", "Export"},
@@ -1489,9 +1479,61 @@ namespace ql
         ftxui::Component input_location_;
         ftxui::Component input_recurrence_;
         ftxui::Component saved_station_menu_;
-        StationFieldInputs saved_station_inputs_;
-        ftxui::Component saved_station_suggestion_menu_;
-        ftxui::Component saved_station_remarks_input_;
+    };
+
+    // The Saved Station window over the Edit Net page (F6 Add Station, F9
+    // Edit Station): one station's details and its default remarks for this
+    // net, with the same callsign autocomplete as the New Check-In window.
+    class SavedStationModalRenderer
+    {
+    public:
+        SavedStationModalRenderer(AppState* state, StationFieldInputs inputs,
+                                  ftxui::Component suggestion_menu, ftxui::Component remarks_input)
+            : state_(state),
+              inputs_(std::move(inputs)),
+              suggestion_menu_(std::move(suggestion_menu)),
+              remarks_input_(std::move(remarks_input))
+        {
+        }
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Element suggestions =
+                state_->saved_station_suggestions.empty()
+                    ? ftxui::emptyElement()
+                    : ftxui::vbox({
+                          HintText("Matches: Up/Down to choose, Enter to pick the one marked >"),
+                          DialogFramed(ftxui::vbox({
+                              ColumnHeader(FormatCallsignSuggestionHeaderRow()),
+                              suggestion_menu_->Render(),
+                          })),
+                      });
+
+            ftxui::Elements rows;
+            rows.push_back(Heading("Saved Station"));
+            rows.push_back(DialogSeparator());
+            ftxui::Elements field_rows = StationFieldRows(inputs_);
+            rows.push_back(field_rows[0]);  // Callsign
+            rows.push_back(suggestions);
+            for (std::size_t i = 1; i < field_rows.size(); ++i)
+            {
+                rows.push_back(field_rows[i]);
+            }
+            rows.push_back(
+                ftxui::hbox({FieldLabel("Default Remarks: "), remarks_input_->Render()}));
+            rows.push_back(DialogSeparator());
+            rows.push_back(
+                KeyHintRow({{"F2", "Save & Continue"}, {"F3", "Save & Close"}, {"Esc", "Cancel"}}));
+            rows.push_back(ErrorLine(state_->form_error));
+            return ftxui::vbox(rows) | ftxui::color(kColorHeading) |
+                   ftxui::borderStyled(kColorDialogBorder);
+        }
+
+    private:
+        AppState* state_;
+        StationFieldInputs inputs_;
+        ftxui::Component suggestion_menu_;
+        ftxui::Component remarks_input_;
     };
 
     ftxui::Component BuildEditNetPage(AppState* state)
@@ -1516,49 +1558,48 @@ namespace ql
             ftxui::Menu(&state->edit_net_saved_station_labels, &state->selected_saved_station_index,
                         saved_station_menu_option);
 
-        ftxui::InputOption saved_station_callsign_option = SingleLineInputOption();
-        saved_station_callsign_option.on_change = SavedStationCallsignChangeHandler(state);
-        saved_station_callsign_option.on_enter = SavedStationCallsignEnterHandler(state);
-        ftxui::Component saved_station_callsign_input =
-            ftxui::Input(&state->saved_station.callsign, "Callsign", saved_station_callsign_option);
-        state->saved_station_callsign_input = saved_station_callsign_input;
-        StationFieldInputs saved_station_inputs =
-            BuildStationFieldInputs(&state->saved_station, saved_station_callsign_input);
-        ftxui::Component saved_station_remarks_input =
-            ftxui::Input(&state->saved_station_remarks, "Optional", SingleLineInputOption());
-
-        ftxui::MenuOption saved_station_suggestion_menu_option;
-        saved_station_suggestion_menu_option.on_enter = SelectSavedStationSuggestionHandler(state);
-        saved_station_suggestion_menu_option.entries_option.transform = AlignedMenuEntryTransform;
-        ftxui::Component saved_station_suggestion_menu = ftxui::Menu(
-            &state->saved_station_suggestion_labels,
-            &state->selected_saved_station_suggestion_index, saved_station_suggestion_menu_option);
-
-        ftxui::Components saved_station_field_components =
-            StationFieldComponents(saved_station_inputs);
-        saved_station_field_components.insert(saved_station_field_components.begin() + 1,
-                                              saved_station_suggestion_menu);
-        saved_station_field_components.push_back(saved_station_remarks_input);
-
-        ftxui::Components root_components = {
-            input_name,     input_mode,       input_frequency,
-            input_location, input_recurrence, saved_station_menu,
-        };
-        for (const ftxui::Component& component : saved_station_field_components)
-        {
-            root_components.push_back(component);
-        }
-
-        ftxui::Component root = ftxui::Container::Vertical(root_components);
-
+        ftxui::Component root = ftxui::Container::Vertical({
+            input_name,
+            input_mode,
+            input_frequency,
+            input_location,
+            input_recurrence,
+            saved_station_menu,
+        });
         state->edit_net_name_input = input_name;
-
         ftxui::Component main_view = ftxui::Renderer(
             root, EditNetRenderer(state, input_name, input_mode, input_frequency, input_location,
-                                  input_recurrence, saved_station_menu, saved_station_inputs,
-                                  saved_station_suggestion_menu, saved_station_remarks_input));
-        ftxui::Component with_zmodem_modal = ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
-                                                          &state->show_zmodem_confirm_modal);
+                                  input_recurrence, saved_station_menu));
+
+        ftxui::InputOption callsign_option = SingleLineInputOption();
+        callsign_option.on_change = SavedStationCallsignChangeHandler(state);
+        callsign_option.on_enter = SavedStationCallsignEnterHandler(state);
+        ftxui::Component callsign_input =
+            ftxui::Input(&state->saved_station.callsign, "Callsign", callsign_option);
+        state->saved_station_callsign_input = callsign_input;
+        StationFieldInputs station_inputs =
+            BuildStationFieldInputs(&state->saved_station, callsign_input);
+        ftxui::Component remarks_input =
+            ftxui::Input(&state->saved_station_remarks, "Optional", SingleLineInputOption());
+
+        ftxui::MenuOption suggestion_menu_option;
+        suggestion_menu_option.on_enter = SelectSavedStationSuggestionHandler(state);
+        suggestion_menu_option.entries_option.transform = AlignedMenuEntryTransform;
+        ftxui::Component suggestion_menu =
+            ftxui::Menu(&state->saved_station_suggestion_labels,
+                        &state->selected_saved_station_suggestion_index, suggestion_menu_option);
+
+        ftxui::Components modal_components = StationFieldComponents(station_inputs);
+        modal_components.insert(modal_components.begin() + 1, suggestion_menu);
+        modal_components.push_back(remarks_input);
+        ftxui::Component modal_view = ftxui::Renderer(
+            ftxui::Container::Vertical(modal_components),
+            SavedStationModalRenderer(state, station_inputs, suggestion_menu, remarks_input));
+
+        ftxui::Component with_station_modal =
+            ftxui::Modal(main_view, modal_view, &state->show_saved_station_modal);
+        ftxui::Component with_zmodem_modal = ftxui::Modal(
+            with_station_modal, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal);
         return WithRowDeleteConfirm(
             state, ftxui::Modal(with_zmodem_modal, BuildDeleteNetConfirmModal(state),
                                 &state->show_delete_net_confirm_modal));

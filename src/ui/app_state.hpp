@@ -134,6 +134,9 @@ namespace ql
         // RowPickAction). Same bare-Renderer-modal shape as the ZMODEM
         // confirmation above.
         bool show_delete_net_confirm_modal = false;
+        // The Saved Station window over the Edit Net page (F6 Add Station,
+        // F9 Edit Station), holding AppState::saved_station.
+        bool show_saved_station_modal = false;
 
         // A ConfirmPrompt showing over the page: which one, and its text.
         // `resume_instance` is the open session kResumeNet offers to resume.
@@ -823,11 +826,18 @@ namespace ql
     // AppState::form_error) without changing anything if the callsign is empty.
     bool SaveNetStationForm(AppState* state);
 
-    // Loads `saved`'s fields (and its current default remarks) into
-    // AppState::saved_station/saved_station_remarks, so an existing saved station created
-    // with only a callsign can have more details filled in and saved via
-    // SaveNetStationForm rather than retyped from scratch.
+    // Opens the Saved Station window with `saved`'s fields (and its current
+    // default remarks) in AppState::saved_station/saved_station_remarks, so an
+    // existing saved station created with only a callsign can have more
+    // details filled in and saved via SaveNetStationForm rather than retyped
+    // from scratch.
     void LoadSavedStationIntoForm(AppState* state, const Station& saved);
+
+    // Opens the Saved Station window empty, for a new station (F6).
+    void OpenNewSavedStationForm(AppState* state);
+
+    // Closes the Saved Station window, discarding whatever is in it.
+    void CloseSavedStationForm(AppState* state);
 
     // Removes the highlighted saved station (AppState::selected_saved_station_index)
     // from AppState::edit_net_id and refreshes the saved-station list. If
