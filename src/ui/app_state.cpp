@@ -788,28 +788,9 @@ namespace ql
         std::string history = HistoryKeyDescription(state);
         if (!closed_here)
         {
-            // Someone sharing the session closed (or deleted) it first. What
-            // you wanted has happened either way; say so. (Their end time is
-            // the one that stands -- see CloseNetInstance.)
-            std::optional<NetInstance> session =
-                state->db->GetNetInstanceById(state->active_instance.id);
-            LeaveActiveNet(state);
-            if (session.has_value())
-            {
-                std::string ended = DescribeSessionEnd(*session);
-                state->form_error.clear();
-                state->status_message = closed_name + " was already closed by someone else" +
-                                        (ended.empty() ? "" : " at " + ended) + " (" +
-                                        CountCheckIns(check_ins) + "). It's in History (" +
-                                        history + ").";
-            }
-            else
-            {
-                state->status_message.clear();
-                state->form_error = closed_name +
-                                    "'s session was deleted by someone else, so there was "
-                                    "nothing left to close.";
-            }
+            // Someone sharing the session closed (or deleted) it first.
+            // (Their end time is the one that stands -- see CloseNetInstance.)
+            ShowSessionClosedPrompt(state, "");
             return;
         }
         LeaveActiveNet(state);
@@ -826,33 +807,67 @@ namespace ql
         {
             return true;
         }
+        ShowSessionClosedPrompt(state, unlogged_callsign);
+        return false;
+    }
 
-        std::string name = state->active_net_name.empty() ? "This net" : state->active_net_name;
-        std::string message;
-        if (!session.has_value())
+    void ShowSessionClosedPrompt(AppState* state, const std::string& unlogged_callsign)
+    {
+        std::optional<NetInstance> session =
+            state->db->GetNetInstanceById(state->active_instance.id);
+        std::string unlogged = unlogged_callsign;
+        if (unlogged.empty() && state->show_new_station_modal)
         {
-            message = name +
-                      "'s session was deleted by someone else, so nothing more can be "
-                      "logged to it.";
+            unlogged = state->modal_station.callsign;
+        }
+
+        // Nothing more can happen here: close whatever is open over the
+        // page, and stop watching the session for changes.
+        state->watched_instance_id = 0;
+        state->show_new_station_modal = false;
+        state->show_edit_checkin_modal = false;
+        ClearModalFields(state);
+        if (state->info_window != InfoWindow::kNone)
+        {
+            CloseInfoWindow(state);
+        }
+        if (state->show_row_delete_confirm_modal)
+        {
+            CancelRowDelete(state);
+        }
+        if (state->row_pick_action != RowPickAction::kNone)
+        {
+            CancelRowPick(state);
+        }
+        CancelConfirmPrompt(state);
+
+        std::vector<std::string> lines;
+        if (session.has_value())
+        {
+            std::string ended = DescribeSessionEnd(*session);
+            lines.push_back("Another user has closed this net" +
+                            (ended.empty() ? std::string() : " at " + ended) + ".");
         }
         else
         {
-            std::string ended = DescribeSessionEnd(*session);
-            message = name + " was closed by someone else" + (ended.empty() ? "" : " at " + ended) +
-                      ", so nothing more can be logged to it.";
+            lines.push_back("Another user has deleted this net's session.");
         }
-        if (!unlogged_callsign.empty())
+        if (!unlogged.empty())
         {
-            message += " " + unlogged_callsign + " was not logged.";
+            lines.push_back(unlogged + " was not logged.");
         }
-        message += state->active_net_is_ad_hoc
-                       ? " Start a new ad hoc net (F5) to keep logging."
-                       : " Start the net again (F3) to begin a new session.";
+        lines.push_back("You will be returned to the Recurring Nets list when you press Enter.");
+        ShowConfirmPrompt(state, ConfirmPrompt::kSessionClosed,
+                          session.has_value() ? "Net Closed" : "Session Deleted", lines);
+    }
 
+    void LeaveClosedSession(AppState* state)
+    {
+        CancelConfirmPrompt(state);
         LeaveActiveNet(state);
+        state->viewing_only = false;
+        state->form_error.clear();
         state->status_message.clear();
-        state->form_error = message;
-        return false;
     }
 
     void OpenSettingsForm(AppState* state)

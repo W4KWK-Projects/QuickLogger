@@ -8,6 +8,7 @@
 #include <exception>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
@@ -72,24 +73,52 @@ namespace ql
         AppState* state_;
     };
 
+    // Posted to the UI thread by ScreenTicker when the watched session is no
+    // longer open: someone else closed or deleted it.
+    class SessionClosedTask
+    {
+    public:
+        SessionClosedTask(AppState* state, std::int64_t instance_id)
+            : state_(state), instance_id_(instance_id)
+        {
+        }
+
+        void operator()() const
+        {
+            // Already gone from it (e.g. it was closed from here), or told.
+            if (state_->watched_instance_id != instance_id_)
+            {
+                return;
+            }
+            if (!EnsureActiveSessionOpen(state_, "") && state_->screen != nullptr)
+            {
+                state_->screen->PostEvent(ftxui::Event::Custom);
+            }
+        }
+
+    private:
+        AppState* state_;
+        std::int64_t instance_id_;
+    };
+
     // Redraws the screen when -- and only when -- something it shows has
     // changed on its own, without a keypress: the top bar's clock ticking
     // over to a new minute, the shared station data's status (see
     // DescribeStationDataNotice / DescribeStationDataStatus) moving on, or
     // someone else logging (or deleting) a check-in in the session the
-    // active net page is showing -- checked every kCheckInPoll. FTXUI
-    // only redraws in response to an event, and every redraw costs an SSH
-    // session a screenful of bytes on the wire, so this posts one only when
-    // the visible text would actually differ.
+    // active net page is showing, or closing that session, or opening or
+    // closing one while the net list is showing -- those checked every
+    // kCheckInPoll. FTXUI only redraws in response to an event, and every
+    // redraw costs an SSH session a screenful of bytes on the wire, so this
+    // posts one only when the visible text would actually differ.
     //
-    // It wakes at the next minute boundary or the next status check,
-    // whichever comes first: every kStatusPollIdle normally, every
-    // kStatusPollBusy while the station data is loading (so its percentage
-    // keeps moving). Waking and checking costs nothing but a local database
-    // read. The clock waits are capped at kStatusPollIdle too, so a stepped
-    // system clock or a resume from suspend is noticed promptly. Construct it
-    // after the screen and before screen.Loop(); it stops and joins on
-    // destruction.
+    // It wakes every kCheckInPoll, or at the next minute boundary if that
+    // comes first; the station data's status is checked every
+    // kStatusPollIdle normally, every kStatusPollBusy while it's loading (so
+    // its percentage keeps moving). Waking and checking costs nothing but a
+    // local database read, and the short waits mean a stepped system clock
+    // or a resume from suspend is noticed promptly. Construct it after the
+    // screen and before screen.Loop(); it stops and joins on destruction.
     class ScreenTicker
     {
     public:
@@ -161,6 +190,8 @@ namespace ql
             std::int64_t drawn_minute = Now() / 60;
             bool busy = false;
             std::string drawn_status = StatusSignature(db.get(), &busy);
+            std::chrono::system_clock::time_point next_status_check =
+                std::chrono::system_clock::now() + kStatusPollIdle;
             while (true)
             {
                 std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
@@ -170,15 +201,12 @@ namespace ql
                 // missing the minute change.
                 std::chrono::system_clock::duration wait_time =
                     next_minute - now + std::chrono::milliseconds(200);
-                std::chrono::system_clock::duration poll = busy ? kStatusPollBusy : kStatusPollIdle;
-                if ((state_->watched_instance_id != 0 || state_->showing_net_list) &&
-                    poll > kCheckInPoll)
+                // Every kCheckInPoll whatever the page, so a session or list
+                // just opened is watched from the start, not only once a
+                // longer wait begun on another page is over.
+                if (wait_time > kCheckInPoll)
                 {
-                    poll = kCheckInPoll;
-                }
-                if (wait_time > poll)
-                {
-                    wait_time = poll;
+                    wait_time = kCheckInPoll;
                 }
                 {
                     std::unique_lock<std::mutex> lock(mutex_);
@@ -200,11 +228,16 @@ namespace ql
                     drawn_minute = minute;
                     changed = true;
                 }
-                std::string status = StatusSignature(db.get(), &busy);
-                if (status != drawn_status)
+                if (std::chrono::system_clock::now() >= next_status_check)
                 {
-                    drawn_status = status;
-                    changed = true;
+                    std::string status = StatusSignature(db.get(), &busy);
+                    if (status != drawn_status)
+                    {
+                        drawn_status = status;
+                        changed = true;
+                    }
+                    next_status_check = std::chrono::system_clock::now() +
+                                        (busy ? kStatusPollBusy : kStatusPollIdle);
                 }
                 if (changed)
                 {
@@ -243,7 +276,8 @@ namespace ql
 
         // If the active net page's session has check-ins it isn't showing
         // yet (or is showing ones since deleted), asks the UI thread to
-        // reload them; it redraws only then.
+        // reload them; it redraws only then. If someone else has closed or
+        // deleted the session, asks it to say so instead.
         void CheckWatchedSession(Database* db)
         {
             std::int64_t instance_id = state_->watched_instance_id;
@@ -255,6 +289,12 @@ namespace ql
             std::int64_t newest_id = 0;
             try
             {
+                std::optional<NetInstance> session = db->GetNetInstanceById(instance_id);
+                if (!session.has_value() || session->status != NetInstanceStatus::kOpen)
+                {
+                    screen_->Post(SessionClosedTask(state_, instance_id));
+                    return;
+                }
                 db->GetCheckInSummary(instance_id, &count, &newest_id);
             }
             catch (const std::exception&)

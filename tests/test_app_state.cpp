@@ -355,6 +355,17 @@ namespace ql
         CHECK_EQ(f.state.watched_instance_id.load(), std::int64_t{0});
     }
 
+    // The Net Closed prompt's text, one line after another.
+    static std::string PromptText(const AppState& state)
+    {
+        std::string text;
+        for (const std::string& line : state.confirm_prompt_lines)
+        {
+            text += line + "\n";
+        }
+        return text;
+    }
+
     QL_TEST(NothingIsLoggedToASessionSomeoneElseClosed)
     {
         Fixture f;
@@ -366,15 +377,40 @@ namespace ql
         CHECK(!f.Log("K4BBB"));
         CHECK_EQ(f.db()->GetCheckInsForNetInstance(f.state.active_instance.id).size(),
                  std::size_t{2});
-        CHECK_EQ(f.state.page, kPageNetList);
         CHECK(!f.state.show_new_station_modal);
-        CHECK(f.state.form_error.find("Skywarn was closed by someone else at ") == 0);
-        CHECK(f.state.form_error.find(FormatLocalTimeOfDay(2000)) != std::string::npos);
-        CHECK(f.state.form_error.find("K4BBB was not logged.") != std::string::npos);
+        CHECK(f.state.form_error.empty());
+        REQUIRE(f.state.show_confirm_prompt);
+        CHECK(f.state.confirm_prompt == ConfirmPrompt::kSessionClosed);
+        CHECK_EQ(f.state.confirm_prompt_title, std::string("Net Closed"));
+        std::string text = PromptText(f.state);
+        CHECK(text.find("Another user has closed this net at ") == 0);
+        CHECK(text.find(FormatLocalTimeOfDay(2000) + ".\n") != std::string::npos);
+        CHECK(text.find("K4BBB was not logged.\n") != std::string::npos);
+        CHECK(text.find("You will be returned to the Recurring Nets list when you press Enter.") !=
+              std::string::npos);
+        CHECK_EQ(f.state.watched_instance_id.load(), std::int64_t{0});
+        // Enter returns to the net list.
+        LeaveClosedSession(&f.state);
+        CHECK(!f.state.show_confirm_prompt);
+        CHECK_EQ(f.state.page, kPageNetList);
+        CHECK(f.state.form_error.empty());
         // Nor can the check-in window be opened again.
         f.state.page = kPageActiveNet;
         CHECK(!EnsureActiveSessionOpen(&f.state, ""));
-        CHECK(f.state.form_error.find("was not logged") == std::string::npos);
+        CHECK(PromptText(f.state).find("was not logged") == std::string::npos);
+    }
+
+    QL_TEST(ANetClosedWhileTypingACheckInNamesTheCallsign)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        CHECK(f.db()->CloseNetInstance(f.state.active_instance.id, 2000));
+        // Seen by the ticker, not by logging: what was typed is named.
+        f.state.show_new_station_modal = true;
+        f.state.modal_station.callsign = "K4CCC";
+        CHECK(!EnsureActiveSessionOpen(&f.state, ""));
+        CHECK(!f.state.show_new_station_modal);
+        CHECK(PromptText(f.state).find("K4CCC was not logged.") != std::string::npos);
     }
 
     QL_TEST(NothingIsLoggedToASessionSomeoneElseDeleted)
@@ -383,8 +419,11 @@ namespace ql
         f.StartNet("Skywarn");
         f.db()->DeleteNetInstance(f.state.active_instance.id);
         CHECK(!f.Log("K4BBB"));
+        REQUIRE(f.state.show_confirm_prompt);
+        CHECK_EQ(f.state.confirm_prompt_title, std::string("Session Deleted"));
+        CHECK(PromptText(f.state).find("Another user has deleted this net's session.") == 0);
+        LeaveClosedSession(&f.state);
         CHECK_EQ(f.state.page, kPageNetList);
-        CHECK(f.state.form_error.find("session was deleted by someone else") != std::string::npos);
     }
 
     QL_TEST(ClosingASessionSomeoneElseClosedKeepsTheirEndTime)
@@ -396,12 +435,12 @@ namespace ql
         CloseActiveNet(&f.state);
         CHECK_EQ(f.db()->GetNetInstanceById(f.state.active_instance.id)->closed_at,
                  std::int64_t{2000});
+        REQUIRE(f.state.show_confirm_prompt);
+        CHECK(f.state.confirm_prompt == ConfirmPrompt::kSessionClosed);
+        CHECK(PromptText(f.state).find("Another user has closed this net at ") == 0);
+        CHECK(PromptText(f.state).find(FormatLocalTimeOfDay(2000)) != std::string::npos);
+        LeaveClosedSession(&f.state);
         CHECK_EQ(f.state.page, kPageNetList);
-        CHECK(f.state.form_error.empty());
-        CHECK(f.state.status_message.find("Skywarn was already closed by someone else at ") == 0);
-        CHECK(f.state.status_message.find(" (1 check-in). It's in History") != std::string::npos);
-        // Not the message for a refused check-in.
-        CHECK(f.state.status_message.find("nothing more can be logged") == std::string::npos);
     }
 
     QL_TEST(ClosingASessionSomeoneElseDeletedSaysSo)
@@ -411,9 +450,37 @@ namespace ql
         f.db()->DeleteNetInstance(f.state.active_instance.id);
         RequestCloseActiveNet(&f.state);
         CloseActiveNet(&f.state);
+        REQUIRE(f.state.show_confirm_prompt);
+        CHECK_EQ(f.state.confirm_prompt_title, std::string("Session Deleted"));
+    }
+
+    QL_TEST(WhoeverClosesTheNetIsNotToldSomeoneElseDid)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        RequestCloseActiveNet(&f.state);
+        CloseActiveNet(&f.state);
+        CHECK(!f.state.show_confirm_prompt);
         CHECK_EQ(f.state.page, kPageNetList);
-        CHECK(f.state.form_error.find("deleted by someone else, so there was nothing left to "
-                                      "close") != std::string::npos);
+        CHECK(f.state.status_message.find("Closed Skywarn") == 0);
+        // Their own close stopped the watching, so the ticker says nothing.
+        CHECK_EQ(f.state.watched_instance_id.load(), std::int64_t{0});
+    }
+
+    QL_TEST(AViewerIsToldWhenTheNetIsClosed)
+    {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("Skywarn");
+        f.state.resume_instance = f.state.active_instance;
+        f.state.start_net = *f.db()->GetNetById(net_id);
+        ViewOpenNet(&f.state);
+        REQUIRE(f.state.viewing_only);
+        CHECK(f.db()->CloseNetInstance(f.state.active_instance.id, 2000));
+        CHECK(!EnsureActiveSessionOpen(&f.state, ""));
+        CHECK(f.state.confirm_prompt == ConfirmPrompt::kSessionClosed);
+        LeaveClosedSession(&f.state);
+        CHECK_EQ(f.state.page, kPageNetList);
+        CHECK(!f.state.viewing_only);
     }
 
     QL_TEST(DeletingAClosedSessionFromHistory)

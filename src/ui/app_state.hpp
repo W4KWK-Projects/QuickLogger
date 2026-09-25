@@ -86,6 +86,9 @@ namespace ql
         kNone,
         kResumeNet,  // Starting a net that already has a session open.
         kCloseNet,   // F4 on the active net.
+        // Someone else closed (or deleted) the active net's session: Enter
+        // returns to the net list. Not a question; nothing else closes it.
+        kSessionClosed,
     };
 
     // The on-screen lists a RowPickAction picks from.
@@ -536,16 +539,25 @@ namespace ql
     void RequestCloseActiveNet(AppState* state);
 
     // Closes the active session and returns to the net list. If someone
-    // else closed it in the meantime, their end time is kept and the
-    // message says so.
+    // else closed it in the meantime, their end time is kept, and it says
+    // so (ShowSessionClosedPrompt).
     void CloseActiveNet(AppState* state);
 
     // True if AppState::active_instance is still open for logging. If
     // someone else has closed or deleted it (it may be shared -- see
-    // ResumeOpenNet), closes any open dialog, returns to the net list with
-    // a message saying so -- naming `unlogged_callsign`, if not empty, as
-    // not logged -- and returns false.
+    // ResumeOpenNet), shows ShowSessionClosedPrompt, naming
+    // `unlogged_callsign` (if not empty) as not logged, and returns false.
     bool EnsureActiveSessionOpen(AppState* state, const std::string& unlogged_callsign);
+
+    // Someone else has closed or deleted the active net's session -- seen by
+    // the ScreenTicker within a few seconds, or when trying to log to or
+    // close it. Closes anything open over the page and says so, with when it
+    // was closed and any callsign typed but not logged
+    // (ConfirmPrompt::kSessionClosed). The one who closed it never sees this.
+    void ShowSessionClosedPrompt(AppState* state, const std::string& unlogged_callsign);
+
+    // Enter on that prompt: back to the net list.
+    void LeaveClosedSession(AppState* state);
 
     // Esc on any ConfirmPrompt: closes it, doing nothing.
     void CancelConfirmPrompt(AppState* state);

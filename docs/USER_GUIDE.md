@@ -86,7 +86,7 @@ Several operators can log the same session at once (over SSH), for example a Net
   - **F3 Close & New:** close that session and start a new one. Don't use this to join someone else's net.
 - **Watching:** a **Viewer** (F4 above, or Viewer on the role page) sees the session as it's logged, and can export it and use the look-up keys (F6, F8, F9, F10), but can't log, edit, delete or close anything. **Esc** leaves, and the session carries on.
 - **Staying in step:** check-ins anyone logs appear on everyone's screen within a few seconds.
-- **When someone closes it:** the others can't log to it any more. Their next check-in is refused with a message naming the callsign that wasn't logged, and they're returned to the net list.
+- **When someone closes it:** within a few seconds, everyone else on it, Viewers included, sees a **Net Closed** window saying when it was closed. It also names any callsign that was being typed but wasn't logged. **Enter** returns to the net list. The operator who closed it doesn't see this window.
 - **Dropped connections:** a session left open by a dropped connection or closed terminal is resumed the same way.
 
 ## Ad hoc nets
@@ -213,4 +213,4 @@ QuickLogger keeps its own copy of the FCC's amateur license database, plus Censu
 - **The screen is cut off:** QuickLogger needs at least 80×24. Make the window bigger; it adjusts straight away.
 - **Esc takes a moment:** about a tenth of a second, while QuickLogger checks that it isn't the start of another key. Pressing Esc twice quickly works as two Escs.
 - **A callsign isn't found:** check whether the station data is still loading (the notice at the top). FCC records only cover US licensees; enter Canadian and other stations' details by hand.
-- **"Closed by someone else":** another operator closed the session you were logging. Start the net again (F3) for a new session.
+- **"Net Closed" window:** another operator closed the session you were on. Press Enter, then start the net again (F3) if you need a new session.

@@ -1181,7 +1181,14 @@ namespace ql
     static bool HandleConfirmPromptKey(AppState* state, const ftxui::Event& event)
     {
         bool yes = event == ftxui::Event::F2 || event == ftxui::Event::Return;
-        if (event == ftxui::Event::Escape)
+        if (state->confirm_prompt == ConfirmPrompt::kSessionClosed)
+        {
+            if (event == ftxui::Event::Return)
+            {
+                LeaveClosedSession(state);
+            }
+        }
+        else if (event == ftxui::Event::Escape)
         {
             CancelConfirmPrompt(state);
         }

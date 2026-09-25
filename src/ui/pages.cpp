@@ -492,7 +492,11 @@ namespace ql
             for (std::size_t i = 0; i < state_->confirm_prompt_lines.size(); ++i)
             {
                 ftxui::Element line = ftxui::paragraph(state_->confirm_prompt_lines[i]);
-                rows.push_back(i == 0 ? line | ftxui::bold | ftxui::color(kColorLabel)
+                // "Another user has closed this net..." stands out in red.
+                ftxui::Color first_color = state_->confirm_prompt == ConfirmPrompt::kSessionClosed
+                                               ? ftxui::Color(kColorError)
+                                               : ftxui::Color(kColorLabel);
+                rows.push_back(i == 0 ? line | ftxui::bold | ftxui::color(first_color)
                                       : line | ftxui::color(kColorHint));
             }
             rows.push_back(DialogSeparator());
@@ -502,6 +506,10 @@ namespace ql
                                            {"F3", "Close & New"},
                                            {"F4", "View"},
                                            {"Esc", "Cancel"}}));
+            }
+            else if (state_->confirm_prompt == ConfirmPrompt::kSessionClosed)
+            {
+                rows.push_back(KeyHintRow({{"Enter", "Recurring Nets"}}));
             }
             else
             {
