@@ -1791,6 +1791,27 @@ namespace ql
 
     // ---- Help and the seldom-used windows (see InfoWindow) -------------------
 
+    // A Station Card line ("Name:           Ann Amateur"), colored like a
+    // form: the label as field labels are, what's known as entered data is,
+    // and what isn't ("(none)", "(not in the FCC data)", "none yet") as
+    // hints are.
+    static ftxui::Element StationCardLine(const std::string& line)
+    {
+        // The labels are padded to this width (see OpenStationCard).
+        const std::size_t kLabelWidth = 16;
+        if (line.size() <= kLabelWidth)
+        {
+            return ftxui::hbox({ftxui::text(line) | ftxui::color(kColorLabel),
+                                ftxui::text("(none)") | ftxui::color(kColorHint)});
+        }
+        std::string value = line.substr(kLabelWidth);
+        bool placeholder = value[0] == '(' || value == "none yet" || value == "no nets";
+        return ftxui::hbox({
+            ftxui::text(line.substr(0, kLabelWidth)) | ftxui::color(kColorLabel),
+            ftxui::paragraph(value) | ftxui::color(placeholder ? kColorHint : kColorData),
+        });
+    }
+
     class InfoWindowRenderer
     {
     public:
@@ -1813,7 +1834,9 @@ namespace ql
             }
             for (const std::string& line : state_->info_summary)
             {
-                rows.push_back(ftxui::paragraph(line) | ftxui::color(kColorLabel));
+                rows.push_back(state_->info_window == InfoWindow::kStationCard
+                                   ? StationCardLine(line)
+                                   : ftxui::paragraph(line) | ftxui::color(kColorLabel));
             }
             if (!state_->info_rows.empty())
             {

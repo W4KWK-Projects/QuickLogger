@@ -76,19 +76,37 @@ On first run, you'll be taken straight to Settings to set your callsign and home
 
 Settings (F4 on the Recurring Nets list) also has **Time Format**: the 12-hour clock (3:42 PM, the default) or the 24-hour clock (15:42), for every time QuickLogger shows or exports. Each SSH user chooses their own. Times are stored in UTC and shown in the time zone of the computer QuickLogger runs on.
 
-**Wider terminals.** Everything fits an 80×24 terminal. On a wider one, QuickLogger uses the extra width: lists widen their columns and add more (check-ins gain the time, city and state, signal report and comment; the net list shows each net's mode, frequency and schedule; saved stations add city, county, grid and default remarks), and forms such as Edit Net and the check-in windows lay their fields out in two columns from 90 columns up. Resizing the window re-lays everything out straight away. Exported logs always include every column, whatever the terminal's width.
+**Wider terminals.** Everything fits an 80×24 terminal. On a wider one, QuickLogger uses the extra width: lists widen their columns and add more (check-ins gain the time, city and state, signal report and comment; the net list shows each net's mode, frequency and schedule; History shows how many check-ins each session had; saved stations add city, county, grid and default remarks; callsign matches add city, state and county), and forms such as Edit Net and the check-in windows lay their fields out in two columns from 90 columns up. Once every column of a list fits, the gaps between columns widen for readability. Resizing the window re-lays everything out straight away, and at 80 columns everything looks exactly as it always has.
 
-**Help and seldom-used keys.** **F1** on any page (shown at the top right) opens Help, explaining every key the page has. On a wide enough terminal, key bars also show extra keys for things you won't need often, and those keys only work while they're shown:
+**Help and seldom-used keys.** **F1** on any page (shown at the top right, next to the clock) opens Help, which explains every key the page has. Pages also have extra keys for things you won't need often. They always work, but they only appear on the key bar when the terminal is wide enough to fit them; Help lists them either way, marked with an asterisk. Each opens a window over the page: **Up/Down** scroll it and **Esc** closes it. Those marked "by #" ask for a check-in's number first, like Edit and Delete do.
 
 | Page | Key | What it shows |
 |---|---|---|
 | Active net | F6 | A station's other check-ins to this net (by #) |
-| Active net | F8 | Regulars not yet heard: stations in at least half of the last 10 sessions who haven't checked in yet; Enter checks one in |
+| Active net | F8 | Regulars not yet heard: stations that checked in to at least half of the net's last 10 sessions (or of all of them, if there have been fewer) but haven't checked in yet; **Enter** opens New Check-In with the highlighted one filled in |
 | Active net | F9 | Everything known about a station (by #): address, license class, check-in totals, nets it's saved to |
 | Active net | F10 | This session so far: count, first-timers, and the recent average |
 | History | F8 | Statistics for the net: sessions, averages, busiest session, recent months, most frequent stations |
 | History | F9 | Find a station: its check-ins to every net |
 | Edit Net | F5 | Saved stations that haven't checked in to this net for six months, or ever |
+
+### Exported files
+
+Exported net logs (F7 on the active net or History) and saved-station lists (F7 on Edit Net) are plain text in a fixed format, the same whatever terminal they were exported from, so a program can read them by column position. A few header lines come first (the net's name, and for a log its date, times, roles and status), then a blank line, a column-heading line, and one line per check-in or station. Each column starts at a fixed position, two spaces after the one before; a longer value is cut to fit, and trailing spaces are dropped.
+
+| Net log column | Width | | Saved-station column | Width |
+|---|---|---|---|---|
+| # | 4 | | Callsign | 13 |
+| Time | 8 | | Name | 30 |
+| Callsign | 13 | | Member ID | 10 |
+| Name | 30 | | City, State | 30 |
+| Member ID | 10 | | County | 20 |
+| City, State | 30 | | Grid | 8 |
+| County | 20 | | Default Remarks | 40 |
+| Role | 6 | | | |
+| Signal | 6 | | | |
+| Remarks | 40 | | | |
+| Comment | 60 | | | |
 
 ### Running a net
 
