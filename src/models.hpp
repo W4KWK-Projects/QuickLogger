@@ -189,6 +189,7 @@ namespace ql
     struct StationCheckInRecord
     {
         std::string net_name;
+        bool net_is_ad_hoc = false;
         NetInstance instance;
         CheckIn check_in;
     };

@@ -967,8 +967,9 @@ CREATE TABLE IF NOT EXISTS users (
         {
             StationCheckInRecord record;
             record.net_name = statement->ColumnText(0);
-            record.instance = ReadNetInstanceColumns(*statement, 1);
-            record.check_in = ReadCheckInColumns(*statement, 14);
+            record.net_is_ad_hoc = statement->ColumnInt64(1) != 0;
+            record.instance = ReadNetInstanceColumns(*statement, 2);
+            record.check_in = ReadCheckInColumns(*statement, 15);
             records.push_back(record);
         }
         return records;
@@ -978,7 +979,8 @@ CREATE TABLE IF NOT EXISTS users (
         std::int64_t net_id, const std::string& callsign)
     {
         Statement statement(
-            db_, std::string("SELECT n.name, ") + kNetInstanceColumns + ", " + kCheckInColumns +
+            db_, std::string("SELECT n.name, n.is_ad_hoc, ") + kNetInstanceColumns + ", " +
+                     kCheckInColumns +
                      " FROM check_ins c"
                      " JOIN net_instances i ON i.id = c.net_instance_id"
                      " JOIN nets n ON n.id = i.net_id"
@@ -992,8 +994,8 @@ CREATE TABLE IF NOT EXISTS users (
     std::vector<StationCheckInRecord> Database::FindCheckInsByCallsign(const std::string& substring,
                                                                        int limit)
     {
-        Statement statement(db_, std::string("SELECT n.name, ") + kNetInstanceColumns + ", " +
-                                     kCheckInColumns +
+        Statement statement(db_, std::string("SELECT n.name, n.is_ad_hoc, ") + kNetInstanceColumns +
+                                     ", " + kCheckInColumns +
                                      " FROM check_ins c"
                                      " JOIN net_instances i ON i.id = c.net_instance_id"
                                      " JOIN nets n ON n.id = i.net_id"

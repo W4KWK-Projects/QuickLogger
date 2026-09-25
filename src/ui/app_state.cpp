@@ -2766,7 +2766,32 @@ namespace ql
         // the list scroll sideways to show it, hiding the first columns.
         std::size_t width = static_cast<std::size_t>(InfoTableWidth(state->list_width));
         state->info_header = FormatListHeading(state->info_columns, layout).substr(0, width);
-        state->info_rows = FormatRows(state->info_cells, layout);
+        if (state->info_cell_tags.empty())
+        {
+            state->info_rows = FormatRows(state->info_cells, layout);
+        }
+        else
+        {
+            std::vector<std::vector<std::string>> tagged = state->info_cells;
+            std::size_t column = state->info_tag_column;
+            std::size_t room =
+                column < layout.widths.size() ? static_cast<std::size_t>(layout.widths[column]) : 0;
+            for (std::size_t i = 0; i < tagged.size() && i < state->info_cell_tags.size(); ++i)
+            {
+                const std::string& tag = state->info_cell_tags[i];
+                if (tag.empty() || column >= tagged[i].size())
+                {
+                    continue;
+                }
+                std::string& text = tagged[i][column];
+                if (room > tag.size() && text.size() + tag.size() > room)
+                {
+                    text.resize(room - tag.size());
+                }
+                text += tag;
+            }
+            state->info_rows = FormatRows(tagged, layout);
+        }
         for (std::string& row : state->info_rows)
         {
             row = row.substr(0, width);
@@ -2783,6 +2808,7 @@ namespace ql
         state->info_summary = std::move(summary);
         state->info_columns = std::move(columns);
         state->info_cells = std::move(cells);
+        state->info_cell_tags.clear();
         state->info_selected = 0;
         state->form_error.clear();
         state->status_message.clear();
@@ -2798,6 +2824,7 @@ namespace ql
         state->info_rows.clear();
         state->info_columns.clear();
         state->info_cells.clear();
+        state->info_cell_tags.clear();
         state->info_stations.clear();
         state->info_query.clear();
         state->info_selected = 0;
@@ -3218,6 +3245,7 @@ namespace ql
     {
         state->info_query = NormalizeCallsign(state->info_query);
         state->info_cells.clear();
+        state->info_cell_tags.clear();
         state->info_selected = 0;
         state->info_summary.clear();
         if (state->info_query.size() < 3)
@@ -3235,7 +3263,11 @@ namespace ql
                 {record.instance.instance_date, record.net_name, record.check_in.callsign,
                  StationName(state->db, record.check_in.callsign),
                  RoleAbbreviation(record.check_in.designated_role), record.check_in.remarks});
+            // Ad hoc nets aren't on the Recurring Nets list, so say which
+            // these are (see the Ad Hoc page for them).
+            state->info_cell_tags.push_back(record.net_is_ad_hoc ? " (ad hoc)" : "");
         }
+        state->info_tag_column = 1;
         state->info_summary.push_back(
             records.empty() ? std::string("No check-ins found.")
             : records.size() >= static_cast<std::size_t>(kStationSearchLimit)

@@ -174,6 +174,13 @@ namespace ql
         // it's laid out again when the terminal is resized.
         std::vector<ListColumn> info_columns;
         std::vector<std::vector<std::string>> info_cells;
+        // A tag shown after one column's text on some rows, e.g. " (ad hoc)"
+        // after an ad hoc net's name in Find a Station: one per row of
+        // info_cells ("" for none), or empty. The text is cut to make room
+        // for the tag rather than the tag being cut, however narrow the
+        // column. See FormatInfoTable.
+        std::vector<std::string> info_cell_tags;
+        std::size_t info_tag_column = 0;
         int info_selected = 0;
         // kRegulars: the station on each row (Enter checks it in).
         std::vector<Station> info_stations;

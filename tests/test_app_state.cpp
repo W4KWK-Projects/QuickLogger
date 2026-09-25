@@ -1561,6 +1561,31 @@ namespace ql
         CHECK(f.state.info_rows[0].find("2026-09-10  Skywarn") == 0);
     }
 
+    QL_TEST(StationSearchTagsAdHocNets)
+    {
+        Fixture f;
+        std::int64_t net_id = AddTestNet(f.db(), "Skywarn");
+        Net ad_hoc;
+        ad_hoc.name = "Saturday Tailgate";
+        ad_hoc.is_ad_hoc = true;
+        std::int64_t ad_hoc_id = f.db()->CreateNet(ad_hoc);
+        AddPastSession(f.db(), net_id, "2026-08-10", {"K4AAA"});
+        AddPastSession(f.db(), ad_hoc_id, "2026-09-10", {"K4AAA"});
+
+        OpenStationSearch(&f.state);
+        f.state.info_query = "K4AAA";
+        RefreshStationSearch(&f.state);
+        REQUIRE(f.state.info_rows.size() == 2);
+        // At 80 columns the name is cut to keep the tag; wider, it all shows.
+        CHECK(f.state.info_rows[0].find(" (ad hoc)") != std::string::npos);
+        CHECK(f.state.info_rows[0].find("2026-09-10  Saturda (ad hoc)") == 0);
+        CHECK(f.state.info_rows[1].find("(ad hoc)") == std::string::npos);
+        CHECK(f.state.info_rows[0].size() <= 70);
+        UpdateListWidths(&f.state, 140);
+        CHECK(f.state.info_rows[0].find("Saturday Tailgate (ad hoc)") != std::string::npos);
+        CHECK(f.state.info_rows[1].find("(ad hoc)") == std::string::npos);
+    }
+
     QL_TEST(QuietStationsHaventCheckedInForSixMonths)
     {
         Fixture f;
