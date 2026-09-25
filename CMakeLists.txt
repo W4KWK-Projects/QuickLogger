@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 # The version shown in the app (see src/version.hpp). A release is tagged
 # "v" + this version, e.g. v1.0.1.
-project(QuickLogger VERSION 1.4.0 LANGUAGES CXX)
+project(QuickLogger VERSION 1.4.1 LANGUAGES CXX)
 
 # The code needs nothing newer than C++17 (checked by compiling every source
 # file as C++17), so that's what it asks for -- a higher standard would only
