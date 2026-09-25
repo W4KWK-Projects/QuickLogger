@@ -1370,6 +1370,12 @@ namespace ql
     ftxui::Element SafeAppEventDispatcher::Render()
     {
         UpdateListWidths(state_, ftxui::Terminal::Size().dimx);
+        // Not while a prompt or window is up over it, which may be about the
+        // highlighted net.
+        state_->showing_net_list = state_->page == kPageNetList && !state_->show_confirm_prompt &&
+                                   state_->info_window == InfoWindow::kNone &&
+                                   state_->row_pick_action == RowPickAction::kNone &&
+                                   !state_->show_zmodem_confirm_modal;
         return ComponentBase::Render();
     }
 

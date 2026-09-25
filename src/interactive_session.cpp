@@ -1,5 +1,6 @@
 #include "interactive_session.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -10,6 +11,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
@@ -44,6 +46,30 @@ namespace ql
     private:
         AppState* state_;
         std::int64_t instance_id_;
+    };
+
+    // Posted to the UI thread by ScreenTicker when which nets have a
+    // session open has changed while the net list is showing.
+    class RefreshNetListTask
+    {
+    public:
+        explicit RefreshNetListTask(AppState* state) : state_(state) {}
+
+        void operator()() const
+        {
+            if (!state_->showing_net_list)
+            {
+                return;  // Moved on since; it's reloaded when next needed.
+            }
+            RefreshNets(state_);
+            if (state_->screen != nullptr)
+            {
+                state_->screen->PostEvent(ftxui::Event::Custom);
+            }
+        }
+
+    private:
+        AppState* state_;
     };
 
     // Redraws the screen when -- and only when -- something it shows has
@@ -145,7 +171,8 @@ namespace ql
                 std::chrono::system_clock::duration wait_time =
                     next_minute - now + std::chrono::milliseconds(200);
                 std::chrono::system_clock::duration poll = busy ? kStatusPollBusy : kStatusPollIdle;
-                if (state_->watched_instance_id != 0 && poll > kCheckInPoll)
+                if ((state_->watched_instance_id != 0 || state_->showing_net_list) &&
+                    poll > kCheckInPoll)
                 {
                     poll = kCheckInPoll;
                 }
@@ -184,6 +211,33 @@ namespace ql
                     screen_->PostEvent(ftxui::Event::Custom);
                 }
                 CheckWatchedSession(db.get());
+                CheckOpenNets(db.get());
+            }
+        }
+
+        // While the net list is showing, asks the UI thread to reload it if
+        // a net's session has been opened or closed (by anyone) since it
+        // was last loaded, so its "session open" labels stay current.
+        void CheckOpenNets(Database* db)
+        {
+            if (db == nullptr || !state_->showing_net_list)
+            {
+                return;
+            }
+            std::vector<std::int64_t> open_net_ids;
+            try
+            {
+                open_net_ids = db->GetNetIdsWithOpenInstances();
+            }
+            catch (const std::exception&)
+            {
+                return;  // Busy right now; try again next time.
+            }
+            std::sort(open_net_ids.begin(), open_net_ids.end());
+            if (open_net_ids != shown_open_net_ids_)
+            {
+                shown_open_net_ids_ = open_net_ids;
+                screen_->Post(RefreshNetListTask(state_));
             }
         }
 
@@ -224,6 +278,9 @@ namespace ql
         std::mutex mutex_;
         std::condition_variable wake_;
         bool stop_ = false;
+        // The open nets the list was last reloaded for (sorted); the list
+        // is loaded before the ticker starts, so it starts out as unknown.
+        std::vector<std::int64_t> shown_open_net_ids_{-1};
         std::thread thread_;
     };
 

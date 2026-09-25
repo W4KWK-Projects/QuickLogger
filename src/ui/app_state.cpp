@@ -333,9 +333,8 @@ namespace ql
     // after them line up.
     static constexpr int kMaxNetNameColumnWidth = 40;
 
-    // The list has no header line; its extra columns (mode, frequency, when
-    // it meets) read for themselves. The when-created/imported column comes
-    // last, as it always has.
+    // The when-created/imported column (and "session open") comes last, as
+    // it always has.
     static std::vector<ListColumn> NetListColumns(int name_width)
     {
         return {
@@ -343,8 +342,20 @@ namespace ql
             {"Mode", 6, 8, 1, 5},
             {"Frequency", 10, 12, 2, 6},
             {"Recurrence", 20, 30, 3, 4},
-            {"", 12, 12, 0, 0},
+            {"Notes", 12, 12, 0, 0},
         };
+    }
+
+    static ListLayout NetListLayout(const AppState* state)
+    {
+        return LayOutList(NetListColumns(state->net_name_width), ScreenListWidth(state->list_width),
+                          kScreenListWidthAt80, 2);
+    }
+
+    std::string NetListHeader(const AppState* state)
+    {
+        return MenuGutter() +
+               FormatListHeading(NetListColumns(state->net_name_width), NetListLayout(state));
     }
 
     static std::vector<std::string> NetListCells(const Net& net, bool has_open_session)
@@ -367,10 +378,7 @@ namespace ql
 
     static std::vector<std::string> FormatNetList(const AppState* state)
     {
-        std::vector<std::string> rows =
-            FormatRows(state->net_cells,
-                       LayOutList(NetListColumns(state->net_name_width),
-                                  ScreenListWidth(state->list_width), kScreenListWidthAt80, 2));
+        std::vector<std::string> rows = FormatRows(state->net_cells, NetListLayout(state));
         // A net with nothing after its name is shown as just its name.
         for (std::string& row : rows)
         {
@@ -448,9 +456,11 @@ namespace ql
                 state->nets.push_back(net);
             }
         }
-        std::vector<std::int64_t> open_net_ids = state->db->GetNetIdsWithOpenInstances();
+        state->open_net_ids = state->db->GetNetIdsWithOpenInstances();
+        const std::vector<std::int64_t>& open_net_ids = state->open_net_ids;
 
-        int name_width = 0;
+        // At least as wide as its heading.
+        int name_width = 3;
         for (const Net& net : state->nets)
         {
             name_width = std::max(name_width, static_cast<int>(net.name.size()));
@@ -470,6 +480,18 @@ namespace ql
         {
             state->selected_net_index = 0;
         }
+    }
+
+    bool SelectedNetHasOpenSession(const AppState* state)
+    {
+        if (state->selected_net_index < 0 ||
+            state->selected_net_index >= static_cast<int>(state->nets.size()))
+        {
+            return false;
+        }
+        std::int64_t net_id = state->nets[static_cast<std::size_t>(state->selected_net_index)].id;
+        return std::find(state->open_net_ids.begin(), state->open_net_ids.end(), net_id) !=
+               state->open_net_ids.end();
     }
 
     // "2026-09-24 03:42 PM", or just the date if no start time was recorded.
@@ -3244,7 +3266,8 @@ namespace ql
             case kPageNetList:
                 return {
                     {"F2", "Create a new recurring net.", false},
-                    {"F3/Enter", "Start the highlighted net, or resume its open session.", false},
+                    {"F3/Enter", "Start the highlighted net, or join or view its open session.",
+                     false},
                     {"F4", "Settings: your callsign, home ZIP and time format.", false},
                     {"F5", "Ad hoc nets: start one, resume one, or see their history.", false},
                     {"F6", "History of the highlighted net: view, export, delete.", false},

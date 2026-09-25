@@ -255,6 +255,12 @@ namespace ql
         std::vector<Net> nets;
         std::vector<std::string> net_names;  // Kept in sync with `nets` by RefreshNets.
         int selected_net_index = 0;
+        // The nets (by id) with a session open, as of the last RefreshNets.
+        std::vector<std::int64_t> open_net_ids;
+        // Read by the session's ScreenTicker thread, which reloads the list
+        // every few seconds while it's showing, so a session someone else
+        // opens or closes shows up on it (see SafeAppEventDispatcher::Render).
+        std::atomic<bool> showing_net_list{false};
 
         // The terminal width the lists are laid out for (never less than 80;
         // see UpdateListWidths), and each list's rows as cells (see
@@ -489,6 +495,9 @@ namespace ql
     // the net's name, when it was created or imported (so two nets with the
     // same name can be told apart), and "session open" if one is.
     void RefreshNets(AppState* state);
+
+    // Whether the highlighted net on the net list has a session open.
+    bool SelectedNetHasOpenSession(const AppState* state);
 
     // F3/Enter on the net list: starts a new session of the highlighted net
     // -- unless the net already has a session open (someone is logging it
@@ -874,6 +883,9 @@ namespace ql
     // The header line above Edit Net's saved stations, laid out for a
     // `terminal_width`-column terminal, with the Menu gutter.
     std::string SavedStationListHeader(int terminal_width);
+
+    // The Recurring Nets list's column headings, laid out like its rows.
+    std::string NetListHeader(const AppState* state);
 
     // Saves AppState::saved_station (plus AppState::saved_station_remarks as its default
     // remarks) as a saved station for AppState::edit_net_id, then clears the

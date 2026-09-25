@@ -548,11 +548,25 @@ namespace ql
                                    ftxui::text(state_->settings.callsign) | ftxui::bold |
                                        ftxui::color(kColorData)});
 
+            bool open_session = SelectedNetHasOpenSession(state_);
+            ftxui::Element open_session_hint =
+                open_session
+                    ? HintText("Session open: F3/Enter to join it, view it, or start a new one.")
+                    : ftxui::emptyElement();
+
             ftxui::Element content = ftxui::vbox({
                 callsign_hint,
                 Separator(),
                 Heading("Recurring Nets"),
-                Framed(net_list_elem) | ftxui::flex,
+                Framed(state_->nets.empty()
+                           ? net_list_elem
+                           : ftxui::vbox({
+                                 ColumnHeader(PickHeaderPad(state_, PickList::kNets) +
+                                              NetListHeader(state_)),
+                                 net_list_elem,
+                             })) |
+                    ftxui::flex,
+                open_session_hint,
                 PickPrompt(state_, PickList::kNets),
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
@@ -568,7 +582,7 @@ namespace ql
             return PageChrome("Recurring Nets", content,
                               {
                                   {"F2", "New"},
-                                  {"F3/Enter", "Start"},
+                                  {"F3/Enter", open_session ? "Join" : "Start"},
                                   {"F4", "Settings"},
                                   {"F5", "AdHoc"},
                                   {"F6", "History"},

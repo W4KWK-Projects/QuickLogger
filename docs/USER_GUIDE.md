@@ -50,12 +50,14 @@ A recurring net is one you run again and again: a weekly Skywarn net, a club's T
 - **Create:** **F2** on Recurring Nets. Only the name is required; Mode, Frequency, ZIP Code (5 digits) and Recurrence ("Tuesdays 8pm ET") are optional. A net's ZIP centers nearby-station autocomplete on where the net meets.
 - **Edit:** **F7**, then the net's number. **F2** saves and returns to the list.
 - **Delete:** **F8** on its Edit Net page. It asks first: this deletes every session and check-in of the net.
-- **Telling nets apart:** the list shows when each net was created, or when it was imported, and *session open* while one of its sessions hasn't been closed.
+- **Telling nets apart:** the list shows when each net was created, or when it was imported, and *session open* while one of its sessions hasn't been closed. The list keeps this current as others open and close sessions.
 
 ## Running a net
 
 1. Highlight the net and press **F3** (or Enter).
 2. Choose your **role**: Net Control, Alternate Net Control or Logger. (**Viewer** is for watching a session that's already open; see [Sharing a session](#sharing-a-session).)
+
+If the net already has a session open, the list says *session open*, a line under the list says so when it's highlighted, and the key bar reads **F3/Enter Join** instead of Start. Press it anyway: you're asked what to do (see [Sharing a session](#sharing-a-session)).
 3. Confirm your callsign (it's filled in from Settings) and press **F2**. You're logged as check-in #1, in your role.
 
 **F2** opens the **New Check-In** window. Type the callsign (see [autocomplete](#callsign-autocomplete)) and fill in whatever else you have:
@@ -77,7 +79,11 @@ On the check-in list, **F3** edits and **F5** deletes a check-in by its number (
 
 Several operators can log the same session at once (over SSH), for example a Net Control and a Logger.
 
-- **Joining:** start the net as usual. If a session is open, QuickLogger asks whether to **Resume** it (F2/Enter) and add to the same log, **close it and start a new session** (F3), or just **View** it (F4).
+- **Is a session open?** On Recurring Nets, a net being logged right now shows *session open*, and when it's highlighted the key bar reads **F3/Enter Join**.
+- **Joining or watching:** highlight the net and press **F3** (or Enter), the same key that starts a net. Because a session is open, QuickLogger asks what you want to do:
+  - **F2/Enter Resume:** log check-ins in the same session, alongside the others.
+  - **F4 View:** only watch it. You can't change anything.
+  - **F3 Close & New:** close that session and start a new one. Don't use this to join someone else's net.
 - **Watching:** a **Viewer** (F4 above, or Viewer on the role page) sees the session as it's logged, and can export it and use the look-up keys (F6, F8, F9, F10), but can't log, edit, delete or close anything. **Esc** leaves, and the session carries on.
 - **Staying in step:** check-ins anyone logs appear on everyone's screen within a few seconds.
 - **When someone closes it:** the others can't log to it any more. Their next check-in is refused with a message naming the callsign that wasn't logged, and they're returned to the net list.
