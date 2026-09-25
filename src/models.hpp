@@ -60,6 +60,11 @@ namespace ql
         std::string name;
         std::string mode;
         std::string default_frequency;
+        // A repeater's offset, MHz with a sign ("-0.6"), and its CTCSS (PL)
+        // tone ("100.0"); either may be blank. See OffsetProblem and
+        // IsCtcssTone in frequency_rules.hpp.
+        std::string repeater_offset;
+        std::string pl_tone;
         // The net's 5-digit ZIP, or empty. Nearby-station autocomplete measures
         // from it, falling back to the operator's home ZIP. Free text from
         // before this was a ZIP field is converted on upgrade and on import
@@ -67,7 +72,10 @@ namespace ql
         std::string default_location;
         std::string default_grid_square;  // Resolved from default_location.
         std::string recurrence_description;
-        std::string notes;
+        // Anything the net's owner wants to note (a backup frequency, a DCS
+        // code); shown only on Edit Net. Stored in the
+        // nets table's `notes` column.
+        std::string comments;
         // Unix timestamps: when this net was created here, and -- for a net
         // brought in from a .qlnet file -- when it was imported. Shown in the
         // net list so two nets with the same name (e.g. your own and one

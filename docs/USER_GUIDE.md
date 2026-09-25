@@ -49,7 +49,12 @@ On first run you're taken straight to Settings, since a callsign and home ZIP ar
 A recurring net is one you run again and again: a weekly Skywarn net, a club's Tuesday net. Its sessions and check-ins build up its history, and the stations that check in are remembered for autocomplete.
 
 - **Create:** **F2** on Recurring Nets. Only the name is required; Mode, Frequency, ZIP Code (5 digits) and Recurrence ("Tuesdays 8pm ET") are optional. A net's ZIP centers nearby-station autocomplete on where the net meets.
-- **Edit:** **F7**, then the net's number. **F2** saves and returns to the list.
+- **Frequency** is in MHz (146.940, 7.235) and must be in a US or Canadian amateur band. Only digits and a decimal point can be typed there.
+- **Offset** is a repeater's offset in MHz with its sign, the way radios, CHIRP and RepeaterBook show it: **-0.6** or **+0.6** on 2 m, **+5** or **-5** on 70 cm, **-1.6** on 1.25 m. A bare "+" or "-" isn't accepted (the standard offset isn't the same everywhere on 6 m and 70 cm and up), nor is kHz: typing -600 tells you to type -0.6. With a frequency, the frequency plus the offset has to be in an amateur band too.
+- **PL Tone** is a standard CTCSS tone, 67.0 to 254.1 (e.g. 100.0, 88.5). Typing 100 saves as 100.0. A DCS code or anything else goes in Comments.
+- Frequency, Offset and PL Tone can each be left blank, and the same rules apply to an ad hoc net. When the terminal is wide enough (about 90 to 100 columns, depending on your role and callsign), the line at the top of a session's page shows them too, e.g. *146.940 MHz  -0.6  PL 100.0*; at 80 columns there isn't room.
+- **Edit:** **F7**, then the net's number. **F2** saves and returns to the list. Edit Net also has **Comments**, for anything else about the net, such as a backup frequency or a DCS code. They're shown only on Edit Net.
+- **Nets from older versions:** a frequency that isn't a plain amateur frequency (for example "146.940 -600 PL 100") is moved into the net's Comments as "Frequency: ..." when you upgrade, or when you import such a net, and any frequency with a decimal point found in it stays in Frequency.
 - **Delete:** **F8** on its Edit Net page. It asks first: this deletes every session and check-in of the net.
 - **Telling nets apart:** the list shows when each net was created, or when it was imported, and *session open* while one of its sessions hasn't been closed. The list keeps this current as others open and close sessions.
 

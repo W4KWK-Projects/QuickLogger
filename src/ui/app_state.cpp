@@ -14,6 +14,7 @@
 
 #include "../callsign_rules.hpp"
 #include "../date_utils.hpp"
+#include "../frequency_rules.hpp"
 #include "../file_export.hpp"
 #include "../geo_utils.hpp"
 #include "../net_slice.hpp"
@@ -619,7 +620,9 @@ namespace ql
             state->form_error = "Net name is required.";
             return;
         }
-        if (!CheckNetZip(state, state->new_net_location))
+        if (!CheckNetRadio(state, state->new_net_frequency, state->new_net_offset,
+                           &state->new_net_tone) ||
+            !CheckNetZip(state, state->new_net_location))
         {
             return;
         }
@@ -628,6 +631,8 @@ namespace ql
         net.name = state->new_net_name;
         net.mode = state->new_net_mode;
         net.default_frequency = state->new_net_frequency;
+        net.repeater_offset = state->new_net_offset;
+        net.pl_tone = state->new_net_tone;
         net.default_location = state->new_net_location;
         net.created_at = static_cast<std::int64_t>(std::time(nullptr));
         net.is_ad_hoc = true;
@@ -658,6 +663,7 @@ namespace ql
         std::optional<Net> net = state->db->GetNetById(session->net_id);
         state->active_net_name = net.has_value() ? net->name : "";
         state->active_net_zip = net.has_value() ? net->default_location : "";
+        state->active_net_radio = net.has_value() ? DescribeNetRadio(*net) : "";
         state->active_net_is_ad_hoc = net.has_value() && net->is_ad_hoc;
         // The header shows who started it, in which role.
         state->selected_role_index = session->operator_role;
@@ -927,6 +933,45 @@ namespace ql
         return true;
     }
 
+    std::string DescribeNetRadio(const Net& net)
+    {
+        std::string text;
+        if (!net.default_frequency.empty())
+        {
+            text = net.default_frequency + " MHz";
+        }
+        if (!net.repeater_offset.empty())
+        {
+            text += (text.empty() ? "Offset " : "  ") + net.repeater_offset;
+        }
+        if (!net.pl_tone.empty())
+        {
+            text += (text.empty() ? "" : "  ") + std::string("PL ") + net.pl_tone;
+        }
+        return text;
+    }
+
+    bool CheckNetRadio(AppState* state, const std::string& frequency, const std::string& offset,
+                       std::string* tone)
+    {
+        std::string problem = FrequencyProblem(frequency);
+        if (problem.empty())
+        {
+            problem = OffsetProblem(offset, frequency);
+        }
+        if (problem.empty())
+        {
+            problem = ToneProblem(*tone);
+        }
+        if (!problem.empty())
+        {
+            state->form_error = problem;
+            return false;
+        }
+        *tone = NormalizeTone(*tone);
+        return true;
+    }
+
     bool CheckNetZip(AppState* state, const std::string& zip)
     {
         if (!zip.empty() && !IsFiveDigitZip(zip))
@@ -942,6 +987,8 @@ namespace ql
         state->new_net_name.clear();
         state->new_net_mode.clear();
         state->new_net_frequency.clear();
+        state->new_net_offset.clear();
+        state->new_net_tone.clear();
         state->new_net_location.clear();
         state->new_net_recurrence.clear();
         state->form_error.clear();
@@ -1088,7 +1135,7 @@ namespace ql
         std::vector<std::string> labels{"No additional role"};
         for (int role : AssignableCheckInRoles(state->active_instance.operator_role))
         {
-            labels.push_back(state->role_labels[role]);
+            labels.push_back(state->role_short_labels[role]);
         }
         return labels;
     }
@@ -2299,8 +2346,11 @@ namespace ql
         state->edit_net_name = net.name;
         state->edit_net_mode = net.mode;
         state->edit_net_frequency = net.default_frequency;
+        state->edit_net_offset = net.repeater_offset;
+        state->edit_net_tone = net.pl_tone;
         state->edit_net_location = net.default_location;
         state->edit_net_recurrence = net.recurrence_description;
+        state->edit_net_comments = net.comments;
 
         CloseSavedStationForm(state);
         state->status_message.clear();
@@ -2316,7 +2366,9 @@ namespace ql
             state->form_error = "Net name is required.";
             return false;
         }
-        if (!CheckNetZip(state, state->edit_net_location))
+        if (!CheckNetRadio(state, state->edit_net_frequency, state->edit_net_offset,
+                           &state->edit_net_tone) ||
+            !CheckNetZip(state, state->edit_net_location))
         {
             return false;
         }
@@ -2326,8 +2378,11 @@ namespace ql
         net.name = state->edit_net_name;
         net.mode = state->edit_net_mode;
         net.default_frequency = state->edit_net_frequency;
+        net.repeater_offset = state->edit_net_offset;
+        net.pl_tone = state->edit_net_tone;
         net.default_location = state->edit_net_location;
         net.recurrence_description = state->edit_net_recurrence;
+        net.comments = state->edit_net_comments;
         state->db->UpdateNet(net);
 
         RefreshNets(state);

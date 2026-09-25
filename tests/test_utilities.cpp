@@ -9,6 +9,7 @@
 #include "../src/callsign_rules.hpp"
 #include "../src/date_utils.hpp"
 #include "../src/file_export.hpp"
+#include "../src/frequency_rules.hpp"
 #include "../src/geo_utils.hpp"
 #include "../src/public_key.hpp"
 #include "../src/settings.hpp"
@@ -348,6 +349,93 @@ namespace ql
 
         // A smaller radius leaves out Trenton, about 17 miles away.
         CHECK_EQ(NearbyZips(35.10, -85.28, 10.0, centroids).size(), std::size_t{2});
+    }
+
+    // ---- frequencies -----------------------------------------------------------
+
+    QL_TEST(AmateurFrequenciesAreInUsOrCanadianBands)
+    {
+        for (const char* good : {"146.940", "145.39", "7.235", "3.940", "14.3", "28", "50.125",
+                                 "223.400", "446.000", "1296.1", "5.3305", "0.1375", "10368"})
+        {
+            CHECK(IsAmateurFrequency(good));
+        }
+        for (const char* bad : {"", "162.550", "27.185", "7.301", "148.001", "600", "146.9400001",
+                                "146..9", ".5", "146.940 MHz", "abc"})
+        {
+            CHECK(!IsAmateurFrequency(bad));
+        }
+        // The band edges themselves count.
+        CHECK(IsAmateurFrequency("144.000"));
+        CHECK(IsAmateurFrequency("148"));
+        CHECK(IsAmateurFrequency("1.8"));
+        CHECK(IsAmateurFrequency("146"));  // Whole MHz is fine.
+    }
+
+    QL_TEST(FrequencyProblemsSayWhatsWrong)
+    {
+        CHECK(FrequencyProblem("").empty());
+        CHECK(FrequencyProblem("146.940").empty());
+        CHECK(FrequencyProblem("162.550").find("isn't in a US or Canadian amateur band") !=
+              std::string::npos);
+        CHECK(FrequencyProblem("146.9.4").find("in MHz") != std::string::npos);
+    }
+
+    QL_TEST(OffsetsAreSignedMhz)
+    {
+        for (const char* good : {"", "-0.6", "+0.6", "+5", "-5.000", "-1.6", "-0.5", "-12"})
+        {
+            CHECK(OffsetProblem(good, "").empty());
+        }
+        for (const char* bad : {"-", "+", "0.6", "600", "-0", "+0.000", "-.6", "- 0.6"})
+        {
+            CHECK(!OffsetProblem(bad, "").empty());
+        }
+        // kHz gets the MHz to type instead.
+        CHECK(OffsetProblem("-600", "").find("for 600 kHz, type -0.6") != std::string::npos);
+        CHECK(OffsetProblem("-1600", "").find("type -1.6") != std::string::npos);
+        CHECK(OffsetProblem("+5000", "").find("type +5.") != std::string::npos);
+        // Where the repeater listens must be amateur too.
+        CHECK(OffsetProblem("-0.6", "146.940").empty());
+        CHECK(OffsetProblem("+5", "444.100").empty());
+        CHECK(OffsetProblem("+0.6", "147.900").find("outside the amateur bands") !=
+              std::string::npos);
+        CHECK(OffsetProblem("-0.6", "144.300").find("144.300 MHz -0.6") != std::string::npos);
+    }
+
+    QL_TEST(PlTonesAreStandardCtcssTones)
+    {
+        for (const char* good : {"67.0", "67", "100.0", "100", "88.5", "254.1", "150.0"})
+        {
+            CHECK(IsCtcssTone(good));
+        }
+        for (const char* bad : {"", "100.5", "66.9", "255.0", "88.50", "D023", "1000", ".5"})
+        {
+            CHECK(!IsCtcssTone(bad));
+        }
+        CHECK(ToneProblem("").empty());
+        CHECK(ToneProblem("101").find("standard CTCSS tone") != std::string::npos);
+        CHECK_EQ(NormalizeTone("100"), std::string("100.0"));
+        CHECK_EQ(NormalizeTone("88.5"), std::string("88.5"));
+    }
+
+    QL_TEST(AnOldFreeTextFrequencyMovesToTheComments)
+    {
+        std::string frequency = "146.940 -600 PL 100";
+        std::string comments;
+        CHECK(MoveBadFrequencyToComments(&frequency, &comments));
+        CHECK_EQ(frequency, std::string("146.940"));
+        CHECK_EQ(comments, std::string("Frequency: 146.940 -600 PL 100"));
+
+        frequency = "Repeater 7";
+        comments = "Meets weekly";
+        CHECK(MoveBadFrequencyToComments(&frequency, &comments));
+        CHECK(frequency.empty());
+        CHECK_EQ(comments, std::string("Meets weekly; Frequency: Repeater 7"));
+
+        frequency = "147.000";
+        CHECK(!MoveBadFrequencyToComments(&frequency, &comments));
+        CHECK_EQ(frequency, std::string("147.000"));
     }
 
     // ---- settings --------------------------------------------------------------

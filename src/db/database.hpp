@@ -296,6 +296,10 @@ namespace ql
         // (ExtractZipCode), or blank if it has none. Part of CreateSchema's
         // one-time upgrade.
         void NormalizeNetZips();
+        // Moves each net's frequency that isn't an amateur frequency into
+        // its comments (see MoveBadFrequencyToComments). Part of
+        // CreateSchema's one-time upgrade.
+        void NormalizeNetFrequencies();
 
         sqlite3* db_ = nullptr;
     };

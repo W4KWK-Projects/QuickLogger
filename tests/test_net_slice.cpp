@@ -21,6 +21,8 @@ namespace ql
         net.name = "Skywarn";
         net.mode = "FM";
         net.default_frequency = "146.940";
+        net.repeater_offset = "-0.6";
+        net.pl_tone = "100.0";
         net.recurrence_description = "Tuesdays 8pm";
         net.created_at = 1700000000;
         std::int64_t net_id = db->CreateNet(net);
@@ -58,6 +60,18 @@ namespace ql
         CHECK(dest.GetNetById(without_zip)->default_location.empty());
     }
 
+    QL_TEST(AnOlderNetsFreeTextFrequencyImportsIntoComments)
+    {
+        TempDir dir;
+        Database dest(dir.File("dest.db"));
+        NetSlice slice;
+        slice.net.name = "Old Export";
+        slice.net.default_frequency = "146.940 (W4AM)";
+        std::int64_t net_id = ApplyNetSlice(&dest, slice, 1800000000);
+        CHECK_EQ(dest.GetNetById(net_id)->default_frequency, std::string("146.940"));
+        CHECK_EQ(dest.GetNetById(net_id)->comments, std::string("Frequency: 146.940 (W4AM)"));
+    }
+
     QL_TEST(ANetRoundTripsThroughAFile)
     {
         TempDir dir;
@@ -88,6 +102,8 @@ namespace ql
         REQUIRE(net.has_value());
         CHECK_EQ(net->name, std::string("Skywarn"));
         CHECK_EQ(net->default_frequency, std::string("146.940"));
+        CHECK_EQ(net->repeater_offset, std::string("-0.6"));
+        CHECK_EQ(net->pl_tone, std::string("100.0"));
         CHECK_EQ(net->recurrence_description, std::string("Tuesdays 8pm"));
         CHECK_EQ(net->created_at, std::int64_t{1700000000});
         CHECK_EQ(net->imported_at, std::int64_t{1800000000});

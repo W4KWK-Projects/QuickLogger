@@ -55,7 +55,7 @@ namespace ql
                                    table + "'"),
                      std::int64_t{1});
         }
-        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{4});
+        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{6});
         CHECK_EQ(CountRows(dir.File("q.db"),
                            "SELECT COUNT(*) FROM pragma_table_info('import_runs') WHERE name IN "
                            "('phase','percent','heartbeat_at','requested_at')"),
@@ -114,7 +114,7 @@ namespace ql
         )sql");
 
         Database db(path);
-        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{4});
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{6});
         std::vector<Net> nets = db.GetAllNets();
         REQUIRE(nets.size() == 1);
         CHECK_EQ(nets[0].created_at, std::int64_t{0});  // Unknown, not guessed.
@@ -132,6 +132,38 @@ namespace ql
         std::optional<Station> k1csa = db.FindUlsStationByCallsign("K1CSA");
         REQUIRE(k1csa.has_value());
         CHECK_EQ(k1csa->zip, std::string("30752"));
+    }
+
+    QL_TEST(OldNetFrequenciesMoveToComments)
+    {
+        TempDir dir;
+        std::string path = dir.File("q.db");
+        {
+            Database db(path);
+            AddTestNet(&db, "Free Text");
+            AddTestNet(&db, "Good");
+        }
+        // As a 1.4.1 database could have them.
+        RunSql(path, R"sql(
+            UPDATE nets SET default_frequency = '146.94 -600 PL 100' WHERE name = 'Free Text';
+            UPDATE nets SET default_frequency = '145.390' WHERE name = 'Good';
+            PRAGMA user_version = 4;
+        )sql");
+
+        Database db(path);
+        for (const Net& net : db.GetAllNets())
+        {
+            if (net.name == "Free Text")
+            {
+                CHECK_EQ(net.default_frequency, std::string("146.94"));
+                CHECK_EQ(net.comments, std::string("Frequency: 146.94 -600 PL 100"));
+            }
+            else
+            {
+                CHECK_EQ(net.default_frequency, std::string("145.390"));
+                CHECK(net.comments.empty());
+            }
+        }
     }
 
     QL_TEST(OldNetLocationsBecomeZipsOrBlank)

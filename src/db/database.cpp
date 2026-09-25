@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "../frequency_rules.hpp"
 #include "../text_utils.hpp"
 #include "sqlite_statement.hpp"
 
@@ -39,7 +40,9 @@ CREATE TABLE IF NOT EXISTS nets (
     notes TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL DEFAULT 0,
     imported_at INTEGER NOT NULL DEFAULT 0,
-    is_ad_hoc INTEGER NOT NULL DEFAULT 0
+    is_ad_hoc INTEGER NOT NULL DEFAULT 0,
+    repeater_offset TEXT NOT NULL DEFAULT '',
+    pl_tone TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS net_instances (
@@ -129,7 +132,7 @@ CREATE TABLE IF NOT EXISTS users (
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 4;
+    static constexpr int kSchemaVersion = 6;
 
     static int ReadUserVersion(sqlite3* db)
     {
@@ -197,10 +200,12 @@ CREATE TABLE IF NOT EXISTS users (
         net.default_location = row.ColumnText(4);
         net.default_grid_square = row.ColumnText(5);
         net.recurrence_description = row.ColumnText(6);
-        net.notes = row.ColumnText(7);
+        net.comments = row.ColumnText(7);
         net.created_at = row.ColumnInt64(8);
         net.imported_at = row.ColumnInt64(9);
         net.is_ad_hoc = row.ColumnInt64(10) != 0;
+        net.repeater_offset = row.ColumnText(11);
+        net.pl_tone = row.ColumnText(12);
         return net;
     }
 
@@ -341,6 +346,8 @@ CREATE TABLE IF NOT EXISTS users (
         EnsureColumnExists(db_, "nets", "created_at", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(db_, "nets", "imported_at", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(db_, "nets", "is_ad_hoc", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(db_, "nets", "repeater_offset", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(db_, "nets", "pl_tone", "TEXT NOT NULL DEFAULT ''");
 
         // One-time migration for databases created before ULS import moved
         // to its own table (uls_stations): any leftover data_source=2 (kUls)
@@ -372,6 +379,11 @@ CREATE TABLE IF NOT EXISTS users (
         // means autocomplete measures from the operator's home ZIP.
         NormalizeNetZips();
 
+        // Likewise for the frequency, checked since 1.4.2: text that isn't
+        // an amateur frequency in MHz moves to the net's comments, and any
+        // frequency found in it stays (see MoveBadFrequencyToComments).
+        NormalizeNetFrequencies();
+
         std::string set_version = "PRAGMA user_version = " + std::to_string(kSchemaVersion) + ";";
         sqlite3_exec(db_, set_version.c_str(), nullptr, nullptr, nullptr);
     }
@@ -401,6 +413,43 @@ CREATE TABLE IF NOT EXISTS users (
         {
             update.BindText(0, fix.second);
             update.BindInt64(1, fix.first);
+            update.Step();
+            update.Reset();
+        }
+        sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
+    }
+
+    void Database::NormalizeNetFrequencies()
+    {
+        struct Fix
+        {
+            std::int64_t id;
+            std::string frequency;
+            std::string comments;
+        };
+        std::vector<Fix> fixes;
+        {
+            Statement select(db_, "SELECT id, default_frequency, notes FROM nets;");
+            while (select.Step())
+            {
+                Fix fix{select.ColumnInt64(0), select.ColumnText(1), select.ColumnText(2)};
+                if (MoveBadFrequencyToComments(&fix.frequency, &fix.comments))
+                {
+                    fixes.push_back(fix);
+                }
+            }
+        }
+        if (fixes.empty())
+        {
+            return;
+        }
+        sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+        Statement update(db_, "UPDATE nets SET default_frequency = ?, notes = ? WHERE id = ?;");
+        for (const Fix& fix : fixes)
+        {
+            update.BindText(0, fix.frequency);
+            update.BindText(1, fix.comments);
+            update.BindInt64(2, fix.id);
             update.Step();
             update.Reset();
         }
@@ -664,8 +713,8 @@ CREATE TABLE IF NOT EXISTS users (
         INSERT INTO nets
             (name, mode, default_frequency, default_location,
              default_grid_square, recurrence_description, notes, created_at, imported_at,
-             is_ad_hoc)
-        VALUES (?,?,?,?,?,?,?,?,?,?);
+             is_ad_hoc, repeater_offset, pl_tone)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?);
     )sql");
         statement.BindText(0, net.name);
         statement.BindText(1, net.mode);
@@ -673,10 +722,12 @@ CREATE TABLE IF NOT EXISTS users (
         statement.BindText(3, net.default_location);
         statement.BindText(4, net.default_grid_square);
         statement.BindText(5, net.recurrence_description);
-        statement.BindText(6, net.notes);
+        statement.BindText(6, net.comments);
         statement.BindInt64(7, net.created_at);
         statement.BindInt64(8, net.imported_at);
         statement.BindInt64(9, net.is_ad_hoc ? 1 : 0);
+        statement.BindText(10, net.repeater_offset);
+        statement.BindText(11, net.pl_tone);
         statement.Step();
         return sqlite3_last_insert_rowid(db_);
     }
@@ -686,7 +737,7 @@ CREATE TABLE IF NOT EXISTS users (
         Statement statement(db_, R"sql(
         UPDATE nets
         SET name = ?, mode = ?, default_frequency = ?, default_location = ?,
-            recurrence_description = ?
+            recurrence_description = ?, notes = ?, repeater_offset = ?, pl_tone = ?
         WHERE id = ?;
     )sql");
         statement.BindText(0, net.name);
@@ -694,7 +745,10 @@ CREATE TABLE IF NOT EXISTS users (
         statement.BindText(2, net.default_frequency);
         statement.BindText(3, net.default_location);
         statement.BindText(4, net.recurrence_description);
-        statement.BindInt64(5, net.id);
+        statement.BindText(5, net.comments);
+        statement.BindText(6, net.repeater_offset);
+        statement.BindText(7, net.pl_tone);
+        statement.BindInt64(8, net.id);
         statement.Step();
     }
 
@@ -703,7 +757,7 @@ CREATE TABLE IF NOT EXISTS users (
         Statement statement(db_, R"sql(
         SELECT id, name, mode, default_frequency, default_location,
                default_grid_square, recurrence_description, notes, created_at, imported_at,
-               is_ad_hoc
+               is_ad_hoc, repeater_offset, pl_tone
         FROM nets ORDER BY name COLLATE NOCASE, id;
     )sql");
         std::vector<Net> nets;
@@ -719,7 +773,7 @@ CREATE TABLE IF NOT EXISTS users (
         Statement statement(db_, R"sql(
         SELECT id, name, mode, default_frequency, default_location,
                default_grid_square, recurrence_description, notes, created_at, imported_at,
-               is_ad_hoc
+               is_ad_hoc, repeater_offset, pl_tone
         FROM nets WHERE id = ?;
     )sql");
         statement.BindInt64(0, net_id);

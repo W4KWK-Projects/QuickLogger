@@ -148,6 +148,22 @@ namespace ql
         return option;
     }
 
+    // A repeater offset field's options (see OffsetFieldHandler).
+    static ftxui::InputOption OffsetInputOption(std::string* field)
+    {
+        ftxui::InputOption option = SingleLineInputOption();
+        option.on_change = OffsetFieldHandler(field);
+        return option;
+    }
+
+    // A frequency field's options (see FrequencyFieldHandler).
+    static ftxui::InputOption FrequencyInputOption(std::string* field)
+    {
+        ftxui::InputOption option = SingleLineInputOption();
+        option.on_change = FrequencyFieldHandler(field);
+        return option;
+    }
+
     // Builds every StationFieldInputs field except `callsign` (the caller
     // supplies that, since it needs different wiring per form) bound to
     // `station`'s fields.
@@ -634,12 +650,15 @@ namespace ql
     {
     public:
         CreateNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
-                          ftxui::Component input_frequency, ftxui::Component input_location,
+                          ftxui::Component input_frequency, ftxui::Component input_offset,
+                          ftxui::Component input_tone, ftxui::Component input_location,
                           ftxui::Component input_recurrence)
             : state_(state),
               input_name_(std::move(input_name)),
               input_mode_(std::move(input_mode)),
               input_frequency_(std::move(input_frequency)),
+              input_offset_(std::move(input_offset)),
+              input_tone_(std::move(input_tone)),
               input_location_(std::move(input_location)),
               input_recurrence_(std::move(input_recurrence))
         {
@@ -651,6 +670,8 @@ namespace ql
                 ftxui::hbox({FieldLabel("Name:       "), input_name_->Render()}),
                 ftxui::hbox({FieldLabel("Mode:       "), input_mode_->Render()}),
                 ftxui::hbox({FieldLabel("Frequency:  "), input_frequency_->Render()}),
+                ftxui::hbox({FieldLabel("Offset:     "), input_offset_->Render()}),
+                ftxui::hbox({FieldLabel("PL Tone:    "), input_tone_->Render()}),
                 ftxui::hbox({FieldLabel("ZIP Code:   "), input_location_->Render()}),
                 ftxui::hbox({FieldLabel("Recurrence: "), input_recurrence_->Render()}),
                 ErrorLine(state_->form_error),
@@ -664,6 +685,8 @@ namespace ql
         ftxui::Component input_name_;
         ftxui::Component input_mode_;
         ftxui::Component input_frequency_;
+        ftxui::Component input_offset_;
+        ftxui::Component input_tone_;
         ftxui::Component input_location_;
         ftxui::Component input_recurrence_;
     };
@@ -675,7 +698,13 @@ namespace ql
         ftxui::Component input_mode =
             ftxui::Input(&state->new_net_mode, "e.g. FM, SSB, Digital", SingleLineInputOption());
         ftxui::Component input_frequency =
-            ftxui::Input(&state->new_net_frequency, "e.g. 146.940", SingleLineInputOption());
+            ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
+                         FrequencyInputOption(&state->new_net_frequency));
+        ftxui::Component input_offset =
+            ftxui::Input(&state->new_net_offset, "MHz with sign, e.g. -0.6 (optional)",
+                         OffsetInputOption(&state->new_net_offset));
+        ftxui::Component input_tone = ftxui::Input(&state->new_net_tone, "e.g. 100.0 (optional)",
+                                                   FrequencyInputOption(&state->new_net_tone));
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->new_net_location);
         ftxui::Component input_location =
@@ -687,6 +716,8 @@ namespace ql
             input_name,
             input_mode,
             input_frequency,
+            input_offset,
+            input_tone,
             input_location,
             input_recurrence,
         });
@@ -694,8 +725,8 @@ namespace ql
         state->new_net_name_input = input_name;
 
         return ftxui::Renderer(
-            root, CreateNetRenderer(state, input_name, input_mode, input_frequency, input_location,
-                                    input_recurrence));
+            root, CreateNetRenderer(state, input_name, input_mode, input_frequency, input_offset,
+                                    input_tone, input_location, input_recurrence));
     }
 
     // ---- Select-role page ---------------------------------------------------
@@ -803,7 +834,7 @@ namespace ql
 
         ftxui::Element operator()() const
         {
-            const std::string& role_label = state_->role_labels[state_->selected_role_index];
+            const std::string& role_label = state_->role_short_labels[state_->selected_role_index];
 
             ftxui::Element check_in_list =
                 state_->active_display_rows.empty()
@@ -820,14 +851,25 @@ namespace ql
                 started += "  " + start_time;
             }
 
-            ftxui::Element info_line = ftxui::hbox({
+            ftxui::Elements info = {
                 ftxui::text("Date: ") | ftxui::color(kColorLabel),
                 ftxui::text(started) | ftxui::color(kColorHeading),
                 ftxui::text("   Role: ") | ftxui::color(kColorLabel),
                 ftxui::text(role_label) | ftxui::color(kColorData),
                 ftxui::text("   Callsign: ") | ftxui::color(kColorLabel),
                 ftxui::text(state_->operator_callsign) | ftxui::bold | ftxui::color(kColorData),
-            });
+            };
+            // The net's frequency, offset and tone, only when the line has
+            // room for them (a wide terminal): at 80 columns it's nearly full.
+            std::size_t used =
+                6 + started.size() + 9 + role_label.size() + 13 + state_->operator_callsign.size();
+            const std::string& radio = state_->active_net_radio;
+            if (!radio.empty() &&
+                used + 3 + radio.size() <= static_cast<std::size_t>(state_->list_width))
+            {
+                info.push_back(ftxui::text("   " + radio) | ftxui::color(kColorData));
+            }
+            ftxui::Element info_line = ftxui::hbox(info);
 
             ftxui::Element content = ftxui::vbox({
                 info_line,
@@ -1270,12 +1312,15 @@ namespace ql
     {
     public:
         AdHocNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
-                         ftxui::Component input_frequency, ftxui::Component input_location,
+                         ftxui::Component input_frequency, ftxui::Component input_offset,
+                         ftxui::Component input_tone, ftxui::Component input_location,
                          ftxui::Component open_session_menu)
             : state_(state),
               input_name_(std::move(input_name)),
               input_mode_(std::move(input_mode)),
               input_frequency_(std::move(input_frequency)),
+              input_offset_(std::move(input_offset)),
+              input_tone_(std::move(input_tone)),
               input_location_(std::move(input_location)),
               open_session_menu_(std::move(open_session_menu))
         {
@@ -1290,6 +1335,8 @@ namespace ql
                 ftxui::hbox({FieldLabel("Name:      "), input_name_->Render()}),
                 ftxui::hbox({FieldLabel("Mode:      "), input_mode_->Render()}),
                 ftxui::hbox({FieldLabel("Frequency: "), input_frequency_->Render()}),
+                ftxui::hbox({FieldLabel("Offset:    "), input_offset_->Render()}),
+                ftxui::hbox({FieldLabel("PL Tone:   "), input_tone_->Render()}),
                 ftxui::hbox({FieldLabel("ZIP Code:  "), input_location_->Render()}),
             };
 
@@ -1337,6 +1384,8 @@ namespace ql
         ftxui::Component input_name_;
         ftxui::Component input_mode_;
         ftxui::Component input_frequency_;
+        ftxui::Component input_offset_;
+        ftxui::Component input_tone_;
         ftxui::Component input_location_;
         ftxui::Component open_session_menu_;
     };
@@ -1348,7 +1397,13 @@ namespace ql
         ftxui::Component input_mode =
             ftxui::Input(&state->new_net_mode, "e.g. FM, SSB, Digital", SingleLineInputOption());
         ftxui::Component input_frequency =
-            ftxui::Input(&state->new_net_frequency, "e.g. 146.940", SingleLineInputOption());
+            ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
+                         FrequencyInputOption(&state->new_net_frequency));
+        ftxui::Component input_offset =
+            ftxui::Input(&state->new_net_offset, "MHz with sign, e.g. -0.6 (optional)",
+                         OffsetInputOption(&state->new_net_offset));
+        ftxui::Component input_tone = ftxui::Input(&state->new_net_tone, "e.g. 100.0 (optional)",
+                                                   FrequencyInputOption(&state->new_net_tone));
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->new_net_location);
         ftxui::Component input_location =
@@ -1358,6 +1413,8 @@ namespace ql
             input_name,
             input_mode,
             input_frequency,
+            input_offset,
+            input_tone,
             input_location,
         });
 
@@ -1370,9 +1427,9 @@ namespace ql
             state, ftxui::Menu(&state->open_ad_hoc_labels, &state->selected_open_ad_hoc_index));
 
         return WithConfirmPrompt(
-            state,
-            ftxui::Renderer(root, AdHocNetRenderer(state, input_name, input_mode, input_frequency,
-                                                   input_location, open_session_menu)));
+            state, ftxui::Renderer(root, AdHocNetRenderer(state, input_name, input_mode,
+                                                          input_frequency, input_offset, input_tone,
+                                                          input_location, open_session_menu)));
     }
 
     // ---- Net history page ---------------------------------------------------
@@ -1538,14 +1595,19 @@ namespace ql
     {
     public:
         EditNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
-                        ftxui::Component input_frequency, ftxui::Component input_location,
-                        ftxui::Component input_recurrence, ftxui::Component saved_station_menu)
+                        ftxui::Component input_frequency, ftxui::Component input_offset,
+                        ftxui::Component input_tone, ftxui::Component input_location,
+                        ftxui::Component input_recurrence, ftxui::Component input_comments,
+                        ftxui::Component saved_station_menu)
             : state_(state),
               input_name_(std::move(input_name)),
               input_mode_(std::move(input_mode)),
               input_frequency_(std::move(input_frequency)),
+              input_offset_(std::move(input_offset)),
+              input_tone_(std::move(input_tone)),
               input_location_(std::move(input_location)),
               input_recurrence_(std::move(input_recurrence)),
+              input_comments_(std::move(input_comments)),
               saved_station_menu_(std::move(saved_station_menu))
         {
         }
@@ -1567,8 +1629,11 @@ namespace ql
                     ftxui::hbox({FieldLabel("Name:       "), input_name_->Render()}),
                     ftxui::hbox({FieldLabel("Mode:       "), input_mode_->Render()}),
                     ftxui::hbox({FieldLabel("Frequency:  "), input_frequency_->Render()}),
+                    ftxui::hbox({FieldLabel("Offset:     "), input_offset_->Render()}),
+                    ftxui::hbox({FieldLabel("PL Tone:    "), input_tone_->Render()}),
                     ftxui::hbox({FieldLabel("ZIP Code:   "), input_location_->Render()}),
                     ftxui::hbox({FieldLabel("Recurrence: "), input_recurrence_->Render()}),
+                    ftxui::hbox({FieldLabel("Comments:   "), input_comments_->Render()}),
                 },
                 &rows);
             rows.push_back(Separator());
@@ -1618,8 +1683,11 @@ namespace ql
         ftxui::Component input_name_;
         ftxui::Component input_mode_;
         ftxui::Component input_frequency_;
+        ftxui::Component input_offset_;
+        ftxui::Component input_tone_;
         ftxui::Component input_location_;
         ftxui::Component input_recurrence_;
+        ftxui::Component input_comments_;
         ftxui::Component saved_station_menu_;
     };
 
@@ -1678,13 +1746,21 @@ namespace ql
         ftxui::Component input_mode =
             ftxui::Input(&state->edit_net_mode, "e.g. FM, SSB, Digital", SingleLineInputOption());
         ftxui::Component input_frequency =
-            ftxui::Input(&state->edit_net_frequency, "e.g. 146.940", SingleLineInputOption());
+            ftxui::Input(&state->edit_net_frequency, "MHz, e.g. 146.940",
+                         FrequencyInputOption(&state->edit_net_frequency));
+        ftxui::Component input_offset =
+            ftxui::Input(&state->edit_net_offset, "MHz with sign, e.g. -0.6 (optional)",
+                         OffsetInputOption(&state->edit_net_offset));
+        ftxui::Component input_tone = ftxui::Input(&state->edit_net_tone, "e.g. 100.0 (optional)",
+                                                   FrequencyInputOption(&state->edit_net_tone));
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->edit_net_location);
         ftxui::Component input_location =
             ftxui::Input(&state->edit_net_location, "5-digit ZIP (optional)", location_option);
         ftxui::Component input_recurrence = ftxui::Input(
             &state->edit_net_recurrence, "e.g. Tuesdays 8pm ET", SingleLineInputOption());
+        ftxui::Component input_comments =
+            ftxui::Input(&state->edit_net_comments, "Anything (optional)", SingleLineInputOption());
 
         ftxui::MenuOption saved_station_menu_option;
         saved_station_menu_option.on_enter = LoadSavedStationHandler(state);
@@ -1697,14 +1773,18 @@ namespace ql
             input_name,
             input_mode,
             input_frequency,
+            input_offset,
+            input_tone,
             input_location,
             input_recurrence,
+            input_comments,
             saved_station_menu,
         });
         state->edit_net_name_input = input_name;
         ftxui::Component main_view = ftxui::Renderer(
-            root, EditNetRenderer(state, input_name, input_mode, input_frequency, input_location,
-                                  input_recurrence, saved_station_menu));
+            root, EditNetRenderer(state, input_name, input_mode, input_frequency, input_offset,
+                                  input_tone, input_location, input_recurrence, input_comments,
+                                  saved_station_menu));
 
         ftxui::InputOption callsign_option = SingleLineInputOption();
         callsign_option.on_change = SavedStationCallsignChangeHandler(state);

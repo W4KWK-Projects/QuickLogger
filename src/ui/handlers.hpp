@@ -45,6 +45,35 @@ namespace ql
         std::string* field_;
     };
 
+    // An Input's on_change for a frequency field (MHz): keeps only digits
+    // and the first decimal point as the operator types, so "146.94 MHz"
+    // reads back as "146.94". Whether it's an amateur frequency is checked
+    // on save (see CheckNetFrequency).
+    class FrequencyFieldHandler
+    {
+    public:
+        explicit FrequencyFieldHandler(std::string* field) : field_(field) {}
+
+        void operator()() const;
+
+    private:
+        std::string* field_;
+    };
+
+    // An Input's on_change for a repeater offset field: keeps only a
+    // leading + or -, digits and one decimal point as the operator types.
+    // Checked on save (see OffsetProblem in frequency_rules.hpp).
+    class OffsetFieldHandler
+    {
+    public:
+        explicit OffsetFieldHandler(std::string* field) : field_(field) {}
+
+        void operator()() const;
+
+    private:
+        std::string* field_;
+    };
+
     // An Input's on_change for a whole-number field: strips any non-digit
     // character and truncates to `max_digits` as the operator types, like
     // ZipCodeFieldHandler.

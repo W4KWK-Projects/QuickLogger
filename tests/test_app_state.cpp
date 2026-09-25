@@ -1447,6 +1447,55 @@ namespace ql
         CHECK(f.db()->GetNetById(net_id)->default_location.empty());
     }
 
+    QL_TEST(NetFrequencyMustBeAnAmateurFrequency)
+    {
+        Fixture f;
+        std::int64_t net_id = AddTestNet(f.db(), "Skywarn");
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
+        f.state.edit_net_frequency = "162.550";
+        CHECK(!SaveEditNetForm(&f.state));
+        CHECK(f.state.form_error.find("amateur band") != std::string::npos);
+        f.state.edit_net_frequency = "146.940";
+        f.state.edit_net_comments = "-600, PL 100.0; backup 442.100";
+        CHECK(SaveEditNetForm(&f.state));
+        std::optional<Net> saved = f.db()->GetNetById(net_id);
+        CHECK_EQ(saved->default_frequency, std::string("146.940"));
+        CHECK_EQ(saved->comments, std::string("-600, PL 100.0; backup 442.100"));
+        OpenEditNetForm(&f.state, *saved);
+        CHECK_EQ(f.state.edit_net_comments, std::string("-600, PL 100.0; backup 442.100"));
+
+        // Offset and PL tone: checked, the tone saved in its usual form.
+        f.state.edit_net_offset = "-600";
+        CHECK(!SaveEditNetForm(&f.state));
+        CHECK(f.state.form_error.find("type -0.6") != std::string::npos);
+        f.state.edit_net_offset = "-0.6";
+        f.state.edit_net_tone = "101";
+        CHECK(!SaveEditNetForm(&f.state));
+        CHECK(f.state.form_error.find("CTCSS") != std::string::npos);
+        f.state.edit_net_tone = "100";
+        CHECK(SaveEditNetForm(&f.state));
+        saved = f.db()->GetNetById(net_id);
+        CHECK_EQ(saved->repeater_offset, std::string("-0.6"));
+        CHECK_EQ(saved->pl_tone, std::string("100.0"));
+        OpenEditNetForm(&f.state, *saved);
+        CHECK_EQ(f.state.edit_net_offset, std::string("-0.6"));
+        CHECK_EQ(f.state.edit_net_tone, std::string("100.0"));
+
+        CHECK_EQ(DescribeNetRadio(*saved), std::string("146.940 MHz  -0.6  PL 100.0"));
+        Net tone_only;
+        tone_only.pl_tone = "88.5";
+        CHECK_EQ(DescribeNetRadio(tone_only), std::string("PL 88.5"));
+        CHECK(DescribeNetRadio(Net()).empty());
+
+        // New nets, recurring or ad hoc, are checked too.
+        ResetCreateNetForm(&f.state);
+        f.state.new_net_name = "Tailgate";
+        f.state.new_net_frequency = "27.185";
+        StartAdHocNet(&f.state);
+        CHECK(f.state.form_error.find("amateur band") != std::string::npos);
+        CHECK(!f.state.start_net.is_ad_hoc);
+    }
+
     // ---- Help and the seldom-used windows ----------------------------------------
 
     // A closed earlier session of `net_id` on `date` with these check-ins.

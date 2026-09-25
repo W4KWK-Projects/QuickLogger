@@ -50,6 +50,46 @@ namespace ql
         KeepDigits(field_, max_digits_);
     }
 
+    void FrequencyFieldHandler::operator()() const
+    {
+        std::string kept;
+        bool seen_point = false;
+        for (char c : *field_)
+        {
+            if (std::isdigit(static_cast<unsigned char>(c)) || (c == '.' && !seen_point))
+            {
+                seen_point = seen_point || c == '.';
+                kept.push_back(c);
+            }
+        }
+        if (kept.size() > 14)
+        {
+            kept.resize(14);
+        }
+        *field_ = kept;
+    }
+
+    void OffsetFieldHandler::operator()() const
+    {
+        std::string kept;
+        bool seen_point = false;
+        for (char c : *field_)
+        {
+            bool sign = (c == '+' || c == '-') && kept.empty();
+            bool point = c == '.' && !seen_point;
+            if (std::isdigit(static_cast<unsigned char>(c)) || sign || point)
+            {
+                seen_point = seen_point || point;
+                kept.push_back(c);
+            }
+        }
+        if (kept.size() > 12)
+        {
+            kept.resize(12);
+        }
+        *field_ = kept;
+    }
+
     void ShowCreateNetPageHandler::operator()() const
     {
         ResetCreateNetForm(state_);
@@ -67,7 +107,9 @@ namespace ql
             state_->form_error = "Net name is required.";
             return;
         }
-        if (!CheckNetZip(state_, state_->new_net_location))
+        if (!CheckNetRadio(state_, state_->new_net_frequency, state_->new_net_offset,
+                           &state_->new_net_tone) ||
+            !CheckNetZip(state_, state_->new_net_location))
         {
             return;
         }
@@ -76,6 +118,8 @@ namespace ql
         net.name = state_->new_net_name;
         net.mode = state_->new_net_mode;
         net.default_frequency = state_->new_net_frequency;
+        net.repeater_offset = state_->new_net_offset;
+        net.pl_tone = state_->new_net_tone;
         net.default_location = state_->new_net_location;
         net.recurrence_description = state_->new_net_recurrence;
         net.created_at = static_cast<std::int64_t>(std::time(nullptr));
@@ -704,6 +748,7 @@ namespace ql
         state_->active_instance = instance;
         state_->active_net_name = net.name;
         state_->active_net_zip = net.default_location;
+        state_->active_net_radio = DescribeNetRadio(net);
         state_->active_net_is_ad_hoc = net.is_ad_hoc;
         state_->viewing_only = false;
         LogOperatorCheckIn(state_);

@@ -297,6 +297,8 @@ namespace ql
         std::string new_net_name;
         std::string new_net_mode;
         std::string new_net_frequency;
+        std::string new_net_offset;
+        std::string new_net_tone;
         std::string new_net_location;
         std::string new_net_recurrence;
 
@@ -317,6 +319,10 @@ namespace ql
         // instance -- or kRoleViewer, to watch an open session.
         std::vector<std::string> role_labels{"Net Control", "Alternate Net Control", "Logger",
                                              "Viewer"};
+        // The same, shortened where room may be tight: the session page's
+        // info line and the check-in windows' role choices.
+        std::vector<std::string> role_short_labels{"Net Control", "Alt. Net Control", "Logger",
+                                                   "Viewer"};
         int selected_role_index = kRoleNetControl;
 
         // Enter-callsign page: the operator's own callsign for that role.
@@ -333,6 +339,9 @@ namespace ql
         // The active net's ZIP (Net::default_location), for nearby-station
         // autocomplete; see RefreshNearbyZips.
         std::string active_net_zip;
+        // The active net's frequency, offset and PL tone as the session page
+        // shows them (see DescribeNetRadio).
+        std::string active_net_radio;
         bool active_net_is_ad_hoc = false;
         std::vector<CheckIn> active_check_ins;
         // One formatted display line per entry in `active_check_ins`, rebuilt by
@@ -423,8 +432,11 @@ namespace ql
         std::string edit_net_name;
         std::string edit_net_mode;
         std::string edit_net_frequency;
+        std::string edit_net_offset;
+        std::string edit_net_tone;
         std::string edit_net_location;
         std::string edit_net_recurrence;
+        std::string edit_net_comments;
         std::vector<Station> edit_net_saved_stations;
         std::vector<std::string>
             edit_net_saved_station_labels;  // Kept in sync by RefreshEditNetSavedStations.
@@ -996,6 +1008,17 @@ namespace ql
     // IsValidCallsign). Otherwise sets AppState::form_error and returns
     // false.
     bool CheckCallsign(AppState* state, const std::string& callsign);
+
+    // `net`'s frequency, offset and PL tone for the session page, those
+    // that are set: "146.940 MHz  -0.6  PL 100.0". Blank if none are.
+    std::string DescribeNetRadio(const Net& net);
+
+    // True if a net's frequency, repeater offset and PL tone are each
+    // blank or valid (see FrequencyProblem, OffsetProblem, ToneProblem in
+    // frequency_rules.hpp), putting `*tone` in its usual one-decimal form;
+    // otherwise sets AppState::form_error.
+    bool CheckNetRadio(AppState* state, const std::string& frequency, const std::string& offset,
+                       std::string* tone);
 
     // True if `zip` is acceptable as a net's ZIP: blank or 5 digits.
     // Otherwise sets AppState::form_error and returns false.

@@ -54,6 +54,7 @@ set(quicklogger_sources
     src/settings.cpp
     src/text_utils.cpp
     src/callsign_rules.cpp
+    src/frequency_rules.cpp
     src/version.cpp
     src/geo_utils.cpp
     src/file_export.cpp
