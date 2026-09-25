@@ -1503,4 +1503,89 @@ namespace ql
         CHECK(one_check_in);
     }
 
+    // ---- Viewer ----------------------------------------------------------------------
+
+    QL_TEST(AViewerWatchesAnOpenSessionWithoutChangingIt)
+    {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("Skywarn");
+        f.Log("K4AAA");
+        std::int64_t session = f.state.active_instance.id;
+
+        // Someone else picks the net and chooses Viewer.
+        f.state.active_instance = NetInstance();
+        f.state.active_check_ins.clear();
+        f.state.start_net = *f.db()->GetNetById(net_id);
+        f.state.selected_role_index = kRoleViewer;
+        ViewStartNet(&f.state);
+        CHECK_EQ(f.state.page, kPageActiveNet);
+        CHECK(f.state.viewing_only);
+        CHECK_EQ(f.state.active_instance.id, session);
+        CHECK_EQ(f.state.active_check_ins.size(), std::size_t{2});
+        CHECK(f.state.status_message.find("Watching the") == 0);
+
+        // Regulars can be looked at, but Enter doesn't check anyone in.
+        OpenRegulars(&f.state);
+        f.state.info_stations = {MakeStation("K4ZZZ")};
+        CheckInSelectedRegular(&f.state);
+        CHECK(!f.state.show_new_station_modal);
+        CloseInfoWindow(&f.state);
+
+        // Help shows only what a Viewer can do.
+        OpenHelp(&f.state);
+        bool check_in_key = false;
+        for (const std::string& row : f.state.info_rows)
+        {
+            check_in_key = check_in_key || row.find("Check in a station") != std::string::npos;
+        }
+        CHECK(!check_in_key);
+        CloseInfoWindow(&f.state);
+
+        // Leaving changes nothing: the session is still open, with its two check-ins.
+        StopViewing(&f.state);
+        CHECK_EQ(f.state.page, kPageNetList);
+        CHECK(!f.state.viewing_only);
+        CHECK(f.db()->GetNetInstanceById(session)->status == NetInstanceStatus::kOpen);
+        CHECK_EQ(f.db()->GetCheckInsForNetInstance(session).size(), std::size_t{2});
+    }
+
+    QL_TEST(ThereIsNothingToViewWithoutAnOpenSession)
+    {
+        Fixture f;
+        std::int64_t net_id = AddTestNet(f.db(), "Skywarn");
+        f.state.page = kPageSelectRole;
+        f.state.start_net = *f.db()->GetNetById(net_id);
+        ViewStartNet(&f.state);
+        CHECK_EQ(f.state.page, kPageSelectRole);
+        CHECK(f.state.form_error.find("No session of Skywarn is open to watch") == 0);
+    }
+
+    QL_TEST(TheResumePromptCanJustView)
+    {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("Skywarn");
+        f.state.resume_instance = f.state.active_instance;
+        f.state.start_net = *f.db()->GetNetById(net_id);
+        ViewOpenNet(&f.state);
+        CHECK(f.state.viewing_only);
+        CHECK_EQ(f.state.selected_role_index, kRoleViewer);
+        // Joining to log afterwards is back to normal.
+        ResumeOpenNet(&f.state);
+        CHECK(!f.state.viewing_only);
+    }
+
+    QL_TEST(AStationCanOnlyCheckInOncePerSession)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        REQUIRE(f.Log("K4AAA"));
+        CHECK(!f.Log("k4aaa"));
+        CHECK_EQ(f.state.form_error, std::string("K4AAA is already in this session's log, as #2."));
+        CHECK_EQ(f.db()->GetCheckInsForNetInstance(f.state.active_instance.id).size(),
+                 std::size_t{2});
+        // The operator is in it too; a portable variant is a different callsign.
+        CHECK(!f.Log("W4KWK"));
+        CHECK(f.Log("W4KWK/M"));
+    }
+
 }  // namespace ql

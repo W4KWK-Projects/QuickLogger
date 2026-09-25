@@ -201,8 +201,8 @@ namespace ql
         // when there's room.
         static const std::vector<ListColumn> every_ad_hoc = {
             {"Date", 10, 10, 0, 0},   {"Start", 8, 8, 0, 0},         {"End", 8, 8, 0, 0},
-            {"Net", 24, 30, 0, 1},    {"Net Control", 12, 12, 0, 0}, {"Alternate NC", 12, 12, 2, 0},
-            {"Logger", 12, 12, 3, 0}, {"Check-ins", 9, 9, 4, 0},     {"Status", 6, 6, 0, 0},
+            {"Net", 24, 30, 0, 1},    {"Net Control", 12, 12, 0, 0}, {"Alternate NC", 12, 12, 3, 0},
+            {"Logger", 12, 12, 4, 0}, {"Check-ins", 9, 9, 1, 0},     {"Status", 6, 6, 0, 0},
         };
         return ad_hoc ? every_ad_hoc : recurring;
     }
@@ -531,7 +531,8 @@ namespace ql
             {state->start_net.name + " has a session that's still open: started " +
                  DescribeSessionStart(session) + ", " + CountCheckIns(check_ins) + ".",
              "Resume it to keep logging -- if someone else is logging it right now, you'll "
-             "both be adding to the same log. Or close it and start a new session."});
+             "both be adding to the same log. Or close it and start a new session, or just "
+             "view it without changing anything."});
     }
 
     void StartSelectedNet(AppState* state)
@@ -616,7 +617,10 @@ namespace ql
         state->page = kPageSelectRole;
     }
 
-    void ResumeOpenNet(AppState* state)
+    static void LeaveActiveNet(AppState* state);
+
+    // Joins AppState::resume_instance, to log it or (`viewing`) just watch.
+    static void JoinOpenSession(AppState* state, bool viewing)
     {
         CancelConfirmPrompt(state);
         std::optional<NetInstance> session =
@@ -647,13 +651,54 @@ namespace ql
         {
             state->operator_callsign = session->net_control_callsign;
         }
+        state->viewing_only = viewing;
+        if (viewing)
+        {
+            state->selected_role_index = kRoleViewer;
+            state->operator_callsign = state->settings.callsign;
+        }
         state->show_new_station_modal = false;
         state->show_edit_checkin_modal = false;
         state->selected_check_in_index = 0;
         ClearModalFields(state);
         RefreshActiveCheckIns(state);
-        state->status_message = "Resumed the " + DescribeSessionStart(*session) + " session.";
+        state->status_message = viewing
+                                    ? "Watching the " + DescribeSessionStart(*session) + " session."
+                                    : "Resumed the " + DescribeSessionStart(*session) + " session.";
         state->page = kPageActiveNet;
+    }
+
+    void ResumeOpenNet(AppState* state)
+    {
+        JoinOpenSession(state, false);
+    }
+
+    void ViewOpenNet(AppState* state)
+    {
+        JoinOpenSession(state, true);
+    }
+
+    void ViewStartNet(AppState* state)
+    {
+        for (const NetInstance& session : state->db->GetNetInstancesForNet(state->start_net.id))
+        {
+            if (session.status == NetInstanceStatus::kOpen)
+            {
+                state->resume_instance = session;
+                ViewOpenNet(state);
+                return;
+            }
+        }
+        state->form_error = "No session of " + state->start_net.name +
+                            " is open to watch. Choose another role to start one.";
+    }
+
+    void StopViewing(AppState* state)
+    {
+        LeaveActiveNet(state);
+        state->viewing_only = false;
+        state->form_error.clear();
+        state->status_message.clear();
     }
 
     void CloseOpenNetAndStartNew(AppState* state)
@@ -1087,6 +1132,17 @@ namespace ql
         if (!EnsureActiveSessionOpen(state, state->modal_station.callsign))
         {
             return false;
+        }
+        // Read fresh: someone else sharing the session may have logged it.
+        for (const CheckIn& existing :
+             state->db->GetCheckInsForNetInstance(state->active_instance.id))
+        {
+            if (existing.callsign == state->modal_station.callsign)
+            {
+                state->form_error = existing.callsign + " is already in this session's log, as #" +
+                                    std::to_string(existing.sequence_number) + ".";
+                return false;
+            }
         }
 
         BackfillCountyFromZip(state, &state->modal_station);
@@ -2886,7 +2942,7 @@ namespace ql
 
     void CheckInSelectedRegular(AppState* state)
     {
-        if (state->info_stations.empty() ||
+        if (state->viewing_only || state->info_stations.empty() ||
             state->info_selected >= static_cast<int>(state->info_stations.size()))
         {
             return;
@@ -3201,7 +3257,7 @@ namespace ql
                 };
             case kPageSelectRole:
                 return {
-                    {"Up/Down", "Choose your role for this session.", false},
+                    {"Up/Down", "Choose your role, or Viewer to watch an open session.", false},
                     {"F2/Enter", "Continue.", false},
                     {"Esc", "Back to the net list.", false},
                 };
@@ -3211,6 +3267,18 @@ namespace ql
                     {"Esc", "Back to choosing a role.", false},
                 };
             case kPageActiveNet:
+                if (state->viewing_only)
+                {
+                    return {
+                        {"F7", "Export this session's log to a file.", false},
+                        {"Esc", "Stop watching; back to the net list.", false},
+                        {"F6", "A station's other check-ins to this net (by #).", true},
+                        {"F8", "Regulars who haven't checked in yet.", true},
+                        {"F9", "Everything known about a station (by #).", true},
+                        {"F10", "This session so far: first-timers, recent average.", true},
+                        {"Up/Down", "Move the highlight.", false},
+                    };
+                }
                 return {
                     {"F2", "Check in a station (the New Check-In window).", false},
                     {"F3", "Edit a check-in, chosen by its #.", false},

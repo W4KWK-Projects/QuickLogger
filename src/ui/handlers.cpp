@@ -621,6 +621,11 @@ namespace ql
     void RoleContinueHandler::operator()() const
     {
         state_->form_error.clear();
+        if (state_->selected_role_index == kRoleViewer)
+        {
+            ViewStartNet(state_);
+            return;
+        }
         state_->page = kPageEnterCallsign;
     }
 
@@ -688,6 +693,7 @@ namespace ql
         state_->active_net_name = net.name;
         state_->active_net_zip = net.default_location;
         state_->active_net_is_ad_hoc = net.is_ad_hoc;
+        state_->viewing_only = false;
         LogOperatorCheckIn(state_);
         state_->form_error.clear();
         state_->status_message.clear();
@@ -806,6 +812,10 @@ namespace ql
 
     void EditSelectedCheckInHandler::operator()() const
     {
+        if (state_->viewing_only)
+        {
+            return;
+        }
         if (state_->active_check_ins.empty())
         {
             state_->form_error = "No check-ins to edit yet.";
@@ -849,6 +859,45 @@ namespace ql
                 return true;
             }
             return true;
+        }
+
+        // Watching as a Viewer: only what doesn't change anything.
+        if (state_->viewing_only)
+        {
+            if (event == ftxui::Event::Escape)
+            {
+                StopViewing(state_);
+                return true;
+            }
+            if (event == ftxui::Event::F7)
+            {
+                ExportActiveNetLogHandler export_log(state_);
+                export_log();
+                return true;
+            }
+            if (event == ftxui::Event::F6)
+            {
+                StartRowPick(state_, RowPickAction::kViewStationHistory);
+                return true;
+            }
+            if (event == ftxui::Event::F8)
+            {
+                OpenRegulars(state_);
+                return true;
+            }
+            if (event == ftxui::Event::F9)
+            {
+                StartRowPick(state_, RowPickAction::kViewStationCard);
+                return true;
+            }
+            if (event == ftxui::Event::F10)
+            {
+                OpenSessionSummary(state_);
+                return true;
+            }
+            return event == ftxui::Event::F2 || event == ftxui::Event::F3 ||
+                   event == ftxui::Event::F4 || event == ftxui::Event::F5 ||
+                   event == ftxui::Event::Return;
         }
 
         if (state_->show_new_station_modal &&
@@ -1145,6 +1194,10 @@ namespace ql
             else if (event == ftxui::Event::F3)
             {
                 CloseOpenNetAndStartNew(state);
+            }
+            else if (event == ftxui::Event::F4)
+            {
+                ViewOpenNet(state);
             }
         }
         else if (state->confirm_prompt == ConfirmPrompt::kCloseNet && yes)

@@ -498,8 +498,10 @@ namespace ql
             rows.push_back(DialogSeparator());
             if (state_->confirm_prompt == ConfirmPrompt::kResumeNet)
             {
-                rows.push_back(KeyHintRow(
-                    {{"F2/Enter", "Resume"}, {"F3", "Close & Start New"}, {"Esc", "Cancel"}}));
+                rows.push_back(KeyHintRow({{"F2/Enter", "Resume"},
+                                           {"F3", "Close & New"},
+                                           {"F4", "View"},
+                                           {"Esc", "Cancel"}}));
             }
             else
             {
@@ -685,6 +687,9 @@ namespace ql
                 Separator(),
                 HintText("Select your role for this net:"),
                 role_radiobox_->Render(),
+                HintParagraph("A Viewer watches a session that's already open, without changing "
+                              "anything."),
+                ErrorLine(state_->form_error),
             });
 
             return PageChrome("Select Your Role", content,
@@ -806,10 +811,16 @@ namespace ql
                     ? PickPrompt(state_, PickList::kActiveCheckIns)
                     : (state_->show_new_station_modal || state_->show_edit_checkin_modal
                            ? ftxui::text("")
+                       : state_->viewing_only
+                           ? HintText("Watching as a Viewer: nothing can be changed here. Esc "
+                                      "leaves.")
                            : HintText("F3 edits and F5 deletes a check-in by its #; Enter edits "
                                       "the highlighted one.")),
                 StatusLine(state_->status_message),
-                ErrorLine(state_->form_error),
+                // A check-in window shows its own errors.
+                state_->show_new_station_modal || state_->show_edit_checkin_modal
+                    ? ftxui::emptyElement()
+                    : ErrorLine(state_->form_error),
             });
 
             std::string page_title =
@@ -832,6 +843,15 @@ namespace ql
             {
                 hints = {{"F2", "Log & Continue"}, {"F3", "Log & Close"}, {"Esc", "Cancel"}};
             }
+            else if (state_->viewing_only)
+            {
+                hints = AddExtraKeysThatFit({{"F7", "Export"}, {"Esc", "Leave"}},
+                                            {{"F6", "Stn History"},
+                                             {"F8", "Regulars"},
+                                             {"F9", "Stn Card"},
+                                             {"F10", "Summary"}},
+                                            1);
+            }
             else
             {
                 // The seldom-used keys (see InfoWindow) join the bar when
@@ -847,7 +867,10 @@ namespace ql
                                              {"F10", "Summary"}},
                                             1);
             }
-            return PageChrome(page_title, content, hints);
+            // The check-in count, in the top bar.
+            std::size_t count = state_->active_check_ins.size();
+            return PageChrome(page_title, content, hints,
+                              std::to_string(count) + (count == 1 ? " check-in" : " check-ins"));
         }
 
     private:
@@ -1876,7 +1899,8 @@ namespace ql
             {
                 keys.push_back({"Up/Down", "Scroll"});
             }
-            if (state_->info_window == InfoWindow::kRegulars && !state_->info_rows.empty())
+            if (state_->info_window == InfoWindow::kRegulars && !state_->info_rows.empty() &&
+                !state_->viewing_only)
             {
                 keys.push_back({"Enter", "Check In"});
             }

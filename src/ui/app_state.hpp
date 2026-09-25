@@ -294,8 +294,10 @@ namespace ql
         std::vector<std::string> open_ad_hoc_labels;
         int selected_open_ad_hoc_index = 0;
 
-        // Select-role page: which role the operator is filling for this instance.
-        std::vector<std::string> role_labels{"Net Control", "Alternate Net Control", "Logger"};
+        // Select-role page: which role the operator is filling for this
+        // instance -- or kRoleViewer, to watch an open session.
+        std::vector<std::string> role_labels{"Net Control", "Alternate Net Control", "Logger",
+                                             "Viewer"};
         int selected_role_index = kRoleNetControl;
 
         // Enter-callsign page: the operator's own callsign for that role.
@@ -305,6 +307,10 @@ namespace ql
         // check-ins so far.
         NetInstance active_instance;
         std::string active_net_name;
+        // Watching the session as a Viewer: its check-ins can be seen,
+        // exported and looked into, but nothing can be logged, edited,
+        // deleted or closed.
+        bool viewing_only = false;
         // The active net's ZIP (Net::default_location), for nearby-station
         // autocomplete; see RefreshNearbyZips.
         std::string active_net_zip;
@@ -503,6 +509,17 @@ namespace ql
     // The kResumeNet answers: carry on logging the open session, or close it
     // and go on to start a new one.
     void ResumeOpenNet(AppState* state);
+
+    // Joins AppState::resume_instance as a Viewer (see
+    // AppState::viewing_only) -- F4 on the resume prompt.
+    void ViewOpenNet(AppState* state);
+
+    // Continue on the role page with Viewer chosen: watches the start net's
+    // open session, or says there isn't one yet.
+    void ViewStartNet(AppState* state);
+
+    // Esc while viewing: back to the net list, leaving the session as it is.
+    void StopViewing(AppState* state);
     void CloseOpenNetAndStartNew(AppState* state);
 
     // F4 on the active net: asks before closing it (ConfirmPrompt::kCloseNet)

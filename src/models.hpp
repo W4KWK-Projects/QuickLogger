@@ -48,6 +48,9 @@ namespace ql
     constexpr int kRoleAlternateNetControl = 1;
     constexpr int kRoleLogger = 2;
     constexpr int kRoleNone = -1;
+    // Joining an open session just to watch it: nothing can be changed. A
+    // way of joining, never a role stored on a session or check-in.
+    constexpr int kRoleViewer = 3;
 
     // A recurring net definition, e.g. "Skywarn Net, Tuesdays 8pm ET".
     // Holds the defaults that seed each new NetInstance.

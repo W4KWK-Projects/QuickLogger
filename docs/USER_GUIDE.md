@@ -22,7 +22,7 @@ How to use QuickLogger once it's running. For downloading, installing, building 
 
 ## The screen and the keys
 
-Every page has a **top bar** (the page's name, **F1 Help** and the clock) and a **key bar** at the bottom listing what each key does there. QuickLogger is run entirely from the keyboard; there's no mouse.
+Every page has a **top bar** (the page's name, **F1 Help** and the clock; while you're on a net, its check-in count too) and a **key bar** at the bottom listing what each key does there. QuickLogger is run entirely from the keyboard; there's no mouse.
 
 - **F2** is the page's main action (New, Save, Check In…), **Esc** goes back or cancels, and the other F-keys do what the key bar says.
 - **Tab**, **Up** and **Down** move between fields; **Enter** picks the highlighted item in a list.
@@ -55,7 +55,7 @@ A recurring net is one you run again and again: a weekly Skywarn net, a club's T
 ## Running a net
 
 1. Highlight the net and press **F3** (or Enter).
-2. Choose your **role**: Net Control, Alternate Net Control or Logger.
+2. Choose your **role**: Net Control, Alternate Net Control or Logger. (**Viewer** is for watching a session that's already open; see [Sharing a session](#sharing-a-session).)
 3. Confirm your callsign (it's filled in from Settings) and press **F2**. You're logged as check-in #1, in your role.
 
 **F2** opens the **New Check-In** window. Type the callsign (see [autocomplete](#callsign-autocomplete)) and fill in whatever else you have:
@@ -67,7 +67,7 @@ A recurring net is one you run again and again: a weekly Skywarn net, a club's T
 | Signal Report, Remarks, Comment | This check-in only. Remarks start out as the station's default remarks for this net, and whatever you log becomes its new default. |
 | Additional Role | Gives this station one of the session's other roles (the ones you don't hold yourself). Only one station holds each role; giving it to another moves it. |
 
-In the window, **F2** logs and clears the form for the next station, **F3** logs and closes, and **Esc** closes without logging.
+In the window, **F2** logs and clears the form for the next station, **F3** logs and closes, and **Esc** closes without logging. A station can check in only once per session; logging it again says which # it already is.
 
 On the check-in list, **F3** edits and **F5** deletes a check-in by its number (see [Editing and deleting by number](#editing-and-deleting-by-number)); **Enter** edits the highlighted one. A check-in's callsign can't be changed; delete it and log it again instead. Deleting leaves a gap in the numbers rather than renumbering the rest. **F7** exports the log.
 
@@ -77,7 +77,8 @@ On the check-in list, **F3** edits and **F5** deletes a check-in by its number (
 
 Several operators can log the same session at once (over SSH), for example a Net Control and a Logger.
 
-- **Joining:** start the net as usual. If a session is open, QuickLogger asks whether to **Resume** it (F2/Enter) and add to the same log, or **close it and start a new session** (F3).
+- **Joining:** start the net as usual. If a session is open, QuickLogger asks whether to **Resume** it (F2/Enter) and add to the same log, **close it and start a new session** (F3), or just **View** it (F4).
+- **Watching:** a **Viewer** (F4 above, or Viewer on the role page) sees the session as it's logged, and can export it and use the look-up keys (F6, F8, F9, F10), but can't log, edit, delete or close anything. **Esc** leaves, and the session carries on.
 - **Staying in step:** check-ins anyone logs appear on everyone's screen within a few seconds.
 - **When someone closes it:** the others can't log to it any more. Their next check-in is refused with a message naming the callsign that wasn't logged, and they're returned to the net list.
 - **Dropped connections:** a session left open by a dropped connection or closed terminal is resumed the same way.
@@ -138,7 +139,7 @@ On **Edit Net** (**F7** on Recurring Nets), the net's details sit above its save
 
 ## Help and seldom-used keys
 
-**F1** opens Help on any page. Some pages also have keys for things you won't need often. They always work, but they appear on the key bar only when there's room; Help lists them, marked with an asterisk. Each opens a window: **Up/Down** scroll it, **Esc** closes it. "By #" means it asks for a check-in's number first.
+**F1** opens Help on any page. (A Viewer's Help lists only what a Viewer can do.) Some pages also have keys for things you won't need often. They always work, but they appear on the key bar only when there's room; Help lists them, marked with an asterisk. Each opens a window: **Up/Down** scroll it, **Esc** closes it. "By #" means it asks for a check-in's number first.
 
 | Page | Key | What it shows |
 |---|---|---|

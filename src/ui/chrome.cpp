@@ -115,24 +115,29 @@ namespace ql
         g_notice_db = db;
     }
 
-    // The station-data notice as a colored badge, or an empty element.
-    static ftxui::Element StationDataNotice()
+    // The station-data notice's text (empty if there's none), and whether
+    // it's a problem rather than just news.
+    static std::string StationDataNoticeText(bool* is_problem)
     {
+        *is_problem = false;
         if (g_notice_db == nullptr)
         {
-            return ftxui::text("");
+            return "";
         }
-        bool is_problem = false;
-        std::string notice;
         try
         {
-            notice = DescribeStationDataNotice(
-                g_notice_db, static_cast<std::int64_t>(std::time(nullptr)), &is_problem);
+            return DescribeStationDataNotice(
+                g_notice_db, static_cast<std::int64_t>(std::time(nullptr)), is_problem);
         }
         catch (const std::exception&)
         {
-            return ftxui::text("");
+            return "";
         }
+    }
+
+    // The station-data notice as a colored badge, or an empty element.
+    static ftxui::Element NoticeBadge(const std::string& notice, bool is_problem)
+    {
         if (notice.empty())
         {
             return ftxui::text("");
@@ -149,24 +154,48 @@ namespace ql
              ftxui::text(" ")});
     }
 
-    ftxui::Element TopBar(const std::string& page_title)
+    ftxui::Element TopBar(const std::string& page_title, const std::string& status)
     {
+        bool is_problem = false;
+        std::string notice = StationDataNoticeText(&is_problem);
+        // Local time, to the minute. It's computed each time the bar is
+        // drawn; ScreenTicker (interactive_session.cpp) is what makes a
+        // redraw happen when the minute changes.
+        std::string clock = FormatLocalTimeOfDay(std::time(nullptr)) + " ";
+        std::string version = std::string("v") + QuickLoggerVersion() + " ";
+
+        // Shorten the title rather than push the right-hand side (status,
+        // notice, F1 Help, clock) off the edge. Columns, not bytes: "— " is
+        // two columns.
+        const std::string help_key = " F1 ";
+        const std::string help_label = " Help  ";
+        const std::string status_gap = "   ";
+        int left = 12 + static_cast<int>(version.size()) + 2;
+        int right = (notice.empty() ? 0 : static_cast<int>(notice.size()) + 3) +
+                    (status.empty() ? 0 : static_cast<int>(status.size() + status_gap.size())) +
+                    static_cast<int>(help_key.size() + help_label.size() + clock.size());
+        // A trailing space after the title, and a wider gap before a status.
+        int room = ftxui::Terminal::Size().dimx - left - right - (status.empty() ? 1 : 3);
+        std::string title = page_title;
+        if (room < static_cast<int>(title.size()))
+        {
+            title = room > 3 ? title.substr(0, static_cast<std::size_t>(room - 3)) + "..."
+                             : title.substr(0, static_cast<std::size_t>(std::max(room, 0)));
+        }
+
         return ftxui::hbox({
                    ftxui::text("QuickLogger ") | ftxui::bold | ftxui::color(kColorLabel),
-                   ftxui::text(std::string("v") + QuickLoggerVersion() + " ") |
-                       ftxui::color(kColorLabel),
+                   ftxui::text(version) | ftxui::color(kColorLabel),
                    ftxui::text("— ") | ftxui::color(kColorHeading),
-                   ftxui::text(page_title + " ") | ftxui::bold | ftxui::color(kColorHeading),
+                   ftxui::text(title + " ") | ftxui::bold | ftxui::color(kColorHeading),
                    ftxui::filler(),
-                   StationDataNotice(),
-                   ftxui::text(" F1 ") | ftxui::bgcolor(ftxui::Color::YellowLight) |
+                   status.empty() ? ftxui::text("")
+                                  : ftxui::text(status + status_gap) | ftxui::color(kColorData),
+                   NoticeBadge(notice, is_problem),
+                   ftxui::text(help_key) | ftxui::bgcolor(ftxui::Color::YellowLight) |
                        ftxui::color(ftxui::Color::Black),
-                   ftxui::text(" Help  ") | ftxui::color(kColorLabel),
-                   // Local time, to the minute. It's computed each time the bar is
-                   // drawn; ScreenTicker (interactive_session.cpp) is what makes a
-                   // redraw happen when the minute changes.
-                   ftxui::text(FormatLocalTimeOfDay(std::time(nullptr)) + " ") |
-                       ftxui::color(kColorData),
+                   ftxui::text(help_label) | ftxui::color(kColorLabel),
+                   ftxui::text(clock) | ftxui::color(kColorData),
                }) |
                ftxui::bgcolor(ftxui::Color::Blue);
     }
@@ -217,10 +246,10 @@ namespace ql
     }
 
     ftxui::Element PageChrome(const std::string& page_title, ftxui::Element content,
-                              const std::vector<KeyHint>& hints)
+                              const std::vector<KeyHint>& hints, const std::string& top_status)
     {
         return ftxui::vbox({
-            TopBar(page_title),
+            TopBar(page_title, top_status),
             std::move(content) | ftxui::flex,
             BottomBar(hints),
         });

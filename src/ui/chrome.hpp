@@ -118,8 +118,10 @@ namespace ql
     // lives here rather than taking room on each key bar -- and, while the
     // shared station data is loading or missing, a short notice saying so,
     // so people know lookups aren't fully working yet whatever page they're
-    // on.
-    ftxui::Element TopBar(const std::string& page_title);
+    // on. A page can add a short `status` of its own (the active net's
+    // check-in count), shown left of all that. The title is shortened if
+    // need be so none of it is pushed off the edge.
+    ftxui::Element TopBar(const std::string& page_title, const std::string& status = "");
 
     // A full-width colored legend bar for the bottom of a page. Packs as many
     // hints as fit on one line given the real client terminal width
@@ -151,11 +153,12 @@ namespace ql
     // ambiguous on Linux/GCC even though libc++ (macOS/FreeBSD) resolves it.
     ftxui::Element BottomBarRows(const std::vector<std::vector<KeyHint>>& rows);
 
-    // Wraps `content` between a TopBar/BottomBar for `page_title`/`hints`,
-    // giving `content` the full remaining vertical space in between so it
-    // reaches the edges of the screen.
+    // Wraps `content` between a TopBar/BottomBar for `page_title`/`hints`
+    // (and the top bar's `top_status`), giving `content` the full remaining
+    // vertical space in between so it reaches the edges of the screen.
     ftxui::Element PageChrome(const std::string& page_title, ftxui::Element content,
-                              const std::vector<KeyHint>& hints);
+                              const std::vector<KeyHint>& hints,
+                              const std::string& top_status = "");
 
     // Same as PageChrome, but with a multi-row bottom bar -- see
     // BottomBarRows above (also for why this isn't an overload).
