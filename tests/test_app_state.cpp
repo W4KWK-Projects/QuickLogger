@@ -11,6 +11,7 @@
 #include "../src/file_export.hpp"
 #include "../src/net_slice.hpp"
 #include "../src/ui/app_state.hpp"
+#include "../src/ui/handlers.hpp"
 #include "test_framework.hpp"
 #include "test_helpers.hpp"
 
@@ -1486,6 +1487,27 @@ namespace ql
         tone_only.pl_tone = "88.5";
         CHECK_EQ(DescribeNetRadio(tone_only), std::string("PL 88.5"));
         CHECK(DescribeNetRadio(Net()).empty());
+
+        // A new recurring net takes its comments from the New Recurring Net
+        // page.
+        ResetCreateNetForm(&f.state);
+        f.state.new_net_name = "Club";
+        f.state.new_net_frequency = "147.000";
+        f.state.new_net_comments = "Backup 442.100";
+        CreateNetSubmitHandler submit(&f.state);
+        submit();
+        CHECK(f.state.form_error.empty());
+        bool found = false;
+        for (const Net& net : f.db()->GetAllNets())
+        {
+            if (net.name == "Club")
+            {
+                found = true;
+                CHECK_EQ(net.comments, std::string("Backup 442.100"));
+            }
+        }
+        CHECK(found);
+        CHECK(f.state.new_net_comments.empty());
 
         // New nets, recurring or ad hoc, are checked too.
         ResetCreateNetForm(&f.state);

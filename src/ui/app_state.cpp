@@ -991,6 +991,7 @@ namespace ql
         state->new_net_tone.clear();
         state->new_net_location.clear();
         state->new_net_recurrence.clear();
+        state->new_net_comments.clear();
         state->form_error.clear();
     }
 

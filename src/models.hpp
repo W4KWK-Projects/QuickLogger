@@ -73,7 +73,7 @@ namespace ql
         std::string default_grid_square;  // Resolved from default_location.
         std::string recurrence_description;
         // Anything the net's owner wants to note (a backup frequency, a DCS
-        // code); shown only on Edit Net. Stored in the
+        // code); on New Recurring Net and Edit Net. Stored in the
         // nets table's `notes` column.
         std::string comments;
         // Unix timestamps: when this net was created here, and -- for a net

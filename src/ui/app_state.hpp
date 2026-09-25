@@ -301,6 +301,7 @@ namespace ql
         std::string new_net_tone;
         std::string new_net_location;
         std::string new_net_recurrence;
+        std::string new_net_comments;
 
         // The net being started or resumed: set by StartSelectedNet, the Ad
         // Hoc page and the resume prompt, and read by the Select Role and

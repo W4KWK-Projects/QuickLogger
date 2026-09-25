@@ -652,7 +652,7 @@ namespace ql
         CreateNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
                           ftxui::Component input_frequency, ftxui::Component input_offset,
                           ftxui::Component input_tone, ftxui::Component input_location,
-                          ftxui::Component input_recurrence)
+                          ftxui::Component input_recurrence, ftxui::Component input_comments)
             : state_(state),
               input_name_(std::move(input_name)),
               input_mode_(std::move(input_mode)),
@@ -660,7 +660,8 @@ namespace ql
               input_offset_(std::move(input_offset)),
               input_tone_(std::move(input_tone)),
               input_location_(std::move(input_location)),
-              input_recurrence_(std::move(input_recurrence))
+              input_recurrence_(std::move(input_recurrence)),
+              input_comments_(std::move(input_comments))
         {
         }
 
@@ -674,6 +675,7 @@ namespace ql
                 ftxui::hbox({FieldLabel("PL Tone:    "), input_tone_->Render()}),
                 ftxui::hbox({FieldLabel("ZIP Code:   "), input_location_->Render()}),
                 ftxui::hbox({FieldLabel("Recurrence: "), input_recurrence_->Render()}),
+                ftxui::hbox({FieldLabel("Comments:   "), input_comments_->Render()}),
                 ErrorLine(state_->form_error),
             });
 
@@ -689,6 +691,7 @@ namespace ql
         ftxui::Component input_tone_;
         ftxui::Component input_location_;
         ftxui::Component input_recurrence_;
+        ftxui::Component input_comments_;
     };
 
     ftxui::Component BuildCreateNetPage(AppState* state)
@@ -711,6 +714,8 @@ namespace ql
             ftxui::Input(&state->new_net_location, "5-digit ZIP (optional)", location_option);
         ftxui::Component input_recurrence = ftxui::Input(
             &state->new_net_recurrence, "e.g. Tuesdays 8pm ET", SingleLineInputOption());
+        ftxui::Component input_comments =
+            ftxui::Input(&state->new_net_comments, "Anything (optional)", SingleLineInputOption());
 
         ftxui::Component root = ftxui::Container::Vertical({
             input_name,
@@ -720,13 +725,14 @@ namespace ql
             input_tone,
             input_location,
             input_recurrence,
+            input_comments,
         });
 
         state->new_net_name_input = input_name;
 
         return ftxui::Renderer(
             root, CreateNetRenderer(state, input_name, input_mode, input_frequency, input_offset,
-                                    input_tone, input_location, input_recurrence));
+                                    input_tone, input_location, input_recurrence, input_comments));
     }
 
     // ---- Select-role page ---------------------------------------------------

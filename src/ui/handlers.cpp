@@ -122,6 +122,7 @@ namespace ql
         net.pl_tone = state_->new_net_tone;
         net.default_location = state_->new_net_location;
         net.recurrence_description = state_->new_net_recurrence;
+        net.comments = state_->new_net_comments;
         net.created_at = static_cast<std::int64_t>(std::time(nullptr));
         state_->db->CreateNet(net);
 
