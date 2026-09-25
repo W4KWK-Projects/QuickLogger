@@ -134,6 +134,17 @@ namespace ql
         CHECK(!IsValidCallsign("W4-KWK"));
     }
 
+    QL_TEST(BaseCallsignDropsPortableIndicators)
+    {
+        CHECK_EQ(BaseCallsign("W4KWK"), std::string("W4KWK"));
+        CHECK_EQ(BaseCallsign("W4KWK/M"), std::string("W4KWK"));
+        CHECK_EQ(BaseCallsign("W4KWK/QRP"), std::string("W4KWK"));
+        CHECK_EQ(BaseCallsign("VE3/W4KWK"), std::string("W4KWK"));
+        CHECK_EQ(BaseCallsign("VE3ABC/W4"), std::string("VE3ABC"));
+        CHECK_EQ(BaseCallsign("KH6/VE3ABC/P"), std::string("VE3ABC"));
+        CHECK_EQ(BaseCallsign("NOT/A/CALL/AT/ALL"), std::string("A/CALL/AT"));
+    }
+
     QL_TEST(NormalizeCallsignKeepsOnlyCallsignCharacters)
     {
         CHECK_EQ(NormalizeCallsign("w4kwk"), std::string("W4KWK"));

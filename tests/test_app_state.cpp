@@ -121,7 +121,7 @@ namespace ql
         CHECK(!f.Log("W4"));
         REQUIRE(f.state.active_check_ins.size() == 1);
         CHECK(f.Log("ve3abc"));
-        CHECK(f.Log("W4KWK/M"));
+        CHECK(f.Log("K4ABC/M"));
         CHECK_EQ(f.state.active_check_ins.size(), std::size_t{3});
 
         f.state.saved_station.callsign = "G4ABC";
@@ -158,9 +158,9 @@ namespace ql
         Fixture f;
         f.StartNet("Skywarn");
         REQUIRE(f.Log(" k4abc\t"));
-        REQUIRE(f.Log("w4kwk/m"));
+        REQUIRE(f.Log("k4abd/m"));
         CHECK_EQ(f.state.active_check_ins[1].callsign, std::string("K4ABC"));
-        CHECK_EQ(f.state.active_check_ins[2].callsign, std::string("W4KWK/M"));
+        CHECK_EQ(f.state.active_check_ins[2].callsign, std::string("K4ABD/M"));
         CHECK(f.db()->FindStationByCallsign("K4ABC").has_value());
     }
 
@@ -1581,11 +1581,18 @@ namespace ql
         REQUIRE(f.Log("K4AAA"));
         CHECK(!f.Log("k4aaa"));
         CHECK_EQ(f.state.form_error, std::string("K4AAA is already in this session's log, as #2."));
+        // Mobile, portable or operating from elsewhere, it's the same station.
+        CHECK(!f.Log("K4AAA/M"));
+        CHECK_EQ(f.state.form_error,
+                 std::string("K4AAA/M is already in this session's log, as K4AAA #2."));
+        CHECK(!f.Log("VE3/K4AAA"));
         CHECK_EQ(f.db()->GetCheckInsForNetInstance(f.state.active_instance.id).size(),
                  std::size_t{2});
-        // The operator is in it too; a portable variant is a different callsign.
+        // The operator is in it too.
         CHECK(!f.Log("W4KWK"));
-        CHECK(f.Log("W4KWK/M"));
+        CHECK(!f.Log("W4KWK/M"));
+        CHECK(f.Log("K4BBB/P"));
+        CHECK(!f.Log("K4BBB"));
     }
 
 }  // namespace ql

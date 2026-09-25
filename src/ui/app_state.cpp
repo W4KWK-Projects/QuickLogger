@@ -1133,14 +1133,19 @@ namespace ql
         {
             return false;
         }
-        // Read fresh: someone else sharing the session may have logged it.
+        // Once per session, counting W4KWK/M as W4KWK. Read fresh: someone
+        // else sharing the session may have logged it.
+        std::string base = BaseCallsign(state->modal_station.callsign);
         for (const CheckIn& existing :
              state->db->GetCheckInsForNetInstance(state->active_instance.id))
         {
-            if (existing.callsign == state->modal_station.callsign)
+            if (BaseCallsign(existing.callsign) == base)
             {
-                state->form_error = existing.callsign + " is already in this session's log, as #" +
-                                    std::to_string(existing.sequence_number) + ".";
+                state->form_error =
+                    state->modal_station.callsign + " is already in this session's log, as " +
+                    (existing.callsign == state->modal_station.callsign ? std::string()
+                                                                        : existing.callsign + " ") +
+                    "#" + std::to_string(existing.sequence_number) + ".";
                 return false;
             }
         }

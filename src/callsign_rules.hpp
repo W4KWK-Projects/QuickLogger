@@ -36,4 +36,9 @@ namespace ql
     // leading US or Canadian prefix with its digit (VE3/W4KWK, KH6/VE3ABC).
     bool IsValidCallsign(const std::string& callsign);
 
+    // `callsign` without its portable indicators: "W4KWK" for W4KWK/M,
+    // VE3/W4KWK or VE3/W4KWK/P. Anything it can't make sense of comes back
+    // as it is.
+    std::string BaseCallsign(const std::string& callsign);
+
 }  // namespace ql

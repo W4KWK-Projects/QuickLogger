@@ -240,4 +240,31 @@ namespace ql
                IsTrailingIndicator(pieces[2]);
     }
 
+    std::string BaseCallsign(const std::string& callsign)
+    {
+        std::string_view text = callsign;
+        std::size_t first_slash = text.find('/');
+        if (first_slash == std::string_view::npos)
+        {
+            return callsign;
+        }
+        std::size_t last_slash = text.rfind('/');
+        if (first_slash != last_slash)
+        {
+            // prefix/call/indicator
+            return std::string(text.substr(first_slash + 1, last_slash - first_slash - 1));
+        }
+        std::string_view before = text.substr(0, first_slash);
+        std::string_view after = text.substr(first_slash + 1);
+        if (IsBaseCallsign(before) && IsTrailingIndicator(after))
+        {
+            return std::string(before);
+        }
+        if (IsLocationPrefix(before) && IsBaseCallsign(after))
+        {
+            return std::string(after);
+        }
+        return callsign;
+    }
+
 }  // namespace ql

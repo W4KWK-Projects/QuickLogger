@@ -67,7 +67,7 @@ A recurring net is one you run again and again: a weekly Skywarn net, a club's T
 | Signal Report, Remarks, Comment | This check-in only. Remarks start out as the station's default remarks for this net, and whatever you log becomes its new default. |
 | Additional Role | Gives this station one of the session's other roles (the ones you don't hold yourself). Only one station holds each role; giving it to another moves it. |
 
-In the window, **F2** logs and clears the form for the next station, **F3** logs and closes, and **Esc** closes without logging. A station can check in only once per session; logging it again says which # it already is.
+In the window, **F2** logs and clears the form for the next station, **F3** logs and closes, and **Esc** closes without logging. A station can check in only once per session, counting a mobile or portable callsign (`W4KWK/M`, `VE3/W4KWK`) as the same station; logging it again says which # it already is.
 
 On the check-in list, **F3** edits and **F5** deletes a check-in by its number (see [Editing and deleting by number](#editing-and-deleting-by-number)); **Enter** edits the highlighted one. A check-in's callsign can't be changed; delete it and log it again instead. Deleting leaves a gap in the numbers rather than renumbering the rest. **F7** exports the log.
 
