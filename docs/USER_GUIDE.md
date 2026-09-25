@@ -22,7 +22,7 @@ How to use QuickLogger once it's running. For downloading, installing, building 
 
 ## The screen and the keys
 
-Every page has a **top bar** (the page's name, **F1 Help** and the clock; while you're on a net, its check-in count too) and a **key bar** at the bottom listing what each key does there. QuickLogger is run entirely from the keyboard; there's no mouse.
+Every page has a **top bar** (the page's name, **F1 Help** and the clock; while you're on a net, its check-in count too) and a **key bar** at the bottom listing what each key does there. QuickLogger is run from the keyboard, but if your terminal passes mouse clicks through (most do, including over SSH), you can also click: a key in the key bar, or **F1 Help** in the top bar, presses that key; clicking a row in a list highlights it, and double-clicking it is the same as pressing Enter on it. Only clicks are sent, not mouse movement, so moving the mouse costs no network traffic and never moves the highlight. While QuickLogger is using the mouse, selecting text to copy needs a modifier key held while dragging (Option in iTerm2, Fn in Terminal.app).
 
 - **F2** is the page's main action (New, Save, Check In…), **Esc** goes back or cancels, and the other F-keys do what the key bar says.
 - **Tab**, **Up** and **Down** move between fields; **Enter** picks the highlighted item in a list.

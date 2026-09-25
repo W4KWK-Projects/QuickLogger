@@ -13,6 +13,7 @@
 #include "../date_utils.hpp"
 #include "../uls_import.hpp"
 #include "../version.hpp"
+#include "mouse.hpp"
 
 namespace ql
 {
@@ -98,10 +99,14 @@ namespace ql
         ftxui::Elements pieces;
         for (const KeyHint& hint : hints)
         {
-            pieces.push_back(ftxui::text(" " + hint.key + " ") |
-                             ftxui::bgcolor(ftxui::Color::YellowLight) |
-                             ftxui::color(ftxui::Color::Black));
-            pieces.push_back(ftxui::text(" " + hint.label + "  "));
+            // Clicking the key or its label presses the key (see mouse.hpp).
+            pieces.push_back(
+                ftxui::hbox({
+                    ftxui::text(" " + hint.key + " ") | ftxui::bgcolor(ftxui::Color::YellowLight) |
+                        ftxui::color(ftxui::Color::Black),
+                    ftxui::text(" " + hint.label + "  "),
+                }) |
+                ClickTarget(hint.key));
         }
         pieces.push_back(ftxui::filler());
         return ftxui::hbox(pieces) | ftxui::bgcolor(ftxui::Color::Cyan) |
@@ -192,9 +197,11 @@ namespace ql
                    status.empty() ? ftxui::text("")
                                   : ftxui::text(status + status_gap) | ftxui::color(kColorData),
                    NoticeBadge(notice, is_problem),
-                   ftxui::text(help_key) | ftxui::bgcolor(ftxui::Color::YellowLight) |
-                       ftxui::color(ftxui::Color::Black),
-                   ftxui::text(help_label) | ftxui::color(kColorLabel),
+                   ftxui::hbox({
+                       ftxui::text(help_key) | ftxui::bgcolor(ftxui::Color::YellowLight) |
+                           ftxui::color(ftxui::Color::Black),
+                       ftxui::text(help_label) | ftxui::color(kColorLabel),
+                   }) | ClickTarget("F1"),
                    ftxui::text(clock) | ftxui::color(kColorData),
                }) |
                ftxui::bgcolor(ftxui::Color::Blue);

@@ -12,6 +12,7 @@
 #include "../date_utils.hpp"
 #include "../text_utils.hpp"
 #include "../uls_import.hpp"
+#include "mouse.hpp"
 
 namespace ql
 {
@@ -1372,6 +1373,22 @@ namespace ql
 
     bool SafeAppEventDispatcher::OnEvent(ftxui::Event event)
     {
+        // A click on a key in a key bar presses that key.
+        ftxui::Event clicked_key;
+        if (event.is_mouse() && ClickedKey(event.mouse(), &clicked_key))
+        {
+            return Dispatch(clicked_key);
+        }
+        // In a list numbered for picking, a click highlights a row and a
+        // double-click picks it, as Enter would.
+        int clicked_row = -1;
+        bool double_click = false;
+        if (event.is_mouse() && state_->row_pick_action != RowPickAction::kNone &&
+            ClickedRow(event.mouse(), &clicked_row, &double_click))
+        {
+            HighlightRowPickRow(state_, clicked_row);
+            return double_click ? Dispatch(ftxui::Event::Return) : true;
+        }
         std::vector<ftxui::Event> events = escape_splitter_.Feed(event);
         if (events.empty())
         {
@@ -1387,6 +1404,8 @@ namespace ql
 
     ftxui::Element SafeAppEventDispatcher::Render()
     {
+        StopMouseMovementReports();
+        BeginClickTargets();
         UpdateListWidths(state_, ftxui::Terminal::Size().dimx);
         // Not while a prompt or window is up over it, which may be about the
         // highlighted net.

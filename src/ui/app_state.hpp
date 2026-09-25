@@ -829,6 +829,10 @@ namespace ql
     // clears anything typed, since Enter will now pick the highlighted row.
     void MoveRowPickHighlight(AppState* state, int delta);
 
+    // A click on row `index` while picking: highlights it and clears
+    // anything typed, like moving to it with Up/Down.
+    void HighlightRowPickRow(AppState* state, int index);
+
     // The verb for the pick-mode Enter key ("Edit", "Delete", "Remove").
     std::string RowPickVerbFor(RowPickAction action);
 

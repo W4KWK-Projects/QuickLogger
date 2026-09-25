@@ -1714,6 +1714,18 @@ namespace ql
         SyncPickListSideEffects(state);
     }
 
+    void HighlightRowPickRow(AppState* state, int index)
+    {
+        PickList list = RowPickListFor(state->row_pick_action);
+        int* selection = PickListSelection(state, list);
+        if (selection == nullptr || index < 0 ||
+            index >= static_cast<int>(PickListSize(state, list)))
+        {
+            return;
+        }
+        MoveRowPickHighlight(state, index - *selection);
+    }
+
     std::string RowPickVerbFor(RowPickAction action)
     {
         return RowPickVerb(action);

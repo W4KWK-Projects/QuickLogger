@@ -15,9 +15,16 @@
 #include "../uls_import.hpp"
 #include "chrome.hpp"
 #include "handlers.hpp"
+#include "mouse.hpp"
 
 namespace ql
 {
+
+    // A list that a double-click presses Enter on (see DoubleClickToEnter).
+    static ftxui::Component ClickableList(AppState* state, ftxui::Component menu)
+    {
+        return ftxui::Make<DoubleClickToEnter>(std::move(menu), state->screen);
+    }
 
     // Error and status lines take no room at all while there's nothing to
     // say, leaving it to the page's lists on a small terminal.
@@ -409,7 +416,7 @@ namespace ql
             {
                 row = row | ftxui::inverted | ftxui::focus;
             }
-            rows.push_back(row);
+            rows.push_back(row | ClickableRow(static_cast<int>(i)));
         }
         return ftxui::vbox(rows);
     }
@@ -474,7 +481,7 @@ namespace ql
     {
         ftxui::Component modal =
             ftxui::Renderer(ftxui::Container::Vertical({}), RowDeleteConfirmModalRenderer(state));
-        return ftxui::Modal(std::move(page), modal, &state->show_row_delete_confirm_modal);
+        return LayeredModal(std::move(page), modal, &state->show_row_delete_confirm_modal);
     }
 
     // A ConfirmPrompt (see AppState::confirm_prompt): its title, its lines,
@@ -528,7 +535,7 @@ namespace ql
     {
         ftxui::Component modal =
             ftxui::Renderer(ftxui::Container::Vertical({}), ConfirmPromptRenderer(state));
-        return ftxui::Modal(std::move(page), modal, &state->show_confirm_prompt);
+        return LayeredModal(std::move(page), modal, &state->show_confirm_prompt);
     }
 
     // ---- Net list page ---------------------------------------------------
@@ -612,12 +619,12 @@ namespace ql
         ftxui::MenuOption net_menu_option;
         net_menu_option.on_enter = StartSelectedNetHandler(state);
         net_menu_option.entries_option.transform = AlignedMenuEntryTransform;
-        ftxui::Component net_menu =
-            ftxui::Menu(&state->net_names, &state->selected_net_index, net_menu_option);
+        ftxui::Component net_menu = ClickableList(
+            state, ftxui::Menu(&state->net_names, &state->selected_net_index, net_menu_option));
 
         ftxui::Component root = ftxui::Container::Vertical({net_menu});
         ftxui::Component main_view = ftxui::Renderer(root, NetListRenderer(state, net_menu));
-        return WithConfirmPrompt(state, ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
+        return WithConfirmPrompt(state, LayeredModal(main_view, BuildZmodemConfirmModal(state),
                                                      &state->show_zmodem_confirm_modal));
     }
 
@@ -1023,8 +1030,9 @@ namespace ql
         ftxui::MenuOption check_in_menu_option;
         check_in_menu_option.on_enter = EditSelectedCheckInHandler(state);
         check_in_menu_option.entries_option.transform = AlignedMenuEntryTransform;
-        ftxui::Component check_in_menu = ftxui::Menu(
-            &state->active_display_rows, &state->selected_check_in_index, check_in_menu_option);
+        ftxui::Component check_in_menu = ClickableList(
+            state, ftxui::Menu(&state->active_display_rows, &state->selected_check_in_index,
+                               check_in_menu_option));
 
         ftxui::Component main_root = ftxui::Container::Vertical({check_in_menu});
         ftxui::Component main_view =
@@ -1097,12 +1105,12 @@ namespace ql
                                                       edit_input_comment, edit_role_choice_menu));
 
         ftxui::Component with_new_station_modal =
-            ftxui::Modal(main_view, modal_view, &state->show_new_station_modal);
+            LayeredModal(main_view, modal_view, &state->show_new_station_modal);
         ftxui::Component with_edit_checkin_modal =
-            ftxui::Modal(with_new_station_modal, edit_modal_view, &state->show_edit_checkin_modal);
+            LayeredModal(with_new_station_modal, edit_modal_view, &state->show_edit_checkin_modal);
         return WithConfirmPrompt(
             state, WithRowDeleteConfirm(
-                       state, ftxui::Modal(with_edit_checkin_modal, BuildZmodemConfirmModal(state),
+                       state, LayeredModal(with_edit_checkin_modal, BuildZmodemConfirmModal(state),
                                            &state->show_zmodem_confirm_modal)));
     }
 
@@ -1358,8 +1366,8 @@ namespace ql
         // Only rendered while picking (see AdHocNetRenderer::OpenSessionRows),
         // and deliberately left out of `root`: Tab and the arrow keys stay on
         // the form's fields.
-        ftxui::Component open_session_menu =
-            ftxui::Menu(&state->open_ad_hoc_labels, &state->selected_open_ad_hoc_index);
+        ftxui::Component open_session_menu = ClickableList(
+            state, ftxui::Menu(&state->open_ad_hoc_labels, &state->selected_open_ad_hoc_index));
 
         return WithConfirmPrompt(
             state,
@@ -1467,19 +1475,20 @@ namespace ql
         ftxui::MenuOption instance_menu_option;
         instance_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         instance_menu_option.on_change = HistoryInstanceChangedHandler(state);
-        ftxui::Component instance_menu = ftxui::Menu(
-            &state->history_instance_labels, &state->selected_history_index, instance_menu_option);
+        ftxui::Component instance_menu =
+            ClickableList(state, ftxui::Menu(&state->history_instance_labels,
+                                             &state->selected_history_index, instance_menu_option));
 
         ftxui::MenuOption checkin_menu_option;
         checkin_menu_option.entries_option.transform = AlignedMenuEntryTransform;
-        ftxui::Component checkin_menu =
-            ftxui::Menu(&state->history_check_in_labels, &state->selected_history_check_in_index,
-                        checkin_menu_option);
+        ftxui::Component checkin_menu = ClickableList(
+            state, ftxui::Menu(&state->history_check_in_labels,
+                               &state->selected_history_check_in_index, checkin_menu_option));
 
         ftxui::Component root = ftxui::Container::Vertical({instance_menu, checkin_menu});
         ftxui::Component main_view =
             ftxui::Renderer(root, NetHistoryRenderer(state, instance_menu, checkin_menu));
-        return WithRowDeleteConfirm(state, ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
+        return WithRowDeleteConfirm(state, LayeredModal(main_view, BuildZmodemConfirmModal(state),
                                                         &state->show_zmodem_confirm_modal));
     }
 
@@ -1680,9 +1689,9 @@ namespace ql
         ftxui::MenuOption saved_station_menu_option;
         saved_station_menu_option.on_enter = LoadSavedStationHandler(state);
         saved_station_menu_option.entries_option.transform = AlignedMenuEntryTransform;
-        ftxui::Component saved_station_menu =
-            ftxui::Menu(&state->edit_net_saved_station_labels, &state->selected_saved_station_index,
-                        saved_station_menu_option);
+        ftxui::Component saved_station_menu = ClickableList(
+            state, ftxui::Menu(&state->edit_net_saved_station_labels,
+                               &state->selected_saved_station_index, saved_station_menu_option));
 
         ftxui::Component root = ftxui::Container::Vertical({
             input_name,
@@ -1715,11 +1724,11 @@ namespace ql
                             SavedStationModalRenderer(state, station_inputs, remarks_input));
 
         ftxui::Component with_station_modal =
-            ftxui::Modal(main_view, modal_view, &state->show_saved_station_modal);
-        ftxui::Component with_zmodem_modal = ftxui::Modal(
+            LayeredModal(main_view, modal_view, &state->show_saved_station_modal);
+        ftxui::Component with_zmodem_modal = LayeredModal(
             with_station_modal, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal);
         return WithRowDeleteConfirm(
-            state, ftxui::Modal(with_zmodem_modal, BuildDeleteNetConfirmModal(state),
+            state, LayeredModal(with_zmodem_modal, BuildDeleteNetConfirmModal(state),
                                 &state->show_delete_net_confirm_modal));
     }
 
@@ -1764,12 +1773,13 @@ namespace ql
         ftxui::MenuOption file_menu_option;
         file_menu_option.on_enter = ImportSelectedNetSliceHandler(state);
         file_menu_option.entries_option.transform = AlignedMenuEntryTransform;
-        ftxui::Component file_menu = ftxui::Menu(
-            &state->import_net_files, &state->selected_import_file_index, file_menu_option);
+        ftxui::Component file_menu =
+            ClickableList(state, ftxui::Menu(&state->import_net_files,
+                                             &state->selected_import_file_index, file_menu_option));
 
         ftxui::Component root = ftxui::Container::Vertical({file_menu});
         ftxui::Component main_view = ftxui::Renderer(root, ImportNetRenderer(state, file_menu));
-        return ftxui::Modal(main_view, BuildZmodemConfirmModal(state),
+        return LayeredModal(main_view, BuildZmodemConfirmModal(state),
                             &state->show_zmodem_confirm_modal);
     }
 
@@ -1835,7 +1845,8 @@ namespace ql
         ftxui::MenuOption user_menu_option;
         user_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component user_menu =
-            ftxui::Menu(&state->manage_users_labels, &state->selected_user_index, user_menu_option);
+            ClickableList(state, ftxui::Menu(&state->manage_users_labels,
+                                             &state->selected_user_index, user_menu_option));
         ftxui::Component input_username =
             ftxui::Input(&state->new_user_username, "Username", SingleLineInputOption());
         ftxui::Component input_public_key = ftxui::Input(

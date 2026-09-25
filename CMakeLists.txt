@@ -71,6 +71,7 @@ set(quicklogger_sources
     src/ui/pages.cpp
     src/ui/escape_splitter.cpp
     src/ui/list_columns.cpp
+    src/ui/mouse.cpp
 )
 
 if(QUICKLOGGER_ENABLE_SSH)
@@ -160,6 +161,7 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_utilities.cpp
         tests/test_escape_splitter.cpp
         tests/test_list_columns.cpp
+        tests/test_mouse.cpp
         tests/test_zip_extract.cpp
         tests/test_database.cpp
         tests/test_station_data.cpp

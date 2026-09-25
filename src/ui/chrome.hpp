@@ -91,7 +91,8 @@ namespace ql
 
     // A single keyboard shortcut shown in a page's or modal's key legend, e.g.
     // {"F2", "Save"}. Since mouse use can't be assumed, every action a page or
-    // modal offers should have an entry somewhere on screen.
+    // modal offers should have an entry somewhere on screen. Clicking one
+    // presses its key (see mouse.hpp).
     struct KeyHint
     {
         std::string key;

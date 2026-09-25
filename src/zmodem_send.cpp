@@ -53,6 +53,7 @@ namespace ql
 #include <ftxui/component/screen_interactive.hpp>
 
 #include "file_export.hpp"
+#include "ui/mouse.hpp"
 
 namespace ql
 {
@@ -230,6 +231,8 @@ namespace ql
         bool ok = false;
         ftxui::Closure run = screen->WithRestoredIO(RunSzProcess(path, &ok, error));
         run();
+        // FTXUI took the terminal back, turning movement reports on again.
+        RequestMouseMovementReportsOff();
         return ok;
     }
 
@@ -311,6 +314,8 @@ namespace ql
         bool ok = false;
         ftxui::Closure run = screen->WithRestoredIO(RunRzProcess(dest_dir, &ok, error));
         run();
+        // FTXUI took the terminal back, turning movement reports on again.
+        RequestMouseMovementReportsOff();
         return ok;
     }
 

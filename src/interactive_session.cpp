@@ -24,6 +24,7 @@
 #include "ui/app_state.hpp"
 #include "ui/chrome.hpp"
 #include "ui/handlers.hpp"
+#include "ui/mouse.hpp"
 #include "ui/pages.hpp"
 
 namespace ql
@@ -391,7 +392,7 @@ namespace ql
         // updater -- is mid-transaction) taking down the whole session.
         // Help and the seldom-used windows open over whichever page is up.
         ftxui::Component with_info_window =
-            ftxui::Modal(tab, ql::BuildInfoWindow(&state), &state.show_info_window);
+            ql::LayeredModal(tab, ql::BuildInfoWindow(&state), &state.show_info_window);
         ftxui::Component ui = ftxui::Make<ql::SafeAppEventDispatcher>(with_info_window, &state);
 
         // The top bar's station-data notice reads this session's database.
