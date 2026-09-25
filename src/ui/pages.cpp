@@ -538,7 +538,8 @@ namespace ql
             ftxui::Element net_list_elem =
                 state_->nets.empty() ? HintText("No recurring nets yet. Press F2 to create one.")
                                      : PickableRows(state_, PickList::kNets, state_->net_names,
-                                                    state_->selected_net_index, net_menu_);
+                                                    state_->selected_net_index, net_menu_) |
+                                           ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element callsign_hint =
                 state_->settings.callsign.empty()
