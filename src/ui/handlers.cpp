@@ -294,11 +294,6 @@ namespace ql
         ApplySelectedSavedStationSuggestion(state_);
     }
 
-    void SelectSavedStationSuggestionHandler::operator()() const
-    {
-        ApplySelectedSavedStationSuggestion(state_);
-    }
-
     void LoadSavedStationHandler::operator()() const
     {
         if (state_->edit_net_saved_stations.empty())
@@ -717,9 +712,8 @@ namespace ql
     void CallsignLookupHandler::operator()() const
     {
         // If suggestions are showing, Enter on the callsign field accepts the
-        // highlighted one -- same as pressing Enter on the suggestion menu
-        // itself (SelectCallsignSuggestionHandler). Only fall back to a bare
-        // exact-match lookup when there's nothing to pick from.
+        // one marked ">". Only fall back to a bare exact-match lookup when
+        // there's nothing to pick from.
         if (!state_->modal_callsign_suggestions.empty())
         {
             ApplySelectedCallsignSuggestion(state_);
@@ -752,11 +746,6 @@ namespace ql
     {
         state_->modal_station.callsign = NormalizeCallsign(state_->modal_station.callsign);
         RefreshCallsignSuggestions(state_);
-    }
-
-    void SelectCallsignSuggestionHandler::operator()() const
-    {
-        ApplySelectedCallsignSuggestion(state_);
     }
 
     void LogAndContinueHandler::operator()() const

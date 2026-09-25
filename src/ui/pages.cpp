@@ -204,6 +204,40 @@ namespace ql
         return rows;
     }
 
+    // Rows a callsign window (New Check-In, Saved Station) needs besides its
+    // match list while that list is showing: its border, title, Callsign
+    // row, the hint above the list, the list's own border and header, and
+    // the separator, key row and error line below.
+    static constexpr int kMatchWindowOtherRows = 12;
+
+    // Autocomplete matches under a callsign field, the one marked ">" being
+    // what Enter picks. Drawn here rather than by an ftxui::Menu: the cursor
+    // stays in the Callsign field while choosing, and a Menu only scrolls to
+    // its marked row when it has the cursor itself -- so on a short screen
+    // the marker could move onto rows that couldn't be seen. This list is
+    // as tall as the screen allows and always scrolls the marker into view.
+    static ftxui::Element MatchList(const std::vector<std::string>& labels, int selected)
+    {
+        ftxui::Elements rows;
+        for (std::size_t i = 0; i < labels.size(); ++i)
+        {
+            bool marked = static_cast<int>(i) == selected;
+            ftxui::Element row =
+                ftxui::text((marked ? "> " : "  ") + labels[i]) | ftxui::color(kColorListRow);
+            rows.push_back(marked ? row | ftxui::focus : row);
+        }
+        int room = std::max(2, ftxui::Terminal::Size().dimy - kMatchWindowOtherRows);
+        int height = std::min(static_cast<int>(labels.size()), room);
+        return ftxui::vbox({
+            HintText("Matches: Up/Down to choose, Enter to pick the one marked >"),
+            DialogFramed(ftxui::vbox({
+                ColumnHeader(FormatCallsignSuggestionHeaderRow()),
+                ftxui::vbox(rows) | ftxui::vscroll_indicator | ftxui::frame |
+                    ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height),
+            })),
+        });
+    }
+
     // Shown before actually running `sz`/`rz` -- the transfer hijacks the
     // real terminal for its raw protocol bytes and can't show anything
     // meaningful while in flight, so the operator needs to be told what to
@@ -792,13 +826,11 @@ namespace ql
     {
     public:
         NewStationModalRenderer(AppState* state, StationFieldInputs inputs,
-                                ftxui::Component suggestion_menu,
                                 ftxui::Component input_signal_report,
                                 ftxui::Component input_remarks, ftxui::Component input_comment,
                                 ftxui::Component role_choice_menu)
             : state_(state),
               inputs_(std::move(inputs)),
-              suggestion_menu_(std::move(suggestion_menu)),
               input_signal_report_(std::move(input_signal_report)),
               input_remarks_(std::move(input_remarks)),
               input_comment_(std::move(input_comment)),
@@ -808,33 +840,35 @@ namespace ql
 
         ftxui::Element operator()() const
         {
-            ftxui::Element suggestions =
-                state_->modal_callsign_suggestions.empty()
-                    ? ftxui::text("")
-                    : ftxui::vbox({
-                          HintText("Matches: Up/Down to choose, Enter to pick the one marked >"),
-                          DialogFramed(ftxui::vbox({
-                              ColumnHeader(FormatCallsignSuggestionHeaderRow()),
-                              suggestion_menu_->Render(),
-                          })),
-                      });
-
             ftxui::Elements rows;
             rows.push_back(Heading("Log Station Check-In"));
             rows.push_back(DialogSeparator());
             ftxui::Elements field_rows = StationFieldRows(inputs_);
             rows.push_back(field_rows[0]);  // Callsign
-            rows.push_back(suggestions);
-            for (std::size_t i = 1; i < field_rows.size(); ++i)
+            // While choosing a match, the list takes the place of the fields
+            // below Callsign (which can't be typed in meanwhile), so it fits
+            // an 80x24 screen; they're back once a match is picked, the
+            // callsign is cleared or the cursor leaves the field.
+            if (!state_->modal_callsign_suggestions.empty() && inputs_.callsign->Focused())
             {
-                rows.push_back(field_rows[i]);
+                rows.push_back(MatchList(state_->modal_callsign_suggestion_labels,
+                                         state_->selected_suggestion_index));
             }
-            rows.push_back(
-                ftxui::hbox({FieldLabel("Signal Report: "), input_signal_report_->Render()}));
-            rows.push_back(ftxui::hbox({FieldLabel("Remarks:       "), input_remarks_->Render()}));
-            rows.push_back(ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
-            rows.push_back(FieldLabel("Additional Role (optional):"));
-            rows.push_back(role_choice_menu_->Render());
+            else
+            {
+                for (std::size_t i = 1; i < field_rows.size(); ++i)
+                {
+                    rows.push_back(field_rows[i]);
+                }
+                rows.push_back(
+                    ftxui::hbox({FieldLabel("Signal Report: "), input_signal_report_->Render()}));
+                rows.push_back(
+                    ftxui::hbox({FieldLabel("Remarks:       "), input_remarks_->Render()}));
+                rows.push_back(
+                    ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
+                rows.push_back(FieldLabel("Additional Role (optional):"));
+                rows.push_back(role_choice_menu_->Render());
+            }
             rows.push_back(DialogSeparator());
             rows.push_back(
                 KeyHintRow({{"F2", "Log & Continue"}, {"F3", "Log & Close"}, {"Esc", "Cancel"}}));
@@ -847,7 +881,6 @@ namespace ql
     private:
         AppState* state_;
         StationFieldInputs inputs_;
-        ftxui::Component suggestion_menu_;
         ftxui::Component input_signal_report_;
         ftxui::Component input_remarks_;
         ftxui::Component input_comment_;
@@ -926,13 +959,6 @@ namespace ql
         StationFieldInputs modal_inputs =
             BuildStationFieldInputs(&state->modal_station, input_callsign);
 
-        ftxui::MenuOption suggestion_menu_option;
-        suggestion_menu_option.on_enter = SelectCallsignSuggestionHandler(state);
-        suggestion_menu_option.entries_option.transform = AlignedMenuEntryTransform;
-        ftxui::Component suggestion_menu =
-            ftxui::Menu(&state->modal_callsign_suggestion_labels, &state->selected_suggestion_index,
-                        suggestion_menu_option);
-
         ftxui::Component input_signal_report =
             ftxui::Input(&state->modal_signal_report, "Signal Report", SingleLineInputOption());
         ftxui::Component input_remarks =
@@ -957,16 +983,14 @@ namespace ql
         state->modal_callsign_input = input_callsign;
 
         ftxui::Components modal_components = StationFieldComponents(modal_inputs);
-        modal_components.push_back(suggestion_menu);
         modal_components.push_back(input_signal_report);
         modal_components.push_back(input_remarks);
         modal_components.push_back(input_comment);
         modal_components.push_back(role_choice_menu);
         ftxui::Component modal_root = ftxui::Container::Vertical(modal_components);
         ftxui::Component modal_view = ftxui::Renderer(
-            modal_root,
-            NewStationModalRenderer(state, modal_inputs, suggestion_menu, input_signal_report,
-                                    input_remarks, input_comment, role_choice_menu));
+            modal_root, NewStationModalRenderer(state, modal_inputs, input_signal_report,
+                                                input_remarks, input_comment, role_choice_menu));
 
         StationFieldInputs edit_checkin_inputs =
             BuildStationFieldInputs(&state->edit_checkin_station, ftxui::Component());
@@ -1488,39 +1512,34 @@ namespace ql
     {
     public:
         SavedStationModalRenderer(AppState* state, StationFieldInputs inputs,
-                                  ftxui::Component suggestion_menu, ftxui::Component remarks_input)
-            : state_(state),
-              inputs_(std::move(inputs)),
-              suggestion_menu_(std::move(suggestion_menu)),
-              remarks_input_(std::move(remarks_input))
+                                  ftxui::Component remarks_input)
+            : state_(state), inputs_(std::move(inputs)), remarks_input_(std::move(remarks_input))
         {
         }
 
         ftxui::Element operator()() const
         {
-            ftxui::Element suggestions =
-                state_->saved_station_suggestions.empty()
-                    ? ftxui::emptyElement()
-                    : ftxui::vbox({
-                          HintText("Matches: Up/Down to choose, Enter to pick the one marked >"),
-                          DialogFramed(ftxui::vbox({
-                              ColumnHeader(FormatCallsignSuggestionHeaderRow()),
-                              suggestion_menu_->Render(),
-                          })),
-                      });
-
             ftxui::Elements rows;
             rows.push_back(Heading("Saved Station"));
             rows.push_back(DialogSeparator());
             ftxui::Elements field_rows = StationFieldRows(inputs_);
             rows.push_back(field_rows[0]);  // Callsign
-            rows.push_back(suggestions);
-            for (std::size_t i = 1; i < field_rows.size(); ++i)
+            // As in the New Check-In window, matches stand in for the other
+            // fields while choosing.
+            if (!state_->saved_station_suggestions.empty() && inputs_.callsign->Focused())
             {
-                rows.push_back(field_rows[i]);
+                rows.push_back(MatchList(state_->saved_station_suggestion_labels,
+                                         state_->selected_saved_station_suggestion_index));
             }
-            rows.push_back(
-                ftxui::hbox({FieldLabel("Default Remarks: "), remarks_input_->Render()}));
+            else
+            {
+                for (std::size_t i = 1; i < field_rows.size(); ++i)
+                {
+                    rows.push_back(field_rows[i]);
+                }
+                rows.push_back(
+                    ftxui::hbox({FieldLabel("Default Remarks: "), remarks_input_->Render()}));
+            }
             rows.push_back(DialogSeparator());
             rows.push_back(
                 KeyHintRow({{"F2", "Save & Continue"}, {"F3", "Save & Close"}, {"Esc", "Cancel"}}));
@@ -1532,7 +1551,6 @@ namespace ql
     private:
         AppState* state_;
         StationFieldInputs inputs_;
-        ftxui::Component suggestion_menu_;
         ftxui::Component remarks_input_;
     };
 
@@ -1582,19 +1600,11 @@ namespace ql
         ftxui::Component remarks_input =
             ftxui::Input(&state->saved_station_remarks, "Optional", SingleLineInputOption());
 
-        ftxui::MenuOption suggestion_menu_option;
-        suggestion_menu_option.on_enter = SelectSavedStationSuggestionHandler(state);
-        suggestion_menu_option.entries_option.transform = AlignedMenuEntryTransform;
-        ftxui::Component suggestion_menu =
-            ftxui::Menu(&state->saved_station_suggestion_labels,
-                        &state->selected_saved_station_suggestion_index, suggestion_menu_option);
-
         ftxui::Components modal_components = StationFieldComponents(station_inputs);
-        modal_components.insert(modal_components.begin() + 1, suggestion_menu);
         modal_components.push_back(remarks_input);
-        ftxui::Component modal_view = ftxui::Renderer(
-            ftxui::Container::Vertical(modal_components),
-            SavedStationModalRenderer(state, station_inputs, suggestion_menu, remarks_input));
+        ftxui::Component modal_view =
+            ftxui::Renderer(ftxui::Container::Vertical(modal_components),
+                            SavedStationModalRenderer(state, station_inputs, remarks_input));
 
         ftxui::Component with_station_modal =
             ftxui::Modal(main_view, modal_view, &state->show_saved_station_modal);

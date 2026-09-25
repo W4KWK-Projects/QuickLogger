@@ -786,11 +786,9 @@ namespace ql
     // Copies the highlighted entry of AppState::modal_callsign_suggestions
     // (AppState::selected_suggestion_index) into AppState::modal_station, pulls
     // its default remarks the same way CallsignLookupHandler does, and clears
-    // the suggestion list. Shared by SelectCallsignSuggestionHandler (Enter on
-    // the suggestion menu itself) and CallsignLookupHandler (Enter on the
-    // callsign field while suggestions are showing), so both "accept a
-    // suggestion" paths behave identically. Does nothing if there are no
-    // suggestions.
+    // the suggestion list. Called by CallsignLookupHandler (Enter on the
+    // callsign field while suggestions are showing). Does nothing if there
+    // are no suggestions.
     void ApplySelectedCallsignSuggestion(AppState* state);
 
     // Loads AppState::edit_net_* fields from `net` and its saved stations,

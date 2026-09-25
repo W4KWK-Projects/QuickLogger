@@ -542,14 +542,35 @@ namespace ql
         std::string closed_name = state->active_net_name;
         bool closed_here = state->db->CloseNetInstance(
             state->active_instance.id, static_cast<std::int64_t>(std::time(nullptr)));
-        if (!closed_here)
-        {
-            EnsureActiveSessionOpen(state, "");
-            return;
-        }
         std::size_t check_ins =
             state->db->GetCheckInsForNetInstance(state->active_instance.id).size();
         std::string history = HistoryKeyDescription(state);
+        if (!closed_here)
+        {
+            // Someone sharing the session closed (or deleted) it first. What
+            // you wanted has happened either way; say so. (Their end time is
+            // the one that stands -- see CloseNetInstance.)
+            std::optional<NetInstance> session =
+                state->db->GetNetInstanceById(state->active_instance.id);
+            LeaveActiveNet(state);
+            if (session.has_value())
+            {
+                std::string ended = DescribeSessionEnd(*session);
+                state->form_error.clear();
+                state->status_message = closed_name + " was already closed by someone else" +
+                                        (ended.empty() ? "" : " at " + ended) + " (" +
+                                        CountCheckIns(check_ins) + "). It's in History (" +
+                                        history + ").";
+            }
+            else
+            {
+                state->status_message.clear();
+                state->form_error = closed_name +
+                                    "'s session was deleted by someone else, so there was "
+                                    "nothing left to close.";
+            }
+            return;
+        }
         LeaveActiveNet(state);
         state->form_error.clear();
         state->status_message = "Closed " + closed_name + " (" + CountCheckIns(check_ins) +

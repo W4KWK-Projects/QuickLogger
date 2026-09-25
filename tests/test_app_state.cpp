@@ -396,8 +396,23 @@ namespace ql
         CHECK_EQ(f.db()->GetNetInstanceById(f.state.active_instance.id)->closed_at,
                  std::int64_t{2000});
         CHECK_EQ(f.state.page, kPageNetList);
-        CHECK(f.state.form_error.find("closed by someone else") != std::string::npos);
-        CHECK(f.state.status_message.empty());
+        CHECK(f.state.form_error.empty());
+        CHECK(f.state.status_message.find("Skywarn was already closed by someone else at ") == 0);
+        CHECK(f.state.status_message.find(" (1 check-in). It's in History") != std::string::npos);
+        // Not the message for a refused check-in.
+        CHECK(f.state.status_message.find("nothing more can be logged") == std::string::npos);
+    }
+
+    QL_TEST(ClosingASessionSomeoneElseDeletedSaysSo)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        f.db()->DeleteNetInstance(f.state.active_instance.id);
+        RequestCloseActiveNet(&f.state);
+        CloseActiveNet(&f.state);
+        CHECK_EQ(f.state.page, kPageNetList);
+        CHECK(f.state.form_error.find("deleted by someone else, so there was nothing left to "
+                                      "close") != std::string::npos);
     }
 
     QL_TEST(DeletingAClosedSessionFromHistory)

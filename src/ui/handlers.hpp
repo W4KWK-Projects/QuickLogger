@@ -186,20 +186,6 @@ namespace ql
         AppState* state_;
     };
 
-    // Enter on the callsign-suggestions menu: copies the highlighted
-    // suggestion's callsign into the modal, prefills Name/Member ID from it,
-    // and clears the suggestion list.
-    class SelectCallsignSuggestionHandler
-    {
-    public:
-        explicit SelectCallsignSuggestionHandler(AppState* state) : state_(state) {}
-
-        void operator()() const;
-
-    private:
-        AppState* state_;
-    };
-
     // F2 inside the New Station modal: logs the current entry, then clears the
     // fields and refocuses the callsign field for the next one.
     class LogAndContinueHandler
@@ -475,28 +461,14 @@ namespace ql
         AppState* state_;
     };
 
-    // Enter on the saved-station mini-form's callsign field: if suggestions
-    // are showing, accepts the highlighted one (same as Enter on the
-    // suggestion menu itself); otherwise does nothing, since there's no
-    // exact-match DB lookup for this form the way CallsignLookupHandler does
-    // for the New Station modal.
+    // Enter on the Saved Station window's callsign field: if suggestions are
+    // showing, accepts the one marked ">"; otherwise does nothing, since
+    // there's no exact-match DB lookup for this form the way
+    // CallsignLookupHandler does for the New Station modal.
     class SavedStationCallsignEnterHandler
     {
     public:
         explicit SavedStationCallsignEnterHandler(AppState* state) : state_(state) {}
-
-        void operator()() const;
-
-    private:
-        AppState* state_;
-    };
-
-    // Enter on the saved-station mini-form's suggestions menu: copies the
-    // highlighted suggestion into the mini-form and clears the suggestion list.
-    class SelectSavedStationSuggestionHandler
-    {
-    public:
-        explicit SelectSavedStationSuggestionHandler(AppState* state) : state_(state) {}
 
         void operator()() const;
 
