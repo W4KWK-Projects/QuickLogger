@@ -4,6 +4,7 @@
 #include <ftxui/component/event.hpp>
 
 #include "app_state.hpp"
+#include "escape_splitter.hpp"
 
 namespace ql
 {
@@ -939,6 +940,10 @@ namespace ql
     // worse than one action failing with a visible error, so any such
     // exception is caught here and surfaced as AppState::form_error instead
     // of propagating out of main().
+    //
+    // Every event first goes through an EscapeSplitter, so an Esc merged
+    // with the key after it is handled as the two keys really pressed (see
+    // THE NO-ALT-KEYS RULE in escape_splitter.hpp).
     class SafeAppEventDispatcher : public ftxui::ComponentBase
     {
     public:
@@ -947,7 +952,10 @@ namespace ql
         bool OnEvent(ftxui::Event event) override;
 
     private:
+        bool Dispatch(const ftxui::Event& event);
+
         AppState* state_;
+        EscapeSplitter escape_splitter_;
     };
 
 }  // namespace ql

@@ -69,6 +69,7 @@ set(quicklogger_sources
     src/ui/chrome.cpp
     src/ui/handlers.cpp
     src/ui/pages.cpp
+    src/ui/escape_splitter.cpp
 )
 
 if(QUICKLOGGER_ENABLE_SSH)
@@ -156,6 +157,7 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_main.cpp
         tests/test_helpers.cpp
         tests/test_utilities.cpp
+        tests/test_escape_splitter.cpp
         tests/test_zip_extract.cpp
         tests/test_database.cpp
         tests/test_station_data.cpp

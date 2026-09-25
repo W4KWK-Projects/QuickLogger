@@ -1213,6 +1213,21 @@ namespace ql
 
     bool SafeAppEventDispatcher::OnEvent(ftxui::Event event)
     {
+        std::vector<ftxui::Event> events = escape_splitter_.Feed(event);
+        if (events.empty())
+        {
+            return true;  // Held: part of a key still arriving.
+        }
+        bool handled = false;
+        for (const ftxui::Event& one : events)
+        {
+            handled = Dispatch(one) || handled;
+        }
+        return handled;
+    }
+
+    bool SafeAppEventDispatcher::Dispatch(const ftxui::Event& event)
+    {
         try
         {
             AppKeyHandler key_handler(state_);
