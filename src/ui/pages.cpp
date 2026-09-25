@@ -754,8 +754,12 @@ namespace ql
                 Separator(),
                 HintText("Select your role for this net:"),
                 role_radiobox_->Render(),
-                HintParagraph("A Viewer watches a session that's already open, without changing "
-                              "anything."),
+                Separator(),
+                RoleHint("Net Control", "runs the net and calls for check-ins."),
+                RoleHint("Alternate Net Control", "backs up Net Control, ready to take over."),
+                RoleHint("Logger", "records check-ins while someone else runs the net."),
+                RoleHint("Viewer", "watches a session that's already open, changing nothing."),
+                HintParagraph("Except as a Viewer, you're logged as check-in #1, in your role."),
                 ErrorLine(state_->form_error),
             });
 
@@ -764,6 +768,13 @@ namespace ql
         }
 
     private:
+        // One role's line in the list of what each role does.
+        static ftxui::Element RoleHint(const std::string& role, const std::string& what)
+        {
+            return ftxui::hbox(
+                {ftxui::text(role + ": ") | ftxui::color(kColorLabel), HintText(what)});
+        }
+
         AppState* state_;
         ftxui::Component role_radiobox_;
     };
