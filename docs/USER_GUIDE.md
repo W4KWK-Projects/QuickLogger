@@ -39,6 +39,7 @@ On first run you're taken straight to Settings, since a callsign and home ZIP ar
 |---|---|
 | My Callsign | Your callsign, filled in when you start a net |
 | My ZIP Code | Your home ZIP. Nearby-station autocomplete measures distance from it when a net has no ZIP of its own. |
+| Nearby Radius | How far, in miles, a licensed station can be from the net's ZIP (or your home ZIP) and still be suggested by autocomplete. 1 to 250; the default is 70, which is also used if you leave it blank. Raise it for a net that covers a wide area, or lower it in a crowded city to keep suggestions local. |
 | Time Format | 12-hour (3:42 PM, the default) or 24-hour (15:42), for every time shown or exported. **Left/Right** change it. |
 
 **F2** saves. Each SSH user has their own settings. Times are shown in the time zone of the computer QuickLogger runs on. At the local console only, **F3** refreshes the station data now and **F4** opens Manage Users (see the README's SSH section).
@@ -127,7 +128,7 @@ In the New Check-In and Saved Station windows, matches appear as you type any pa
 
 1. Stations known to **this net** (checked in before, or saved to it), marked *(this net)*.
 2. Stations known to **other nets**, marked *(other net)*.
-3. **Licensed stations nearby**, from the FCC data: within about 70 miles of the net's ZIP (or your home ZIP), nearest first, marked *(ULS, ~N mi)*. Stations whose ZIP has no location on file (usually a PO Box) follow, marked *(ULS, nearby)*.
+3. **Licensed stations nearby**, from the FCC data: within your Nearby Radius (70 miles unless you change it in Settings) of the net's ZIP (or your home ZIP), nearest first, marked *(ULS, ~N mi)*. Stations whose ZIP has no location on file (usually a PO Box) follow, marked *(ULS, nearby)*.
 
 **Up/Down** move the **>** marker and **Enter** picks that match, filling in the station's details. You stay in the Callsign field, so you can keep typing to narrow the list. While it's showing, the list takes the place of the window's other fields; they come back when you pick a match, clear the callsign or **Tab** away. If nothing matches, type the whole callsign: **Enter** then looks it up exactly, in the FCC data at any distance.
 

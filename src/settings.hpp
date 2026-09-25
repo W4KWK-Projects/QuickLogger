@@ -5,6 +5,11 @@
 namespace ql
 {
 
+    // The Nearby Radius setting's default and allowed range, in miles.
+    constexpr int kDefaultNearbyRadiusMiles = 70;
+    constexpr int kMinNearbyRadiusMiles = 1;
+    constexpr int kMaxNearbyRadiusMiles = 250;
+
     // The operator's own persistent settings: their callsign and home ZIP.
     // Deliberately kept in its own file rather than the shared SQLite
     // database, since this data must never be included when that database is
@@ -21,6 +26,11 @@ namespace ql
         // Show times on the 24-hour clock ("15:42") instead of the 12-hour
         // one ("03:42 PM"). Stored as time_format=24h/12h; 12-hour if absent.
         bool use_24_hour_clock = false;
+        // How far from the net's ZIP (or the home ZIP) a licensed station can
+        // be and still be suggested by autocomplete. Stored as
+        // nearby_radius_miles=N; kDefaultNearbyRadiusMiles if absent, and
+        // clamped to kMin/kMaxNearbyRadiusMiles when read.
+        int nearby_radius_miles = kDefaultNearbyRadiusMiles;
     };
 
     // Reads settings from `path`. Returns a default (empty) AppSettings if the

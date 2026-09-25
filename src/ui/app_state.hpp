@@ -233,6 +233,9 @@ namespace ql
         std::vector<std::string> settings_time_format_labels{"12-hour (3:42 PM)",
                                                              "24-hour (15:42)"};
         int settings_time_format_index = 0;
+        // The Settings page's Nearby Radius field, in miles (digits only);
+        // copied into settings_form.nearby_radius_miles on save.
+        std::string settings_radius_text;
 
         // In-memory cache of the whole zip_centroids table (see
         // EnsureZipCentroidsCached in app_state.cpp), so proximity lookups
@@ -449,7 +452,7 @@ namespace ql
         ftxui::Component new_net_name_input;
         ftxui::Component ad_hoc_net_name_input;
         ftxui::Component edit_net_name_input;
-        // The ZIP codes within geo_utils::kNearbyRadiusMiles of the net's ZIP,
+        // The ZIP codes within the operator's Nearby Radius of the net's ZIP,
         // or the operator's home ZIP when the net has none (with their
         // distances, nearest first), and their ZIP3 prefixes, for the ULS tier
         // of both autocompletes (the New Station modal and the saved-station
@@ -459,8 +462,9 @@ namespace ql
         // stays empty rather than erroring.
         std::vector<NearbyZip> nearby_zips;
         std::vector<std::string> nearby_zip3_prefixes;
-        // The origin ZIP the two above were computed for.
+        // The origin ZIP and radius the two above were computed for.
         std::string nearby_zips_origin;
+        int nearby_zips_radius = 0;
         // Every ULS licensee near that origin, nearest first, in the order
         // Database::SearchNearbyUlsStations returns them. Loaded once per
         // origin (and again after kNearbyUlsReloadSeconds, to pick up a
@@ -490,7 +494,8 @@ namespace ql
     // F2 on Settings: validates and saves AppState::settings_form (with the
     // clock choice) and applies it -- including switching every time shown
     // to the chosen clock. Returns false, setting AppState::form_error, if
-    // the callsign or ZIP code is missing.
+    // the callsign or ZIP code is missing or the Nearby Radius is out of
+    // range.
     bool SaveSettingsForm(AppState* state);
 
     // Reloads AppState::nets/net_names from the database. Call once at
@@ -990,7 +995,7 @@ namespace ql
     // RefreshCallsignSuggestions plus a ULS tier: tier 1 (known to this net),
     // tier 2 (known to other nets), then tier 3 (ULS-imported stations whose
     // ZIP falls in AppState::nearby_zip3_prefixes and, when that
-    // station's own ZIP centroid is known, within geo_utils::kNearbyRadiusMiles
+    // station's own ZIP centroid is known, within the operator's Nearby Radius
     // of the operator's location -- skipped entirely if the operator has no
     // resolvable location set). Capped to a handful of results total; tier 3
     // never duplicates a callsign already surfaced by tier 1/2. Clears the

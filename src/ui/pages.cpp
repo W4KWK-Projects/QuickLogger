@@ -1164,10 +1164,12 @@ namespace ql
     {
     public:
         SettingsRenderer(AppState* state, ftxui::Component input_callsign,
-                         ftxui::Component input_location, ftxui::Component time_format_toggle)
+                         ftxui::Component input_location, ftxui::Component input_radius,
+                         ftxui::Component time_format_toggle)
             : state_(state),
               input_callsign_(std::move(input_callsign)),
               input_location_(std::move(input_location)),
+              input_radius_(std::move(input_radius)),
               time_format_toggle_(std::move(time_format_toggle))
         {
         }
@@ -1175,15 +1177,20 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Element content = ftxui::vbox({
-                ftxui::hbox({FieldLabel("My Callsign*: "), input_callsign_->Render()}),
-                ftxui::hbox({FieldLabel("My ZIP Code*: "), input_location_->Render()}),
-                ftxui::hbox({FieldLabel("Time Format:  "), time_format_toggle_->Render()}),
+                ftxui::hbox({FieldLabel("My Callsign*:  "), input_callsign_->Render()}),
+                ftxui::hbox({FieldLabel("My ZIP Code*:  "), input_location_->Render()}),
+                ftxui::hbox({FieldLabel("Nearby Radius: "),
+                             input_radius_->Render() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 4),
+                             ftxui::text("miles")}),
+                ftxui::hbox({FieldLabel("Time Format:   "), time_format_toggle_->Render()}),
                 HintText("* Required"),
                 Separator(),
                 HintParagraph("My ZIP Code is a plain 5-digit US ZIP code (digits only), used "
                               "to find nearby licensed stations for nets that have no ZIP "
                               "code of their own. Never included when the database is "
-                              "exported."),
+                              "exported. Nearby Radius (1-250, 70 if left blank) is how far "
+                              "from the net's ZIP, or yours, a station can be and still "
+                              "be suggested."),
                 HintParagraph("Time Format (Left/Right to change) sets how every time is shown "
                               "and exported. Times are shown in the time zone of the computer "
                               "QuickLogger runs on."),
@@ -1211,6 +1218,7 @@ namespace ql
         AppState* state_;
         ftxui::Component input_callsign_;
         ftxui::Component input_location_;
+        ftxui::Component input_radius_;
         ftxui::Component time_format_toggle_;
     };
 
@@ -1224,6 +1232,10 @@ namespace ql
         location_option.on_change = ZipCodeFieldHandler(&state->settings_form.location);
         ftxui::Component input_location =
             ftxui::Input(&state->settings_form.location, "5-digit ZIP", location_option);
+        ftxui::InputOption radius_option = SingleLineInputOption();
+        radius_option.on_change = DigitsFieldHandler(&state->settings_radius_text, 3);
+        ftxui::Component input_radius =
+            ftxui::Input(&state->settings_radius_text, "70", radius_option);
 
         ftxui::MenuOption time_format_option = ftxui::MenuOption::Toggle();
         time_format_option.entries_option.transform = ToggleEntryTransform;
@@ -1236,11 +1248,12 @@ namespace ql
         ftxui::Component root = ftxui::Container::Vertical({
             input_callsign,
             input_location,
+            input_radius,
             time_format_toggle,
         });
 
-        return ftxui::Renderer(
-            root, SettingsRenderer(state, input_callsign, input_location, time_format_toggle));
+        return ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_location,
+                                                      input_radius, time_format_toggle));
     }
 
     // ---- Ad hoc net page ---------------------------------------------------

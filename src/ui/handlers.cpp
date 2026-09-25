@@ -21,21 +21,32 @@ namespace ql
         *field_ = NormalizeCallsign(*field_);
     }
 
-    void ZipCodeFieldHandler::operator()() const
+    // Keeps only the digits in `*field`, at most `max_digits` of them.
+    static void KeepDigits(std::string* field, std::size_t max_digits)
     {
         std::string digits_only;
-        for (char c : *field_)
+        for (char c : *field)
         {
             if (std::isdigit(static_cast<unsigned char>(c)))
             {
                 digits_only.push_back(c);
             }
         }
-        if (digits_only.size() > 5)
+        if (digits_only.size() > max_digits)
         {
-            digits_only.resize(5);
+            digits_only.resize(max_digits);
         }
-        *field_ = digits_only;
+        *field = digits_only;
+    }
+
+    void ZipCodeFieldHandler::operator()() const
+    {
+        KeepDigits(field_, 5);
+    }
+
+    void DigitsFieldHandler::operator()() const
+    {
+        KeepDigits(field_, max_digits_);
     }
 
     void ShowCreateNetPageHandler::operator()() const

@@ -325,7 +325,7 @@ namespace ql
         centroids.push_back(far);
         centroids.push_back(malformed);
 
-        std::vector<std::string> prefixes = NearbyZip3Prefixes(35.05, -85.31, centroids);
+        std::vector<std::string> prefixes = NearbyZip3Prefixes(35.05, -85.31, 70.0, centroids);
         CHECK_EQ(prefixes.size(), std::size_t{2});
         CHECK(std::find(prefixes.begin(), prefixes.end(), "374") != prefixes.end());
         CHECK(std::find(prefixes.begin(), prefixes.end(), "307") != prefixes.end());
@@ -338,13 +338,16 @@ namespace ql
                                               {"37415", 35.10, -85.28},
                                               {"90210", 34.09, -118.40},
                                               {"37402", 35.05, -85.31}};
-        std::vector<NearbyZip> nearby = NearbyZips(35.10, -85.28, centroids);
+        std::vector<NearbyZip> nearby = NearbyZips(35.10, -85.28, 70.0, centroids);
         REQUIRE(nearby.size() == 3);
         CHECK_EQ(nearby[0].zip, std::string("37415"));
         CHECK(nearby[0].miles < 0.01);
         CHECK_EQ(nearby[1].zip, std::string("37402"));
         CHECK_EQ(nearby[2].zip, std::string("30752"));
         CHECK(nearby[1].miles < nearby[2].miles);
+
+        // A smaller radius leaves out Trenton, about 17 miles away.
+        CHECK_EQ(NearbyZips(35.10, -85.28, 10.0, centroids).size(), std::size_t{2});
     }
 
     // ---- settings --------------------------------------------------------------
@@ -361,11 +364,26 @@ namespace ql
         CHECK_EQ(loaded.callsign, std::string("W4KWK"));
         CHECK_EQ(loaded.location, std::string("37415"));
         CHECK(!loaded.use_24_hour_clock);  // 12-hour unless chosen.
+        CHECK_EQ(loaded.nearby_radius_miles, 70);
 
         settings.use_24_hour_clock = true;
+        settings.nearby_radius_miles = 120;
         SaveSettings(dir.File("settings.txt"), settings);
         CHECK(ReadTextFile(dir.File("settings.txt")).find("time_format=24h") != std::string::npos);
-        CHECK(LoadSettings(dir.File("settings.txt")).use_24_hour_clock);
+        loaded = LoadSettings(dir.File("settings.txt"));
+        CHECK(loaded.use_24_hour_clock);
+        CHECK_EQ(loaded.nearby_radius_miles, 120);
+    }
+
+    QL_TEST(ANearbyRadiusOutOfRangeIsClampedWhenRead)
+    {
+        TempDir dir;
+        WriteTextFile(dir.File("settings.txt"), "nearby_radius_miles=0\n");
+        CHECK_EQ(LoadSettings(dir.File("settings.txt")).nearby_radius_miles, 1);
+        WriteTextFile(dir.File("settings.txt"), "nearby_radius_miles=9999999\n");
+        CHECK_EQ(LoadSettings(dir.File("settings.txt")).nearby_radius_miles, 250);
+        WriteTextFile(dir.File("settings.txt"), "nearby_radius_miles=far\n");
+        CHECK_EQ(LoadSettings(dir.File("settings.txt")).nearby_radius_miles, 70);
     }
 
     QL_TEST(SettingsFromAMissingFileAreEmpty)

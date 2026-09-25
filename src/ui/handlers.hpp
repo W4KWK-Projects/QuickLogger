@@ -45,6 +45,24 @@ namespace ql
         std::string* field_;
     };
 
+    // An Input's on_change for a whole-number field: strips any non-digit
+    // character and truncates to `max_digits` as the operator types, like
+    // ZipCodeFieldHandler.
+    class DigitsFieldHandler
+    {
+    public:
+        DigitsFieldHandler(std::string* field, std::size_t max_digits)
+            : field_(field), max_digits_(max_digits)
+        {
+        }
+
+        void operator()() const;
+
+    private:
+        std::string* field_;
+        std::size_t max_digits_;
+    };
+
     // F2 on the net list page: clears the create-net form and switches to it.
     class ShowCreateNetPageHandler
     {

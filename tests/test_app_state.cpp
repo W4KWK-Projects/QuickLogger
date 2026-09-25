@@ -911,6 +911,59 @@ namespace ql
               std::string::npos);
     }
 
+    QL_TEST(TheNearbyRadiusSettingDecidesWhichLicensesAreSuggested)
+    {
+        Fixture f;
+        LoadZipData(f.db());
+        f.state.settings_path = f.dir().File("settings.txt");
+        f.db()->BulkUpsertUlsStations(
+            {MakeStation("K4AAA", "TRENTON", "30752"), MakeStation("K4BBB", "DOWNTOWN", "37402"),
+             MakeStation("K4CCC", "NASHVILLE", "37201")},
+            0, 3, 1);
+        f.StartNet("Skywarn");
+        f.state.modal_station.callsign = "K4";
+
+        // The default 70 miles leaves out Nashville, about 110 miles away.
+        RefreshCallsignSuggestions(&f.state);
+        CHECK_EQ(f.state.modal_callsign_suggestions.size(), std::size_t{2});
+
+        OpenSettingsForm(&f.state);
+        CHECK_EQ(f.state.settings_radius_text, std::string("70"));
+        f.state.settings_radius_text = "150";
+        REQUIRE(SaveSettingsForm(&f.state));
+        CHECK_EQ(LoadSettings(f.state.settings_path).nearby_radius_miles, 150);
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 3);
+        CHECK_EQ(f.state.modal_callsign_suggestions[2].callsign, std::string("K4CCC"));
+
+        // 10 miles keeps only downtown.
+        f.state.settings_radius_text = "10";
+        REQUIRE(SaveSettingsForm(&f.state));
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 1);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("K4BBB"));
+    }
+
+    QL_TEST(ANearbyRadiusOutsideOneTo250IsRefusedAndBlankMeans70)
+    {
+        Fixture f;
+        f.state.settings_path = f.dir().File("settings.txt");
+        OpenSettingsForm(&f.state);
+        f.state.settings_radius_text = "0";
+        CHECK(!SaveSettingsForm(&f.state));
+        CHECK(f.state.form_error.find("1 to 250") != std::string::npos);
+        f.state.settings_radius_text = "251";
+        CHECK(!SaveSettingsForm(&f.state));
+        f.state.settings_radius_text = "250";
+        CHECK(SaveSettingsForm(&f.state));
+        CHECK_EQ(f.state.settings.nearby_radius_miles, 250);
+
+        // Clearing the field goes back to the default its placeholder shows.
+        f.state.settings_radius_text = "";
+        CHECK(SaveSettingsForm(&f.state));
+        CHECK_EQ(f.state.settings.nearby_radius_miles, 70);
+    }
+
     QL_TEST(LicenseSuggestionsSkipStationsRemovedSinceTheyLoaded)
     {
         Fixture f;

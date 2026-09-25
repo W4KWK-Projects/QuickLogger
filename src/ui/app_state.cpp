@@ -874,6 +874,7 @@ namespace ql
     {
         state->settings_form = state->settings;
         state->settings_time_format_index = state->settings.use_24_hour_clock ? 1 : 0;
+        state->settings_radius_text = std::to_string(state->settings.nearby_radius_miles);
     }
 
     bool SaveSettingsForm(AppState* state)
@@ -893,7 +894,22 @@ namespace ql
             return false;
         }
 
+        // A blank field means the default, which its placeholder shows.
+        int radius = kDefaultNearbyRadiusMiles;
+        if (!state->settings_radius_text.empty())
+        {
+            radius =
+                state->settings_radius_text.size() > 3 ? 0 : std::stoi(state->settings_radius_text);
+        }
+        if (radius < kMinNearbyRadiusMiles || radius > kMaxNearbyRadiusMiles)
+        {
+            state->form_error = "Nearby Radius must be " + std::to_string(kMinNearbyRadiusMiles) +
+                                " to " + std::to_string(kMaxNearbyRadiusMiles) + " miles.";
+            return false;
+        }
+
         state->settings_form.use_24_hour_clock = state->settings_time_format_index == 1;
+        state->settings_form.nearby_radius_miles = radius;
         SaveSettings(state->settings_path, state->settings_form);
         state->settings = state->settings_form;
         SetUse24HourClock(state->settings.use_24_hour_clock);
@@ -2521,22 +2537,27 @@ namespace ql
         }
         std::string origin = origin_it == state->zip_centroids_by_zip.end() ? "" : origin_it->first;
 
-        if (state->nearby_zips_origin == origin && !state->nearby_zips.empty())
+        int radius = state->settings.nearby_radius_miles;
+        if (state->nearby_zips_origin == origin && state->nearby_zips_radius == radius &&
+            !state->nearby_zips.empty())
         {
             return;
         }
         state->nearby_zips.clear();
         state->nearby_zip3_prefixes.clear();
         state->nearby_zips_origin = origin;
+        state->nearby_zips_radius = radius;
+        // The nearby licensees loaded for the old ZIPs no longer apply.
+        state->nearby_uls_origin.clear();
         if (origin_it == state->zip_centroids_by_zip.end())
         {
             return;
         }
 
-        state->nearby_zips =
-            NearbyZips(origin_it->second.lat, origin_it->second.lon, state->zip_centroids_cache);
+        state->nearby_zips = NearbyZips(origin_it->second.lat, origin_it->second.lon, radius,
+                                        state->zip_centroids_cache);
         state->nearby_zip3_prefixes = NearbyZip3Prefixes(
-            origin_it->second.lat, origin_it->second.lon, state->zip_centroids_cache);
+            origin_it->second.lat, origin_it->second.lon, radius, state->zip_centroids_cache);
     }
 
     // How long AppState::nearby_uls_callsigns is trusted before it's
@@ -2545,7 +2566,7 @@ namespace ql
 
     // Autocomplete's last tier, shared by the New Station modal and the
     // saved-station form: ULS-imported stations matching `typed` whose ZIP is
-    // within geo_utils::kNearbyRadiusMiles of the net's ZIP (`net_zip`) or,
+    // within the operator's Nearby Radius of the net's ZIP (`net_zip`) or,
     // failing that, the operator's own, nearest first (see RefreshNearbyZips
     // and Database::SearchNearbyUlsStations). Matched in memory against
     // AppState::nearby_uls_callsigns, so only the matches are read from the

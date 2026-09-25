@@ -34,14 +34,14 @@ namespace ql
         return kEarthRadiusMiles * c;
     }
 
-    std::vector<NearbyZip> NearbyZips(double origin_lat, double origin_lon,
+    std::vector<NearbyZip> NearbyZips(double origin_lat, double origin_lon, double radius_miles,
                                       const std::vector<ZipCentroid>& centroids)
     {
         std::vector<NearbyZip> nearby;
         for (const ZipCentroid& centroid : centroids)
         {
             double miles = DistanceMiles(origin_lat, origin_lon, centroid.lat, centroid.lon);
-            if (miles <= kNearbyRadiusMiles)
+            if (miles <= radius_miles)
             {
                 NearbyZip zip;
                 zip.zip = centroid.zip;
@@ -54,6 +54,7 @@ namespace ql
     }
 
     std::vector<std::string> NearbyZip3Prefixes(double origin_lat, double origin_lon,
+                                                double radius_miles,
                                                 const std::vector<ZipCentroid>& centroids)
     {
         std::set<std::string> prefixes;
@@ -63,8 +64,7 @@ namespace ql
             {
                 continue;
             }
-            if (DistanceMiles(origin_lat, origin_lon, centroid.lat, centroid.lon) <=
-                kNearbyRadiusMiles)
+            if (DistanceMiles(origin_lat, origin_lon, centroid.lat, centroid.lon) <= radius_miles)
             {
                 prefixes.insert(centroid.zip.substr(0, 3));
             }
