@@ -76,6 +76,8 @@ On first run, you'll be taken straight to Settings to set your callsign and home
 
 Settings (F4 on the Recurring Nets list) also has **Time Format**: the 12-hour clock (3:42 PM, the default) or the 24-hour clock (15:42), for every time QuickLogger shows or exports. Each SSH user chooses their own. Times are stored in UTC and shown in the time zone of the computer QuickLogger runs on.
 
+**Wider terminals.** Everything fits an 80×24 terminal. On a wider one, QuickLogger uses the extra width: lists widen their columns and add more (check-ins gain the time, city and state, signal report and comment; the net list shows each net's mode, frequency and schedule; saved stations add city, county, grid and default remarks), and forms such as Edit Net and the check-in windows lay their fields out in two columns from 90 columns up. Resizing the window re-lays everything out straight away. Exported logs always include every column, whatever the terminal's width.
+
 ### Running a net
 
 On **Recurring Nets**, highlight a net and press **F3** (or Enter), pick your role, confirm your callsign, and the net starts with you logged as check-in #1. **F2** opens the New Station window:

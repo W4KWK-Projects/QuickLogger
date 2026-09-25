@@ -7,6 +7,8 @@
 #include <optional>
 #include <utility>
 
+#include <ftxui/screen/terminal.hpp>
+
 #include "../date_utils.hpp"
 #include "../text_utils.hpp"
 #include "../uls_import.hpp"
@@ -1213,6 +1215,12 @@ namespace ql
             handled = Dispatch(one) || handled;
         }
         return handled;
+    }
+
+    ftxui::Element SafeAppEventDispatcher::Render()
+    {
+        UpdateListWidths(state_, ftxui::Terminal::Size().dimx);
+        return ComponentBase::Render();
     }
 
     bool SafeAppEventDispatcher::Dispatch(const ftxui::Event& event)

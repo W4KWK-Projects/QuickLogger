@@ -20,6 +20,7 @@
 #include "../public_key.hpp"
 #include "../text_utils.hpp"
 #include "../zmodem_send.hpp"
+#include "list_columns.hpp"
 
 namespace ql
 {
@@ -42,176 +43,372 @@ namespace ql
         return true;
     }
 
-    // Column widths shared between every "list of stations/matches" row
-    // formatter below and its corresponding header-row builder, so a header
-    // can never drift out of alignment with the data under it (an earlier
-    // version of the net-history row baked literal "NC:"/"Alt:"/"Log:"
-    // prefixes into the row instead of relying on the header alone to name
-    // the column -- those prefixes ate into the column width unevenly and
-    // never actually lined up with "Net Control"/"Alternate NC"/"Logger"
-    // above them; removed rather than width-compensated for, since the
-    // header already says what the column is).
-    // Every field using these widths is built with printf's *runtime* width
-    // and precision (the two `*`s in e.g. "%-*.*s", each consuming one int
-    // argument before the string) rather than baking a number into the
-    // format string literally -- that way a formatter and its header can't
-    // silently drift apart the way a hand-typed number could. The precision
-    // half also truncates a value longer than the column instead of
-    // overflowing it and pushing every later column on that row out of
-    // alignment -- plain "%-10s" only pads short values, it never shortens
-    // long ones.
-    static constexpr int kCallsignColumnWidth = 10;
-    static constexpr int kNameColumnWidth = 20;
-    static constexpr int kMemberIdColumnWidth = 10;
-    static constexpr int kCountyColumnWidth = 14;
-    // The net-history columns below are kept tight enough that a whole row
-    // (with the End column) still fits an 80-column terminal.
-    static constexpr int kDateColumnWidth = 10;
-    // "03:42 PM" -- the net's start time, right after its date. Blank for a
-    // net logged before start times were recorded.
-    static constexpr int kStartTimeColumnWidth = 8;
-    // "05:10 PM" -- when the net was closed. Blank while it's still open.
-    static constexpr int kEndTimeColumnWidth = 8;
-    // Sized to fit the longest header label that lands in each of these
-    // columns ("Alternate NC", 12 chars; the space between columns is the
-    // padding) -- the row shows the bare callsign, no "NC:"/"Alt:"/"Log:"
-    // prefix, since the header above it already names the column.
-    static constexpr int kNetControlColumnWidth = 12;
-    static constexpr int kAlternateNcColumnWidth = 12;
-    static constexpr int kLoggerColumnWidth = 12;
+    // ---- Lists laid out for the terminal's width -------------------------------
+    //
+    // Every list below describes its columns once (see list_columns.hpp); its
+    // rows are kept as cells, and turned into the lines a Menu shows by
+    // laying those out for AppState::list_width. The header line comes from
+    // the same layout, so it can't drift out of line with the rows. The
+    // columns shown at 80 columns, and their widths, are exactly the ones
+    // these lists have always had.
 
     // Every header below sits above an ftxui::Menu, not a plain text list.
     // Menu's default entry renderer always prepends a 2-character indicator
     // ("> " for the focused row, "  " for every other one -- see
     // DefaultOptionTransform in FTXUI's menu.cpp) to every row it renders, so
     // without this same gutter a header's labels land two columns left of the
-    // data they're supposed to name, no matter how well the widths above line
-    // up on their own.
+    // data they're supposed to name.
     static constexpr int kMenuEntryIndicatorWidth = 2;
 
-    static std::string FormatNetInstanceRow(const NetInstance& instance)
+    // The room a full-width list's rows get: the terminal less the list's
+    // border and the Menu's gutter. Never less than at 80 columns.
+    static int ScreenListWidth(int terminal_width)
     {
-        const char* status = instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed";
-        char buffer[256];
-        std::string start_time = FormatLocalTimeOfDay(instance.started_at);
-        std::string end_time = FormatLocalTimeOfDay(instance.closed_at);
-        std::snprintf(
-            buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
-            kDateColumnWidth, kDateColumnWidth, instance.instance_date.c_str(),
-            kStartTimeColumnWidth, kStartTimeColumnWidth, start_time.c_str(), kEndTimeColumnWidth,
-            kEndTimeColumnWidth, end_time.c_str(), kNetControlColumnWidth, kNetControlColumnWidth,
-            instance.net_control_callsign.c_str(), kAlternateNcColumnWidth, kAlternateNcColumnWidth,
-            instance.alternate_net_control_callsign.c_str(), kLoggerColumnWidth, kLoggerColumnWidth,
-            instance.logger_callsign.c_str(), status);
-        return std::string(buffer);
+        return std::max(80, terminal_width) - 4;
+    }
+    static constexpr int kScreenListWidthAt80 = 76;
+
+    // The same for the autocomplete matches, which sit inside a window.
+    static int MatchListWidth(int terminal_width)
+    {
+        return std::max(80, terminal_width) - 26;
+    }
+    static constexpr int kMatchListWidthAt80 = 54;
+
+    static std::string MenuGutter()
+    {
+        return std::string(kMenuEntryIndicatorWidth, ' ');
     }
 
-    std::string FormatNetInstanceHeaderRow()
+    static std::vector<std::string> FormatRows(const std::vector<std::vector<std::string>>& rows,
+                                               const ListLayout& layout)
     {
-        // Same field widths as FormatNetInstanceRow.
-        char buffer[256];
-        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
-                      kDateColumnWidth, kDateColumnWidth, "Date", kStartTimeColumnWidth,
-                      kStartTimeColumnWidth, "Start", kEndTimeColumnWidth, kEndTimeColumnWidth,
-                      "End", kNetControlColumnWidth, kNetControlColumnWidth, "Net Control",
-                      kAlternateNcColumnWidth, kAlternateNcColumnWidth, "Alternate NC",
-                      kLoggerColumnWidth, kLoggerColumnWidth, "Logger", "Status");
-        return std::string(kMenuEntryIndicatorWidth, ' ') + buffer;
+        std::vector<std::string> lines;
+        lines.reserve(rows.size());
+        for (const std::vector<std::string>& row : rows)
+        {
+            lines.push_back(FormatListRow(row, layout));
+        }
+        return lines;
     }
 
-    // The ad hoc history's rows: every ad hoc net's sessions in one list, so
-    // the net's name takes the place of the Alternate NC and Logger columns
-    // (keeping a row within 80 columns).
-    static constexpr int kAdHocNetNameColumnWidth = 24;
-
-    static std::string FormatAdHocInstanceRow(const NetInstance& instance,
-                                              const std::string& net_name)
+    // "Chattanooga, TN", or whichever half is known.
+    static std::string CityAndState(const Station& station)
     {
-        const char* status = instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed";
-        char buffer[256];
-        std::string start_time = FormatLocalTimeOfDay(instance.started_at);
-        std::string end_time = FormatLocalTimeOfDay(instance.closed_at);
-        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
-                      kDateColumnWidth, kDateColumnWidth, instance.instance_date.c_str(),
-                      kStartTimeColumnWidth, kStartTimeColumnWidth, start_time.c_str(),
-                      kEndTimeColumnWidth, kEndTimeColumnWidth, end_time.c_str(),
-                      kAdHocNetNameColumnWidth, kAdHocNetNameColumnWidth, net_name.c_str(),
-                      kNetControlColumnWidth, kNetControlColumnWidth,
-                      instance.net_control_callsign.c_str(), status);
-        return std::string(buffer);
+        if (station.city.empty() || station.state.empty())
+        {
+            return station.city + station.state;
+        }
+        return station.city + ", " + station.state;
     }
 
-    std::string FormatAdHocInstanceHeaderRow()
+    // Short tag for CheckIn::designated_role, shown in its own column so a
+    // station holding Alternate Net Control or Logger is visible straight
+    // from the check-in list, not just by opening it to edit. Blank (not
+    // "None") for kRoleNone, so an undesignated check-in's row doesn't look
+    // busier than one that's just never been looked at.
+    static std::string RoleAbbreviation(int role)
     {
-        // Same field widths as FormatAdHocInstanceRow.
-        char buffer[256];
-        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
-                      kDateColumnWidth, kDateColumnWidth, "Date", kStartTimeColumnWidth,
-                      kStartTimeColumnWidth, "Start", kEndTimeColumnWidth, kEndTimeColumnWidth,
-                      "End", kAdHocNetNameColumnWidth, kAdHocNetNameColumnWidth, "Net",
-                      kNetControlColumnWidth, kNetControlColumnWidth, "Net Control", "Status");
-        return std::string(kMenuEntryIndicatorWidth, ' ') + buffer;
+        switch (role)
+        {
+            case kRoleNetControl:
+                return "NC";
+            case kRoleAlternateNetControl:
+                return "AltNC";
+            case kRoleLogger:
+                return "Log";
+            default:
+                return "";
+        }
     }
 
-    static std::string FormatCallsignSuggestion(const Station& station, bool is_this_net)
+    // -- Check-ins (the active net, History, exported logs) --
+
+    // Heading, width, widest, when added, when widened, width in exports.
+    static const std::vector<ListColumn>& CheckInColumns()
     {
-        char buffer[128];
-        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %s", kCallsignColumnWidth,
-                      kCallsignColumnWidth, station.callsign.c_str(), kNameColumnWidth,
-                      kNameColumnWidth, station.name.c_str(),
-                      is_this_net ? "(this net)" : "(other net)");
-        return std::string(buffer);
+        static const std::vector<ListColumn> columns = {
+            {"#", 3, 3, 0, 0, 4},
+            {"Time", 8, 8, 2, 0, 8},
+            {"Callsign", 10, 13, 0, 99, 13},
+            {"Name", 20, 30, 0, 1, 30},
+            {"Member ID", 10, 10, 0, 0, 10},
+            {"City, State", 16, 24, 3, 8, 30},
+            {"County", 14, 14, 0, 0, 20},
+            {"Role", 6, 6, 0, 0, 6},
+            {"Signal", 6, 6, 4, 0, 6},
+            {"Remarks", 7, 30, 0, 6, 40},
+            {"Comment", 8, 40, 5, 0, 60},
+        };
+        return columns;
     }
 
-    std::string FormatCallsignSuggestionHeaderRow()
+    std::vector<std::vector<std::string>> CheckInCells(Database* db,
+                                                       const std::vector<CheckIn>& check_ins)
     {
-        char buffer[128];
-        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %s", kCallsignColumnWidth,
-                      kCallsignColumnWidth, "Callsign", kNameColumnWidth, kNameColumnWidth, "Name",
-                      "Source");
-        return std::string(kMenuEntryIndicatorWidth, ' ') + buffer;
+        std::vector<std::vector<std::string>> rows;
+        rows.reserve(check_ins.size());
+        for (const CheckIn& check_in : check_ins)
+        {
+            std::optional<Station> found = db->FindStationByCallsign(check_in.callsign);
+            Station station = found.has_value() ? *found : Station();
+            rows.push_back({
+                std::to_string(check_in.sequence_number),
+                FormatLocalTimeOfDay(check_in.checked_in_at),
+                check_in.callsign,
+                station.name,
+                station.member_id,
+                CityAndState(station),
+                station.county,
+                RoleAbbreviation(check_in.designated_role),
+                check_in.signal_report,
+                check_in.remarks,
+                check_in.comment,
+            });
+        }
+        return rows;
     }
 
-    static std::string FormatSavedStationRow(const Station& station)
+    static ListLayout CheckInLayout(int terminal_width)
     {
-        char buffer[128];
-        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %s", kCallsignColumnWidth,
-                      kCallsignColumnWidth, station.callsign.c_str(), kNameColumnWidth,
-                      kNameColumnWidth, station.name.c_str(), station.member_id.c_str());
-        return std::string(buffer);
+        return LayOutList(CheckInColumns(), ScreenListWidth(terminal_width), kScreenListWidthAt80,
+                          1);
     }
 
-    std::string FormatSavedStationHeaderRow(bool above_menu)
+    std::vector<std::string> FormatCheckInList(const std::vector<std::vector<std::string>>& cells,
+                                               int terminal_width)
     {
-        char buffer[128];
-        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %s", kCallsignColumnWidth,
-                      kCallsignColumnWidth, "Callsign", kNameColumnWidth, kNameColumnWidth, "Name",
-                      "Member ID");
-        std::string prefix =
-            above_menu ? std::string(kMenuEntryIndicatorWidth, ' ') : std::string();
-        return prefix + buffer;
+        return FormatRows(cells, CheckInLayout(terminal_width));
+    }
+
+    std::string CheckInListHeader(int terminal_width)
+    {
+        return MenuGutter() + FormatListHeading(CheckInColumns(), CheckInLayout(terminal_width));
+    }
+
+    // -- Net sessions (History) --
+
+    static const std::vector<ListColumn>& NetInstanceColumns(bool ad_hoc)
+    {
+        // A recurring net's own history; its name is in the page title.
+        static const std::vector<ListColumn> recurring = {
+            {"Date", 10, 10, 0, 0},        {"Start", 8, 8, 0, 0},          {"End", 8, 8, 0, 0},
+            {"Net Control", 12, 12, 0, 0}, {"Alternate NC", 12, 12, 0, 0}, {"Logger", 12, 12, 0, 0},
+            {"Check-ins", 9, 9, 1, 0},     {"Status", 6, 6, 0, 0},
+        };
+        // Every ad hoc net's sessions in one list: at 80 columns the net's
+        // name takes the place of Alternate NC and Logger, which come back
+        // when there's room.
+        static const std::vector<ListColumn> every_ad_hoc = {
+            {"Date", 10, 10, 0, 0},   {"Start", 8, 8, 0, 0},         {"End", 8, 8, 0, 0},
+            {"Net", 24, 30, 0, 1},    {"Net Control", 12, 12, 0, 0}, {"Alternate NC", 12, 12, 2, 0},
+            {"Logger", 12, 12, 3, 0}, {"Check-ins", 9, 9, 4, 0},     {"Status", 6, 6, 0, 0},
+        };
+        return ad_hoc ? every_ad_hoc : recurring;
+    }
+
+    static std::vector<std::string> NetInstanceCells(const NetInstance& instance,
+                                                     const std::string& net_name,
+                                                     std::int64_t check_ins, bool ad_hoc)
+    {
+        std::vector<std::string> cells = {
+            instance.instance_date,
+            FormatLocalTimeOfDay(instance.started_at),
+            FormatLocalTimeOfDay(instance.closed_at),
+        };
+        if (ad_hoc)
+        {
+            cells.push_back(net_name);
+        }
+        cells.push_back(instance.net_control_callsign);
+        cells.push_back(instance.alternate_net_control_callsign);
+        cells.push_back(instance.logger_callsign);
+        cells.push_back(std::to_string(check_ins));
+        cells.emplace_back(instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed");
+        return cells;
+    }
+
+    static ListLayout NetInstanceLayout(int terminal_width, bool ad_hoc)
+    {
+        return LayOutList(NetInstanceColumns(ad_hoc), ScreenListWidth(terminal_width),
+                          kScreenListWidthAt80, 1);
+    }
+
+    std::string NetInstanceListHeader(int terminal_width, bool ad_hoc)
+    {
+        return MenuGutter() + FormatListHeading(NetInstanceColumns(ad_hoc),
+                                                NetInstanceLayout(terminal_width, ad_hoc));
+    }
+
+    // -- A net's saved stations (Edit Net, exported lists) --
+
+    static const std::vector<ListColumn>& SavedStationColumns()
+    {
+        static const std::vector<ListColumn> columns = {
+            {"Callsign", 10, 13, 0, 99, 13},       {"Name", 20, 30, 0, 6, 30},
+            {"Member ID", 10, 10, 0, 0, 10},       {"City, State", 16, 24, 2, 8, 30},
+            {"County", 14, 14, 3, 0, 20},          {"Grid", 6, 8, 4, 0, 8},
+            {"Default Remarks", 15, 40, 5, 0, 40},
+        };
+        return columns;
+    }
+
+    static std::vector<std::string> SavedStationCells(const Station& station,
+                                                      const std::string& default_remarks)
+    {
+        return {station.callsign, station.name,        station.member_id, CityAndState(station),
+                station.county,   station.grid_square, default_remarks};
+    }
+
+    static ListLayout SavedStationLayout(int terminal_width)
+    {
+        return LayOutList(SavedStationColumns(), ScreenListWidth(terminal_width),
+                          kScreenListWidthAt80, 1);
+    }
+
+    std::string SavedStationListHeader(int terminal_width)
+    {
+        return MenuGutter() +
+               FormatListHeading(SavedStationColumns(), SavedStationLayout(terminal_width));
+    }
+
+    // -- Autocomplete matches (New Check-In, Saved Station) --
+
+    static const std::vector<ListColumn>& MatchColumns()
+    {
+        static const std::vector<ListColumn> columns = {
+            {"Callsign", 10, 13, 0, 99}, {"Name", 20, 30, 0, 4},   {"City, State", 16, 24, 1, 3},
+            {"County", 14, 14, 2, 0},    {"Source", 13, 13, 0, 0},
+        };
+        return columns;
+    }
+
+    static ListLayout MatchLayout(int terminal_width)
+    {
+        return LayOutList(MatchColumns(), MatchListWidth(terminal_width), kMatchListWidthAt80, 1);
+    }
+
+    std::string MatchListHeader(int terminal_width)
+    {
+        return MenuGutter() + FormatListHeading(MatchColumns(), MatchLayout(terminal_width));
+    }
+
+    static std::vector<std::string> FormatMatches(const std::vector<Station>& stations,
+                                                  const std::vector<std::string>& sources,
+                                                  int terminal_width)
+    {
+        ListLayout layout = MatchLayout(terminal_width);
+        std::vector<std::string> lines;
+        for (std::size_t i = 0; i < stations.size() && i < sources.size(); ++i)
+        {
+            const Station& station = stations[i];
+            lines.push_back(FormatListRow(
+                {station.callsign, station.name, CityAndState(station), station.county, sources[i]},
+                layout));
+        }
+        return lines;
+    }
+
+    // "(this net)" / "(other net)" for a match known to a net.
+    static std::string KnownStationSource(bool is_this_net)
+    {
+        return is_this_net ? "(this net)" : "(other net)";
     }
 
     // `distance_miles` < 0 means "unknown" (the station's own ZIP has no
     // centroid on file) -- shown as "(ULS, nearby)" rather than a fabricated
     // number, since it only passed the coarser ZIP3-prefix pre-filter.
-    static std::string FormatUlsSuggestion(const Station& station, double distance_miles)
+    static std::string UlsSource(double distance_miles)
     {
-        char distance_text[32];
         if (distance_miles < 0.0)
         {
-            std::snprintf(distance_text, sizeof(distance_text), "nearby");
+            return "(ULS, nearby)";
         }
-        else
+        return "(ULS, ~" + std::to_string(static_cast<int>(distance_miles)) + " mi)";
+    }
+
+    // -- Recurring Nets --
+
+    // Net-list names are padded to the longest (up to this) so the columns
+    // after them line up.
+    static constexpr int kMaxNetNameColumnWidth = 40;
+
+    // The list has no header line; its extra columns (mode, frequency, when
+    // it meets) read for themselves. The when-created/imported column comes
+    // last, as it always has.
+    static std::vector<ListColumn> NetListColumns(int name_width)
+    {
+        return {
+            {"Net", name_width, name_width, 0, 0},
+            {"Mode", 6, 8, 1, 5},
+            {"Frequency", 10, 12, 2, 6},
+            {"Recurrence", 20, 30, 3, 4},
+            {"", 12, 12, 0, 0},
+        };
+    }
+
+    static std::vector<std::string> NetListCells(const Net& net, bool has_open_session)
+    {
+        std::string when;
+        if (net.imported_at > 0)
         {
-            std::snprintf(distance_text, sizeof(distance_text), "~%d mi",
-                          static_cast<int>(distance_miles));
+            when = "imported " + FormatLocalDate(net.imported_at);
         }
-        char buffer[128];
-        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s (ULS, %s)", kCallsignColumnWidth,
-                      kCallsignColumnWidth, station.callsign.c_str(), kNameColumnWidth,
-                      kNameColumnWidth, station.name.c_str(), distance_text);
-        return std::string(buffer);
+        else if (net.created_at > 0)
+        {
+            when = "created " + FormatLocalDate(net.created_at);
+        }
+        if (has_open_session)
+        {
+            when += when.empty() ? "session open" : ", session open";
+        }
+        return {net.name, net.mode, net.default_frequency, net.recurrence_description, when};
+    }
+
+    static std::vector<std::string> FormatNetList(const AppState* state)
+    {
+        std::vector<std::string> rows =
+            FormatRows(state->net_cells,
+                       LayOutList(NetListColumns(state->net_name_width),
+                                  ScreenListWidth(state->list_width), kScreenListWidthAt80, 2));
+        // A net with nothing after its name is shown as just its name.
+        for (std::string& row : rows)
+        {
+            row.erase(row.find_last_not_of(' ') + 1);
+        }
+        return rows;
+    }
+
+    // Re-lays out every list for AppState::list_width.
+    static void RelayOutLists(AppState* state)
+    {
+        state->net_names = FormatNetList(state);
+        state->active_display_rows =
+            FormatCheckInList(state->active_check_in_cells, state->list_width);
+        state->history_check_in_labels =
+            FormatCheckInList(state->history_check_in_cells, state->list_width);
+        state->history_instance_labels =
+            FormatRows(state->history_instance_cells,
+                       NetInstanceLayout(state->list_width, state->history_ad_hoc));
+        state->edit_net_saved_station_labels =
+            FormatRows(state->saved_station_cells, SavedStationLayout(state->list_width));
+        state->modal_callsign_suggestion_labels =
+            FormatMatches(state->modal_callsign_suggestions,
+                          state->modal_callsign_suggestion_sources, state->list_width);
+        state->saved_station_suggestion_labels =
+            FormatMatches(state->saved_station_suggestions, state->saved_station_suggestion_sources,
+                          state->list_width);
+    }
+
+    void UpdateListWidths(AppState* state, int terminal_width)
+    {
+        int width = std::max(80, terminal_width);
+        if (width == state->list_width)
+        {
+            return;
+        }
+        state->list_width = width;
+        RelayOutLists(state);
     }
 
     // Appends stations from `candidates` onto `suggestions` that aren't
@@ -237,35 +434,6 @@ namespace ql
         }
     }
 
-    // Net-list names are padded to the longest (up to this) so the dates
-    // after them line up.
-    static constexpr int kMaxNetNameColumnWidth = 40;
-
-    static std::string FormatNetListRow(const Net& net, int name_width, bool has_open_session)
-    {
-        std::string when;
-        if (net.imported_at > 0)
-        {
-            when = "imported " + FormatLocalDate(net.imported_at);
-        }
-        else if (net.created_at > 0)
-        {
-            when = "created " + FormatLocalDate(net.created_at);
-        }
-        if (has_open_session)
-        {
-            when += when.empty() ? "session open" : ", session open";
-        }
-        if (when.empty())
-        {
-            return net.name;
-        }
-        char buffer[256];
-        std::snprintf(buffer, sizeof(buffer), "%-*.*s  %s", name_width, name_width,
-                      net.name.c_str(), when.c_str());
-        return std::string(buffer);
-    }
-
     void RefreshNets(AppState* state)
     {
         state->nets.clear();
@@ -283,15 +451,16 @@ namespace ql
         {
             name_width = std::max(name_width, static_cast<int>(net.name.size()));
         }
-        name_width = std::min(name_width, kMaxNetNameColumnWidth);
+        state->net_name_width = std::min(name_width, kMaxNetNameColumnWidth);
 
-        state->net_names.clear();
+        state->net_cells.clear();
         for (const Net& net : state->nets)
         {
             bool has_open_session =
                 std::find(open_net_ids.begin(), open_net_ids.end(), net.id) != open_net_ids.end();
-            state->net_names.push_back(FormatNetListRow(net, name_width, has_open_session));
+            state->net_cells.push_back(NetListCells(net, has_open_session));
         }
+        state->net_names = FormatNetList(state);
 
         if (state->selected_net_index >= static_cast<int>(state->nets.size()))
         {
@@ -527,6 +696,7 @@ namespace ql
     {
         state->watched_instance_id = 0;
         state->active_check_ins.clear();
+        state->active_check_in_cells.clear();
         state->active_display_rows.clear();
         state->show_new_station_modal = false;
         state->show_edit_checkin_modal = false;
@@ -684,82 +854,12 @@ namespace ql
         state->form_error.clear();
     }
 
-    // Sequence numbers are numeric, not a string column, so unlike the other
-    // widths above they can't be truncated the same way a long name could --
-    // realistic check-in counts never approach 3 digits, so this is purely
-    // for lining "#" up with the row's %d field.
-    static constexpr int kSequenceColumnWidth = 3;
-    // Fits the longest abbreviation ("AltNC", 5 chars) plus one for padding.
-    static constexpr int kRoleColumnWidth = 6;
-
-    // Short tag for CheckIn::designated_role, shown in its own column so a
-    // station holding Alternate Net Control or Logger is visible straight
-    // from the check-in list, not just by opening it to edit. Blank (not
-    // "None") for kRoleNone, so an undesignated check-in's row doesn't look
-    // busier than one that's just never been looked at.
-    static std::string RoleAbbreviation(int role)
-    {
-        switch (role)
-        {
-            case kRoleNetControl:
-                return "NC";
-            case kRoleAlternateNetControl:
-                return "AltNC";
-            case kRoleLogger:
-                return "Log";
-            default:
-                return "";
-        }
-    }
-
-    std::string FormatCheckInRow(const CheckIn& check_in, const std::string& name,
-                                 const std::string& member_id, const std::string& county)
-    {
-        std::string role = RoleAbbreviation(check_in.designated_role);
-        char buffer[256];
-        std::snprintf(buffer, sizeof(buffer), "%-*d %-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
-                      kSequenceColumnWidth, check_in.sequence_number, kCallsignColumnWidth,
-                      kCallsignColumnWidth, check_in.callsign.c_str(), kNameColumnWidth,
-                      kNameColumnWidth, name.c_str(), kMemberIdColumnWidth, kMemberIdColumnWidth,
-                      member_id.c_str(), kCountyColumnWidth, kCountyColumnWidth, county.c_str(),
-                      kRoleColumnWidth, kRoleColumnWidth, role.c_str(), check_in.remarks.c_str());
-        return std::string(buffer);
-    }
-
-    std::string FormatCheckInHeaderRow(bool above_menu)
-    {
-        // Same field widths as FormatCheckInRow (with "#" standing in for
-        // the sequence number).
-        char buffer[256];
-        std::snprintf(buffer, sizeof(buffer), "%-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %-*.*s %s",
-                      kSequenceColumnWidth, kSequenceColumnWidth, "#", kCallsignColumnWidth,
-                      kCallsignColumnWidth, "Callsign", kNameColumnWidth, kNameColumnWidth, "Name",
-                      kMemberIdColumnWidth, kMemberIdColumnWidth, "Member ID", kCountyColumnWidth,
-                      kCountyColumnWidth, "County", kRoleColumnWidth, kRoleColumnWidth, "Role",
-                      "Remarks");
-        std::string prefix =
-            above_menu ? std::string(kMenuEntryIndicatorWidth, ' ') : std::string();
-        return prefix + buffer;
-    }
-
-    std::vector<std::string> FormatCheckInRows(Database* db, const std::vector<CheckIn>& check_ins)
-    {
-        std::vector<std::string> rows;
-        for (const CheckIn& check_in : check_ins)
-        {
-            std::optional<Station> station = db->FindStationByCallsign(check_in.callsign);
-            std::string name = station.has_value() ? station->name : "";
-            std::string member_id = station.has_value() ? station->member_id : "";
-            std::string county = station.has_value() ? station->county : "";
-            rows.push_back(FormatCheckInRow(check_in, name, member_id, county));
-        }
-        return rows;
-    }
-
     void RefreshActiveCheckIns(AppState* state)
     {
         state->active_check_ins = state->db->GetCheckInsForNetInstance(state->active_instance.id);
-        state->active_display_rows = FormatCheckInRows(state->db, state->active_check_ins);
+        state->active_check_in_cells = CheckInCells(state->db, state->active_check_ins);
+        state->active_display_rows =
+            FormatCheckInList(state->active_check_in_cells, state->list_width);
 
         if (state->selected_check_in_index >= static_cast<int>(state->active_check_ins.size()))
         {
@@ -961,6 +1061,7 @@ namespace ql
         state->modal_comment.clear();
         state->modal_callsign_suggestions.clear();
         state->modal_callsign_suggestion_labels.clear();
+        state->modal_callsign_suggestion_sources.clear();
         state->selected_suggestion_index = 0;
         state->modal_role_choice_labels = RoleChoiceLabels(state);
         state->modal_role_choice_index = 0;
@@ -1067,21 +1168,17 @@ namespace ql
     void RefreshNetHistory(AppState* state)
     {
         state->history_instances.clear();
+        state->history_instance_cells.clear();
         state->history_instance_labels.clear();
 
+        std::unordered_map<std::int64_t, std::string> names;
         if (state->history_ad_hoc)
         {
-            std::unordered_map<std::int64_t, std::string> names;
             for (const Net& net : state->db->GetAllNets())
             {
                 names[net.id] = net.name;
             }
             state->history_instances = state->db->GetAdHocNetInstances();
-            for (const NetInstance& instance : state->history_instances)
-            {
-                state->history_instance_labels.push_back(
-                    FormatAdHocInstanceRow(instance, names[instance.net_id]));
-            }
         }
         else
         {
@@ -1089,13 +1186,20 @@ namespace ql
             {
                 return;
             }
-            const Net& net = state->nets[state->selected_net_index];
-            state->history_instances = state->db->GetNetInstancesForNet(net.id);
-            for (const NetInstance& instance : state->history_instances)
-            {
-                state->history_instance_labels.push_back(FormatNetInstanceRow(instance));
-            }
+            state->history_instances =
+                state->db->GetNetInstancesForNet(state->nets[state->selected_net_index].id);
         }
+        for (const NetInstance& instance : state->history_instances)
+        {
+            std::int64_t check_ins = 0;
+            std::int64_t newest_id = 0;
+            state->db->GetCheckInSummary(instance.id, &check_ins, &newest_id);
+            state->history_instance_cells.push_back(NetInstanceCells(
+                instance, names[instance.net_id], check_ins, state->history_ad_hoc));
+        }
+        state->history_instance_labels =
+            FormatRows(state->history_instance_cells,
+                       NetInstanceLayout(state->list_width, state->history_ad_hoc));
 
         if (state->selected_history_index >= static_cast<int>(state->history_instances.size()))
         {
@@ -1108,6 +1212,7 @@ namespace ql
     void RefreshHistoryCheckIns(AppState* state)
     {
         state->history_check_in_labels.clear();
+        state->history_check_in_cells.clear();
         state->history_check_ins.clear();
         state->selected_history_check_in_index = 0;
 
@@ -1118,7 +1223,9 @@ namespace ql
 
         const NetInstance& selected = state->history_instances[state->selected_history_index];
         state->history_check_ins = state->db->GetCheckInsForNetInstance(selected.id);
-        state->history_check_in_labels = FormatCheckInRows(state->db, state->history_check_ins);
+        state->history_check_in_cells = CheckInCells(state->db, state->history_check_ins);
+        state->history_check_in_labels =
+            FormatCheckInList(state->history_check_in_cells, state->list_width);
     }
 
     void DeleteSelectedNetInstance(AppState* state)
@@ -1182,8 +1289,13 @@ namespace ql
     }
 
     static void ExportLinesToFile(AppState* state, const std::string& path,
-                                  const std::vector<std::string>& lines)
+                                  std::vector<std::string> lines)
     {
+        // Rows whose last columns are empty would otherwise end in padding.
+        for (std::string& line : lines)
+        {
+            line.erase(line.find_last_not_of(' ') + 1);
+        }
         std::string error;
         if (!WriteExportFile(path, lines, &error))
         {
@@ -1854,8 +1966,12 @@ namespace ql
         lines.push_back(std::string("Status: ") +
                         (instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed"));
         lines.emplace_back("");
-        lines.push_back(FormatCheckInHeaderRow(/*above_menu=*/false));
-        std::vector<std::string> rows = FormatCheckInRows(state->db, check_ins);
+        // A fixed format: every column, each at its set export width,
+        // whatever the terminal or the data (see ExportListLayout).
+        std::vector<std::vector<std::string>> cells = CheckInCells(state->db, check_ins);
+        ListLayout layout = ExportListLayout(CheckInColumns(), 1);
+        lines.push_back(FormatListHeading(CheckInColumns(), layout));
+        std::vector<std::string> rows = FormatRows(cells, layout);
         lines.insert(lines.end(), rows.begin(), rows.end());
 
         std::string path = ExportsDir(state->db_path) + "/" + SanitizeFilenameComponent(net_name) +
@@ -1870,11 +1986,17 @@ namespace ql
         lines.push_back("Net: " + net_name);
         lines.emplace_back("Saved Stations:");
         lines.emplace_back("");
-        lines.push_back(FormatSavedStationHeaderRow(/*above_menu=*/false));
+        // Every column, as in ExportNetLog.
+        std::vector<std::vector<std::string>> cells;
         for (const Station& station : saved_stations)
         {
-            lines.push_back(FormatSavedStationRow(station));
+            cells.push_back(SavedStationCells(station, state->db->GetSavedNetStationRemarks(
+                                                           state->edit_net_id, station.callsign)));
         }
+        ListLayout layout = ExportListLayout(SavedStationColumns(), 1);
+        lines.push_back(FormatListHeading(SavedStationColumns(), layout));
+        std::vector<std::string> rows = FormatRows(cells, layout);
+        lines.insert(lines.end(), rows.begin(), rows.end());
 
         std::string path = ExportsDir(state->db_path) + "/" + SanitizeFilenameComponent(net_name) +
                            "_saved_stations.txt";
@@ -1956,12 +2078,13 @@ namespace ql
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed,
                                            const std::string& net_zip, std::size_t max_suggestions,
                                            std::vector<Station>* suggestions,
-                                           std::vector<std::string>* labels);
+                                           std::vector<std::string>* sources);
 
     void RefreshCallsignSuggestions(AppState* state)
     {
         state->modal_callsign_suggestions.clear();
         state->modal_callsign_suggestion_labels.clear();
+        state->modal_callsign_suggestion_sources.clear();
         state->selected_suggestion_index = 0;
 
         if (state->modal_station.callsign.empty())
@@ -1991,14 +2114,16 @@ namespace ql
         for (std::size_t i = 0; i < state->modal_callsign_suggestions.size(); ++i)
         {
             bool is_this_net = i < tier1_count;
-            state->modal_callsign_suggestion_labels.push_back(
-                FormatCallsignSuggestion(state->modal_callsign_suggestions[i], is_this_net));
+            state->modal_callsign_suggestion_sources.push_back(KnownStationSource(is_this_net));
         }
 
         // Tier 3: licensed stations near the net, from the FCC data.
         AppendNearbyUlsSuggestions(state, state->modal_station.callsign, state->active_net_zip,
                                    kMaxSuggestions, &state->modal_callsign_suggestions,
-                                   &state->modal_callsign_suggestion_labels);
+                                   &state->modal_callsign_suggestion_sources);
+        state->modal_callsign_suggestion_labels =
+            FormatMatches(state->modal_callsign_suggestions,
+                          state->modal_callsign_suggestion_sources, state->list_width);
     }
 
     void ApplySelectedCallsignSuggestion(AppState* state)
@@ -2022,6 +2147,7 @@ namespace ql
 
         state->modal_callsign_suggestions.clear();
         state->modal_callsign_suggestion_labels.clear();
+        state->modal_callsign_suggestion_sources.clear();
     }
 
     void OpenEditNetForm(AppState* state, const Net& net)
@@ -2072,11 +2198,15 @@ namespace ql
     {
         state->edit_net_saved_stations = state->db->GetSavedStationsForNet(state->edit_net_id);
 
-        state->edit_net_saved_station_labels.clear();
+        state->saved_station_cells.clear();
         for (const Station& station : state->edit_net_saved_stations)
         {
-            state->edit_net_saved_station_labels.push_back(FormatSavedStationRow(station));
+            state->saved_station_cells.push_back(SavedStationCells(
+                station,
+                state->db->GetSavedNetStationRemarks(state->edit_net_id, station.callsign)));
         }
+        state->edit_net_saved_station_labels =
+            FormatRows(state->saved_station_cells, SavedStationLayout(state->list_width));
 
         if (state->selected_saved_station_index >=
             static_cast<int>(state->edit_net_saved_stations.size()))
@@ -2126,6 +2256,7 @@ namespace ql
         state->saved_station_remarks.clear();
         state->saved_station_suggestions.clear();
         state->saved_station_suggestion_labels.clear();
+        state->saved_station_suggestion_sources.clear();
         state->form_error.clear();
         RefreshEditNetSavedStations(state);
 
@@ -2170,6 +2301,7 @@ namespace ql
         state->saved_station_remarks.clear();
         state->saved_station_suggestions.clear();
         state->saved_station_suggestion_labels.clear();
+        state->saved_station_suggestion_sources.clear();
         state->form_error.clear();
         state->show_saved_station_modal = false;
     }
@@ -2309,7 +2441,7 @@ namespace ql
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed,
                                            const std::string& net_zip, std::size_t max_suggestions,
                                            std::vector<Station>* suggestions,
-                                           std::vector<std::string>* labels)
+                                           std::vector<std::string>* sources)
     {
         if (suggestions->size() >= max_suggestions)
         {
@@ -2370,7 +2502,7 @@ namespace ql
                 continue;
             }
             suggestions->push_back(*station);
-            labels->push_back(FormatUlsSuggestion(*station, candidate.miles));
+            sources->push_back(UlsSource(candidate.miles));
         }
     }
 
@@ -2378,6 +2510,7 @@ namespace ql
     {
         state->saved_station_suggestions.clear();
         state->saved_station_suggestion_labels.clear();
+        state->saved_station_suggestion_sources.clear();
         state->selected_saved_station_suggestion_index = 0;
 
         if (state->saved_station.callsign.empty())
@@ -2407,14 +2540,16 @@ namespace ql
         for (std::size_t i = 0; i < state->saved_station_suggestions.size(); ++i)
         {
             bool is_this_net = i < tier1_count;
-            state->saved_station_suggestion_labels.push_back(
-                FormatCallsignSuggestion(state->saved_station_suggestions[i], is_this_net));
+            state->saved_station_suggestion_sources.push_back(KnownStationSource(is_this_net));
         }
 
         // Tier 3: nearby ULS-imported stations.
         AppendNearbyUlsSuggestions(state, state->saved_station.callsign, state->edit_net_location,
                                    kMaxSuggestions, &state->saved_station_suggestions,
-                                   &state->saved_station_suggestion_labels);
+                                   &state->saved_station_suggestion_sources);
+        state->saved_station_suggestion_labels =
+            FormatMatches(state->saved_station_suggestions, state->saved_station_suggestion_sources,
+                          state->list_width);
     }
 
     void ApplySelectedSavedStationSuggestion(AppState* state)
@@ -2432,6 +2567,7 @@ namespace ql
         BackfillCountyFromZip(state, &state->saved_station);
         state->saved_station_suggestions.clear();
         state->saved_station_suggestion_labels.clear();
+        state->saved_station_suggestion_sources.clear();
     }
 
     void BackfillCountyFromZip(AppState* state, Station* station)

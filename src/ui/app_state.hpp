@@ -217,6 +217,24 @@ namespace ql
         std::vector<std::string> net_names;  // Kept in sync with `nets` by RefreshNets.
         int selected_net_index = 0;
 
+        // The terminal width the lists are laid out for (never less than 80;
+        // see UpdateListWidths), and each list's rows as cells (see
+        // list_columns.hpp), kept so that a resize only lays them out again:
+        // no database reads. Each list's display lines (net_names,
+        // active_display_rows...) are made from these.
+        int list_width = 80;
+        std::vector<std::vector<std::string>> net_cells;
+        int net_name_width = 0;
+        std::vector<std::vector<std::string>> active_check_in_cells;
+        std::vector<std::vector<std::string>> history_instance_cells;
+        std::vector<std::vector<std::string>> history_check_in_cells;
+        std::vector<std::vector<std::string>> saved_station_cells;
+        // Where each autocomplete match came from ("(this net)", "(ULS, ~4
+        // mi)"...), one per entry of modal_callsign_suggestions /
+        // saved_station_suggestions.
+        std::vector<std::string> modal_callsign_suggestion_sources;
+        std::vector<std::string> saved_station_suggestion_sources;
+
         // Create-net page: fields for a new recurring net.
         std::string new_net_name;
         std::string new_net_mode;
@@ -561,36 +579,28 @@ namespace ql
     // this always succeeds.
     void SaveEditCheckInForm(AppState* state);
 
-    // Formats one check-in as a single display line: sequence number,
-    // callsign, the station's name/member ID/county (not stored on CheckIn
-    // itself), its designated role, and remarks. Signal report is collected
-    // on the New Station/Edit Check-in forms but deliberately left out of
-    // this list -- there wasn't room to keep both it and County, and County
-    // is more useful here.
-    std::string FormatCheckInRow(const CheckIn& check_in, const std::string& name,
-                                 const std::string& member_id, const std::string& county);
+    // ---- Lists laid out for the terminal's width (see list_columns.hpp) ----
 
-    // The column-header line for a list of FormatCheckInRow rows -- same
-    // field widths as the row formatter (so it can't drift out of alignment
-    // with it), just with plain-English labels instead of data. Pass
-    // `above_menu = true` when this sits directly above an ftxui::Menu (its
-    // rows get FTXUI's built-in "> "/"  " 2-column indicator prefix, so the
-    // header needs the same-width gutter to still line up -- see
-    // kMenuEntryIndicatorWidth); every current call site is above a Menu, but
-    // the parameter stays explicit rather than defaulted so a future
-    // non-Menu use has to consciously pass `false`.
-    std::string FormatCheckInHeaderRow(bool above_menu);
+    // Lays every list out again if `terminal_width` differs from
+    // AppState::list_width (never less than 80). Called before each redraw,
+    // so it costs nothing unless the terminal was resized.
+    void UpdateListWidths(AppState* state, int terminal_width);
 
-    // Formats a whole list of check-ins via FormatCheckInRow, looking up each
-    // one's Station along the way. Shared by the active-net page and the net
-    // history page so both display check-ins identically.
-    std::vector<std::string> FormatCheckInRows(Database* db, const std::vector<CheckIn>& check_ins);
+    // A check-in list's rows as cells: number, time, callsign, the station's
+    // name/member ID/city and state/county (looked up, not stored on
+    // CheckIn), role, signal report, remarks and comment.
+    std::vector<std::vector<std::string>> CheckInCells(Database* db,
+                                                       const std::vector<CheckIn>& check_ins);
+    // Those rows as lines, and the header line above them (with the Menu
+    // gutter), laid out for a `terminal_width`-column terminal.
+    std::vector<std::string> FormatCheckInList(const std::vector<std::vector<std::string>>& cells,
+                                               int terminal_width);
+    std::string CheckInListHeader(int terminal_width);
 
-    // The column-header line for a list of FormatNetInstanceRow rows.
-    std::string FormatNetInstanceHeaderRow();
-    // The same for the ad hoc history (AppState::history_ad_hoc), which has a
-    // Net column in place of Alternate NC and Logger.
-    std::string FormatAdHocInstanceHeaderRow();
+    // The header line above History's sessions -- for the ad hoc history
+    // (AppState::history_ad_hoc), which has a Net column -- laid out for a
+    // `terminal_width`-column terminal, with the Menu gutter.
+    std::string NetInstanceListHeader(int terminal_width, bool ad_hoc);
 
     // Reloads AppState::history_instances/history_instance_labels from the
     // database for AppState::nets[selected_net_index] (or every ad hoc net,
@@ -777,11 +787,10 @@ namespace ql
     // everything) when the callsign field is empty.
     void RefreshCallsignSuggestions(AppState* state);
 
-    // The column-header line for a list of FormatCallsignSuggestion/
-    // FormatUlsSuggestion rows (both use the same Callsign/Name column
-    // widths) -- shared by the New Station modal's suggestion menu and the
-    // saved-station form's suggestion menu.
-    std::string FormatCallsignSuggestionHeaderRow();
+    // The header line above the autocomplete matches (the New Check-In and
+    // Saved Station windows), laid out for a `terminal_width`-column
+    // terminal, with the matches' "> " gutter.
+    std::string MatchListHeader(int terminal_width);
 
     // Copies the highlighted entry of AppState::modal_callsign_suggestions
     // (AppState::selected_suggestion_index) into AppState::modal_station, pulls
@@ -806,12 +815,9 @@ namespace ql
     // after opening the edit-net page and after any saved-station add/remove.
     void RefreshEditNetSavedStations(AppState* state);
 
-    // The column-header line for a list of FormatSavedStationRow rows.
-    // `above_menu` matches FormatCheckInHeaderRow's parameter of the same
-    // name: true prepends the 2-space gutter an ftxui::Menu's own "> "/"  "
-    // selection indicator needs the header to line up with; false (for a
-    // plain-text export, where nothing draws that indicator) omits it.
-    std::string FormatSavedStationHeaderRow(bool above_menu);
+    // The header line above Edit Net's saved stations, laid out for a
+    // `terminal_width`-column terminal, with the Menu gutter.
+    std::string SavedStationListHeader(int terminal_width);
 
     // Saves AppState::saved_station (plus AppState::saved_station_remarks as its default
     // remarks) as a saved station for AppState::edit_net_id, then clears the

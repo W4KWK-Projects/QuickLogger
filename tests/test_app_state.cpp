@@ -1,6 +1,7 @@
 // The app's behavior below the screen: logging, editing and deleting
 // check-ins, numbered picks, autocomplete, county fill-in, import/export.
 
+#include <cstdio>
 #include <optional>
 #include <string>
 #include <vector>
@@ -440,7 +441,7 @@ namespace ql
         Fixture f;
         f.StartNet("Skywarn");
         RefreshNetHistory(&f.state);
-        std::string header = FormatNetInstanceHeaderRow();
+        std::string header = NetInstanceListHeader(80, false);
         std::string::size_type end_column = header.find("End") - 2;  // Menu gutter.
         REQUIRE(f.state.history_instance_labels.size() == 1);
         CHECK_EQ(f.state.history_instance_labels[0].substr(end_column, 8), std::string(8, ' '));
@@ -739,7 +740,7 @@ namespace ql
         f.state.history_ad_hoc = true;
         RefreshNetHistory(&f.state);
         REQUIRE(f.state.history_instance_labels.size() == 2);
-        std::string header = FormatAdHocInstanceHeaderRow();
+        std::string header = NetInstanceListHeader(80, true);
         std::string::size_type net_column = header.find("Net ") - 2;  // Menu gutter.
         CHECK(f.state.history_instance_labels[0].find("2026-09-23") == 0);
         CHECK(f.state.history_instance_labels[0].substr(net_column).find("Field Day Practice") ==
@@ -1000,21 +1001,172 @@ namespace ql
 
     QL_TEST(CheckInRowsLineUpUnderTheirHeader)
     {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("Skywarn");
+        f.db()->SaveNetStation(
+            net_id,
+            MakeStation("K4LOG", "A Name That Is Far Too Long To Fit", "37415", "Chattanooga"), "",
+            1);
         CheckIn check_in;
-        check_in.sequence_number = 12;
-        check_in.callsign = "W4KWK";
+        check_in.net_instance_id = f.state.active_instance.id;
+        check_in.callsign = "K4LOG";
         check_in.designated_role = kRoleLogger;
         check_in.remarks = "remarks here";
-        std::string header = FormatCheckInHeaderRow(false);
-        std::string row =
-            FormatCheckInRow(check_in, "A Name That Is Far Too Long To Fit", "M123", "Hamilton");
-        CHECK_EQ(header.find("Callsign"), row.find("W4KWK"));
-        CHECK_EQ(header.find("Member ID"), row.find("M123"));
-        CHECK_EQ(header.find("County"), row.find("Hamilton"));
-        CHECK_EQ(header.find("Role"), row.find("Log "));
-        CHECK_EQ(header.find("Remarks"), row.find("remarks here"));
-        CHECK(row.find("Too Long To Fit") == std::string::npos);  // Truncated.
-        CHECK_EQ(FormatCheckInHeaderRow(true), "  " + header);
+        check_in.signal_report = "59";
+        check_in.comment = "a comment";
+        check_in.checked_in_at = 1790003600;
+        f.db()->AddCheckInAtNextSequence(check_in);
+        std::vector<std::vector<std::string>> cells =
+            CheckInCells(f.db(), f.db()->GetCheckInsForNetInstance(check_in.net_instance_id));
+        REQUIRE(cells.size() == 2);
+
+        for (int width : {80, 100, 120, 160, 250})
+        {
+            std::string header = CheckInListHeader(width).substr(2);  // Menu gutter.
+            std::string row = FormatCheckInList(cells, width)[1];
+            CHECK_EQ(header.find("Callsign"), row.find("K4LOG"));
+            CHECK_EQ(header.find("Role"), row.find("Log "));
+            CHECK_EQ(header.find("Remarks"), row.find("remarks here"));
+            CHECK(row.find("Too Long To Fit") == std::string::npos);  // Truncated.
+            if (header.find("Time") != std::string::npos)
+            {
+                CHECK_EQ(header.find("Time"), row.find(FormatLocalTimeOfDay(1790003600)));
+            }
+            if (header.find("Signal") != std::string::npos)
+            {
+                CHECK_EQ(header.find("Signal"), row.find("59 "));
+            }
+            // A row never outgrows the list, except a long last column.
+            CHECK(static_cast<int>(header.size()) <= width - 4);
+        }
+        // More shows as the terminal widens.
+        CHECK(CheckInListHeader(80).find("Time") == std::string::npos);
+        CHECK(CheckInListHeader(120).find("Time") != std::string::npos);
+        CHECK(CheckInListHeader(120).find("City, State") != std::string::npos);
+        CHECK(CheckInListHeader(160).find("Comment") != std::string::npos);
+        CHECK(FormatCheckInList(cells, 160)[1].find("a comment") != std::string::npos);
+    }
+
+    // At 80 columns every list is character for character what it was before
+    // lists followed the terminal's width.
+    QL_TEST(ListsAt80ColumnsAreUnchanged)
+    {
+        Fixture f;
+        LoadZipData(f.db());
+        std::int64_t net_id = f.StartNet("Skywarn");
+        f.db()->SaveNetStation(net_id, MakeStation("K4AAA", "ANN AMATEUR", "37415", "City"), "", 1);
+        ClearModalFields(&f.state);
+        f.state.modal_station.callsign = "K4AAA";
+        f.state.modal_remarks = "on time";
+        REQUIRE(LogStationCheckIn(&f.state));
+        char expected[256];
+
+        // Check-ins: "#, Callsign, Name, Member ID, County, Role, Remarks".
+        REQUIRE(f.state.active_check_in_cells.size() == 2);
+        const std::vector<std::string>& cells = f.state.active_check_in_cells[1];
+        std::snprintf(expected, sizeof(expected),
+                      "%-3d %-10.10s %-20.20s %-10.10s %-14.14s %-6.6s %s", 2, cells[2].c_str(),
+                      cells[3].c_str(), cells[4].c_str(), cells[6].c_str(), cells[7].c_str(),
+                      cells[9].c_str());
+        CHECK_EQ(f.state.active_display_rows[1], std::string(expected));
+        CHECK_EQ(cells[9], std::string("on time"));
+        std::snprintf(expected, sizeof(expected),
+                      "  %-3.3s %-10.10s %-20.20s %-10.10s %-14.14s %-6.6s %s", "#", "Callsign",
+                      "Name", "Member ID", "County", "Role", "Remarks");
+        CHECK_EQ(CheckInListHeader(80), std::string(expected));
+
+        // History sessions.
+        std::snprintf(expected, sizeof(expected),
+                      "  %-10.10s %-8.8s %-8.8s %-12.12s %-12.12s %-12.12s %s", "Date", "Start",
+                      "End", "Net Control", "Alternate NC", "Logger", "Status");
+        CHECK_EQ(NetInstanceListHeader(80, false), std::string(expected));
+        std::snprintf(expected, sizeof(expected), "  %-10.10s %-8.8s %-8.8s %-24.24s %-12.12s %s",
+                      "Date", "Start", "End", "Net", "Net Control", "Status");
+        CHECK_EQ(NetInstanceListHeader(80, true), std::string(expected));
+
+        // Saved stations and autocomplete matches.
+        std::snprintf(expected, sizeof(expected), "  %-10.10s %-20.20s %s", "Callsign", "Name",
+                      "Member ID");
+        CHECK_EQ(SavedStationListHeader(80), std::string(expected));
+        std::snprintf(expected, sizeof(expected), "  %-10.10s %-20.20s %s", "Callsign", "Name",
+                      "Source");
+        CHECK_EQ(MatchListHeader(80), std::string(expected));
+        f.state.modal_station.callsign = "K4AA";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(!f.state.modal_callsign_suggestion_labels.empty());
+        std::snprintf(expected, sizeof(expected), "%-10.10s %-20.20s %s", "K4AAA", "ANN AMATEUR",
+                      "(this net)");
+        CHECK_EQ(f.state.modal_callsign_suggestion_labels[0], std::string(expected));
+
+        // The net list: the name padded to the longest, then when it was made.
+        RefreshNets(&f.state);
+        REQUIRE(f.state.net_names.size() == 1);
+        CHECK_EQ(f.state.net_names[0], std::string("Skywarn  session open"));
+    }
+
+    QL_TEST(AWiderTerminalShowsMoreOfEveryList)
+    {
+        Fixture f;
+        Net net;
+        net.name = "Skywarn";
+        net.mode = "FM";
+        net.default_frequency = "146.940";
+        net.recurrence_description = "Tuesdays 8pm";
+        std::int64_t net_id = f.db()->CreateNet(net);
+        f.db()->SaveNetStation(net_id, MakeStation("K4AAA", "Ann", "37415", "Chattanooga"),
+                               "mobile", 1);
+        RefreshNets(&f.state);
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
+        CHECK(f.state.net_names[0].find("146.940") == std::string::npos);
+        CHECK(f.state.edit_net_saved_station_labels[0].find("mobile") == std::string::npos);
+
+        UpdateListWidths(&f.state, 130);
+        CHECK_EQ(f.state.list_width, 130);
+        CHECK(f.state.net_names[0].find("FM") != std::string::npos);
+        CHECK(f.state.net_names[0].find("146.940") != std::string::npos);
+        CHECK(f.state.net_names[0].find("Tuesdays 8pm") != std::string::npos);
+        CHECK(f.state.edit_net_saved_station_labels[0].find("mobile") != std::string::npos);
+        CHECK(SavedStationListHeader(130).find("Default Remarks") != std::string::npos);
+
+        // Narrower than 80 lays out as at 80.
+        UpdateListWidths(&f.state, 60);
+        CHECK_EQ(f.state.list_width, 80);
+        CHECK(f.state.net_names[0].find("146.940") == std::string::npos);
+    }
+
+    QL_TEST(ExportedLogsHaveEveryColumnWhateverTheTerminal)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        f.state.modal_signal_report = "59";
+        f.state.modal_remarks = "a remark longer than thirty characters, kept whole";
+        f.state.modal_comment = "comment";
+        f.state.modal_station.callsign = "K4AAA";
+        REQUIRE(LogStationCheckIn(&f.state));
+        NetInstance instance = *f.db()->GetNetInstanceById(f.state.active_instance.id);
+        std::vector<CheckIn> check_ins = f.db()->GetCheckInsForNetInstance(instance.id);
+        ExportNetLog(&f.state, "Skywarn", instance, check_ins);
+        std::string first = ReadTextFile(f.dir().File("exports/Skywarn_2026-09-24_log.txt"));
+        UpdateListWidths(&f.state, 200);
+        ExportNetLog(&f.state, "Skywarn", instance, check_ins);
+        std::string second = ReadTextFile(f.dir().File("exports/Skywarn_2026-09-24_log.txt"));
+        CHECK_EQ(first, second);
+        CHECK(first.find("Signal") != std::string::npos);
+        CHECK(first.find("Comment") != std::string::npos);
+        // Remarks get 40 characters in a file (more than the screen's 30).
+        CHECK(first.find("a remark longer than thirty characters, ") != std::string::npos);
+        CHECK(first.find("a remark longer than thirty characters, kept whole") ==
+              std::string::npos);
+        // Fixed columns, whatever the data: the header and each row put a
+        // column at the same position.
+        std::string::size_type header_start = first.find("#  ");
+        REQUIRE(header_start != std::string::npos);
+        std::string header =
+            first.substr(header_start, first.find('\n', header_start) - header_start);
+        CHECK_EQ(header.find("Callsign"), std::string::size_type{4 + 2 + 8 + 2});
+        CHECK_EQ(header.find("Comment"),
+                 std::string::size_type{4 + 2 + 8 + 2 + 13 + 2 + 30 + 2 + 10 + 2 + 30 + 2 + 20 + 2 +
+                                        6 + 2 + 6 + 2 + 40 + 2});
     }
 
     // ---- Settings -------------------------------------------------------------------

@@ -923,6 +923,10 @@ namespace ql
 
         bool OnEvent(ftxui::Event event) override;
 
+        // Lays the lists out for the terminal's current width first (see
+        // UpdateListWidths), so a resize takes effect on the next redraw.
+        ftxui::Element Render() override;
+
     private:
         bool Dispatch(const ftxui::Event& event);
 

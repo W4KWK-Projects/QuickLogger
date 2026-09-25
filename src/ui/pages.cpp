@@ -204,6 +204,31 @@ namespace ql
         return rows;
     }
 
+    // From this terminal width up, a form's fields are drawn in two columns.
+    static constexpr int kTwoColumnFormWidth = 90;
+
+    // Appends `fields` (one row per field) to `rows`: on a terminal at least
+    // kTwoColumnFormWidth wide, in two side-by-side columns (the first half
+    // on the left), otherwise one under another. Only the drawing changes --
+    // Tab, Up and Down still visit the fields in the same order.
+    static void AppendFormFields(const AppState* state, const ftxui::Elements& fields,
+                                 ftxui::Elements* rows)
+    {
+        if (state->list_width < kTwoColumnFormWidth || fields.size() < 2)
+        {
+            rows->insert(rows->end(), fields.begin(), fields.end());
+            return;
+        }
+        std::size_t split = (fields.size() + 1) / 2;
+        ftxui::Elements left(fields.begin(), fields.begin() + static_cast<std::ptrdiff_t>(split));
+        ftxui::Elements right(fields.begin() + static_cast<std::ptrdiff_t>(split), fields.end());
+        rows->push_back(ftxui::hbox({
+            ftxui::vbox(left) | ftxui::xflex,
+            ftxui::text("   "),
+            ftxui::vbox(right) | ftxui::xflex,
+        }));
+    }
+
     // Rows a callsign window (New Check-In, Saved Station) needs besides its
     // match list while that list is showing: its border, title, Callsign
     // row, the hint above the list, the list's own border and header, and
@@ -216,7 +241,8 @@ namespace ql
     // its marked row when it has the cursor itself -- so on a short screen
     // the marker could move onto rows that couldn't be seen. This list is
     // as tall as the screen allows and always scrolls the marker into view.
-    static ftxui::Element MatchList(const std::vector<std::string>& labels, int selected)
+    static ftxui::Element MatchList(const std::string& header,
+                                    const std::vector<std::string>& labels, int selected)
     {
         ftxui::Elements rows;
         for (std::size_t i = 0; i < labels.size(); ++i)
@@ -231,7 +257,7 @@ namespace ql
         return ftxui::vbox({
             HintText("Matches: Up/Down to choose, Enter to pick the one marked >"),
             DialogFramed(ftxui::vbox({
-                ColumnHeader(FormatCallsignSuggestionHeaderRow()),
+                ColumnHeader(header),
                 ftxui::vbox(rows) | ftxui::vscroll_indicator | ftxui::frame |
                     ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height),
             })),
@@ -772,7 +798,7 @@ namespace ql
                 info_line,
                 Separator(),
                 Framed(ftxui::vbox({
-                    ColumnHeader(FormatCheckInHeaderRow(/*above_menu=*/true)),
+                    ColumnHeader(CheckInListHeader(state_->list_width)),
                     check_in_list,
                 })) |
                     ftxui::flex,
@@ -851,21 +877,20 @@ namespace ql
             // callsign is cleared or the cursor leaves the field.
             if (!state_->modal_callsign_suggestions.empty() && inputs_.callsign->Focused())
             {
-                rows.push_back(MatchList(state_->modal_callsign_suggestion_labels,
+                rows.push_back(MatchList(MatchListHeader(state_->list_width),
+                                         state_->modal_callsign_suggestion_labels,
                                          state_->selected_suggestion_index));
             }
             else
             {
-                for (std::size_t i = 1; i < field_rows.size(); ++i)
-                {
-                    rows.push_back(field_rows[i]);
-                }
-                rows.push_back(
+                ftxui::Elements fields(field_rows.begin() + 1, field_rows.end());
+                fields.push_back(
                     ftxui::hbox({FieldLabel("Signal Report: "), input_signal_report_->Render()}));
-                rows.push_back(
+                fields.push_back(
                     ftxui::hbox({FieldLabel("Remarks:       "), input_remarks_->Render()}));
-                rows.push_back(
+                fields.push_back(
                     ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
+                AppendFormFields(state_, fields, &rows);
                 rows.push_back(FieldLabel("Additional Role (optional):"));
                 rows.push_back(role_choice_menu_->Render());
             }
@@ -913,14 +938,14 @@ namespace ql
             rows.push_back(DialogSeparator());
             rows.push_back(ftxui::hbox({FieldLabel("Callsign:      "),
                                         ftxui::text(state_->edit_checkin_original.callsign)}));
-            for (const ftxui::Element& row : StationFieldRows(inputs_))
-            {
-                rows.push_back(row);
-            }
-            rows.push_back(
+            ftxui::Elements fields = StationFieldRows(inputs_);
+            fields.push_back(
                 ftxui::hbox({FieldLabel("Signal Report: "), input_signal_report_->Render()}));
-            rows.push_back(ftxui::hbox({FieldLabel("Remarks:       "), input_remarks_->Render()}));
-            rows.push_back(ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
+            fields.push_back(
+                ftxui::hbox({FieldLabel("Remarks:       "), input_remarks_->Render()}));
+            fields.push_back(
+                ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
+            AppendFormFields(state_, fields, &rows);
             rows.push_back(FieldLabel("Additional Role (optional):"));
             rows.push_back(role_choice_menu_->Render());
             rows.push_back(DialogSeparator());
@@ -1316,15 +1341,14 @@ namespace ql
             ftxui::Element content = ftxui::vbox({
                 Framed(ftxui::vbox({
                     ColumnHeader(PickHeaderPad(state_, PickList::kNetInstances) +
-                                 (state_->history_ad_hoc ? FormatAdHocInstanceHeaderRow()
-                                                         : FormatNetInstanceHeaderRow())),
+                                 NetInstanceListHeader(state_->list_width, state_->history_ad_hoc)),
                     instance_list,
                 })) |
                     ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, SessionBoxHeight()),
                 PickPrompt(state_, PickList::kNetInstances),
                 Separator(),
                 Framed(ftxui::vbox({
-                    ColumnHeader(FormatCheckInHeaderRow(/*above_menu=*/true)),
+                    ColumnHeader(CheckInListHeader(state_->list_width)),
                     checkin_list,
                 })) |
                     ftxui::flex,
@@ -1452,16 +1476,21 @@ namespace ql
                           ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Elements rows;
-            rows.push_back(ftxui::hbox({FieldLabel("Name:       "), input_name_->Render()}));
-            rows.push_back(ftxui::hbox({FieldLabel("Mode:       "), input_mode_->Render()}));
-            rows.push_back(ftxui::hbox({FieldLabel("Frequency:  "), input_frequency_->Render()}));
-            rows.push_back(ftxui::hbox({FieldLabel("ZIP Code:   "), input_location_->Render()}));
-            rows.push_back(ftxui::hbox({FieldLabel("Recurrence: "), input_recurrence_->Render()}));
+            AppendFormFields(
+                state_,
+                {
+                    ftxui::hbox({FieldLabel("Name:       "), input_name_->Render()}),
+                    ftxui::hbox({FieldLabel("Mode:       "), input_mode_->Render()}),
+                    ftxui::hbox({FieldLabel("Frequency:  "), input_frequency_->Render()}),
+                    ftxui::hbox({FieldLabel("ZIP Code:   "), input_location_->Render()}),
+                    ftxui::hbox({FieldLabel("Recurrence: "), input_recurrence_->Render()}),
+                },
+                &rows);
             rows.push_back(Separator());
             rows.push_back(Heading("Saved Stations:"));
             rows.push_back(Framed(ftxui::vbox({
                                ColumnHeader(PickHeaderPad(state_, PickList::kSavedStations) +
-                                            FormatSavedStationHeaderRow(/*above_menu=*/true)),
+                                            SavedStationListHeader(state_->list_width)),
                                saved_station_list,
                            })) |
                            ftxui::flex);
@@ -1528,17 +1557,16 @@ namespace ql
             // fields while choosing.
             if (!state_->saved_station_suggestions.empty() && inputs_.callsign->Focused())
             {
-                rows.push_back(MatchList(state_->saved_station_suggestion_labels,
+                rows.push_back(MatchList(MatchListHeader(state_->list_width),
+                                         state_->saved_station_suggestion_labels,
                                          state_->selected_saved_station_suggestion_index));
             }
             else
             {
-                for (std::size_t i = 1; i < field_rows.size(); ++i)
-                {
-                    rows.push_back(field_rows[i]);
-                }
-                rows.push_back(
-                    ftxui::hbox({FieldLabel("Default Remarks: "), remarks_input_->Render()}));
+                ftxui::Elements fields(field_rows.begin() + 1, field_rows.end());
+                fields.push_back(
+                    ftxui::hbox({FieldLabel("Remarks:       "), remarks_input_->Render()}));
+                AppendFormFields(state_, fields, &rows);
             }
             rows.push_back(DialogSeparator());
             rows.push_back(
