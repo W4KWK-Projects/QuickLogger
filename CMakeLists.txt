@@ -51,6 +51,28 @@ else()
     set(quicklogger_sqlite_target SQLite::SQLite3)
 endif()
 find_package(CURL REQUIRED)
+# zlib's library must come from the same place as its header. CMake looks
+# for each separately, and can pair the base system's zlib.h with a
+# different libz that some other package put in /usr/local (seen on
+# FreeBSD: the link then fails on deflate/inflate). So look for the
+# library next to the header first. Skipped when a library was named
+# (-DZLIB_LIBRARY=...), and on Windows, where vcpkg picks release and
+# debug builds itself.
+if(NOT WIN32 AND NOT ZLIB_LIBRARY AND NOT ZLIB_LIBRARY_RELEASE)
+    find_path(quicklogger_zlib_include_dir zlib.h)
+    if(quicklogger_zlib_include_dir)
+        get_filename_component(quicklogger_zlib_prefix "${quicklogger_zlib_include_dir}" DIRECTORY)
+        find_library(ZLIB_LIBRARY_RELEASE
+            NAMES z zlib
+            PATHS "${quicklogger_zlib_prefix}/lib"
+                  "${quicklogger_zlib_prefix}/lib/${CMAKE_LIBRARY_ARCHITECTURE}"
+                  "${quicklogger_zlib_prefix}/lib64"
+            NO_DEFAULT_PATH)
+        if(ZLIB_LIBRARY_RELEASE)
+            set(ZLIB_INCLUDE_DIR "${quicklogger_zlib_include_dir}" CACHE PATH "zlib's header directory")
+        endif()
+    endif()
+endif()
 find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 
