@@ -27,9 +27,19 @@ load_rc_config $name
 : ${quicklogger_port:="22"}
 
 quicklogger_chdir="${quicklogger_dir}"
-pidfile="/var/run/${name}.pid"
+# rc.subr starts daemon(8) as quicklogger_user (daemon's own -u fails to
+# set up that user's environment), so its pidfile goes in a directory that
+# user owns.
+pidfile="/var/run/${name}/${name}.pid"
 procname="/usr/sbin/daemon"
 command="/usr/sbin/daemon"
-command_args="-r -R 5 -P ${pidfile} -u ${quicklogger_user} -o /var/log/quicklogger.log -t ${name} /usr/local/bin/QuickLogger --headless --ssh-port=${quicklogger_port}"
+command_args="-r -R 5 -P ${pidfile} -o /var/log/quicklogger.log -t ${name} /usr/local/bin/QuickLogger --headless --ssh-port=${quicklogger_port}"
+
+start_precmd="${name}_prestart"
+
+quicklogger_prestart()
+{
+    install -d -o "${quicklogger_user}" -m 755 "/var/run/${name}"
+}
 
 run_rc_command "$1"

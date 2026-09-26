@@ -26,9 +26,23 @@ sysrc sshd_enable=YES
 sed -i '' -e '/^#*Port /d' -e '/^#*PasswordAuthentication /d' -e '/^#*KbdInteractiveAuthentication /d' /etc/ssh/sshd_config
 printf 'Port 2200\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n' >> /etc/ssh/sshd_config
 
+# QuickLogger shows every time in the server's time zone.
+TIME_ZONE="${TIME_ZONE:-America/New_York}"
+tzsetup "$TIME_ZONE"
+
+# 1 GB of swap, as headroom for the weekly station data import on a 1 GB
+# server.
+if ! grep -q '^md99' /etc/fstab; then
+    dd if=/dev/zero of=/usr/swap0 bs=1m count=1024
+    chmod 600 /usr/swap0
+    echo 'md99 none swap sw,file=/usr/swap0,late 0 0' >> /etc/fstab
+    swapon -aL
+fi
+
 # Lets an unprivileged process listen on port 22 (ports below 22 stay
 # root-only).
-sysrc -f /etc/sysctl.conf net.inet.ip.portrange.reservedhigh=21
+sed -i '' '/^net\.inet\.ip\.portrange\.reservedhigh=/d' /etc/sysctl.conf
+echo 'net.inet.ip.portrange.reservedhigh=21' >> /etc/sysctl.conf
 sysctl net.inet.ip.portrange.reservedhigh=21
 
 if ! pw usershow quicklogger > /dev/null 2>&1; then
@@ -39,6 +53,7 @@ chown -R quicklogger:quicklogger /var/db/quicklogger
 touch /var/log/quicklogger.log
 chown quicklogger:quicklogger /var/log/quicklogger.log
 
+install -d /usr/local/etc/rc.d /usr/local/sbin /etc/cron.d /etc/newsyslog.conf.d
 install -m 555 quicklogger.rc /usr/local/etc/rc.d/quicklogger
 install -m 555 quicklogger-update /usr/local/sbin/quicklogger-update
 install -m 555 quicklogger-admin /usr/local/sbin/quicklogger-admin

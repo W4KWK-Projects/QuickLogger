@@ -32,6 +32,8 @@ Each [release](https://github.com/W4KWK-Projects/QuickLogger/releases) has a rea
 
 Each release also has a `.sha256` file for checking the download: `shasum -a 256 -c QuickLogger-<version>-macos-arm64.tar.gz.sha256`.
 
+Releases also have a FreeBSD 15 (amd64) binary, `QuickLogger-<version>-freebsd-amd64.tar.gz`, built and tested on FreeBSD. It needs `sudo pkg install libssh curl sqlite3`. To run it as an always-on server that installs each new release by itself, see [deploy/freebsd](deploy/freebsd/README.md).
+
 ## What you need to run it
 
 On every platform:
