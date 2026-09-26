@@ -1502,8 +1502,9 @@ namespace ql
     {
         StopMouseMovementReports();
         BeginClickTargets();
-        UpdateListWidths(state_, ftxui::Terminal::Size().dimx);
-        state_->screen_height = ftxui::Terminal::Size().dimy;
+        ftxui::Dimensions terminal = ftxui::Terminal::Size();
+        UpdateListWidths(state_, terminal.dimx);
+        state_->screen_height = terminal.dimy;
         // Not while a prompt or window is up over it, which may be about the
         // highlighted net.
         state_->showing_net_list = state_->page == kPageNetList && !state_->show_confirm_prompt &&
