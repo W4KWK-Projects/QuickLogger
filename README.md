@@ -273,6 +273,8 @@ There's no OS user account involved. Instead, QuickLogger keeps its own small ro
 
 The key is checked when you add it. A private key, a PuTTY-format key, a line missing its `ssh-ed25519` (or other type) at the start, or one cut short while copying is refused with a message saying what's wrong and what the line should look like. Extra spaces or a trailing line break from the paste are tidied up. If someone still can't log in, check they're offering the key you added (see *If you have more than one key* below).
 
+Someone who connects from more than one computer can have a key for each: add each key under the same username. Manage Users lists every key on its own row, told apart by its type, fingerprint and comment — the same fingerprint `ssh-keygen -lf ~/.ssh/id_ed25519.pub` prints, so they can check which key is which. **F3 (Remove)** removes just the highlighted key; the user is gone once their last key is. Adding a key that username already has only updates its comment.
+
 That person can now connect:
 
 ```

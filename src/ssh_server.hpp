@@ -13,7 +13,7 @@ namespace ql
     //
     // Each accepted connection is handled in its own forked process (never
     // a thread -- see interactive_session.hpp's doc comment for why), which
-    // authenticates the client against Database::GetUserByUsername via
+    // authenticates the client against Database::GetUserKeys via
     // public-key signature verification (no passwords), then on a pty+shell
     // request forks again, `login_tty()`s the new pty's slave side onto the
     // grandchild, and calls RunInteractiveSession(..., /*is_console_session=*/false)

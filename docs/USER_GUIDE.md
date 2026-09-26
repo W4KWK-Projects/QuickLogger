@@ -127,7 +127,7 @@ Edit and delete keys ask which row you mean: every row gets a number, you type i
 | Active net | F6 / F9 | See a station's history / card |
 | Edit Net | F9 / F4 | Edit / remove a saved station |
 | History | F4 / F5 | Delete a check-in / a closed session |
-| Manage Users | F3 | Remove an SSH user |
+| Manage Users | F3 | Remove an SSH user's key |
 
 **A station's details are kept while anything uses them:** a net it's saved to, or a check-in in any log. When the last of those goes, its details go too, and it stops coming up in autocomplete; that's how a mistyped callsign gets cleaned up. The delete confirmation says which will happen.
 

@@ -1942,9 +1942,13 @@ namespace ql
             ftxui::Element user_list =
                 state_->manage_users.empty()
                     ? HintText("No SSH users yet.")
-                    : PickableRows(state_, PickList::kUsers, state_->manage_users_labels,
-                                   state_->selected_user_index, user_menu_) |
-                          ftxui::frame | ftxui::vscroll_indicator;
+                    : ftxui::vbox({
+                          ColumnHeader(PickHeaderPad(state_, PickList::kUsers) +
+                                       UserListHeader(state_->list_width)),
+                          PickableRows(state_, PickList::kUsers, state_->manage_users_labels,
+                                       state_->selected_user_index, user_menu_) |
+                              ftxui::frame | ftxui::vscroll_indicator,
+                      });
 
             ftxui::Element content = ftxui::vbox({
                 Heading("SSH Users:"),

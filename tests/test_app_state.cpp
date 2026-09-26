@@ -631,7 +631,59 @@ namespace ql
         f.state.new_user_public_key = std::string("  ") + kTestKey + "\n";
         AddUserFromForm(&f.state);
         CHECK(f.state.form_error.empty());
-        CHECK_EQ(f.db()->GetUserByUsername("wes")->public_key, std::string(kTestKey));
+        std::vector<User> keys = f.db()->GetUserKeys("wes");
+        REQUIRE(keys.size() == 1);
+        CHECK_EQ(keys[0].public_key, std::string(kTestKey));
+    }
+
+    // A second throwaway key, for a user with two.
+    static const char* kOtherTestKey =
+        "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBPYZZ9VZA4tifTMUe"
+        "aD4+NLAlPM4vzya7Gu9uPVDpEo2sNfAt3I7zE92dNSClawZGhwfo1iPr+IIYJgRU6d/hzc= desktop";
+
+    QL_TEST(EachOfAUsersKeysIsListedAndRemovedOnItsOwn)
+    {
+        Fixture f;
+        f.state.new_user_username = "wes";
+        f.state.new_user_public_key = kTestKey;
+        AddUserFromForm(&f.state);
+        f.state.new_user_username = "wes";
+        f.state.new_user_public_key = kOtherTestKey;
+        AddUserFromForm(&f.state);
+        CHECK_EQ(f.state.status_message, std::string("Added another key for \"wes\"."));
+        REQUIRE(f.state.manage_users_labels.size() == 2);
+        // Told apart by type, fingerprint and comment.
+        CHECK(f.state.manage_users_labels[0].find("ED25519 SHA256:zSpp/") != std::string::npos);
+        CHECK(f.state.manage_users_labels[0].find("test@quicklogger") != std::string::npos);
+        CHECK(f.state.manage_users_labels[0].find("never") != std::string::npos);
+        CHECK(f.state.manage_users_labels[1].find("ECDSA   SHA256:19j6m") != std::string::npos);
+        CHECK(f.state.manage_users_labels[1].find("desktop") != std::string::npos);
+        CHECK(UserListHeader(80).find("Fingerprint") != std::string::npos);
+
+        // The same key again doesn't add a row.
+        f.state.new_user_username = "wes";
+        f.state.new_user_public_key = kOtherTestKey;
+        AddUserFromForm(&f.state);
+        CHECK_EQ(f.state.status_message, std::string("\"wes\" already has that key."));
+        CHECK_EQ(f.state.manage_users.size(), std::size_t{2});
+
+        StartRowPick(&f.state, RowPickAction::kRemoveUser);
+        TypeRowPickDigit(&f.state, '2');
+        FinishRowPick(&f.state);
+        CHECK_EQ(f.state.row_delete_title, std::string("Remove SSH Key"));
+        CHECK(f.state.row_delete_lines[0].find("(desktop)") != std::string::npos);
+        ConfirmRowDelete(&f.state);
+        REQUIRE(f.state.manage_users.size() == 1);
+        CHECK_EQ(f.state.manage_users[0].public_key, std::string(kTestKey));
+
+        // Their last key: removing it removes them.
+        StartRowPick(&f.state, RowPickAction::kRemoveUser);
+        TypeRowPickDigit(&f.state, '1');
+        FinishRowPick(&f.state);
+        CHECK_EQ(f.state.row_delete_title, std::string("Remove SSH User"));
+        ConfirmRowDelete(&f.state);
+        CHECK_EQ(f.state.status_message, std::string("Removed \"wes\"."));
+        CHECK(f.state.manage_users.empty());
     }
 
     QL_TEST(RemovingAUserByNumber)

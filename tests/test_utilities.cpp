@@ -257,6 +257,31 @@ namespace ql
         CHECK(ValidatePublicKey(bare, &normalized, &error));
     }
 
+    QL_TEST(PublicKeysAreDescribedAsSshKeygenDoes)
+    {
+        // Each as `ssh-keygen -lf` prints it.
+        PublicKeyDescription ed = DescribePublicKey(kEd25519Key);
+        CHECK_EQ(ed.type, std::string("ED25519"));
+        CHECK_EQ(ed.fingerprint, std::string("SHA256:zSpp/AdOije1VljAESUMw2HrLA8m9pAYYD3YqHP8Y9A"));
+        CHECK_EQ(ed.comment, std::string("test@quicklogger"));
+        PublicKeyDescription rsa = DescribePublicKey(kRsaKey);
+        CHECK_EQ(rsa.type, std::string("RSA"));
+        CHECK_EQ(rsa.fingerprint,
+                 std::string("SHA256:+A3eCzoJ5Tzphu/8vW+qS23AobtDrXKaK1e7HYdIsUs"));
+        PublicKeyDescription ecdsa = DescribePublicKey(kEcdsaKey);
+        CHECK_EQ(ecdsa.type, std::string("ECDSA"));
+        CHECK_EQ(ecdsa.fingerprint,
+                 std::string("SHA256:19j6mG1JJyDgu5DJDnVUXpAVtv9x7pNW6gkRARUmDVk"));
+        CHECK_EQ(ecdsa.comment, std::string("ec@test"));
+
+        std::string bare(kEd25519Key);
+        bare = bare.substr(0, bare.rfind(' '));
+        CHECK(DescribePublicKey(bare).comment.empty());
+        CHECK(SamePublicKey(bare, kEd25519Key));
+        CHECK(SamePublicKey(bare + " other@comment", kEd25519Key));
+        CHECK(!SamePublicKey(kRsaKey, kEd25519Key));
+    }
+
     static std::string KeyError(const std::string& text)
     {
         std::string normalized;

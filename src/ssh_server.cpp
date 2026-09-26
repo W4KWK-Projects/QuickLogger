@@ -4,7 +4,6 @@
 #include <csignal>
 #include <cstdio>
 #include <ctime>
-#include <optional>
 #include <sstream>
 
 #include <poll.h>
@@ -160,20 +159,24 @@ namespace ql
         (void)session;
         ConnectionState* state = static_cast<ConnectionState*>(userdata);
 
-        std::optional<User> found = state->db->GetUserByUsername(user);
-        if (!found.has_value())
+        // Any of the username's keys will do.
+        std::int64_t matched_key_id = 0;
+        for (const User& key : state->db->GetUserKeys(user))
         {
-            return SSH_AUTH_DENIED;
+            ssh_key stored_key = ParsePublicKeyLine(key.public_key);
+            if (stored_key == nullptr)
+            {
+                continue;
+            }
+            bool matches = ssh_key_cmp(pubkey, stored_key, SSH_KEY_CMP_PUBLIC) == 0;
+            ssh_key_free(stored_key);
+            if (matches)
+            {
+                matched_key_id = key.id;
+                break;
+            }
         }
-
-        ssh_key stored_key = ParsePublicKeyLine(found->public_key);
-        if (stored_key == nullptr)
-        {
-            return SSH_AUTH_DENIED;
-        }
-        bool matches = ssh_key_cmp(pubkey, stored_key, SSH_KEY_CMP_PUBLIC) == 0;
-        ssh_key_free(stored_key);
-        if (!matches)
+        if (matched_key_id == 0)
         {
             return SSH_AUTH_DENIED;
         }
@@ -186,7 +189,8 @@ namespace ql
         {
             state->authenticated = true;
             state->username = user;
-            state->db->UpdateUserLastLogin(user, static_cast<std::int64_t>(std::time(nullptr)));
+            state->db->UpdateUserLastLogin(matched_key_id,
+                                           static_cast<std::int64_t>(std::time(nullptr)));
         }
         return SSH_AUTH_SUCCESS;
     }

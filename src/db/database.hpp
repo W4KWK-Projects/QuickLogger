@@ -278,20 +278,27 @@ namespace ql
 
         bool HasAnyUlsStations();
 
-        // Login identities for the built-in SSH server (see ssh_server.hpp)
-        // -- global/shared data, like Net, even though each user's
-        // AppSettings (see settings.hpp) is not. `username` is the primary
-        // key; a second CreateUser for the same username overwrites its
-        // public key rather than erroring, matching this app's general
-        // upsert-by-natural-key style elsewhere.
-        void CreateUser(const User& user);
-        std::optional<User> GetUserByUsername(const std::string& username);
+        // Login keys for the built-in SSH server (see ssh_server.hpp), one
+        // row per key -- global/shared data, like Net, even though each
+        // user's AppSettings (see settings.hpp) is not. A username may have
+        // any number of keys. CreateUser adds `user`'s key to its username,
+        // or, if that username already has the same key (SamePublicKey --
+        // whatever its comment), just updates the stored line's comment;
+        // returns true if it added a key.
+        bool CreateUser(const User& user);
+        // Every key `username` may log in with, oldest first.
+        std::vector<User> GetUserKeys(const std::string& username);
+        // Every key, by username (ignoring case), then oldest first.
         std::vector<User> ListUsers();
-        void DeleteUser(const std::string& username);
-        void UpdateUserLastLogin(const std::string& username, std::int64_t last_login_at);
+        void DeleteUserKey(std::int64_t id);
+        void UpdateUserLastLogin(std::int64_t id, std::int64_t last_login_at);
 
     private:
         void CreateSchema();
+        // Rebuilds a users table from before a username could have more
+        // than one key (username was its primary key) in the current shape,
+        // keeping every row. Part of CreateSchema's one-time upgrade.
+        void UpgradeUsersTable();
         // Replaces each net's default_location with the ZIP code in it
         // (ExtractZipCode), or blank if it has none. Part of CreateSchema's
         // one-time upgrade.

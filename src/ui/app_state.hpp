@@ -217,11 +217,14 @@ namespace ql
         int selected_import_file_index = 0;
 
         // Manage Users page (console-only -- see kPageManageUsers and
-        // AppState::is_console_session): the current SSH login roster and
-        // which one is highlighted, refreshed by RefreshUsers. `new_user_*`
-        // are the add-user mini-form's working fields, cleared after a
-        // successful add.
+        // AppState::is_console_session): the current SSH login roster, a
+        // row per key (so a username with two keys has two rows), and
+        // which one is highlighted, refreshed by RefreshUsers. The cells
+        // are laid out into the labels for AppState::list_width.
+        // `new_user_*` are the add-user mini-form's working fields, cleared
+        // after a successful add.
         std::vector<User> manage_users;
+        std::vector<std::vector<std::string>> manage_users_cells;
         std::vector<std::string> manage_users_labels;
         int selected_user_index = 0;
         std::string new_user_username;
@@ -876,22 +879,24 @@ namespace ql
     // Esc on the delete confirmation: closes it, deleting nothing.
     void CancelRowDelete(AppState* state);
 
-    // Reloads AppState::manage_users/_labels from Database::ListUsers. Call
+    // Reloads AppState::manage_users/_cells/_labels from Database::ListUsers. Call
     // when opening the Manage Users page and after any add/remove.
     void RefreshUsers(AppState* state);
 
-    // F2 on the Manage Users page: creates (or overwrites the public key
-    // of, if the username already exists -- see Database::CreateUser) a
-    // user from AppState::new_user_username/new_user_public_key, then
-    // clears the form and refreshes the list. Sets AppState::form_error
-    // instead, saving nothing, if either field is blank or the key isn't a
-    // valid OpenSSH public key (see ValidatePublicKey), saying what's wrong
-    // and what a key should look like.
+    // F2 on the Manage Users page: adds the key in
+    // AppState::new_user_public_key to AppState::new_user_username -- a new
+    // user, or another key for an existing one (see Database::CreateUser)
+    // -- then clears the form and refreshes the list. Sets
+    // AppState::form_error instead, saving nothing, if either field is
+    // blank or the key isn't a valid OpenSSH public key (see
+    // ValidatePublicKey), saying what's wrong and what a key should look
+    // like.
     void AddUserFromForm(AppState* state);
 
-    // F3 on the Manage Users page: deletes the highlighted user
-    // (AppState::manage_users[selected_user_index]) and refreshes the list.
-    // A no-op if the list is empty.
+    // F3 on the Manage Users page: deletes the highlighted key
+    // (AppState::manage_users[selected_user_index]) -- the user, if it was
+    // their only one -- and refreshes the list. A no-op if the list is
+    // empty.
     void RemoveSelectedUser(AppState* state);
 
     // Reloads AppState::modal_callsign_suggestions/_labels from
@@ -959,6 +964,10 @@ namespace ql
     // The header line above Edit Net's saved stations, laid out for a
     // `terminal_width`-column terminal, with the Menu gutter.
     std::string SavedStationListHeader(int terminal_width);
+
+    // The header line above Manage Users' key list, laid out for a
+    // `terminal_width`-column terminal, with the Menu gutter.
+    std::string UserListHeader(int terminal_width);
 
     // The Recurring Nets list's column headings, laid out like its rows.
     std::string NetListHeader(const AppState* state);

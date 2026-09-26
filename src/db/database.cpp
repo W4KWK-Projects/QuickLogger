@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "../frequency_rules.hpp"
+#include "../public_key.hpp"
 #include "../text_utils.hpp"
 #include "sqlite_statement.hpp"
 
@@ -123,7 +124,8 @@ CREATE TABLE IF NOT EXISTS zip_place_counties (
 );
 
 CREATE TABLE IF NOT EXISTS users (
-    username TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
     public_key TEXT NOT NULL,
     created_at INTEGER NOT NULL DEFAULT 0,
     last_login_at INTEGER NOT NULL DEFAULT 0
@@ -132,7 +134,7 @@ CREATE TABLE IF NOT EXISTS users (
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 6;
+    static constexpr int kSchemaVersion = 7;
 
     static int ReadUserVersion(sqlite3* db)
     {
@@ -384,8 +386,50 @@ CREATE TABLE IF NOT EXISTS users (
         // frequency found in it stays (see MoveBadFrequencyToComments).
         NormalizeNetFrequencies();
 
+        // Up to 1.4.3 a username had only one key.
+        UpgradeUsersTable();
+
         std::string set_version = "PRAGMA user_version = " + std::to_string(kSchemaVersion) + ";";
         sqlite3_exec(db_, set_version.c_str(), nullptr, nullptr, nullptr);
+    }
+
+    void Database::UpgradeUsersTable()
+    {
+        {
+            Statement columns(db_, "PRAGMA table_info(users);");
+            while (columns.Step())
+            {
+                if (columns.ColumnText(1) == "id")
+                {
+                    return;
+                }
+            }
+        }
+        // The same table as kSchemaSql's, which a database this old already
+        // has in its earlier shape, so CREATE TABLE IF NOT EXISTS skipped it.
+        const char* upgrade_sql = R"sql(
+BEGIN;
+ALTER TABLE users RENAME TO users_before_keys;
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT 0,
+    last_login_at INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO users (username, public_key, created_at, last_login_at)
+SELECT username, public_key, created_at, last_login_at FROM users_before_keys;
+DROP TABLE users_before_keys;
+COMMIT;
+)sql";
+        char* error_message = nullptr;
+        if (sqlite3_exec(db_, upgrade_sql, nullptr, nullptr, &error_message) != SQLITE_OK)
+        {
+            std::string message = error_message != nullptr ? error_message : "unknown error";
+            sqlite3_free(error_message);
+            sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
+            throw std::runtime_error("Failed to upgrade the SSH users table: " + message);
+        }
     }
 
     void Database::NormalizeNetZips()
@@ -1598,69 +1642,82 @@ CREATE TABLE IF NOT EXISTS users (
         return statement.ColumnInt64(0) != 0;
     }
 
-    void Database::CreateUser(const User& user)
+    static User ReadUserRow(const Statement& row)
     {
+        User user;
+        user.id = row.ColumnInt64(0);
+        user.username = row.ColumnText(1);
+        user.public_key = row.ColumnText(2);
+        user.created_at = row.ColumnInt64(3);
+        user.last_login_at = row.ColumnInt64(4);
+        return user;
+    }
+
+    bool Database::CreateUser(const User& user)
+    {
+        for (const User& existing : GetUserKeys(user.username))
+        {
+            if (SamePublicKey(existing.public_key, user.public_key))
+            {
+                Statement update(db_, "UPDATE users SET public_key = ? WHERE id = ?;");
+                update.BindText(0, user.public_key);
+                update.BindInt64(1, existing.id);
+                update.Step();
+                return false;
+            }
+        }
         Statement statement(db_, R"sql(
         INSERT INTO users (username, public_key, created_at, last_login_at)
-        VALUES (?,?,?,0)
-        ON CONFLICT(username) DO UPDATE SET public_key = excluded.public_key;
+        VALUES (?,?,?,0);
     )sql");
         statement.BindText(0, user.username);
         statement.BindText(1, user.public_key);
         statement.BindInt64(2, user.created_at);
         statement.Step();
+        return true;
     }
 
-    std::optional<User> Database::GetUserByUsername(const std::string& username)
+    std::vector<User> Database::GetUserKeys(const std::string& username)
     {
         Statement statement(db_, R"sql(
-        SELECT username, public_key, created_at, last_login_at
-        FROM users WHERE username = ?;
+        SELECT id, username, public_key, created_at, last_login_at
+        FROM users WHERE username = ? ORDER BY id;
     )sql");
         statement.BindText(0, username);
-        if (!statement.Step())
+        std::vector<User> keys;
+        while (statement.Step())
         {
-            return std::nullopt;
+            keys.push_back(ReadUserRow(statement));
         }
-        User user;
-        user.username = statement.ColumnText(0);
-        user.public_key = statement.ColumnText(1);
-        user.created_at = statement.ColumnInt64(2);
-        user.last_login_at = statement.ColumnInt64(3);
-        return user;
+        return keys;
     }
 
     std::vector<User> Database::ListUsers()
     {
         Statement statement(db_, R"sql(
-        SELECT username, public_key, created_at, last_login_at
-        FROM users ORDER BY username COLLATE NOCASE;
+        SELECT id, username, public_key, created_at, last_login_at
+        FROM users ORDER BY username COLLATE NOCASE, username, id;
     )sql");
         std::vector<User> users;
         while (statement.Step())
         {
-            User user;
-            user.username = statement.ColumnText(0);
-            user.public_key = statement.ColumnText(1);
-            user.created_at = statement.ColumnInt64(2);
-            user.last_login_at = statement.ColumnInt64(3);
-            users.push_back(std::move(user));
+            users.push_back(ReadUserRow(statement));
         }
         return users;
     }
 
-    void Database::DeleteUser(const std::string& username)
+    void Database::DeleteUserKey(std::int64_t id)
     {
-        Statement statement(db_, "DELETE FROM users WHERE username = ?;");
-        statement.BindText(0, username);
+        Statement statement(db_, "DELETE FROM users WHERE id = ?;");
+        statement.BindInt64(0, id);
         statement.Step();
     }
 
-    void Database::UpdateUserLastLogin(const std::string& username, std::int64_t last_login_at)
+    void Database::UpdateUserLastLogin(std::int64_t id, std::int64_t last_login_at)
     {
-        Statement statement(db_, "UPDATE users SET last_login_at = ? WHERE username = ?;");
+        Statement statement(db_, "UPDATE users SET last_login_at = ? WHERE id = ?;");
         statement.BindInt64(0, last_login_at);
-        statement.BindText(1, username);
+        statement.BindInt64(1, id);
         statement.Step();
     }
 

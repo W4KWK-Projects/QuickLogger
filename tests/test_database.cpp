@@ -55,7 +55,7 @@ namespace ql
                                    table + "'"),
                      std::int64_t{1});
         }
-        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{6});
+        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{7});
         CHECK_EQ(CountRows(dir.File("q.db"),
                            "SELECT COUNT(*) FROM pragma_table_info('import_runs') WHERE name IN "
                            "('phase','percent','heartbeat_at','requested_at')"),
@@ -114,7 +114,7 @@ namespace ql
         )sql");
 
         Database db(path);
-        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{6});
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{7});
         std::vector<Net> nets = db.GetAllNets();
         REQUIRE(nets.size() == 1);
         CHECK_EQ(nets[0].created_at, std::int64_t{0});  // Unknown, not guessed.
@@ -628,22 +628,69 @@ namespace ql
 
     // ---- SSH users -----------------------------------------------------------------
 
-    QL_TEST(UsersCanBeAddedUpdatedAndRemoved)
+    QL_TEST(AUserCanHaveSeveralKeys)
     {
         TempDir dir;
         Database db(dir.File("q.db"));
         User user;
         user.username = "wes";
-        user.public_key = "ssh-ed25519 AAAA one";
-        db.CreateUser(user);
-        user.public_key = "ssh-ed25519 BBBB two";
-        db.CreateUser(user);  // Same name: replaces the key.
-        CHECK_EQ(db.ListUsers().size(), std::size_t{1});
-        CHECK_EQ(db.GetUserByUsername("wes")->public_key, std::string("ssh-ed25519 BBBB two"));
-        db.UpdateUserLastLogin("wes", 99);
-        CHECK_EQ(db.GetUserByUsername("wes")->last_login_at, std::int64_t{99});
-        db.DeleteUser("wes");
-        CHECK(!db.GetUserByUsername("wes").has_value());
+        user.public_key = "ssh-ed25519 AAAA laptop";
+        CHECK(db.CreateUser(user));
+        user.public_key = "ssh-ed25519 BBBB desktop";
+        CHECK(db.CreateUser(user));  // Same name, another key: both kept.
+        std::vector<User> keys = db.GetUserKeys("wes");
+        REQUIRE(keys.size() == 2);
+        CHECK_EQ(keys[0].public_key, std::string("ssh-ed25519 AAAA laptop"));
+        CHECK_EQ(keys[1].public_key, std::string("ssh-ed25519 BBBB desktop"));
+
+        // The same key again only updates its comment.
+        user.public_key = "ssh-ed25519 AAAA old-laptop";
+        CHECK(!db.CreateUser(user));
+        keys = db.GetUserKeys("wes");
+        REQUIRE(keys.size() == 2);
+        CHECK_EQ(keys[0].public_key, std::string("ssh-ed25519 AAAA old-laptop"));
+
+        db.UpdateUserLastLogin(keys[1].id, 99);
+        keys = db.GetUserKeys("wes");
+        CHECK_EQ(keys[0].last_login_at, std::int64_t{0});
+        CHECK_EQ(keys[1].last_login_at, std::int64_t{99});
+
+        db.DeleteUserKey(keys[0].id);
+        keys = db.GetUserKeys("wes");
+        REQUIRE(keys.size() == 1);
+        CHECK_EQ(keys[0].public_key, std::string("ssh-ed25519 BBBB desktop"));
+        db.DeleteUserKey(keys[0].id);
+        CHECK(db.GetUserKeys("wes").empty());
+    }
+
+    QL_TEST(OldUsersTableGainsKeyRows)
+    {
+        TempDir dir;
+        std::string path = dir.File("q.db");
+        {
+            Database db(path);
+        }
+        // As a 1.4.3 database has it: one key per username.
+        RunSql(path, R"sql(
+            DROP TABLE users;
+            CREATE TABLE users (username TEXT PRIMARY KEY, public_key TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT 0, last_login_at INTEGER NOT NULL DEFAULT 0);
+            INSERT INTO users VALUES ('wes', 'ssh-ed25519 AAAA laptop', 5, 7);
+            PRAGMA user_version = 6;
+        )sql");
+
+        Database db(path);
+        std::vector<User> keys = db.GetUserKeys("wes");
+        REQUIRE(keys.size() == 1);
+        CHECK(keys[0].id > 0);
+        CHECK_EQ(keys[0].public_key, std::string("ssh-ed25519 AAAA laptop"));
+        CHECK_EQ(keys[0].created_at, std::int64_t{5});
+        CHECK_EQ(keys[0].last_login_at, std::int64_t{7});
+        User user;
+        user.username = "wes";
+        user.public_key = "ssh-ed25519 BBBB desktop";
+        CHECK(db.CreateUser(user));
+        CHECK_EQ(db.GetUserKeys("wes").size(), std::size_t{2});
     }
 
     QL_TEST(UsersAreListedAlphabeticallyRegardlessOfCase)

@@ -18,4 +18,21 @@ namespace ql
     // the same in every build.
     bool ValidatePublicKey(const std::string& text, std::string* normalized, std::string* error);
 
+    // How a key is told apart from others, the way `ssh-keygen -l` shows it:
+    // its type ("ED25519", "RSA", "ECDSA"...), its SHA-256 fingerprint
+    // ("SHA256:zSpp/AdO..."), and the comment at the end of its line
+    // ("wes@laptop", often the only thing a person recognizes). Takes a line
+    // ValidatePublicKey accepted; for anything else the fingerprint is blank.
+    struct PublicKeyDescription
+    {
+        std::string type;
+        std::string fingerprint;
+        std::string comment;
+    };
+    PublicKeyDescription DescribePublicKey(const std::string& line);
+
+    // True if two key lines hold the same key -- the same type and key data,
+    // whatever their comments say.
+    bool SamePublicKey(const std::string& a, const std::string& b);
+
 }  // namespace ql

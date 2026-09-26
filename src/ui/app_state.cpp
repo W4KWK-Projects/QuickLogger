@@ -286,6 +286,62 @@ namespace ql
                FormatListHeading(SavedStationColumns(), SavedStationLayout(terminal_width));
     }
 
+    // -- SSH login keys (Manage Users) --
+
+    // A username with several keys gets a row per key; the key's type,
+    // fingerprint and comment tell them apart, as `ssh-keygen -l` would.
+    static const std::vector<ListColumn>& UserColumns()
+    {
+        // Comment goes last, as `ssh-keygen -l` puts it, taking the
+        // rest of the row.
+        static const std::vector<ListColumn> columns = {
+            {"Username", 10, 20, 0, 2},   {"Type", 7, 10, 0, 3},     {"Fingerprint", 18, 50, 0, 1},
+            {"Last Login", 19, 19, 0, 0}, {"Comment", 16, 30, 0, 4},
+        };
+        return columns;
+    }
+
+    static std::vector<std::string> UserCells(const User& user)
+    {
+        PublicKeyDescription key = DescribePublicKey(user.public_key);
+        std::string last_login =
+            user.last_login_at > 0 ? FormatLocalDateTime(user.last_login_at) : std::string("never");
+        return {user.username, key.type, key.fingerprint, last_login, key.comment};
+    }
+
+    static ListLayout UserLayout(int terminal_width)
+    {
+        return LayOutList(UserColumns(), ScreenListWidth(terminal_width), kScreenListWidthAt80, 1);
+    }
+
+    std::string UserListHeader(int terminal_width)
+    {
+        return MenuGutter() + FormatListHeading(UserColumns(), UserLayout(terminal_width));
+    }
+
+    // How many keys `username` has in AppState::manage_users.
+    static int CountUserKeys(const AppState* state, const std::string& username)
+    {
+        int keys = 0;
+        for (const User& user : state->manage_users)
+        {
+            keys += user.username == username ? 1 : 0;
+        }
+        return keys;
+    }
+
+    // "SHA256:zSpp/AdO... (wes@laptop)": enough of a key to say which it is.
+    static std::string DescribeUserKey(const User& user)
+    {
+        PublicKeyDescription key = DescribePublicKey(user.public_key);
+        std::string text = key.fingerprint.substr(0, 20) + "...";
+        if (!key.comment.empty())
+        {
+            text += " (" + key.comment + ")";
+        }
+        return text;
+    }
+
     // -- Autocomplete matches (New Check-In, Saved Station) --
 
     static const std::vector<ListColumn>& MatchColumns()
@@ -417,6 +473,8 @@ namespace ql
                        NetInstanceLayout(state->list_width, state->history_ad_hoc));
         state->edit_net_saved_station_labels =
             FormatRows(state->saved_station_cells, SavedStationLayout(state->list_width));
+        state->manage_users_labels =
+            FormatRows(state->manage_users_cells, UserLayout(state->list_width));
         state->modal_callsign_suggestion_labels =
             FormatMatches(state->modal_callsign_suggestions,
                           state->modal_callsign_suggestion_sources, state->list_width);
@@ -1966,10 +2024,21 @@ namespace ql
             }
             case RowPickAction::kRemoveUser:
             {
-                state->row_delete_title = "Remove SSH User";
-                state->row_delete_lines.emplace_back("Remove " +
-                                                     state->manage_users[index].username + "?");
-                state->row_delete_lines.emplace_back("They won't be able to log in over SSH.");
+                const User& user = state->manage_users[index];
+                if (CountUserKeys(state, user.username) == 1)
+                {
+                    state->row_delete_title = "Remove SSH User";
+                    state->row_delete_lines.emplace_back("Remove " + user.username + "?");
+                    state->row_delete_lines.emplace_back("They won't be able to log in over SSH.");
+                }
+                else
+                {
+                    state->row_delete_title = "Remove SSH Key";
+                    state->row_delete_lines.emplace_back("Remove " + user.username + "'s key " +
+                                                         DescribeUserKey(user) + "?");
+                    state->row_delete_lines.emplace_back(
+                        "They can still log in with their other keys.");
+                }
                 break;
             }
             case RowPickAction::kNone:
@@ -2136,24 +2205,16 @@ namespace ql
         state->row_delete_index = -1;
     }
 
-    static std::string FormatUserLabel(const User& user)
-    {
-        std::string last_login = "never logged in";
-        if (user.last_login_at > 0)
-        {
-            last_login = "last login " + FormatLocalDateTime(user.last_login_at);
-        }
-        return user.username + "  (" + last_login + ")";
-    }
-
     void RefreshUsers(AppState* state)
     {
         state->manage_users = state->db->ListUsers();
-        state->manage_users_labels.clear();
+        state->manage_users_cells.clear();
         for (const User& user : state->manage_users)
         {
-            state->manage_users_labels.push_back(FormatUserLabel(user));
+            state->manage_users_cells.push_back(UserCells(user));
         }
+        state->manage_users_labels =
+            FormatRows(state->manage_users_cells, UserLayout(state->list_width));
         if (state->selected_user_index >= static_cast<int>(state->manage_users.size()))
         {
             state->selected_user_index = 0;
@@ -2181,13 +2242,25 @@ namespace ql
         user.username = state->new_user_username;
         user.public_key = public_key;
         user.created_at = static_cast<std::int64_t>(std::time(nullptr));
-        state->db->CreateUser(user);
+        bool had_keys = CountUserKeys(state, user.username) > 0;
+        bool added = state->db->CreateUser(user);
 
         state->new_user_username.clear();
         state->new_user_public_key.clear();
         RefreshUsers(state);
         state->form_error.clear();
-        state->status_message = "Added \"" + user.username + "\".";
+        if (!added)
+        {
+            state->status_message = "\"" + user.username + "\" already has that key.";
+        }
+        else if (had_keys)
+        {
+            state->status_message = "Added another key for \"" + user.username + "\".";
+        }
+        else
+        {
+            state->status_message = "Added \"" + user.username + "\".";
+        }
     }
 
     void RemoveSelectedUser(AppState* state)
@@ -2196,11 +2269,14 @@ namespace ql
         {
             return;
         }
-        std::string username = state->manage_users[state->selected_user_index].username;
-        state->db->DeleteUser(username);
+        User user = state->manage_users[state->selected_user_index];
+        bool last_key = CountUserKeys(state, user.username) == 1;
+        state->db->DeleteUserKey(user.id);
         RefreshUsers(state);
         state->form_error.clear();
-        state->status_message = "Removed \"" + username + "\".";
+        state->status_message = last_key ? "Removed \"" + user.username + "\"."
+                                         : "Removed a key of \"" + user.username + "\" (" +
+                                               DescribeUserKey(user) + ").";
     }
 
     void ExportNetLog(AppState* state, const std::string& net_name, const NetInstance& instance,
