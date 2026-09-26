@@ -1,0 +1,77 @@
+# Builds QuickLogger and runs its tests on Linux, following the README's
+# "Building QuickLogger" steps with each distribution's packages as the
+# README lists them, on every push and pull request to main. One job uses
+# CMake 3.16, the oldest CMake the build supports.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  oldest-cmake:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install packages and CMake 3.16
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev
+          curl -sSL https://github.com/Kitware/CMake/releases/download/v3.16.9/cmake-3.16.9-Linux-x86_64.tar.gz | tar xz -C "$HOME"
+          echo "$HOME/cmake-3.16.9-Linux-x86_64/bin" >> "$GITHUB_PATH"
+      - name: Build
+        run: |
+          cmake --version
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
+      - name: Test
+        run: cd build && ctest --output-on-failure
+
+  distro:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: debian-13
+            image: debian:trixie
+            install: apt-get update && apt-get install -y build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev
+          - name: fedora
+            image: fedora:latest
+            install: dnf install -y gcc-c++ cmake git sqlite-devel libcurl-devel zlib-devel libssh-devel
+          - name: alpine-musl
+            image: alpine:latest
+            install: apk add --no-cache build-base cmake git sqlite-dev curl-dev zlib-dev libssh-dev linux-headers
+    name: ${{ matrix.name }}
+    container: ${{ matrix.image }}
+    steps:
+      - name: Install packages
+        run: ${{ matrix.install }}
+      - uses: actions/checkout@v5
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
