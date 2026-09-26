@@ -985,18 +985,74 @@ namespace ql
         CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("K4AAA"));
     }
 
-    QL_TEST(AutocompleteShowsAtMostEight)
+    QL_TEST(AStationNotAmongTheMatchesIsStillFilledIn)
+    {
+        Fixture f;
+        LoadZipData(f.db());
+        // K4NAS is in Nashville: licensed, but beyond the 70-mile radius, so
+        // never offered as a match. AK4NAS is nearby, and matches "K4NAS".
+        f.db()->BulkUpsertUlsStations({MakeStation("K4NAS", "NASHVILLE, NAN", "37201"),
+                                       MakeStation("K4NAT", "NASHVILLE, NAT", "37201"),
+                                       MakeStation("AK4NAS", "NEARBY, AL", "37402")},
+                                      0, 3, 1);
+        f.StartNet("Skywarn");
+
+        // Enter takes the callsign typed in full over the match marked ">".
+        ClearModalFields(&f.state);
+        f.state.modal_station.callsign = "K4NAS";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 1);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("AK4NAS"));
+        CallsignLookupHandler enter(&f.state);
+        enter();
+        CHECK_EQ(f.state.modal_station.callsign, std::string("K4NAS"));
+        CHECK_EQ(f.state.modal_station.name, std::string("NASHVILLE, NAN"));
+        CHECK(f.state.modal_callsign_suggestions.empty());
+
+        // Logged without picking anything or pressing Enter: the FCC details
+        // are used all the same.
+        ClearModalFields(&f.state);
+        f.state.modal_station.callsign = "K4NAT";
+        RefreshCallsignSuggestions(&f.state);
+        CHECK(f.state.modal_callsign_suggestions.empty());
+        REQUIRE(LogStationCheckIn(&f.state));
+        std::optional<Station> logged = f.db()->FindStationByCallsign("K4NAT");
+        REQUIRE(logged.has_value());
+        CHECK_EQ(logged->name, std::string("NASHVILLE, NAT"));
+
+        // A partial callsign isn't looked up, and what the operator typed
+        // isn't overwritten; a portable indicator is looked past.
+        ClearModalFields(&f.state);
+        f.state.modal_station.callsign = "K4NA";
+        CHECK(FillCheckInFromKnownStation(&f.state) == false);
+        f.state.modal_station.callsign = "K4NAS/M";
+        f.state.modal_station.city = "Mobile";
+        CHECK(FillCheckInFromKnownStation(&f.state));
+        CHECK_EQ(f.state.modal_station.name, std::string("NASHVILLE, NAN"));
+        CHECK_EQ(f.state.modal_station.city, std::string("Mobile"));
+        CHECK_EQ(f.state.modal_station.callsign, std::string("K4NAS/M"));
+    }
+
+    QL_TEST(AutocompleteShowsAsManyAsTheScreenHasRoomFor)
     {
         Fixture f;
         std::int64_t net_id = f.StartNet("Skywarn");
-        for (int i = 0; i < 12; ++i)
+        for (int i = 0; i < 30; ++i)
         {
             f.db()->SaveNetStation(net_id, MakeStation("K4X" + std::to_string(10 + i)), "", 1);
         }
         f.state.modal_station.callsign = "K4X";
+        // 24 rows: 11 fit under the window's other 13.
+        RefreshCallsignSuggestions(&f.state);
+        CHECK_EQ(f.state.modal_callsign_suggestions.size(), std::size_t{11});
+        CHECK_EQ(f.state.modal_callsign_suggestion_labels.size(), std::size_t{11});
+        f.state.screen_height = 40;
+        RefreshCallsignSuggestions(&f.state);
+        CHECK_EQ(f.state.modal_callsign_suggestions.size(), std::size_t{27});
+        // Never fewer than 8, however short the screen.
+        f.state.screen_height = 15;
         RefreshCallsignSuggestions(&f.state);
         CHECK_EQ(f.state.modal_callsign_suggestions.size(), std::size_t{8});
-        CHECK_EQ(f.state.modal_callsign_suggestion_labels.size(), std::size_t{8});
         f.state.modal_station.callsign.clear();
         RefreshCallsignSuggestions(&f.state);
         CHECK(f.state.modal_callsign_suggestions.empty());

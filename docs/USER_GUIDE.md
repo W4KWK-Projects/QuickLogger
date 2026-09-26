@@ -75,7 +75,11 @@ If the net already has a session open, the list says *session open*, a line unde
 | Signal Report, Remarks, Comment | This check-in only. Remarks start out as the station's default remarks for this net, and whatever you log becomes its new default. |
 | Additional Role | Gives this station one of the session's other roles (the ones you don't hold yourself). Only one station holds each role; giving it to another moves it. |
 
-In the window, **F2** logs and clears the form for the next station, **F3** logs and closes, and **Esc** closes without logging. A station can check in only once per session, counting a mobile or portable callsign (`W4KWK/M`, `VE3/W4KWK`) as the same station; logging it again says which # it already is.
+In the window, **F2** logs and clears the form for the next station, **F3** logs and closes, and **Esc** closes without logging. **F4**, **F5** and **F6** jump straight to Remarks, Comment and the role choice, skipping the station's details (they work in Edit Check-In too).
+
+The window is as wide as your terminal allows (less a margin), so long remarks and comments fit, and from 90 columns its fields are in two columns.
+
+**Details for any licensed station:** when you log a callsign, or leave the Callsign field with **Tab** or F4/F5/F6, its details are filled in from what's known about it: a station known to one of your nets, or else the FCC data at any distance, even if it wasn't among the matches (for example, a station farther away than your Nearby Radius). Only blank fields are filled; anything you typed is kept. A mobile or portable callsign (`W4KWK/M`) gets the details of the station itself. A station can check in only once per session, counting a mobile or portable callsign (`W4KWK/M`, `VE3/W4KWK`) as the same station; logging it again says which # it already is.
 
 On the check-in list, **F3** edits and **F5** deletes a check-in by its number (see [Editing and deleting by number](#editing-and-deleting-by-number)); **Enter** edits the highlighted one. A check-in's callsign can't be changed; delete it and log it again instead. Deleting leaves a gap in the numbers rather than renumbering the rest. **F7** exports the log.
 
@@ -129,13 +133,13 @@ Edit and delete keys ask which row you mean: every row gets a number, you type i
 
 ## Callsign autocomplete
 
-In the New Check-In and Saved Station windows, matches appear as you type any part of a callsign, in either case (`kwk` finds W4KWK). Up to 8 are shown, in this order:
+In the New Check-In and Saved Station windows, matches appear as you type any part of a callsign, in either case (`kwk` finds W4KWK). As many are shown as the screen has room for (11 on a 24-line terminal, more on a taller one, never fewer than 8), in this order:
 
 1. Stations known to **this net** (checked in before, or saved to it), marked *(this net)*.
 2. Stations known to **other nets**, marked *(other net)*.
 3. **Licensed stations nearby**, from the FCC data: within your Nearby Radius (70 miles unless you change it in Settings) of the net's ZIP (or your home ZIP), nearest first, marked *(ULS, ~N mi)*. Stations whose ZIP has no location on file (usually a PO Box) follow, marked *(ULS, nearby)*.
 
-**Up/Down** move the **>** marker and **Enter** picks that match, filling in the station's details. You stay in the Callsign field, so you can keep typing to narrow the list. While it's showing, the list takes the place of the window's other fields; they come back when you pick a match, clear the callsign or **Tab** away. If nothing matches, type the whole callsign: **Enter** then looks it up exactly, in the FCC data at any distance.
+**Up/Down** move the **>** marker and **Enter** picks that match, filling in the station's details. If you typed a whole callsign, **Enter** takes that station, whether it's further down the list or not in it at all (unless you've moved the marker to another match). You stay in the Callsign field, so you can keep typing to narrow the list. While it's showing, the list takes the place of the window's other fields; they come back when you pick a match, clear the callsign or **Tab** away. If nothing matches, type the whole callsign: **Enter** then looks it up exactly, in the FCC data at any distance.
 
 **Callsign rules:** only callsigns the US or Canada could issue are accepted, with or without a portable indicator (`W4KWK/M`, `/P`, `/QRP`, `/4`, `VE3/W4KWK`). Anything else, like a typo (`W4KW4`) or a foreign callsign, is refused when you log or save it.
 

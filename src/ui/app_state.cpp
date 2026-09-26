@@ -70,11 +70,24 @@ namespace ql
     static constexpr int kScreenListWidthAt80 = 76;
 
     // The same for the autocomplete matches, which sit inside a window.
+    int CheckInWindowWidth(int terminal_width)
+    {
+        return std::min(std::max(80, terminal_width) - 10, 150);
+    }
+
+    // The match list inside that window: less its border, the list's own
+    // border and the "> " gutter.
     static int MatchListWidth(int terminal_width)
     {
-        return std::max(80, terminal_width) - 26;
+        return CheckInWindowWidth(terminal_width) - 6;
     }
-    static constexpr int kMatchListWidthAt80 = 54;
+    static constexpr int kMatchListWidthAt80 = 64;
+
+    std::size_t MaxCallsignMatches(const AppState* state)
+    {
+        int room = state->screen_height - kMatchWindowOtherRows;
+        return static_cast<std::size_t>(std::min(std::max(room, 8), 60));
+    }
 
     static std::string MenuGutter()
     {
@@ -1218,6 +1231,57 @@ namespace ql
         state->form_error.clear();
     }
 
+    // `*to` gets `from` if it's blank.
+    static void FillIfBlank(std::string* to, const std::string& from)
+    {
+        if (to->empty())
+        {
+            *to = from;
+        }
+    }
+
+    bool FillCheckInFromKnownStation(AppState* state)
+    {
+        std::string callsign = NormalizeCallsign(state->modal_station.callsign);
+        if (callsign.empty())
+        {
+            return false;
+        }
+        std::optional<Station> known = state->db->FindStationByCallsign(callsign);
+        if (!known.has_value())
+        {
+            known = state->db->FindUlsStationByCallsign(callsign);
+        }
+        std::string base = BaseCallsign(callsign);
+        if (!known.has_value() && base != callsign)
+        {
+            known = state->db->FindStationByCallsign(base);
+            if (!known.has_value())
+            {
+                known = state->db->FindUlsStationByCallsign(base);
+            }
+        }
+        if (!known.has_value())
+        {
+            return false;
+        }
+        Station* station = &state->modal_station;
+        FillIfBlank(&station->name, known->name);
+        FillIfBlank(&station->member_id, known->member_id);
+        FillIfBlank(&station->street_address, known->street_address);
+        FillIfBlank(&station->city, known->city);
+        FillIfBlank(&station->county, known->county);
+        FillIfBlank(&station->state, known->state);
+        FillIfBlank(&station->zip, known->zip);
+        FillIfBlank(&station->grid_square, known->grid_square);
+        FillIfBlank(&station->license_class, known->license_class);
+        FillIfBlank(&station->email, known->email);
+        BackfillCountyFromZip(state, station);
+        FillIfBlank(&state->modal_remarks,
+                    state->db->GetSavedNetStationRemarks(state->active_instance.net_id, callsign));
+        return true;
+    }
+
     bool LogStationCheckIn(AppState* state)
     {
         state->modal_station.callsign = NormalizeCallsign(state->modal_station.callsign);
@@ -1230,6 +1294,8 @@ namespace ql
         {
             return false;
         }
+        // What's known about it, even if it wasn't picked from the matches.
+        FillCheckInFromKnownStation(state);
         if (!EnsureActiveSessionOpen(state, state->modal_station.callsign))
         {
             return false;
@@ -2295,7 +2361,7 @@ namespace ql
             state->db->SearchStationsByCallsignSubstring(state->modal_station.callsign);
         AppendNewSuggestions(&state->modal_callsign_suggestions, other_matches);
 
-        constexpr std::size_t kMaxSuggestions = 8;
+        const std::size_t kMaxSuggestions = MaxCallsignMatches(state);
         if (state->modal_callsign_suggestions.size() > kMaxSuggestions)
         {
             state->modal_callsign_suggestions.resize(kMaxSuggestions);
@@ -2722,7 +2788,7 @@ namespace ql
             return;
         }
 
-        constexpr std::size_t kMaxSuggestions = 8;
+        const std::size_t kMaxSuggestions = MaxCallsignMatches(state);
 
         // Tier 1: callers already known to this specific net (real check-ins
         // or previously saved) -- same query as the New Station modal's tier 1.

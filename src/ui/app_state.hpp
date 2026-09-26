@@ -281,6 +281,9 @@ namespace ql
         // no database reads. Each list's display lines (net_names,
         // active_display_rows...) are made from these.
         int list_width = 80;
+        // The terminal's height, for how many autocomplete matches a
+        // callsign window has room for (see MaxCallsignMatches).
+        int screen_height = 24;
         std::vector<std::vector<std::string>> net_cells;
         int net_name_width = 0;
         std::vector<std::vector<std::string>> active_check_in_cells;
@@ -373,6 +376,14 @@ namespace ql
         // The callsign Input component, so handlers can call TakeFocus() on it
         // (e.g. right after opening the modal, or after logging a station).
         ftxui::Component modal_callsign_input;
+        // Its Remarks, Comment and role choice, for the keys that jump
+        // straight to them (F4/F5/F6), and the same in Edit Check-In.
+        ftxui::Component modal_remarks_input;
+        ftxui::Component modal_comment_input;
+        ftxui::Component modal_role_input;
+        ftxui::Component edit_checkin_remarks_input;
+        ftxui::Component edit_checkin_comment_input;
+        ftxui::Component edit_checkin_role_input;
         // Callsign autocomplete suggestions, refreshed live as the operator
         // types (see RefreshCallsignSuggestions). Tier 1 (stations known to
         // this specific net, via real check-ins or SaveNetStation) is listed
@@ -892,6 +903,30 @@ namespace ql
     // to a handful of results. Clears the suggestions (rather than matching
     // everything) when the callsign field is empty.
     void RefreshCallsignSuggestions(AppState* state);
+
+    // Rows a callsign window (New Check-In, Saved Station) needs besides
+    // its match list while that list is showing: its border, title,
+    // Callsign row, the hint above the list, the list's own border and
+    // header, and the separator, key rows and error line below.
+    constexpr int kMatchWindowOtherRows = 13;
+
+    // How wide the check-in and Saved Station windows are on a
+    // `terminal_width`-column terminal: all but a margin, so they widen
+    // with it (to a limit).
+    int CheckInWindowWidth(int terminal_width);
+
+    // How many autocomplete matches a callsign window lists: as many as
+    // the screen has room for, and at least 8.
+    std::size_t MaxCallsignMatches(const AppState* state);
+
+    // Fills in the New Check-In window's blank fields from what's known
+    // about the callsign typed, exactly (or, failing that, without a
+    // portable indicator): a station known to some net, or else the FCC
+    // data at any distance -- whether or not it was among the matches
+    // offered. Fields already filled in are kept. Its default remarks for
+    // this net fill Remarks if that's blank. Returns whether the station
+    // was found.
+    bool FillCheckInFromKnownStation(AppState* state);
 
     // The header line above the autocomplete matches (the New Check-In and
     // Saved Station windows), laid out for a `terminal_width`-column

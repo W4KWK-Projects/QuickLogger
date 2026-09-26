@@ -802,6 +802,27 @@ namespace ql
         // there's nothing to pick from.
         if (!state_->modal_callsign_suggestions.empty())
         {
+            // The callsign typed in full is the one meant, even if it's
+            // listed further down or isn't among the matches at all (a
+            // station further away than the Nearby Radius). Otherwise, the
+            // match marked ">".
+            std::string typed = NormalizeCallsign(state_->modal_station.callsign);
+            for (std::size_t i = 0; i < state_->modal_callsign_suggestions.size(); ++i)
+            {
+                if (state_->modal_callsign_suggestions[i].callsign == typed)
+                {
+                    state_->selected_suggestion_index = static_cast<int>(i);
+                    ApplySelectedCallsignSuggestion(state_);
+                    return;
+                }
+            }
+            if (state_->selected_suggestion_index == 0 && FillCheckInFromKnownStation(state_))
+            {
+                state_->modal_callsign_suggestions.clear();
+                state_->modal_callsign_suggestion_labels.clear();
+                state_->modal_callsign_suggestion_sources.clear();
+                return;
+            }
             ApplySelectedCallsignSuggestion(state_);
             return;
         }
@@ -958,6 +979,17 @@ namespace ql
                    event == ftxui::Event::Return;
         }
 
+        bool leaving_callsign = event == ftxui::Event::Tab || event == ftxui::Event::TabReverse ||
+                                event == ftxui::Event::F4 || event == ftxui::Event::F5 ||
+                                event == ftxui::Event::F6;
+        if (state_->show_new_station_modal && leaving_callsign && state_->modal_callsign_input &&
+            state_->modal_callsign_input->Focused())
+        {
+            // What's known about the callsign typed, whether or not it was
+            // among the matches (see FillCheckInFromKnownStation).
+            FillCheckInFromKnownStation(state_);
+        }
+
         if (state_->show_new_station_modal &&
             MoveSuggestionHighlight(event, state_->modal_callsign_input,
                                     state_->modal_callsign_suggestions.size(),
@@ -984,6 +1016,24 @@ namespace ql
             {
                 OpenNewStationModalHandler open_modal(state_);
                 open_modal();
+            }
+            return true;
+        }
+        // F4/F5/F6 in a check-in window: straight to Remarks, Comment or
+        // the role choice, past the station's details.
+        if (modal_open &&
+            (event == ftxui::Event::F4 || event == ftxui::Event::F5 || event == ftxui::Event::F6))
+        {
+            bool is_new = state_->show_new_station_modal;
+            ftxui::Component target =
+                event == ftxui::Event::F4
+                    ? (is_new ? state_->modal_remarks_input : state_->edit_checkin_remarks_input)
+                : event == ftxui::Event::F5
+                    ? (is_new ? state_->modal_comment_input : state_->edit_checkin_comment_input)
+                    : (is_new ? state_->modal_role_input : state_->edit_checkin_role_input);
+            if (target)
+            {
+                target->TakeFocus();
             }
             return true;
         }
@@ -1453,6 +1503,7 @@ namespace ql
         StopMouseMovementReports();
         BeginClickTargets();
         UpdateListWidths(state_, ftxui::Terminal::Size().dimx);
+        state_->screen_height = ftxui::Terminal::Size().dimy;
         // Not while a prompt or window is up over it, which may be about the
         // highlighted net.
         state_->showing_net_list = state_->page == kPageNetList && !state_->show_confirm_prompt &&

@@ -252,12 +252,6 @@ namespace ql
         }));
     }
 
-    // Rows a callsign window (New Check-In, Saved Station) needs besides its
-    // match list while that list is showing: its border, title, Callsign
-    // row, the hint above the list, the list's own border and header, and
-    // the separator, key row and error line below.
-    static constexpr int kMatchWindowOtherRows = 12;
-
     // Autocomplete matches under a callsign field, the one marked ">" being
     // what Enter picks. Drawn here rather than by an ftxui::Menu: the cursor
     // stays in the Callsign field while choosing, and a Menu only scrolls to
@@ -926,11 +920,16 @@ namespace ql
             }
             else if (state_->show_edit_checkin_modal)
             {
-                hints = {{"F2", "Save"}, {"Esc", "Cancel"}};
+                hints = {{"F2", "Save"},
+                         {"F4", "Remarks"},
+                         {"F5", "Comment"},
+                         {"F6", "Role"},
+                         {"Esc", "Cancel"}};
             }
             else if (state_->show_new_station_modal)
             {
-                hints = {{"F2", "Log & Continue"}, {"F3", "Log & Close"}, {"Esc", "Cancel"}};
+                hints = {{"F2", "Log & Next"}, {"F3", "Log & Close"}, {"F4", "Remarks"},
+                         {"F5", "Comment"},    {"F6", "Role"},        {"Esc", "Cancel"}};
             }
             else if (state_->viewing_only)
             {
@@ -966,6 +965,40 @@ namespace ql
         AppState* state_;
         ftxui::Component check_in_menu_;
     };
+
+    // The keys in the check-in windows that jump to the fields usually
+    // wanted after the callsign, past the station's details.
+    static const std::vector<KeyHint> kJumpKeyHints = {
+        {"F4", "Remarks"}, {"F5", "Comment"}, {"F6", "Role"}};
+
+    // A check-in window's keys: `actions` (ending with Esc) and the jump
+    // keys, on one row when the window is wide enough for them all, with
+    // Esc last; otherwise the jump keys on a second row.
+    static void AppendCheckInKeyRows(const AppState* state, std::vector<KeyHint> actions,
+                                     ftxui::Elements* rows)
+    {
+        std::vector<KeyHint> all(actions.begin(), actions.end() - 1);
+        all.insert(all.end(), kJumpKeyHints.begin(), kJumpKeyHints.end());
+        all.push_back(actions.back());
+        // Less the window's border.
+        if (KeyHintRowWidth(all) <= CheckInWindowWidth(state->list_width) - 2)
+        {
+            rows->push_back(KeyHintRow(all));
+            return;
+        }
+        rows->push_back(KeyHintRow(actions));
+        rows->push_back(KeyHintRow(kJumpKeyHints));
+    }
+
+    // A check-in (or Saved Station) window's frame, as wide as the terminal
+    // allows (see CheckInWindowWidth) rather than only as wide as what's
+    // typed in it.
+    static ftxui::Element CheckInWindow(const AppState* state, ftxui::Element content)
+    {
+        return std::move(content) | ftxui::color(kColorHeading) |
+               ftxui::borderStyled(kColorDialogBorder) |
+               ftxui::size(ftxui::WIDTH, ftxui::EQUAL, CheckInWindowWidth(state->list_width));
+    }
 
     // The New Station modal, shown on top of the active-net page.
     class NewStationModalRenderer
@@ -1015,12 +1048,11 @@ namespace ql
                 rows.push_back(role_choice_menu_->Render());
             }
             rows.push_back(DialogSeparator());
-            rows.push_back(
-                KeyHintRow({{"F2", "Log & Continue"}, {"F3", "Log & Close"}, {"Esc", "Cancel"}}));
+            AppendCheckInKeyRows(
+                state_, {{"F2", "Log & Next"}, {"F3", "Log & Close"}, {"Esc", "Cancel"}}, &rows);
             rows.push_back(ErrorLine(state_->form_error));
 
-            return ftxui::vbox(rows) | ftxui::color(kColorHeading) |
-                   ftxui::borderStyled(kColorDialogBorder);
+            return CheckInWindow(state_, ftxui::vbox(rows));
         }
 
     private:
@@ -1069,10 +1101,9 @@ namespace ql
             rows.push_back(FieldLabel("Additional Role (optional):"));
             rows.push_back(role_choice_menu_->Render());
             rows.push_back(DialogSeparator());
-            rows.push_back(KeyHintRow({{"F2", "Save"}, {"Esc", "Cancel"}}));
+            AppendCheckInKeyRows(state_, {{"F2", "Save"}, {"Esc", "Cancel"}}, &rows);
 
-            return ftxui::vbox(rows) | ftxui::color(kColorHeading) |
-                   ftxui::borderStyled(kColorDialogBorder);
+            return CheckInWindow(state_, ftxui::vbox(rows));
         }
 
     private:
@@ -1127,6 +1158,9 @@ namespace ql
                         role_choice_menu_option);
 
         state->modal_callsign_input = input_callsign;
+        state->modal_remarks_input = input_remarks;
+        state->modal_comment_input = input_comment;
+        state->modal_role_input = role_choice_menu;
 
         ftxui::Components modal_components = StationFieldComponents(modal_inputs);
         modal_components.push_back(input_signal_report);
@@ -1151,6 +1185,10 @@ namespace ql
         ftxui::Component edit_role_choice_menu =
             ftxui::Menu(&state->edit_checkin_role_choice_labels,
                         &state->edit_checkin_role_choice_index, edit_role_choice_menu_option);
+
+        state->edit_checkin_remarks_input = edit_input_remarks;
+        state->edit_checkin_comment_input = edit_input_comment;
+        state->edit_checkin_role_input = edit_role_choice_menu;
 
         ftxui::Components edit_modal_components = StationFieldComponents(edit_checkin_inputs);
         edit_modal_components.push_back(edit_input_signal_report);
@@ -1746,8 +1784,7 @@ namespace ql
             rows.push_back(
                 KeyHintRow({{"F2", "Save & Continue"}, {"F3", "Save & Close"}, {"Esc", "Cancel"}}));
             rows.push_back(ErrorLine(state_->form_error));
-            return ftxui::vbox(rows) | ftxui::color(kColorHeading) |
-                   ftxui::borderStyled(kColorDialogBorder);
+            return CheckInWindow(state_, ftxui::vbox(rows));
         }
 
     private:

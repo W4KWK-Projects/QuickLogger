@@ -94,6 +94,16 @@ namespace ql
                ftxui::borderStyled(kColorDialogBorder);
     }
 
+    int KeyHintRowWidth(const std::vector<KeyHint>& hints)
+    {
+        int width = 0;
+        for (const KeyHint& hint : hints)
+        {
+            width += KeyHintWidth(hint);
+        }
+        return width;
+    }
+
     ftxui::Element KeyHintRow(const std::vector<KeyHint>& hints)
     {
         ftxui::Elements pieces;

@@ -106,6 +106,9 @@ namespace ql
     // from these.
     ftxui::Element KeyHintRow(const std::vector<KeyHint>& hints);
 
+    // How many columns KeyHintRow(hints) needs to show every hint.
+    int KeyHintRowWidth(const std::vector<KeyHint>& hints);
+
     // Where TopBar reads the station-data notice from (see
     // DescribeStationDataNotice in uls_import.hpp). Set once per session,
     // before the first frame; until then, or with nullptr, no notice shows.
