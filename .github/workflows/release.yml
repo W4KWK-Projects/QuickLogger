@@ -85,7 +85,9 @@ jobs:
           ref: ${{ env.TAG }}
 
       - name: Build and test on FreeBSD
-        uses: vmactions/freebsd-vm@v1
+        # Pinned to a commit. The repository's Actions settings allow only
+        # GitHub's own actions plus this one, by this exact commit.
+        uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff  # v1.5.8
         with:
           release: "15.0"
           usesh: true
