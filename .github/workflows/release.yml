@@ -1,6 +1,7 @@
-# Builds the macOS (Apple Silicon) binary for a tagged release and attaches
-# it to that release's GitHub page, creating the page if it doesn't exist
-# yet. Runs on every pushed tag starting with "v" (e.g. v1.1.0); it can also
+# Builds the macOS (Apple Silicon) and FreeBSD (amd64) binaries for a
+# tagged release and attaches them to that release's GitHub page, creating
+# the page if it doesn't exist yet. The hosted server installs the FreeBSD
+# one by itself (see deploy/freebsd). Runs on every pushed tag starting with "v" (e.g. v1.1.0); it can also
 # be run by hand for a tag that already exists (Actions > Release binaries >
 # Run workflow), which replaces the binary on that release.
 name: Release binaries
@@ -68,3 +69,40 @@ jobs:
             gh release create "$TAG" --verify-tag --title "QuickLogger ${TAG#v}" --generate-notes
           fi
           gh release upload "$TAG" "$ASSET" "$ASSET.sha256" --clobber
+
+  # In a FreeBSD VM on a Linux runner. After the macOS job, which creates
+  # the release page.
+  freebsd:
+    needs: macos
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Build and test on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "15.0"
+          usesh: true
+          prepare: pkg install -y cmake git sqlite3 curl libssh
+          run: |
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+            cmake --build build -j 2
+            ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: |
+          name="QuickLogger-${TAG#v}-freebsd-amd64"
+          mkdir -p "dist/$name"
+          cp build/QuickLogger README.md "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+          echo "ASSET=dist/$name.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Attach to the release
+        run: gh release upload "$TAG" "$ASSET" "$ASSET.sha256" --clobber

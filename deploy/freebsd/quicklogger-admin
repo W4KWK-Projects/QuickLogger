@@ -1,0 +1,9 @@
+#!/bin/sh
+#
+# Opens QuickLogger as the local console, for what only the console can do:
+# Manage Users (Settings, F4) and refreshing station data. Run it as root
+# after logging in to the server's own SSH (port 2200). It runs alongside
+# the SSH server, on the same database; nothing needs stopping.
+
+cd /var/db/quicklogger || exit 1
+exec su -m quicklogger -c "env TERM=${TERM:-xterm-256color} /usr/local/bin/QuickLogger --no-ssh"

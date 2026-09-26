@@ -1,0 +1,35 @@
+#!/bin/sh
+#
+# PROVIDE: quicklogger
+# REQUIRE: LOGIN NETWORKING
+# KEYWORD: shutdown
+#
+# QuickLogger's SSH server, run headless as the unprivileged quicklogger
+# user from its data directory (the database, host key and per-user
+# settings all live there). daemon(8) restarts it if it ever exits.
+# Installed as /usr/local/etc/rc.d/quicklogger by setup.sh.
+#
+# rc.conf settings:
+#   quicklogger_enable="YES"
+#   quicklogger_port="22"         (the port users ssh to)
+#   quicklogger_dir="/var/db/quicklogger"
+
+. /etc/rc.subr
+
+name=quicklogger
+rcvar=quicklogger_enable
+
+load_rc_config $name
+
+: ${quicklogger_enable:="NO"}
+: ${quicklogger_user:="quicklogger"}
+: ${quicklogger_dir:="/var/db/quicklogger"}
+: ${quicklogger_port:="22"}
+
+quicklogger_chdir="${quicklogger_dir}"
+pidfile="/var/run/${name}.pid"
+procname="/usr/sbin/daemon"
+command="/usr/sbin/daemon"
+command_args="-r -R 5 -P ${pidfile} -u ${quicklogger_user} -o /var/log/quicklogger.log -t ${name} /usr/local/bin/QuickLogger --headless --ssh-port=${quicklogger_port}"
+
+run_rc_command "$1"

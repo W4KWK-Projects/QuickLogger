@@ -1,0 +1,95 @@
+#!/bin/sh
+#
+# Installs the latest QuickLogger release from GitHub, if it's newer than
+# the one running. Run from cron every few minutes (see setup.sh), so a
+# release is live within minutes of its FreeBSD build finishing.
+#
+# Waits for everyone to disconnect before restarting, since a restart ends
+# every SSH session. If someone stays connected, it installs anyway during
+# the quiet hour (FORCE_HOUR); sessions are dropped then, and an open net
+# session can be resumed after reconnecting. Pre-releases and drafts are
+# never installed: GitHub's "latest release" excludes them.
+#
+# The database is backed up before every install, since a new version may
+# upgrade it in a way an older one can't read. To roll back: stop the
+# service, restore the backup and /usr/local/bin/QuickLogger.previous.
+
+set -eu
+
+REPO="W4KWK-Projects/QuickLogger"
+BIN="/usr/local/bin/QuickLogger"
+DATA="/var/db/quicklogger"
+WORK="/var/db/quicklogger-update"
+FORCE_HOUR="04"
+KEEP_BACKUPS=5
+
+log()
+{
+    logger -t quicklogger-update "$*"
+}
+
+mkdir -p "$WORK" "$DATA/backups"
+
+release=$(fetch -qo - "https://api.github.com/repos/$REPO/releases/latest")
+tag=$(printf '%s' "$release" | jq -r .tag_name)
+version=${tag#v}
+installed=$("$BIN" --version 2>/dev/null | awk '{print $2}' || true)
+if [ -z "$version" ] || [ "$version" = "null" ] || [ "$version" = "$installed" ]; then
+    exit 0
+fi
+
+asset="QuickLogger-$version-freebsd-amd64.tar.gz"
+url=$(printf '%s' "$release" | jq -r --arg name "$asset" '.assets[] | select(.name == $name) | .browser_download_url')
+if [ -z "$url" ]; then
+    # The release is published before its FreeBSD build is attached.
+    exit 0
+fi
+
+# Download and check it once; later runs reuse it while waiting.
+if [ ! -x "$WORK/$version/QuickLogger" ]; then
+    rm -rf "$WORK/$version" "$WORK/$asset" "$WORK/$asset.sha256"
+    fetch -qo "$WORK/$asset" "$url"
+    fetch -qo "$WORK/$asset.sha256" "$url.sha256"
+    expected=$(awk '{print $1}' "$WORK/$asset.sha256")
+    actual=$(sha256 -q "$WORK/$asset")
+    if [ "$expected" != "$actual" ]; then
+        log "$asset failed its checksum; not installing"
+        rm -f "$WORK/$asset" "$WORK/$asset.sha256"
+        exit 1
+    fi
+    mkdir -p "$WORK/$version"
+    tar -xzf "$WORK/$asset" -C "$WORK/$version" --strip-components 1
+    rm -f "$WORK/$asset" "$WORK/$asset.sha256"
+    if ! "$WORK/$version/QuickLogger" --version > /dev/null; then
+        log "$version doesn't run here (missing libraries?); not installing"
+        rm -rf "$WORK/$version"
+        exit 1
+    fi
+    log "downloaded $version"
+fi
+
+connected=$(sockstat -46c -P tcp -p "$(sysrc -n quicklogger_port 2>/dev/null || echo 22)" | awk '$1 == "quicklogger"' | wc -l | tr -d ' ')
+if [ "$connected" -gt 0 ] && [ "$(date +%H)" != "$FORCE_HOUR" ]; then
+    exit 0
+fi
+
+log "installing $version (was ${installed:-none}; $connected connection(s) open)"
+service quicklogger stop || true
+pkill -U quicklogger QuickLogger || true
+sleep 2
+pkill -9 -U quicklogger QuickLogger || true
+
+backup="$DATA/backups/quicklogger-before-$version.db"
+su -m quicklogger -c "sqlite3 '$DATA/quicklogger.db' \".backup '$backup'\""
+gzip -f "$backup"
+ls -t "$DATA"/backups/quicklogger-before-*.db.gz | tail -n +$((KEEP_BACKUPS + 1)) | xargs rm -f
+
+if [ -f "$BIN" ]; then
+    cp -p "$BIN" "$BIN.previous"
+fi
+install -m 755 "$WORK/$version/QuickLogger" "$BIN.new"
+mv -f "$BIN.new" "$BIN"
+rm -rf "$WORK/$version"
+
+service quicklogger start
+log "running $version"
