@@ -140,7 +140,6 @@ namespace ql
     struct ConnectionState
     {
         Database* db = nullptr;
-        int listen_fd = -1;
 
         bool authenticated = false;
         std::string username;
@@ -275,10 +274,6 @@ namespace ql
         }
         if (pid == 0)
         {
-            if (state->listen_fd >= 0)
-            {
-                ::close(state->listen_fd);
-            }
             ::close(ssh_get_fd(session));
             ::close(state->pty_master_fd);
 
@@ -367,10 +362,9 @@ namespace ql
     // a process forked solely for this one connection (see
     // SshAcceptLoop) -- returning from this function means that process
     // is done and should exit.
-    static void HandleConnection(ssh_session session, const std::string& db_path, int listen_fd)
+    static void HandleConnection(ssh_session session, const std::string& db_path)
     {
         ConnectionState state;
-        state.listen_fd = listen_fd;
 
         // Installed *before* key exchange, as libssh's own server
         // examples do -- not after. A client's SERVICE_REQUEST often
@@ -602,8 +596,12 @@ namespace ql
                 {
                     // The listening socket keeps accepting in the
                     // parent; this child only needs this one
-                    // connection's own session.
-                    HandleConnection(session, db_path_, listen_fd);
+                    // connection's own session. Closed here rather than
+                    // held for the connection's lifetime, so a restarted
+                    // listener (a new version being deployed) can bind
+                    // the port again while connections are still open.
+                    ::close(listen_fd);
+                    HandleConnection(session, db_path_);
                     _exit(0);
                 }
 
