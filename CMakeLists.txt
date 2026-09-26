@@ -42,6 +42,14 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(ftxui)
 
 find_package(SQLite3 REQUIRED)
+# CMake's FindSQLite3 names its target SQLite::SQLite3 before 4.3 and
+# SQLite3::SQLite3 from 4.3 (keeping the old name, deprecated), so use
+# whichever this CMake provides.
+if(TARGET SQLite3::SQLite3)
+    set(quicklogger_sqlite_target SQLite3::SQLite3)
+else()
+    set(quicklogger_sqlite_target SQLite::SQLite3)
+endif()
 find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
@@ -114,7 +122,7 @@ target_link_libraries(quicklogger_core
         ftxui::component
         ftxui::dom
         ftxui::screen
-        SQLite3::SQLite3
+        ${quicklogger_sqlite_target}
         CURL::libcurl
         ZLIB::ZLIB
         Threads::Threads
