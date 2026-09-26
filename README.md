@@ -12,7 +12,7 @@ This README has two halves: **[Running QuickLogger](#running-quicklogger)** (wha
 |---|---|---|
 | **macOS** | Full (console + SSH server) | Built and run natively (Apple Silicon) |
 | **Linux** (glibc and musl) | Full (console + SSH server) | Every source file compiles cleanly against real Ubuntu 22.04 and 24.04 headers/libstdc++ (libssh 0.9 and 0.10) and against musl; not yet linked or run on a Linux machine |
-| **FreeBSD** 14 / 15 | Full (console + SSH server) | Every source file compiles cleanly against the real FreeBSD 14.4 and 15.1 base-system headers; not yet linked or run on a FreeBSD machine |
+| **FreeBSD** 14 / 15 | Full (console + SSH server) | Built on a FreeBSD machine by following [Building QuickLogger](#building-quicklogger) exactly (compiled and linked, 1.4.3) |
 | **Windows** | Console only — no SSH server, no ZMODEM | Every source file compiles cleanly with mingw-w64; not yet linked or run; MSVC not tried |
 
 "Compiles cleanly" means the source was compiled (not linked) for that target with a Clang-based cross-compiler. The libraries QuickLogger depends on are standard and available on all of these systems, but until it has been built and run on a given platform, treat that platform as new — bug reports welcome.
