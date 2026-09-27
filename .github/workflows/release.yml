@@ -102,6 +102,8 @@ jobs:
           name="QuickLogger-${TAG#v}-freebsd-amd64"
           mkdir -p "dist/$name"
           cp build/QuickLogger README.md "dist/$name/"
+          # The server scripts, which a server's updater installs too.
+          cp -R deploy/freebsd "dist/$name/deploy"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
           echo "ASSET=dist/$name.tar.gz" >> "$GITHUB_ENV"

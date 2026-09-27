@@ -4,7 +4,7 @@
 # the one running. Run from cron every few minutes (see setup.sh), so a
 # release is live within minutes of its FreeBSD build finishing.
 #
-# Waits for everyone to disconnect before restarting, since a restart ends
+# Waits for everyone to log out before restarting, since a restart ends
 # every SSH session. If someone stays connected, it installs anyway during
 # the quiet hour (FORCE_HOUR); sessions are dropped then, and an open net
 # session can be resumed after reconnecting. Pre-releases and drafts are
@@ -68,12 +68,21 @@ if [ ! -x "$WORK/$version/QuickLogger" ]; then
     log "downloaded $version"
 fi
 
-connected=$(sockstat -46c -P tcp -p "$(sysrc -n quicklogger_port 2>/dev/null || echo 22)" | awk '$1 == "quicklogger"' | wc -l | tr -d ' ')
+# Who's logged in: a connection's process has a child once its user has
+# logged in and their session started. Connections without one are still
+# logging in, or are the internet's port scanners, and don't count.
+port=$(sysrc -n quicklogger_port 2>/dev/null || echo 22)
+connected=0
+for pid in $(sockstat -46c -P tcp -p "$port" | awk '$1 == "quicklogger" { print $3 }' | sort -u); do
+    if pgrep -P "$pid" > /dev/null; then
+        connected=$((connected + 1))
+    fi
+done
 if [ "$connected" -gt 0 ] && [ "$(date +%H)" != "$FORCE_HOUR" ]; then
     exit 0
 fi
 
-log "installing $version (was ${installed:-none}; $connected connection(s) open)"
+log "installing $version (was ${installed:-none}; $connected user(s) logged in)"
 service quicklogger stop || true
 pkill -U quicklogger QuickLogger || true
 sleep 2
@@ -89,6 +98,14 @@ if [ -f "$BIN" ]; then
 fi
 install -m 755 "$WORK/$version/QuickLogger" "$BIN.new"
 mv -f "$BIN.new" "$BIN"
+# The release's own copies of these scripts, so they stay current too.
+# (install -S replaces each by renaming, so this running script is
+# unaffected.)
+if [ -d "$WORK/$version/deploy" ]; then
+    install -S -m 555 "$WORK/$version/deploy/quicklogger.rc" /usr/local/etc/rc.d/quicklogger
+    install -S -m 555 "$WORK/$version/deploy/quicklogger-update" /usr/local/sbin/quicklogger-update
+    install -S -m 555 "$WORK/$version/deploy/quicklogger-admin" /usr/local/sbin/quicklogger-admin
+fi
 rm -rf "$WORK/$version"
 
 service quicklogger start

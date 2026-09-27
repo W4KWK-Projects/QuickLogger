@@ -364,6 +364,14 @@ namespace ql
     // is done and should exit.
     static void HandleConnection(ssh_session session, const std::string& db_path)
     {
+        // A connection gets this long to finish key exchange, log in and
+        // start its shell, or this process is ended (SIGALRM's default).
+        // Key exchange has no timeout of its own, so without this a client
+        // that connects and then stalls -- the internet's port scanners do
+        // it all day on port 22 -- would hold this process open forever.
+        // Cancelled once the shell is running.
+        ::alarm(90);
+
         ConnectionState state;
 
         // Installed *before* key exchange, as libssh's own server
@@ -469,6 +477,7 @@ namespace ql
             ssh_free(session);
             return;
         }
+        ::alarm(0);
 
         ssh_event_add_fd(event, state.pty_master_fd, POLLIN, PtyMasterReadableCallback, &state);
 
