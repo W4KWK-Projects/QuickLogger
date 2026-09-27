@@ -289,32 +289,7 @@ Public-key authentication only — there's no password option.
 
 Anyone who wants to connect needs an SSH key pair, created on the machine they'll be connecting **from**. The private half never leaves that machine; only the public half (the `.pub` file) gets handed to whoever is adding you in Manage Users.
 
-**1. See whether you already have a key.**
-
-```
-ls ~/.ssh/*.pub
-```
-
-If that lists `id_ed25519.pub`, skip to step 3. A "No such file or directory" error just means you've never made one — normal on a new account, and step 2 fixes it.
-
-**2. Create one.** (Same command on macOS, Linux, and Windows PowerShell — Windows 10+ ships with the OpenSSH client.)
-
-```
-ssh-keygen -t ed25519 -C "your-name-or-callsign"
-```
-
-Press Enter to accept the default file location. When it asks for a passphrase, choose one (recommended) or press Enter twice for none. This creates `~/.ssh/` if it doesn't exist, plus two files in it:
-
-- `id_ed25519` — your **private** key. Never share it, email it, or paste it anywhere.
-- `id_ed25519.pub` — your **public** key. This is the one you give out.
-
-**3. Print your public key and send it to the person running QuickLogger.**
-
-```
-cat ~/.ssh/id_ed25519.pub
-```
-
-(On Windows PowerShell: `type $env:USERPROFILE\.ssh\id_ed25519.pub`. On macOS you can copy it straight to the clipboard with `pbcopy < ~/.ssh/id_ed25519.pub`.)
+** (On Windows PowerShell: `type $env:USERPROFILE\.ssh\id_ed25519.pub`. On macOS you can copy it straight to the clipboard with `pbcopy < ~/.ssh/id_ed25519.pub`.)
 
 The output is a single line that looks like this:
 
