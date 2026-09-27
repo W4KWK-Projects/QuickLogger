@@ -322,7 +322,7 @@ The output is a single line that looks like this:
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... your-name-or-callsign
 ```
 
-That whole line — starting with `ssh-ed25519`, on one line with no line breaks — is what gets pasted into Manage Users. It's a public key, so sending it by email or chat is fine.
+That whole line — starting with `ssh-ed25519`, on one line with no line breaks — is what gets pasted into Manage Users. It's a public key, so sending it by email or chat is fine. Send the username you'd like with it (your callsign is a good choice); it's what you'll type before the `@` when you connect, and it has to match exactly, including case. If you'll connect from more than one computer, send each computer's public key for the same username.
 
 **If you have more than one key**, tell `ssh` which one to offer so it doesn't pick the wrong one:
 
