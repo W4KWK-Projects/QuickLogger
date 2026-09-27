@@ -55,7 +55,7 @@ namespace ql
                                    table + "'"),
                      std::int64_t{1});
         }
-        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{7});
+        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{8});
         CHECK_EQ(CountRows(dir.File("q.db"),
                            "SELECT COUNT(*) FROM pragma_table_info('import_runs') WHERE name IN "
                            "('phase','percent','heartbeat_at','requested_at')"),
@@ -114,7 +114,7 @@ namespace ql
         )sql");
 
         Database db(path);
-        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{7});
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{8});
         std::vector<Net> nets = db.GetAllNets();
         REQUIRE(nets.size() == 1);
         CHECK_EQ(nets[0].created_at, std::int64_t{0});  // Unknown, not guessed.
@@ -663,6 +663,32 @@ namespace ql
         CHECK(db.GetUserKeys("wes").empty());
     }
 
+    QL_TEST(ViewOnlyBelongsToTheUsername)
+    {
+        TempDir dir;
+        Database db(dir.File("q.db"));
+        User user;
+        user.username = "viewer";
+        user.public_key = "ssh-ed25519 AAAA laptop";
+        user.view_only = true;
+        db.CreateUser(user);
+        // Another key takes the username's access, not its own.
+        user.public_key = "ssh-ed25519 BBBB desktop";
+        user.view_only = false;
+        db.CreateUser(user);
+        for (const User& key : db.GetUserKeys("viewer"))
+        {
+            CHECK(key.view_only);
+        }
+        db.SetUserViewOnly("viewer", false);
+        CHECK(!db.IsUserViewOnly("viewer"));
+        for (const User& key : db.GetUserKeys("viewer"))
+        {
+            CHECK(!key.view_only);
+        }
+        CHECK(!db.IsUserViewOnly("nobody"));
+    }
+
     QL_TEST(OldUsersTableGainsKeyRows)
     {
         TempDir dir;
@@ -686,6 +712,7 @@ namespace ql
         CHECK_EQ(keys[0].public_key, std::string("ssh-ed25519 AAAA laptop"));
         CHECK_EQ(keys[0].created_at, std::int64_t{5});
         CHECK_EQ(keys[0].last_login_at, std::int64_t{7});
+        CHECK(!keys[0].view_only);  // Everyone already there stays a full user.
         User user;
         user.username = "wes";
         user.public_key = "ssh-ed25519 BBBB desktop";

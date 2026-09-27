@@ -286,27 +286,45 @@ namespace ql
                FormatListHeading(SavedStationColumns(), SavedStationLayout(terminal_width));
     }
 
-    // -- SSH login keys (Manage Users) --
+    // -- SSH users and their keys (Manage Users) --
 
-    // A username with several keys gets a row per key; the key's type,
-    // fingerprint and comment tell them apart, as `ssh-keygen -l` would.
+    // A row per user: their access applies to every key of theirs.
     static const std::vector<ListColumn>& UserColumns()
     {
-        // Comment goes last, as `ssh-keygen -l` puts it, taking the
-        // rest of the row.
         static const std::vector<ListColumn> columns = {
-            {"Username", 10, 20, 0, 2},   {"Type", 7, 10, 0, 3},     {"Fingerprint", 18, 50, 0, 1},
-            {"Last Login", 19, 19, 0, 0}, {"Comment", 16, 30, 0, 4},
+            {"Username", 12, 24, 0, 1},
+            {"Access", 9, 9, 0, 0},
+            {"Keys", 4, 4, 0, 0},
+            {"Last Login", 19, 19, 0, 0},
         };
         return columns;
     }
 
-    static std::vector<std::string> UserCells(const User& user)
+    static std::string DescribeLastLogin(std::int64_t last_login_at)
     {
-        PublicKeyDescription key = DescribePublicKey(user.public_key);
-        std::string last_login =
-            user.last_login_at > 0 ? FormatLocalDateTime(user.last_login_at) : std::string("never");
-        return {user.username, key.type, key.fingerprint, last_login, key.comment};
+        return last_login_at > 0 ? FormatLocalDateTime(last_login_at) : std::string("never");
+    }
+
+    // `username`'s row, from their keys in `keys`: their access, how many
+    // keys they have, and their latest login with any of them.
+    static std::vector<std::string> UserCells(const std::string& username,
+                                              const std::vector<User>& keys)
+    {
+        bool view_only = false;
+        int count = 0;
+        std::int64_t last_login_at = 0;
+        for (const User& key : keys)
+        {
+            if (key.username != username)
+            {
+                continue;
+            }
+            view_only = view_only || key.view_only;
+            ++count;
+            last_login_at = std::max(last_login_at, key.last_login_at);
+        }
+        return {username, view_only ? "View-Only" : "Full", std::to_string(count),
+                DescribeLastLogin(last_login_at)};
     }
 
     static ListLayout UserLayout(int terminal_width)
@@ -317,6 +335,45 @@ namespace ql
     std::string UserListHeader(int terminal_width)
     {
         return MenuGutter() + FormatListHeading(UserColumns(), UserLayout(terminal_width));
+    }
+
+    // The Keys window's rows: each key's type, fingerprint and comment
+    // tell them apart, as `ssh-keygen -l` would. Comment goes last, as
+    // `ssh-keygen -l` puts it, taking the rest of the row.
+    static const std::vector<ListColumn>& UserKeyColumns()
+    {
+        static const std::vector<ListColumn> columns = {
+            {"Type", 7, 10, 0, 2},
+            {"Fingerprint", 16, 50, 0, 1},
+            {"Last Login", 19, 19, 0, 0},
+            {"Comment", 16, 30, 0, 3},
+        };
+        return columns;
+    }
+
+    static std::vector<std::string> UserKeyCells(const User& key)
+    {
+        PublicKeyDescription description = DescribePublicKey(key.public_key);
+        return {description.type, description.fingerprint, DescribeLastLogin(key.last_login_at),
+                description.comment};
+    }
+
+    // The Keys window's list sits inside a window as wide as the check-in
+    // windows, less its border, the list's border and the Menu's gutter.
+    static int UserKeyListWidth(int terminal_width)
+    {
+        return CheckInWindowWidth(terminal_width) - 6;
+    }
+
+    static ListLayout UserKeyLayout(int terminal_width)
+    {
+        return LayOutList(UserKeyColumns(), UserKeyListWidth(terminal_width), UserKeyListWidth(80),
+                          1);
+    }
+
+    std::string UserKeyListHeader(int terminal_width)
+    {
+        return MenuGutter() + FormatListHeading(UserKeyColumns(), UserKeyLayout(terminal_width));
     }
 
     // How many keys `username` has in AppState::manage_users.
@@ -475,6 +532,8 @@ namespace ql
             FormatRows(state->saved_station_cells, SavedStationLayout(state->list_width));
         state->manage_users_labels =
             FormatRows(state->manage_users_cells, UserLayout(state->list_width));
+        state->user_keys_labels =
+            FormatRows(state->user_keys_cells, UserKeyLayout(state->list_width));
         state->modal_callsign_suggestion_labels =
             FormatMatches(state->modal_callsign_suggestions,
                           state->modal_callsign_suggestion_sources, state->list_width);
@@ -616,9 +675,18 @@ namespace ql
 
     // Asks whether to resume `session` of AppState::start_net, which is still
     // open, or close it and start a new one (ConfirmPrompt::kResumeNet).
+    void ViewOpenNet(AppState* state);
+
     static void OfferToResume(AppState* state, const NetInstance& session)
     {
         state->resume_instance = session;
+        if (state->view_only_user)
+        {
+            // Watching is all a view-only user can do, so there's nothing
+            // to ask.
+            ViewOpenNet(state);
+            return;
+        }
         std::size_t check_ins = state->db->GetCheckInsForNetInstance(session.id).size();
         ShowConfirmPrompt(
             state, ConfirmPrompt::kResumeNet, "Session Still Open",
@@ -629,14 +697,36 @@ namespace ql
              "view it without changing anything."});
     }
 
+    bool RefuseViewOnly(AppState* state, const std::string& what)
+    {
+        if (!state->view_only_user)
+        {
+            return false;
+        }
+        state->status_message.clear();
+        state->form_error = "View-only users can't " + what + ".";
+        return true;
+    }
+
     void StartSelectedNet(AppState* state)
     {
         if (state->nets.empty())
         {
-            state->form_error = "Create a recurring net first.";
+            state->form_error = state->view_only_user ? "There are no recurring nets yet."
+                                                      : "Create a recurring net first.";
             return;
         }
         state->start_net = state->nets[state->selected_net_index];
+        if (state->view_only_user)
+        {
+            // Only ever to watch its open session, if it has one.
+            ViewStartNet(state);
+            if (!state->form_error.empty())
+            {
+                state->form_error = "No session of " + state->start_net.name + " is open to view.";
+            }
+            return;
+        }
 
         // Newest first, so this is the most recent session left open.
         std::vector<NetInstance> sessions = state->db->GetNetInstancesForNet(state->start_net.id);
@@ -686,6 +776,10 @@ namespace ql
 
     void StartAdHocNet(AppState* state)
     {
+        if (RefuseViewOnly(state, "start net sessions"))
+        {
+            return;
+        }
         if (state->new_net_name.empty())
         {
             state->form_error = "Net name is required.";
@@ -769,7 +863,8 @@ namespace ql
 
     void ResumeOpenNet(AppState* state)
     {
-        JoinOpenSession(state, false);
+        // A view-only user only ever watches.
+        JoinOpenSession(state, state->view_only_user);
     }
 
     void ViewOpenNet(AppState* state)
@@ -802,6 +897,11 @@ namespace ql
 
     void CloseOpenNetAndStartNew(AppState* state)
     {
+        if (RefuseViewOnly(state, "close or start net sessions"))
+        {
+            CancelConfirmPrompt(state);
+            return;
+        }
         CancelConfirmPrompt(state);
         // Nobody closed this session when it ended, so "now" could be days
         // later. Its last check-in is the best record of when it ended (or
@@ -830,6 +930,10 @@ namespace ql
 
     void RequestCloseActiveNet(AppState* state)
     {
+        if (RefuseViewOnly(state, "close net sessions"))
+        {
+            return;
+        }
         std::string name = state->active_net_name.empty() ? "this net" : state->active_net_name;
         ShowConfirmPrompt(
             state, ConfirmPrompt::kCloseNet, "Close Net",
@@ -857,6 +961,10 @@ namespace ql
     void CloseActiveNet(AppState* state)
     {
         CancelConfirmPrompt(state);
+        if (RefuseViewOnly(state, "close net sessions"))
+        {
+            return;
+        }
         std::string closed_name = state->active_net_name;
         bool closed_here = state->db->CloseNetInstance(
             state->active_instance.id, static_cast<std::int64_t>(std::time(nullptr)));
@@ -956,6 +1064,10 @@ namespace ql
 
     bool SaveSettingsForm(AppState* state)
     {
+        if (!state->callsign_editable)
+        {
+            state->settings_form.callsign = state->ssh_username;
+        }
         if (state->settings_form.callsign.empty())
         {
             state->form_error = "Your callsign is required.";
@@ -1114,6 +1226,10 @@ namespace ql
 
     void LogOperatorCheckIn(AppState* state)
     {
+        if (RefuseViewOnly(state, "log check-ins"))
+        {
+            return;
+        }
         Station operator_station;
         operator_station.callsign = state->operator_callsign;
 
@@ -1159,6 +1275,10 @@ namespace ql
 
     void RemoveSelectedCheckIn(AppState* state)
     {
+        if (RefuseViewOnly(state, "delete check-ins"))
+        {
+            return;
+        }
         if (state->active_check_ins.empty())
         {
             state->form_error = "No check-ins to remove.";
@@ -1243,7 +1363,7 @@ namespace ql
     void ApplyCheckInRoleDesignation(AppState* state, std::int64_t check_in_id, int old_role,
                                      int new_role, const std::string& callsign)
     {
-        if (old_role == new_role)
+        if (old_role == new_role || state->view_only_user)
         {
             return;
         }
@@ -1367,6 +1487,10 @@ namespace ql
 
     bool LogStationCheckIn(AppState* state)
     {
+        if (RefuseViewOnly(state, "log check-ins"))
+        {
+            return false;
+        }
         state->modal_station.callsign = NormalizeCallsign(state->modal_station.callsign);
         if (state->modal_station.callsign.empty())
         {
@@ -1436,6 +1560,10 @@ namespace ql
 
     void OpenEditCheckInForm(AppState* state, const CheckIn& check_in)
     {
+        if (RefuseViewOnly(state, "edit check-ins"))
+        {
+            return;
+        }
         state->edit_checkin_original = check_in;
 
         std::optional<Station> station = state->db->FindStationByCallsign(check_in.callsign);
@@ -1454,6 +1582,10 @@ namespace ql
 
     void SaveEditCheckInForm(AppState* state)
     {
+        if (RefuseViewOnly(state, "edit check-ins"))
+        {
+            return;
+        }
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
         state->edit_checkin_station.callsign = state->edit_checkin_original.callsign;
         state->db->UpdateStationFields(state->edit_checkin_station, now);
@@ -1545,6 +1677,10 @@ namespace ql
 
     void DeleteSelectedNetInstance(AppState* state)
     {
+        if (RefuseViewOnly(state, "delete net sessions"))
+        {
+            return;
+        }
         if (state->history_instances.empty())
         {
             state->form_error = "No net instance to delete.";
@@ -1643,7 +1779,8 @@ namespace ql
             return;
         }
 
-        if (ReceiveFileViaZmodem(state->screen, ImportsDir(state->db_path), &error))
+        if (ReceiveFileViaZmodem(state->screen,
+                                 SessionImportsDir(state->db_path, state->ssh_username), &error))
         {
             RefreshImportNetFiles(state);
             state->form_error.clear();
@@ -1671,12 +1808,20 @@ namespace ql
 
     void RequestDeleteNet(AppState* state)
     {
+        if (RefuseViewOnly(state, "delete nets"))
+        {
+            return;
+        }
         state->show_delete_net_confirm_modal = true;
     }
 
     void ConfirmDeleteNet(AppState* state)
     {
         state->show_delete_net_confirm_modal = false;
+        if (RefuseViewOnly(state, "delete nets"))
+        {
+            return;
+        }
         std::string deleted_name = state->edit_net_name;
         state->db->DeleteNetCompletely(state->edit_net_id);
         RefreshNets(state);
@@ -1711,13 +1856,45 @@ namespace ql
             case RowPickAction::kDeleteHistoryCheckIn:
                 return PickList::kHistoryCheckIns;
             case RowPickAction::kRemoveUser:
+            case RowPickAction::kEditUser:
                 return PickList::kUsers;
+            case RowPickAction::kRemoveUserKey:
+                return PickList::kUserKeys;
             case RowPickAction::kResumeAdHocSession:
+            case RowPickAction::kViewAdHocSession:
                 return PickList::kOpenAdHocSessions;
             case RowPickAction::kNone:
                 break;
         }
         return PickList::kNone;
+    }
+
+    // Whether picking a row for `action` goes on to change something (not
+    // for a view-only user: see RefuseViewOnly). Resuming an ad hoc
+    // session doesn't count: a view-only user resumes it to watch.
+    static bool RowPickChangesSomething(RowPickAction action)
+    {
+        switch (action)
+        {
+            case RowPickAction::kResumeAdHocSession:
+            case RowPickAction::kViewAdHocSession:
+            case RowPickAction::kViewStationHistory:
+            case RowPickAction::kViewStationCard:
+            case RowPickAction::kNone:
+                return false;
+            case RowPickAction::kEditUser:
+            case RowPickAction::kRemoveUserKey:
+            case RowPickAction::kEditNet:
+            case RowPickAction::kEditCheckIn:
+            case RowPickAction::kDeleteCheckIn:
+            case RowPickAction::kEditSavedStation:
+            case RowPickAction::kRemoveSavedStation:
+            case RowPickAction::kDeleteNetInstance:
+            case RowPickAction::kDeleteHistoryCheckIn:
+            case RowPickAction::kRemoveUser:
+                break;
+        }
+        return true;
     }
 
     static std::size_t PickListSize(const AppState* state, PickList list)
@@ -1735,7 +1912,9 @@ namespace ql
             case PickList::kHistoryCheckIns:
                 return state->history_check_ins.size();
             case PickList::kUsers:
-                return state->manage_users.size();
+                return state->manage_user_names.size();
+            case PickList::kUserKeys:
+                return state->user_keys.size();
             case PickList::kOpenAdHocSessions:
                 return state->open_ad_hoc_sessions.size();
             case PickList::kNone:
@@ -1762,6 +1941,8 @@ namespace ql
                 return &state->selected_history_check_in_index;
             case PickList::kUsers:
                 return &state->selected_user_index;
+            case PickList::kUserKeys:
+                return &state->selected_user_key_index;
             case PickList::kOpenAdHocSessions:
                 return &state->selected_open_ad_hoc_index;
             case PickList::kNone:
@@ -1787,6 +1968,8 @@ namespace ql
                 return "check-in";
             case PickList::kUsers:
                 return "user";
+            case PickList::kUserKeys:
+                return "key";
             case PickList::kOpenAdHocSessions:
                 return "open session";
             case PickList::kNone:
@@ -1802,15 +1985,20 @@ namespace ql
             case RowPickAction::kEditNet:
             case RowPickAction::kEditCheckIn:
             case RowPickAction::kEditSavedStation:
+            case RowPickAction::kEditUser:
                 return "Edit";
             case RowPickAction::kRemoveSavedStation:
             case RowPickAction::kRemoveUser:
+            case RowPickAction::kRemoveUserKey:
                 return "Remove";
             case RowPickAction::kResumeAdHocSession:
                 return "Resume";
+
+            case RowPickAction::kViewAdHocSession:
             case RowPickAction::kViewStationHistory:
             case RowPickAction::kViewStationCard:
                 return "View";
+
             case RowPickAction::kDeleteCheckIn:
             case RowPickAction::kDeleteNetInstance:
             case RowPickAction::kDeleteHistoryCheckIn:
@@ -1822,6 +2010,11 @@ namespace ql
 
     void StartRowPick(AppState* state, RowPickAction action)
     {
+        if (state->view_only_user && RowPickChangesSomething(action) &&
+            RefuseViewOnly(state, "change anything but their own settings"))
+        {
+            return;
+        }
         PickList list = RowPickListFor(action);
         std::size_t count = PickListSize(state, list);
         if (count == 0)
@@ -2049,18 +2242,32 @@ namespace ql
             }
             case RowPickAction::kRemoveUser:
             {
-                const User& user = state->manage_users[index];
-                if (CountUserKeys(state, user.username) == 1)
+                const std::string& username = state->manage_user_names[index];
+                int keys = CountUserKeys(state, username);
+                state->row_delete_title = "Remove SSH User";
+                state->row_delete_lines.emplace_back(
+                    "Remove " + username +
+                    (keys == 1 ? " and their key?"
+                               : " and all " + std::to_string(keys) + " of their keys?"));
+                state->row_delete_lines.emplace_back("They won't be able to log in over SSH.");
+                break;
+            }
+            case RowPickAction::kRemoveUserKey:
+            {
+                const User& key = state->user_keys[index];
+                if (state->user_keys.size() == 1)
                 {
                     state->row_delete_title = "Remove SSH User";
-                    state->row_delete_lines.emplace_back("Remove " + user.username + "?");
+                    state->row_delete_lines.emplace_back("Remove " + key.username +
+                                                         "'s only key? That removes " +
+                                                         key.username + " too.");
                     state->row_delete_lines.emplace_back("They won't be able to log in over SSH.");
                 }
                 else
                 {
                     state->row_delete_title = "Remove SSH Key";
-                    state->row_delete_lines.emplace_back("Remove " + user.username + "'s key " +
-                                                         DescribeUserKey(user) + "?");
+                    state->row_delete_lines.emplace_back("Remove " + key.username + "'s key " +
+                                                         DescribeUserKey(key) + "?");
                     state->row_delete_lines.emplace_back(
                         "They can still log in with their other keys.");
                 }
@@ -2071,8 +2278,10 @@ namespace ql
             case RowPickAction::kEditCheckIn:
             case RowPickAction::kEditSavedStation:
             case RowPickAction::kResumeAdHocSession:
+            case RowPickAction::kViewAdHocSession:
             case RowPickAction::kViewStationHistory:
             case RowPickAction::kViewStationCard:
+            case RowPickAction::kEditUser:
                 return;
         }
         state->row_delete_lines.emplace_back("This can't be undone.");
@@ -2127,6 +2336,11 @@ namespace ql
 
         CancelRowPick(state);
         state->form_error.clear();
+        if (RowPickChangesSomething(action) &&
+            RefuseViewOnly(state, "change anything but their own settings"))
+        {
+            return;
+        }
         *selection = index;
         switch (action)
         {
@@ -2148,7 +2362,9 @@ namespace ql
                 OpenStationCard(state, state->active_check_ins[index].callsign);
                 return;
             case RowPickAction::kResumeAdHocSession:
+            case RowPickAction::kViewAdHocSession:
             {
+                // (OfferToResume only ever views, for a view-only user.)
                 const NetInstance& session = state->open_ad_hoc_sessions[index];
                 std::optional<Net> net = state->db->GetNetById(session.net_id);
                 if (!net.has_value())
@@ -2163,6 +2379,9 @@ namespace ql
             }
             case RowPickAction::kEditSavedStation:
                 LoadSavedStationIntoForm(state, state->edit_net_saved_stations[index]);
+                return;
+            case RowPickAction::kEditUser:
+                OpenUserKeys(state, index);
                 return;
             default:
                 if (list == PickList::kNetInstances)
@@ -2179,6 +2398,10 @@ namespace ql
         RowPickAction action = state->row_delete_action;
         int index = state->row_delete_index;
         state->show_row_delete_confirm_modal = false;
+        if (RefuseViewOnly(state, "delete anything"))
+        {
+            return;
+        }
         state->row_delete_action = RowPickAction::kNone;
         state->row_delete_index = -1;
 
@@ -2212,6 +2435,9 @@ namespace ql
             case RowPickAction::kRemoveUser:
                 RemoveSelectedUser(state);
                 break;
+            case RowPickAction::kRemoveUserKey:
+                RemoveSelectedUserKey(state);
+                break;
             default:
                 break;
         }
@@ -2230,28 +2456,222 @@ namespace ql
         state->row_delete_index = -1;
     }
 
+    // Reloads the Keys window's list for AppState::user_keys_username.
+    static void RefreshUserKeys(AppState* state)
+    {
+        state->user_keys = state->db->GetUserKeys(state->user_keys_username);
+        state->user_keys_cells.clear();
+        for (const User& key : state->user_keys)
+        {
+            state->user_keys_cells.push_back(UserKeyCells(key));
+        }
+        state->user_keys_labels =
+            FormatRows(state->user_keys_cells, UserKeyLayout(state->list_width));
+        if (state->selected_user_key_index >= static_cast<int>(state->user_keys.size()))
+        {
+            state->selected_user_key_index = 0;
+        }
+    }
+
     void RefreshUsers(AppState* state)
     {
         state->manage_users = state->db->ListUsers();
+        state->manage_user_names.clear();
         state->manage_users_cells.clear();
         for (const User& user : state->manage_users)
         {
-            state->manage_users_cells.push_back(UserCells(user));
+            // ListUsers returns each user's keys together.
+            if (state->manage_user_names.empty() ||
+                state->manage_user_names.back() != user.username)
+            {
+                state->manage_user_names.push_back(user.username);
+                state->manage_users_cells.push_back(UserCells(user.username, state->manage_users));
+            }
         }
         state->manage_users_labels =
             FormatRows(state->manage_users_cells, UserLayout(state->list_width));
-        if (state->selected_user_index >= static_cast<int>(state->manage_users.size()))
+        if (state->selected_user_index >= static_cast<int>(state->manage_user_names.size()))
         {
             state->selected_user_index = 0;
         }
+        if (state->show_user_keys_modal)
+        {
+            RefreshUserKeys(state);
+        }
+    }
+
+    void OpenUserKeys(AppState* state, int index)
+    {
+        if (index < 0 || index >= static_cast<int>(state->manage_user_names.size()))
+        {
+            return;
+        }
+        state->selected_user_index = index;
+        state->user_keys_username = state->manage_user_names[index];
+        state->rename_username = state->user_keys_username;
+        state->edit_user_access_index =
+            state->db->IsUserViewOnly(state->user_keys_username) ? 1 : 0;
+        state->selected_user_key_index = 0;
+        state->new_key_text.clear();
+        state->form_error.clear();
+        state->status_message.clear();
+        state->show_user_keys_modal = true;
+        RefreshUserKeys(state);
+    }
+
+    void CloseUserKeys(AppState* state)
+    {
+        state->show_user_keys_modal = false;
+        state->user_keys_username.clear();
+        state->user_keys.clear();
+        state->user_keys_cells.clear();
+        state->user_keys_labels.clear();
+        state->new_key_text.clear();
+        state->rename_username.clear();
+        state->form_error.clear();
+    }
+
+    void SaveEditedUser(AppState* state)
+    {
+        if (RefuseViewOnly(state, "manage users") || !state->show_user_keys_modal)
+        {
+            return;
+        }
+        std::string old_username = state->user_keys_username;
+        std::string new_username = NormalizeCallsign(state->rename_username);
+        state->rename_username = new_username;
+        state->status_message.clear();
+        bool renaming = new_username != old_username;
+        if (renaming && !UsernameIsCallsign(new_username))
+        {
+            state->form_error = new_username.empty() || new_username.find('/') != std::string::npos
+                                    ? "A username is the user's call sign alone, without /M, "
+                                      "/P or the like."
+                                    : "A username is the user's call sign: " + new_username +
+                                          " isn't a valid US or Canadian call sign.";
+            return;
+        }
+        if (renaming && !state->db->RenameUser(old_username, new_username))
+        {
+            state->form_error = new_username + " is already a user.";
+            return;
+        }
+        std::string error;
+        if (renaming)
+        {
+            // Their settings, exports and received files follow them.
+            MoveSshUserFiles(state->db_path, old_username, new_username, &error);
+        }
+        bool view_only = state->edit_user_access_index == 1;
+        bool access_changed = state->db->IsUserViewOnly(new_username) != view_only;
+        if (access_changed)
+        {
+            state->db->SetUserViewOnly(new_username, view_only);
+        }
+
+        CloseUserKeys(state);
+        RefreshUsers(state);
+        for (std::size_t i = 0; i < state->manage_user_names.size(); ++i)
+        {
+            if (state->manage_user_names[i] == new_username)
+            {
+                state->selected_user_index = static_cast<int>(i);
+            }
+        }
+        state->form_error = error;
+        std::string access = view_only ? "view-only" : "a full user";
+        if (renaming && access_changed)
+        {
+            state->status_message = "Renamed " + old_username + " to " + new_username + ", now " +
+                                    access + ", from their next login.";
+        }
+        else if (renaming)
+        {
+            state->status_message =
+                "Renamed " + old_username + " to " + new_username + ", from their next login.";
+        }
+        else if (access_changed)
+        {
+            state->status_message = new_username + " is now " + access + ", from their next login.";
+        }
+        else
+        {
+            state->status_message = "No changes to " + new_username + ".";
+        }
+    }
+
+    void AddKeyToShownUser(AppState* state)
+    {
+        if (RefuseViewOnly(state, "manage users") || !state->show_user_keys_modal)
+        {
+            return;
+        }
+        std::string public_key;
+        std::string key_error;
+        if (!ValidatePublicKey(state->new_key_text, &public_key, &key_error))
+        {
+            state->status_message.clear();
+            state->form_error = key_error;
+            return;
+        }
+        User key;
+        key.username = state->user_keys_username;
+        key.public_key = public_key;
+        key.created_at = static_cast<std::int64_t>(std::time(nullptr));
+        bool added = state->db->CreateUser(key);
+        state->new_key_text.clear();
+        RefreshUsers(state);
+        state->form_error.clear();
+        state->status_message = added ? "Added a key for \"" + key.username + "\"."
+                                      : "\"" + key.username + "\" already has that key.";
+    }
+
+    void RemoveSelectedUserKey(AppState* state)
+    {
+        if (RefuseViewOnly(state, "manage users") || state->user_keys.empty())
+        {
+            return;
+        }
+        User key = state->user_keys[state->selected_user_key_index];
+        bool last_key = state->user_keys.size() == 1;
+        state->db->DeleteUserKey(key.id);
+        if (last_key)
+        {
+            CloseUserKeys(state);
+        }
+        RefreshUsers(state);
+        state->form_error.clear();
+        state->status_message =
+            last_key ? "Removed \"" + key.username + "\" with their last key."
+                     : "Removed a key of \"" + key.username + "\" (" + DescribeUserKey(key) + ").";
+    }
+
+    bool UsernameIsCallsign(const std::string& username)
+    {
+        return username.find('/') == std::string::npos && IsValidCallsign(username);
     }
 
     void AddUserFromForm(AppState* state)
     {
+        if (RefuseViewOnly(state, "manage users"))
+        {
+            return;
+        }
+        state->new_user_username = NormalizeCallsign(state->new_user_username);
         if (state->new_user_username.empty() || state->new_user_public_key.empty())
         {
             state->status_message.clear();
             state->form_error = "Username and public key are both required.";
+            return;
+        }
+        if (!UsernameIsCallsign(state->new_user_username))
+        {
+            state->status_message.clear();
+            state->form_error =
+                state->new_user_username.find('/') != std::string::npos
+                    ? "A username is the user's call sign alone, without /M, /P or the like."
+                    : "A username is the user's call sign: " + state->new_user_username +
+                          " isn't a valid US or Canadian call sign.";
             return;
         }
         std::string public_key;
@@ -2267,41 +2687,44 @@ namespace ql
         user.username = state->new_user_username;
         user.public_key = public_key;
         user.created_at = static_cast<std::int64_t>(std::time(nullptr));
+        user.view_only = state->new_user_access_index == 1;
         bool had_keys = CountUserKeys(state, user.username) > 0;
         bool added = state->db->CreateUser(user);
 
         state->new_user_username.clear();
         state->new_user_public_key.clear();
+        state->new_user_access_index = 0;
         RefreshUsers(state);
         state->form_error.clear();
+        // Another key keeps the username's access, whatever the form said.
+        std::string access =
+            state->db->IsUserViewOnly(user.username) ? " (view-only)" : " (full access)";
         if (!added)
         {
             state->status_message = "\"" + user.username + "\" already has that key.";
         }
         else if (had_keys)
         {
-            state->status_message = "Added another key for \"" + user.username + "\".";
+            state->status_message =
+                "Added another key for \"" + user.username + "\"" + access + ".";
         }
         else
         {
-            state->status_message = "Added \"" + user.username + "\".";
+            state->status_message = "Added \"" + user.username + "\"" + access + ".";
         }
     }
 
     void RemoveSelectedUser(AppState* state)
     {
-        if (state->manage_users.empty())
+        if (RefuseViewOnly(state, "manage users") || state->manage_user_names.empty())
         {
             return;
         }
-        User user = state->manage_users[state->selected_user_index];
-        bool last_key = CountUserKeys(state, user.username) == 1;
-        state->db->DeleteUserKey(user.id);
+        std::string username = state->manage_user_names[state->selected_user_index];
+        state->db->DeleteUser(username);
         RefreshUsers(state);
         state->form_error.clear();
-        state->status_message = last_key ? "Removed \"" + user.username + "\"."
-                                         : "Removed a key of \"" + user.username + "\" (" +
-                                               DescribeUserKey(user) + ").";
+        state->status_message = "Removed \"" + username + "\".";
     }
 
     void ExportNetLog(AppState* state, const std::string& net_name, const NetInstance& instance,
@@ -2332,8 +2755,9 @@ namespace ql
         std::vector<std::string> rows = FormatRows(cells, layout);
         lines.insert(lines.end(), rows.begin(), rows.end());
 
-        std::string path = ExportsDir(state->db_path) + "/" + SanitizeFilenameComponent(net_name) +
-                           "_" + SanitizeFilenameComponent(instance.instance_date) + "_log.txt";
+        std::string path = SessionExportsDir(state->db_path, state->ssh_username) + "/" +
+                           SanitizeFilenameComponent(net_name) + "_" +
+                           SanitizeFilenameComponent(instance.instance_date) + "_log.txt";
         ExportLinesToFile(state, path, lines);
     }
 
@@ -2356,16 +2780,16 @@ namespace ql
         std::vector<std::string> rows = FormatRows(cells, layout);
         lines.insert(lines.end(), rows.begin(), rows.end());
 
-        std::string path = ExportsDir(state->db_path) + "/" + SanitizeFilenameComponent(net_name) +
-                           "_saved_stations.txt";
+        std::string path = SessionExportsDir(state->db_path, state->ssh_username) + "/" +
+                           SanitizeFilenameComponent(net_name) + "_saved_stations.txt";
         ExportLinesToFile(state, path, lines);
     }
 
     void ExportNetSlice(AppState* state, const Net& net)
     {
         NetSlice slice = GatherNetSlice(state->db, net.id);
-        std::string path =
-            ExportsDir(state->db_path) + "/" + SanitizeFilenameComponent(net.name) + ".qlnet";
+        std::string path = SessionExportsDir(state->db_path, state->ssh_username) + "/" +
+                           SanitizeFilenameComponent(net.name) + ".qlnet";
 
         std::string error;
         if (!WriteNetSliceFile(path, slice, &error))
@@ -2381,7 +2805,8 @@ namespace ql
 
     void RefreshImportNetFiles(AppState* state)
     {
-        state->import_net_files = ListFilesWithExtension(ImportsDir(state->db_path), ".qlnet");
+        state->import_net_files = ListFilesWithExtension(
+            SessionImportsDir(state->db_path, state->ssh_username), ".qlnet");
         if (state->selected_import_file_index >= static_cast<int>(state->import_net_files.size()))
         {
             state->selected_import_file_index = 0;
@@ -2390,14 +2815,18 @@ namespace ql
 
     void ImportSelectedNetSlice(AppState* state)
     {
+        if (RefuseViewOnly(state, "import nets"))
+        {
+            return;
+        }
         if (state->import_net_files.empty())
         {
             state->status_message.clear();
-            state->form_error = "No net-export files found in imports/.";
+            state->form_error = "No net-export files to import yet.";
             return;
         }
 
-        std::string path = ImportsDir(state->db_path) + "/" +
+        std::string path = SessionImportsDir(state->db_path, state->ssh_username) + "/" +
                            state->import_net_files[state->selected_import_file_index];
         std::string error;
         std::optional<NetSlice> slice = ReadNetSliceFile(path, &error);
@@ -2429,6 +2858,10 @@ namespace ql
 
     void StartZmodemReceive(AppState* state)
     {
+        if (RefuseViewOnly(state, "import nets"))
+        {
+            return;
+        }
         state->zmodem_action = ZmodemAction::kReceive;
         state->show_zmodem_confirm_modal = true;
     }
@@ -2510,6 +2943,10 @@ namespace ql
 
     void OpenEditNetForm(AppState* state, const Net& net)
     {
+        if (RefuseViewOnly(state, "edit nets"))
+        {
+            return;
+        }
         state->edit_net_id = net.id;
         state->edit_net_name = net.name;
         state->edit_net_mode = net.mode;
@@ -2529,6 +2966,10 @@ namespace ql
 
     bool SaveEditNetForm(AppState* state)
     {
+        if (RefuseViewOnly(state, "edit nets"))
+        {
+            return false;
+        }
         if (state->edit_net_name.empty())
         {
             state->form_error = "Net name is required.";
@@ -2583,6 +3024,10 @@ namespace ql
 
     bool SaveNetStationForm(AppState* state)
     {
+        if (RefuseViewOnly(state, "save stations to nets"))
+        {
+            return false;
+        }
         state->saved_station.callsign = NormalizeCallsign(state->saved_station.callsign);
         if (state->saved_station.callsign.empty())
         {
@@ -2658,6 +3103,10 @@ namespace ql
 
     void OpenNewSavedStationForm(AppState* state)
     {
+        if (RefuseViewOnly(state, "save stations to nets"))
+        {
+            return;
+        }
         CloseSavedStationForm(state);
         state->status_message.clear();
         state->show_saved_station_modal = true;
@@ -2680,6 +3129,10 @@ namespace ql
 
     void RemoveSelectedSavedNetStation(AppState* state)
     {
+        if (RefuseViewOnly(state, "remove saved stations"))
+        {
+            return;
+        }
         if (state->edit_net_saved_stations.empty())
         {
             state->form_error = "No saved stations to remove.";
@@ -2700,6 +3153,10 @@ namespace ql
 
     void DeleteSelectedHistoryCheckIn(AppState* state)
     {
+        if (RefuseViewOnly(state, "delete check-ins"))
+        {
+            return;
+        }
         if (state->history_check_ins.empty() ||
             state->selected_history_index >= static_cast<int>(state->history_instances.size()))
         {
@@ -3297,7 +3754,7 @@ namespace ql
 
     void CheckInSelectedRegular(AppState* state)
     {
-        if (state->viewing_only || state->info_stations.empty() ||
+        if (state->viewing_only || state->view_only_user || state->info_stations.empty() ||
             state->info_selected >= static_cast<int>(state->info_stations.size()))
         {
             return;
@@ -3594,6 +4051,46 @@ namespace ql
 
     static std::vector<HelpLine> HelpFor(const AppState* state)
     {
+        // A view-only user's pages, with only the keys they have (see
+        // AppState::view_only_user).
+        if (state->view_only_user)
+        {
+            switch (state->page)
+            {
+                case kPageNetList:
+                    return {
+                        {"F3/Enter", "View the highlighted net's open session.", false},
+                        {"F4", "Settings: your callsign, home ZIP and time format.", false},
+                        {"F5", "Ad hoc nets: view an open one, or see their history.", false},
+                        {"F6", "History of the highlighted net: view and export.", false},
+                        {"F8", "Export the highlighted net to a file to share.", false},
+                        {"F10", "Quit.", false},
+                        {"Up/Down", "Move the highlight.", false},
+                    };
+                case kPageAdHocNet:
+                    return {
+                        {"F3", "View an ad hoc session that's open (by number).", false},
+                        {"F6", "History of every ad hoc net.", false},
+                        {"Esc", "Back to the net list.", false},
+                    };
+                case kPageNetHistory:
+                    return {
+                        {"Up/Down", "Choose a session; its check-ins show below.", false},
+                        {"F7", "Export the highlighted session's log.", false},
+                        {"F8", "Statistics for this net.", true},
+                        {"F9", "Find a station's check-ins to every net.", true},
+                        {"Esc", "Back.", false},
+                    };
+                case kPageSettings:
+                    return {
+                        {"F2", "Save your settings.", false},
+                        {"Esc", "Cancel.", false},
+                        {"Left/Right", "Change the time format.", false},
+                    };
+                default:
+                    break;
+            }
+        }
         switch (state->page)
         {
             case kPageNetList:
@@ -3695,9 +4192,20 @@ namespace ql
                     {"Esc", "Back.", false},
                 };
             case kPageManageUsers:
+                if (state->show_user_keys_modal)
+                {
+                    return {
+                        {"F2", "Save the username and access; close the window.", false},
+                        {"F3", "Remove one of this user's keys (by number).", false},
+                        {"F4/Enter", "Add the key pasted in, for this user.", false},
+                        {"Esc", "Close without saving the username or access.", false},
+                        {"Left/Right", "Change the access.", false},
+                    };
+                }
                 return {
-                    {"F2", "Add the SSH user entered (or update their key).", false},
-                    {"F3", "Remove an SSH user (by number).", false},
+                    {"F2", "Add the SSH user entered (or another key for them).", false},
+                    {"F3", "Remove an SSH user and all their keys (by number).", false},
+                    {"F4/Enter", "Edit a user: username, access and keys (by number).", false},
                     {"Esc", "Back to Settings.", false},
                 };
             default:

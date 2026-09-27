@@ -92,7 +92,8 @@ namespace ql
         return true;
     }
 
-    // Where a given SSH user's own AppSettings live -- see
+    // Where a given SSH user's own AppSettings live (file_export.hpp's
+    // SshUserSettingsPath names the same file, for renaming a user) -- see
     // settings.hpp's own doc comment on why this stays a flat file
     // rather than a users-table column: it must never be reachable by a
     // future shared-database export the way it isn't today. Ensures the
@@ -160,6 +161,7 @@ namespace ql
 
         // Any of the username's keys will do.
         std::int64_t matched_key_id = 0;
+        std::string matched_username;
         for (const User& key : state->db->GetUserKeys(user))
         {
             ssh_key stored_key = ParsePublicKeyLine(key.public_key);
@@ -172,6 +174,7 @@ namespace ql
             if (matches)
             {
                 matched_key_id = key.id;
+                matched_username = key.username;
                 break;
             }
         }
@@ -187,7 +190,8 @@ namespace ql
         if (signature_state == SSH_PUBLICKEY_STATE_VALID)
         {
             state->authenticated = true;
-            state->username = user;
+            // As Manage Users has it, whatever case it was typed in.
+            state->username = matched_username;
             state->db->UpdateUserLastLogin(matched_key_id,
                                            static_cast<std::int64_t>(std::time(nullptr)));
         }
@@ -279,7 +283,8 @@ namespace ql
 
             ::login_tty(state->pty_slave_fd);
             std::string username = state->username;
-            RunInteractiveSession(PerUserSettingsPath(username), /*is_console_session=*/false);
+            RunInteractiveSession(PerUserSettingsPath(username), /*is_console_session=*/false,
+                                  username);
             _exit(0);
         }
 

@@ -273,6 +273,10 @@ namespace ql
         std::string public_key;
         std::int64_t created_at = 0;
         std::int64_t last_login_at = 0;
+        // A view-only user can watch net sessions and look at history, and
+        // change nothing but their own settings. Belongs to the username:
+        // every one of its keys carries the same value.
+        bool view_only = false;
     };
 
 }  // namespace ql

@@ -92,6 +92,10 @@ namespace ql
 
     void ShowCreateNetPageHandler::operator()() const
     {
+        if (RefuseViewOnly(state_, "create nets"))
+        {
+            return;
+        }
         ResetCreateNetForm(state_);
         state_->page = kPageCreateNet;
         if (state_->new_net_name_input)
@@ -178,6 +182,11 @@ namespace ql
 
     bool AdHocNetKeyHandler::operator()(const ftxui::Event& event) const
     {
+        // A view-only user can't start one; F3 views an open one.
+        if (state_->view_only_user && event == ftxui::Event::F2)
+        {
+            return true;
+        }
         if (event == ftxui::Event::F2)
         {
             AdHocNetSubmitHandler submit(state_);
@@ -186,7 +195,8 @@ namespace ql
         }
         if (event == ftxui::Event::F3)
         {
-            StartRowPick(state_, RowPickAction::kResumeAdHocSession);
+            StartRowPick(state_, state_->view_only_user ? RowPickAction::kViewAdHocSession
+                                                        : RowPickAction::kResumeAdHocSession);
             return true;
         }
         if (event == ftxui::Event::F6)
@@ -291,6 +301,11 @@ namespace ql
         {
             ExportNetHistoryLogHandler export_log(state_);
             export_log();
+            return true;
+        }
+        // Nothing in History can be deleted by a view-only user.
+        if (state_->view_only_user && (event == ftxui::Event::F4 || event == ftxui::Event::F5))
+        {
             return true;
         }
         if (event == ftxui::Event::F5)
@@ -545,6 +560,10 @@ namespace ql
 
     void ShowImportNetPageHandler::operator()() const
     {
+        if (RefuseViewOnly(state_, "import nets"))
+        {
+            return;
+        }
         RefreshImportNetFiles(state_);
         state_->form_error.clear();
         state_->status_message.clear();
@@ -570,6 +589,13 @@ namespace ql
             return true;
         }
 
+        // A view-only user has no New, Edit or Import (see
+        // AppState::view_only_user); F3 only ever views.
+        if (state_->view_only_user &&
+            (event == ftxui::Event::F2 || event == ftxui::Event::F7 || event == ftxui::Event::F9))
+        {
+            return true;
+        }
         if (event == ftxui::Event::F2)
         {
             ShowCreateNetPageHandler show_create(state_);
@@ -686,7 +712,7 @@ namespace ql
     void RoleContinueHandler::operator()() const
     {
         state_->form_error.clear();
-        if (state_->selected_role_index == kRoleViewer)
+        if (state_->selected_role_index == kRoleViewer || state_->view_only_user)
         {
             ViewStartNet(state_);
             return;
@@ -1158,6 +1184,8 @@ namespace ql
         RefreshUsers(state_);
         state_->new_user_username.clear();
         state_->new_user_public_key.clear();
+        state_->new_user_access_index = 0;
+        CloseUserKeys(state_);
         state_->form_error.clear();
         state_->status_message.clear();
         state_->page = kPageManageUsers;
@@ -1166,6 +1194,16 @@ namespace ql
     void AddUserHandler::operator()() const
     {
         AddUserFromForm(state_);
+    }
+
+    void ShowUserKeysHandler::operator()() const
+    {
+        OpenUserKeys(state_, state_->selected_user_index);
+    }
+
+    void AddUserKeyHandler::operator()() const
+    {
+        AddKeyToShownUser(state_);
     }
 
     void ManageUsersBackHandler::operator()() const
@@ -1177,6 +1215,32 @@ namespace ql
 
     bool ManageUsersKeyHandler::operator()(const ftxui::Event& event) const
     {
+        if (state_->show_user_keys_modal)
+        {
+            if (event == ftxui::Event::F2)
+            {
+                SaveEditedUser(state_);
+                return true;
+            }
+            if (event == ftxui::Event::F3)
+            {
+                StartRowPick(state_, RowPickAction::kRemoveUserKey);
+                return true;
+            }
+            if (event == ftxui::Event::F4)
+            {
+                AddUserKeyHandler add_key(state_);
+                add_key();
+                return true;
+            }
+            if (event == ftxui::Event::Escape)
+            {
+                CloseUserKeys(state_);
+                return true;
+            }
+            // Everything else goes to the window's fields and key list.
+            return false;
+        }
         if (event == ftxui::Event::F2)
         {
             AddUserHandler add_user(state_);
@@ -1186,6 +1250,11 @@ namespace ql
         if (event == ftxui::Event::F3)
         {
             StartRowPick(state_, RowPickAction::kRemoveUser);
+            return true;
+        }
+        if (event == ftxui::Event::F4)
+        {
+            StartRowPick(state_, RowPickAction::kEditUser);
             return true;
         }
         if (event == ftxui::Event::Escape)

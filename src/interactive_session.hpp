@@ -20,6 +20,11 @@ namespace ql
     // by the time this function is reached, it has no idea whether its
     // controlling terminal is a real console or a pty an SSH connection was
     // just wired onto.
-    void RunInteractiveSession(const std::string& settings_path, bool is_console_session);
+    //
+    // `ssh_username` is who logged in over SSH (blank at the console); a
+    // view-only user's session can change nothing but its own settings
+    // (see AppState::view_only_user).
+    void RunInteractiveSession(const std::string& settings_path, bool is_console_session,
+                               const std::string& ssh_username);
 
 }  // namespace ql

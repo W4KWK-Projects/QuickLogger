@@ -56,8 +56,11 @@ namespace ql
         kRemoveSavedStation,    // Edit Net, F4 (un-save from this net)
         kDeleteNetInstance,     // History, F5
         kDeleteHistoryCheckIn,  // History, F4 (a check-in in a past log)
-        kRemoveUser,            // Manage Users, F3
+        kRemoveUser,            // Manage Users, F3 (the user and all their keys)
+        kEditUser,              // Manage Users, F4 (opens the Edit User window)
+        kRemoveUserKey,         // Manage Users' Edit User window, F3
         kResumeAdHocSession,    // Ad Hoc Net, F3 (an ad hoc session left open)
+        kViewAdHocSession,      // Ad Hoc Net, F3, for a view-only user
         kViewStationHistory,    // active net, F6 (an extra key; see InfoWindow)
         kViewStationCard,       // active net, F9 (an extra key)
     };
@@ -102,6 +105,7 @@ namespace ql
         kHistoryCheckIns,
         kUsers,
         kOpenAdHocSessions,
+        kUserKeys,
     };
 
     // All mutable state shared across the app's pages. Every page-building
@@ -121,6 +125,21 @@ namespace ql
         // kPageManageUsers) is reachable at all, deliberately never over
         // SSH, so there's no admin/permission concept to build or attack.
         bool is_console_session = true;
+        // A view-only SSH user (see User::view_only): they can watch open
+        // net sessions, look at and export history, and change their own
+        // settings -- nothing else. Every page shows only the keys they
+        // can use, and the functions that change anything refuse them
+        // too (see RefuseViewOnly), whatever the key.
+        bool view_only_user = false;
+        // Who logged in over SSH; blank at the console. Their exports and
+        // received files go in their own directories, cleaned up after a
+        // while (see SessionExportsDir).
+        std::string ssh_username;
+        // False when My Callsign is fixed as the SSH user's username (see
+        // UsernameIsCallsign): shown on Settings, but not editable. The
+        // console, and a user from before usernames had to be callsigns,
+        // edit it as always.
+        bool callsign_editable = true;
 
         int page = kPageNetList;
         std::string form_error;
@@ -217,18 +236,36 @@ namespace ql
         int selected_import_file_index = 0;
 
         // Manage Users page (console-only -- see kPageManageUsers and
-        // AppState::is_console_session): the current SSH login roster, a
-        // row per key (so a username with two keys has two rows), and
-        // which one is highlighted, refreshed by RefreshUsers. The cells
-        // are laid out into the labels for AppState::list_width.
-        // `new_user_*` are the add-user mini-form's working fields, cleared
-        // after a successful add.
+        // AppState::is_console_session), refreshed by RefreshUsers:
+        // `manage_users` is every key (a row of the users table per key),
+        // and the page lists one row per user -- `manage_user_names`, in
+        // order, with `selected_user_index` into it -- whose access applies
+        // to all their keys. The cells are laid out into the labels for
+        // AppState::list_width. `new_user_*` are the add-user mini-form's
+        // working fields, cleared after a successful add.
         std::vector<User> manage_users;
+        std::vector<std::string> manage_user_names;
         std::vector<std::vector<std::string>> manage_users_cells;
         std::vector<std::string> manage_users_labels;
         int selected_user_index = 0;
+        // The Edit User window over Manage Users (F4, or Enter on a user):
+        // `rename_username` and `edit_user_access_index` (0 full access, 1
+        // view-only), saved with F2; the user's keys, a row each; and a
+        // field to paste another key into.
+        bool show_user_keys_modal = false;
+        std::string user_keys_username;
+        std::vector<User> user_keys;
+        std::vector<std::vector<std::string>> user_keys_cells;
+        std::vector<std::string> user_keys_labels;
+        int selected_user_key_index = 0;
+        std::string new_key_text;
+        std::string rename_username;
+        int edit_user_access_index = 0;
         std::string new_user_username;
         std::string new_user_public_key;
+        // The add-user form's Access choice: 0 full access, 1 view-only.
+        int new_user_access_index = 0;
+        std::vector<std::string> new_user_access_labels{"Full access", "View-only"};
 
         // The operator's saved settings, and where they live on disk. `settings`
         // is the last-saved value (used elsewhere in the app, e.g. to prefill
@@ -883,6 +920,41 @@ namespace ql
     // when opening the Manage Users page and after any add/remove.
     void RefreshUsers(AppState* state);
 
+    // Opens the Edit User window for AppState::manage_user_names[index]
+    // (see AppState::show_user_keys_modal).
+    void OpenUserKeys(AppState* state, int index);
+
+    // Esc in the Edit User window: closes it, leaving anything not saved.
+    void CloseUserKeys(AppState* state);
+
+    // F4 in the Edit User window (or Enter in its key field): adds the key
+    // pasted into AppState::new_key_text to the window's user, at once.
+    // Sets AppState::form_error instead if it isn't a valid public key.
+    void AddKeyToShownUser(AppState* state);
+
+    // F2 in the Edit User window: saves the user's username and access,
+    // and closes the window. A new username renames them in the users
+    // table, and their settings file and export and import directories
+    // with it (see MoveSshUserFiles); it's refused, with AppState::form_error
+    // set and nothing saved, if it isn't a call sign (see
+    // UsernameIsCallsign) or is already someone else's. Access applies to
+    // every key of theirs. Both take effect from their next login.
+    void SaveEditedUser(AppState* state);
+
+    // Deletes the highlighted key in the Keys window
+    // (AppState::user_keys[selected_user_key_index]); with it goes the
+    // user, and the window closes, if it was their last.
+    void RemoveSelectedUserKey(AppState* state);
+
+    // The header line above the Keys window's list, laid out for a
+    // `terminal_width`-column terminal, with the Menu gutter.
+    std::string UserKeyListHeader(int terminal_width);
+
+    // True if `username` is a callsign an SSH username can be: a valid US
+    // or Canadian call sign (see IsValidCallsign), with no portable
+    // indicator.
+    bool UsernameIsCallsign(const std::string& username);
+
     // F2 on the Manage Users page: adds the key in
     // AppState::new_user_public_key to AppState::new_user_username -- a new
     // user, or another key for an existing one (see Database::CreateUser)
@@ -893,11 +965,17 @@ namespace ql
     // like.
     void AddUserFromForm(AppState* state);
 
-    // F3 on the Manage Users page: deletes the highlighted key
-    // (AppState::manage_users[selected_user_index]) -- the user, if it was
-    // their only one -- and refreshes the list. A no-op if the list is
-    // empty.
+    // F3 on the Manage Users page (by number, then confirmed): deletes the
+    // highlighted user (AppState::manage_user_names[selected_user_index])
+    // and every key of theirs, and refreshes the list. A no-op if the list
+    // is empty.
     void RemoveSelectedUser(AppState* state);
+
+    // For a view-only user (AppState::view_only_user): says they can't
+    // `what` ("edit nets") in AppState::form_error and returns true, so
+    // the caller changes nothing. Returns false for anyone else. Every
+    // function that changes shared data checks it, whatever key led there.
+    bool RefuseViewOnly(AppState* state, const std::string& what);
 
     // Reloads AppState::modal_callsign_suggestions/_labels from
     // AppState::modal_station.callsign: tier 1 (SearchNetStationsByCallsignSubstring

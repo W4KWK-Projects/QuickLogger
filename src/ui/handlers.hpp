@@ -817,6 +817,32 @@ namespace ql
         AppState* state_;
     };
 
+    // Enter on the Manage Users page's list: opens the highlighted user's
+    // Edit User window (see OpenUserKeys).
+    class ShowUserKeysHandler
+    {
+    public:
+        explicit ShowUserKeysHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // F4, or Enter in its key field, in the Edit User window: adds the
+    // key pasted there (see AddKeyToShownUser).
+    class AddUserKeyHandler
+    {
+    public:
+        explicit AddUserKeyHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
     // Escape on the Manage Users page: returns to the settings page.
     class ManageUsersBackHandler
     {

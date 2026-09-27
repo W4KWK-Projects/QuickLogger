@@ -284,13 +284,27 @@ namespace ql
         // any number of keys. CreateUser adds `user`'s key to its username,
         // or, if that username already has the same key (SamePublicKey --
         // whatever its comment), just updates the stored line's comment;
-        // returns true if it added a key.
+        // returns true if it added a key. Every function here that takes a
+        // username matches it whatever its case (a callsign typed as w4kwk
+        // is W4KWK).
+        // A new username gets `user.view_only`; another key for an
+        // existing one takes that username's access instead.
         bool CreateUser(const User& user);
+        // Makes every key of `username` view-only, or full access.
+        void SetUserViewOnly(const std::string& username, bool view_only);
+        // True if `username` is view-only (false for an unknown username).
+        bool IsUserViewOnly(const std::string& username);
         // Every key `username` may log in with, oldest first.
         std::vector<User> GetUserKeys(const std::string& username);
         // Every key, by username (ignoring case), then oldest first.
         std::vector<User> ListUsers();
         void DeleteUserKey(std::int64_t id);
+        // Every key of `username`.
+        void DeleteUser(const std::string& username);
+        // Files every key of `old_username` under `new_username` instead.
+        // False, changing nothing, if `new_username` is already someone
+        // else's (a change of case alone is fine).
+        bool RenameUser(const std::string& old_username, const std::string& new_username);
         void UpdateUserLastLogin(std::int64_t id, std::int64_t last_login_at);
 
     private:

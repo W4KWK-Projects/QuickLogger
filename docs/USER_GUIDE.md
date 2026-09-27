@@ -98,6 +98,7 @@ Several operators can log the same session at once (over SSH), for example a Net
 - **Staying in step:** check-ins anyone logs appear on everyone's screen within a few seconds.
 - **When someone closes it:** within a few seconds, everyone else on it, Viewers included, sees a **Net Closed** window saying when it was closed. It also names any callsign that was being typed but wasn't logged. **Enter** returns to the net list. The operator who closed it doesn't see this window.
 - **Dropped connections:** a session left open by a dropped connection or closed terminal is resumed the same way.
+- **View-only users:** an SSH user set up as view-only (see the README's SSH section) is always a Viewer. **F3/Enter** on a net goes straight to watching its open session, and says so if none is open. They can look at and export History, view open ad hoc sessions, and change their own Settings, but can't create, edit, import, start, log, close or delete anything. Their key bars and Help list only the keys they can use, and the net list shows "(view-only)" beside their callsign.
 
 ## Ad hoc nets
 
@@ -127,7 +128,8 @@ Edit and delete keys ask which row you mean: every row gets a number, you type i
 | Active net | F6 / F9 | See a station's history / card |
 | Edit Net | F9 / F4 | Edit / remove a saved station |
 | History | F4 / F5 | Delete a check-in / a closed session |
-| Manage Users | F3 | Remove an SSH user's key |
+| Manage Users | F3 | Remove an SSH user and all their keys |
+| Manage Users | F4 | Edit a user: username, access and keys (then F3 removes a key) |
 
 **A station's details are kept while anything uses them:** a net it's saved to, or a check-in in any log. When the last of those goes, its details go too, and it stops coming up in autocomplete; that's how a mistyped callsign gets cleaned up. The delete confirmation says which will happen.
 

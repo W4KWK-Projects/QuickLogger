@@ -85,7 +85,7 @@ QuickLogger creates and uses these files/directories, all as siblings of whereve
 - `quicklogger.db` — the shared SQLite database (nets, stations, check-in history, the SSH user roster — everything except personal settings)
 - `settings.txt` — your own callsign and home ZIP (local console session only; never included in any export)
 - `settings/` — one settings file per SSH login user (see below)
-- `exports/`, `imports/` — where "download"/"upload" style features (net-slice export/import, ZMODEM) read and write files
+- `exports/`, `imports/` — where "download"/"upload" style features (net-slice export/import, ZMODEM) read and write files. The local console's files go directly in them and are kept for good. Each SSH user's go in their own `ssh-users/<username>/` folder inside them, where only that user sees them, and are deleted after 7 days; for an SSH user they're only a stop on the way to or from their own computer.
 - `uls_cache/` — downloaded FCC and Census files (see [Station data](#station-data)); safe to delete while QuickLogger isn't running
 - `ssh_host_ed25519_key` — the SSH server's host key (see below)
 
@@ -271,11 +271,11 @@ There's no OS user account involved. Instead, QuickLogger keeps its own small ro
 1. Run `./QuickLogger` directly at the machine's own console.
 2. Go to **Settings** (F4 from the Recurring Nets list).
 3. Press **F4 (Manage Users)**.
-4. Fill in the two fields at the bottom of the page — **Username** (the name they'll type in `ssh <username>@host`; matched exactly, including case, so a simple lowercase name is easiest) and **Public Key** (that person's whole public-key line, e.g. `ssh-ed25519 AAAA... their-comment`). Then press **F2 (Add)**. If they don't have a key yet, see [Creating your SSH key](#creating-your-ssh-key) below.
+4. Fill in the fields at the bottom of the page — **Username**, which is that person's US or Canadian call sign, without /M, /P or the like (it's what they type in `ssh <username>@host`, in either case), **Public Key** (that person's whole public-key line, e.g. `ssh-ed25519 AAAA... their-comment`) and **Access** (see [View-only users](#view-only-users)). Then press **F2 (Add)**. Their username is also their callsign in QuickLogger: their Settings page shows it, and they can't change it. If they don't have a key yet, see [Creating your SSH key](#creating-your-ssh-key) below.
 
 The key is checked when you add it. A private key, a PuTTY-format key, a line missing its `ssh-ed25519` (or other type) at the start, or one cut short while copying is refused with a message saying what's wrong and what the line should look like. Extra spaces or a trailing line break from the paste are tidied up. If someone still can't log in, check they're offering the key you added (see *If you have more than one key* below).
 
-Someone who connects from more than one computer can have a key for each: add each key under the same username. Manage Users lists every key on its own row, told apart by its type, fingerprint and comment — the same fingerprint `ssh-keygen -lf ~/.ssh/id_ed25519.pub` prints, so they can check which key is which. **F3 (Remove)** removes just the highlighted key; the user is gone once their last key is. Adding a key that username already has only updates its comment.
+Someone who connects from more than one computer can have a key for each. Manage Users lists each user once, with their access and how many keys they have. **F4 (Edit)** and the user's row number, or **Enter** on a user, opens their **Edit User** window. Its **Username** and **Access** are saved together with **F2**, from the user's next login. Renaming them to another call sign renames their settings file and their export and import folders too. Below those is each of their keys on its own row, told apart by its type, fingerprint and comment (the same fingerprint `ssh-keygen -lf ~/.ssh/id_ed25519.pub` prints, so they can check which key is which). **F4** adds a pasted key and **F3** removes one, straight away; removing their last key removes the user. Adding the same username again on the main page also adds the key to that user, and adding a key they already have only updates its comment. **F3 (Remove)** on the main page removes a user and all their keys.
 
 That person can now connect:
 
@@ -322,7 +322,7 @@ The output is a single line that looks like this:
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... your-name-or-callsign
 ```
 
-That whole line — starting with `ssh-ed25519`, on one line with no line breaks — is what gets pasted into Manage Users. It's a public key, so sending it by email or chat is fine. Send the username you'd like with it (your callsign is a good choice); it's what you'll type before the `@` when you connect, and it has to match exactly, including case. If you'll connect from more than one computer, send each computer's public key for the same username.
+That whole line — starting with `ssh-ed25519`, on one line with no line breaks — is what gets pasted into Manage Users. It's a public key, so sending it by email or chat is fine. Send your call sign with it: that's your username, what you'll type before the `@` when you connect (in either case). If you'll connect from more than one computer, send each computer's public key for the same username.
 
 **If you have more than one key**, tell `ssh` which one to offer so it doesn't pick the wrong one:
 
@@ -376,6 +376,10 @@ Host quicklogger
 ```
 
 PuTTY's equivalent is Connection → "Seconds between keepalives" (set it to 30). When a session does drop, just reconnect: a net session you were running is still open, and QuickLogger offers to resume it.
+
+### View-only users
+
+A user can be **view-only**: they can watch open net sessions, look at and export History, and change their own settings, and nothing else. They can't create, edit, import or start nets, log or edit check-ins, save stations to a net, or delete anything. Their key bars and Help show only the keys they can use. Choose **Access** (Full access or View-only) when adding a user in Manage Users, or change an existing user's Access in their Edit User window (**F4 (Edit)**). It applies to all of that user's keys, and takes effect from their next login. Users added before 1.6.0 have full access until you change them. (Usernames have been call signs since 1.6.0 too. A user added earlier under some other name still logs in, and sets their own callsign in Settings.)
 
 ### Why Manage Users is console-only
 

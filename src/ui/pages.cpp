@@ -321,7 +321,9 @@ namespace ql
             }
             else
             {
-                rows.push_back(ftxui::text("Ready to receive a file into imports/."));
+                rows.push_back(ftxui::text(state_->ssh_username.empty()
+                                               ? "Ready to receive a file into imports/."
+                                               : "Ready to receive a file."));
                 rows.push_back(ftxui::text(""));
                 rows.push_back(ftxui::text("Press Enter now to start listening, THEN start"));
                 rows.push_back(
@@ -561,10 +563,13 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Element net_list_elem =
-                state_->nets.empty() ? HintText("No recurring nets yet. Press F2 to create one.")
-                                     : PickableRows(state_, PickList::kNets, state_->net_names,
-                                                    state_->selected_net_index, net_menu_) |
-                                           ftxui::frame | ftxui::vscroll_indicator;
+                state_->nets.empty()
+                    ? HintText(state_->view_only_user
+                                   ? "No recurring nets yet."
+                                   : "No recurring nets yet. Press F2 to create one.")
+                    : PickableRows(state_, PickList::kNets, state_->net_names,
+                                   state_->selected_net_index, net_menu_) |
+                          ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element callsign_hint =
                 state_->settings.callsign.empty()
@@ -572,13 +577,17 @@ namespace ql
                           ftxui::color(kColorLabel)
                     : ftxui::hbox({ftxui::text("Operating as ") | ftxui::color(kColorLabel),
                                    ftxui::text(state_->settings.callsign) | ftxui::bold |
-                                       ftxui::color(kColorData)});
+                                       ftxui::color(kColorData),
+                                   state_->view_only_user
+                                       ? ftxui::text("  (view-only)") | ftxui::color(kColorLabel)
+                                       : ftxui::emptyElement()});
 
             bool open_session = SelectedNetHasOpenSession(state_);
             ftxui::Element open_session_hint =
-                open_session
-                    ? HintText("Session open: F3/Enter to join it, view it, or start a new one.")
-                    : ftxui::emptyElement();
+                !open_session ? ftxui::emptyElement()
+                : state_->view_only_user
+                    ? HintText("Session open: F3/Enter to view it.")
+                    : HintText("Session open: F3/Enter to join it, view it, or start a new one.");
 
             ftxui::Element content = ftxui::vbox({
                 callsign_hint,
@@ -604,6 +613,18 @@ namespace ql
             if (state_->row_pick_action != RowPickAction::kNone)
             {
                 return PageChrome("Recurring Nets", content, PickKeyHints(state_));
+            }
+            if (state_->view_only_user)
+            {
+                return PageChrome("Recurring Nets", content,
+                                  {
+                                      {"F3/Enter", "View"},
+                                      {"F4", "Settings"},
+                                      {"F5", "AdHoc"},
+                                      {"F6", "History"},
+                                      {"F8", "Export"},
+                                      {"F10", "Quit"},
+                                  });
             }
             return PageChrome("Recurring Nets", content,
                               {
@@ -1282,7 +1303,12 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Element content = ftxui::vbox({
-                ftxui::hbox({FieldLabel("My Callsign*:  "), input_callsign_->Render()}),
+                state_->callsign_editable
+                    ? ftxui::hbox({FieldLabel("My Callsign*:  "), input_callsign_->Render()})
+                    : ftxui::hbox(
+                          {FieldLabel("My Callsign:   "),
+                           ftxui::text(state_->settings_form.callsign) | ftxui::color(kColorData),
+                           HintText("  (your username)")}),
                 ftxui::hbox({FieldLabel("My ZIP Code*:  "), input_location_->Render()}),
                 ftxui::hbox({FieldLabel("Nearby Radius: "),
                              input_radius_->Render() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 4),
@@ -1331,8 +1357,11 @@ namespace ql
     {
         ftxui::InputOption callsign_option = SingleLineInputOption();
         callsign_option.on_change = UppercaseFieldHandler(&state->settings_form.callsign);
-        ftxui::Component input_callsign =
-            ftxui::Input(&state->settings_form.callsign, "Your callsign", callsign_option);
+        // Can't be focused or typed into while the callsign is the SSH
+        // user's username (see AppState::callsign_editable).
+        ftxui::Component input_callsign = ftxui::Maybe(
+            ftxui::Input(&state->settings_form.callsign, "Your callsign", callsign_option),
+            &state->callsign_editable);
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->settings_form.location);
         ftxui::Component input_location =
@@ -1383,31 +1412,49 @@ namespace ql
 
         ftxui::Element operator()() const
         {
-            ftxui::Elements rows = {
-                HintParagraph("Logs a one-off net. Ad hoc nets aren't listed with the recurring "
-                              "nets; F6 shows their history."),
-                Separator(),
-                ftxui::hbox({FieldLabel("Name:      "), input_name_->Render()}),
-                ftxui::hbox({FieldLabel("Mode:      "), input_mode_->Render()}),
-                ftxui::hbox({FieldLabel("Frequency: "), input_frequency_->Render()}),
-                ftxui::hbox({FieldLabel("Offset:    "), input_offset_->Render()}),
-                ftxui::hbox({FieldLabel("PL Tone:   "), input_tone_->Render()}),
-                ftxui::hbox({FieldLabel("ZIP Code:  "), input_location_->Render()}),
-            };
-
-            std::vector<KeyHint> hints = {{"F2", "Start"}};
+            bool view_only = state_->view_only_user;
+            ftxui::Elements rows;
+            std::vector<KeyHint> hints;
+            if (view_only)
+            {
+                // No new ad hoc net for a view-only user: just the open
+                // ones to view, and the history.
+                rows.push_back(
+                    HintParagraph("One-off nets. Ad hoc nets aren't listed with the "
+                                  "recurring nets; F6 shows their history."));
+                if (state_->open_ad_hoc_sessions.empty())
+                {
+                    rows.push_back(HintText("No ad hoc session is open."));
+                }
+            }
+            else
+            {
+                rows = {
+                    HintParagraph("Logs a one-off net. Ad hoc nets aren't listed with the "
+                                  "recurring nets; F6 shows their history."),
+                    Separator(),
+                    ftxui::hbox({FieldLabel("Name:      "), input_name_->Render()}),
+                    ftxui::hbox({FieldLabel("Mode:      "), input_mode_->Render()}),
+                    ftxui::hbox({FieldLabel("Frequency: "), input_frequency_->Render()}),
+                    ftxui::hbox({FieldLabel("Offset:    "), input_offset_->Render()}),
+                    ftxui::hbox({FieldLabel("PL Tone:   "), input_tone_->Render()}),
+                    ftxui::hbox({FieldLabel("ZIP Code:  "), input_location_->Render()}),
+                };
+                hints.push_back({"F2", "Start"});
+            }
             if (!state_->open_ad_hoc_sessions.empty())
             {
                 rows.push_back(Separator());
-                rows.push_back(Heading("Still open (F3 resumes one):"));
+                rows.push_back(
+                    Heading(view_only ? "Open (F3 views one):" : "Still open (F3 resumes one):"));
                 rows.push_back(Framed(OpenSessionRows()));
                 rows.push_back(PickPrompt(state_, PickList::kOpenAdHocSessions));
-                hints.push_back({"F3", "Resume"});
+                hints.push_back({"F3", view_only ? "View" : "Resume"});
             }
             rows.push_back(StatusLine(state_->status_message));
             rows.push_back(ErrorLine(state_->form_error));
             hints.push_back({"F6", "History"});
-            hints.push_back({"Esc", "Cancel"});
+            hints.push_back({"Esc", view_only ? "Back" : "Cancel"});
 
             if (state_->row_pick_action != RowPickAction::kNone)
             {
@@ -1554,6 +1601,12 @@ namespace ql
                 extras.push_back({"F8", "Net Stats"});
             }
             extras.push_back({"F9", "Find Station"});
+            if (state_->view_only_user)
+            {
+                return PageChrome(
+                    "History: " + net_name, content,
+                    AddExtraKeysThatFit({{"F7", "Export"}, {"Esc", "Back"}}, extras, 1));
+            }
             return PageChrome("History: " + net_name, content,
                               AddExtraKeysThatFit({{"F4", "Del Check-In"},
                                                    {"F5", "Del Session"},
@@ -1880,9 +1933,11 @@ namespace ql
         {
             ftxui::Element file_list =
                 state_->import_net_files.empty()
-                    ? HintText(
-                          "No *.qlnet files in imports/ yet. Press F3 to receive one via "
-                          "ZMODEM.")
+                    ? HintText(state_->ssh_username.empty()
+                                   ? "No *.qlnet files in imports/ yet. Press F3 to receive one "
+                                     "via ZMODEM."
+                                   : "No *.qlnet files received yet. Press F3 to receive one via "
+                                     "ZMODEM.")
                     : file_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
 
             ftxui::Element content = ftxui::vbox({
@@ -1929,11 +1984,13 @@ namespace ql
     {
     public:
         ManageUsersRenderer(AppState* state, ftxui::Component user_menu,
-                            ftxui::Component input_username, ftxui::Component input_public_key)
+                            ftxui::Component input_username, ftxui::Component input_public_key,
+                            ftxui::Component access_toggle)
             : state_(state),
               user_menu_(std::move(user_menu)),
               input_username_(std::move(input_username)),
-              input_public_key_(std::move(input_public_key))
+              input_public_key_(std::move(input_public_key)),
+              access_toggle_(std::move(access_toggle))
         {
         }
 
@@ -1957,18 +2014,27 @@ namespace ql
                 Separator(),
                 ftxui::hbox({FieldLabel("Username:    "), input_username_->Render()}),
                 ftxui::hbox({FieldLabel("Public Key:  "), input_public_key_->Render()}),
+                ftxui::hbox({FieldLabel("Access:      "), access_toggle_->Render()}),
                 HintParagraph("Paste a full authorized_keys-style line, e.g. from "
                               "~/.ssh/id_ed25519.pub -- \"ssh-ed25519 AAAA... comment\"."),
+                HintParagraph("A view-only user can watch open net sessions, look at and "
+                              "export history, and change their own settings -- nothing else. "
+                              "F4 (or Enter) edits a user: their username, access and keys."),
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
 
+            // The Keys window shows its own keys.
+            if (state_->show_user_keys_modal)
+            {
+                return PageChrome("Manage Users", content, {});
+            }
             if (state_->row_pick_action != RowPickAction::kNone)
             {
                 return PageChrome("Manage Users", content, PickKeyHints(state_));
             }
             return PageChrome("Manage Users", content,
-                              {{"F2", "Add"}, {"F3", "Remove"}, {"Esc", "Back"}});
+                              {{"F2", "Add"}, {"F3", "Remove"}, {"F4", "Edit"}, {"Esc", "Back"}});
         }
 
     private:
@@ -1976,25 +2042,124 @@ namespace ql
         ftxui::Component user_menu_;
         ftxui::Component input_username_;
         ftxui::Component input_public_key_;
+        ftxui::Component access_toggle_;
+    };
+
+    // The Edit User window over Manage Users (F4, or Enter on a user):
+    // their username and access, saved together with F2, and their keys,
+    // added and removed there and then.
+    class UserKeysModalRenderer
+    {
+    public:
+        UserKeysModalRenderer(AppState* state, ftxui::Component input_username,
+                              ftxui::Component access_toggle, ftxui::Component key_menu,
+                              ftxui::Component input_key)
+            : state_(state),
+              input_username_(std::move(input_username)),
+              access_toggle_(std::move(access_toggle)),
+              key_menu_(std::move(key_menu)),
+              input_key_(std::move(input_key))
+        {
+        }
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Elements rows;
+            rows.push_back(Heading("Edit User: " + state_->user_keys_username));
+            rows.push_back(DialogSeparator());
+            rows.push_back(ftxui::hbox({FieldLabel("Username:   "), input_username_->Render()}));
+            rows.push_back(ftxui::hbox({FieldLabel("Access:     "), access_toggle_->Render()}));
+            rows.push_back(
+                HintParagraph("F2 saves these; they apply from the user's next "
+                              "login. Renaming moves their settings and files too."));
+            rows.push_back(DialogSeparator());
+            rows.push_back(Heading("Keys:"));
+            rows.push_back(Framed(ftxui::vbox({
+                ColumnHeader(PickHeaderPad(state_, PickList::kUserKeys) +
+                             UserKeyListHeader(state_->list_width)),
+                PickableRows(state_, PickList::kUserKeys, state_->user_keys_labels,
+                             state_->selected_user_key_index, key_menu_) |
+                    ftxui::frame | ftxui::vscroll_indicator |
+                    ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, 8),
+            })));
+            rows.push_back(PickPrompt(state_, PickList::kUserKeys));
+            rows.push_back(ftxui::hbox({FieldLabel("Add a key:  "), input_key_->Render()}));
+            rows.push_back(DialogSeparator());
+            if (IsPicking(state_, PickList::kUserKeys))
+            {
+                rows.push_back(KeyHintRow(PickKeyHints(state_)));
+            }
+            else
+            {
+                rows.push_back(KeyHintRow(
+                    {{"F2", "Save"}, {"F3", "Remove Key"}, {"F4", "Add Key"}, {"Esc", "Cancel"}}));
+            }
+            rows.push_back(StatusLine(state_->status_message));
+            rows.push_back(ErrorLine(state_->form_error));
+            return CheckInWindow(state_, ftxui::vbox(rows));
+        }
+
+    private:
+        AppState* state_;
+        ftxui::Component input_username_;
+        ftxui::Component access_toggle_;
+        ftxui::Component key_menu_;
+        ftxui::Component input_key_;
     };
 
     ftxui::Component BuildManageUsersPage(AppState* state)
     {
         ftxui::MenuOption user_menu_option;
+        user_menu_option.on_enter = ShowUserKeysHandler(state);
         user_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component user_menu =
             ClickableList(state, ftxui::Menu(&state->manage_users_labels,
                                              &state->selected_user_index, user_menu_option));
+        ftxui::InputOption username_option = SingleLineInputOption();
+        username_option.on_change = UppercaseFieldHandler(&state->new_user_username);
         ftxui::Component input_username =
-            ftxui::Input(&state->new_user_username, "Username", SingleLineInputOption());
+            ftxui::Input(&state->new_user_username, "Their call sign", username_option);
         ftxui::Component input_public_key = ftxui::Input(
             &state->new_user_public_key, "ssh-ed25519 AAAA... comment", SingleLineInputOption());
 
-        ftxui::Component root =
-            ftxui::Container::Vertical({user_menu, input_username, input_public_key});
+        ftxui::MenuOption access_option = ftxui::MenuOption::Toggle();
+        access_option.entries_option.transform = ToggleEntryTransform;
+        access_option.elements_infix = ToggleGap;
+        access_option.focused_entry = &state->new_user_access_index;
+        ftxui::Component access_toggle = std::make_shared<IgnoreTab>(ftxui::Menu(
+            &state->new_user_access_labels, &state->new_user_access_index, access_option));
+
+        ftxui::Component root = ftxui::Container::Vertical(
+            {user_menu, input_username, input_public_key, access_toggle});
+        ftxui::Component main_view = ftxui::Renderer(
+            root,
+            ManageUsersRenderer(state, user_menu, input_username, input_public_key, access_toggle));
+
+        ftxui::InputOption rename_option = SingleLineInputOption();
+        rename_option.on_change = UppercaseFieldHandler(&state->rename_username);
+        ftxui::Component input_rename =
+            ftxui::Input(&state->rename_username, "Their call sign", rename_option);
+        ftxui::MenuOption edit_access_option = ftxui::MenuOption::Toggle();
+        edit_access_option.entries_option.transform = ToggleEntryTransform;
+        edit_access_option.elements_infix = ToggleGap;
+        edit_access_option.focused_entry = &state->edit_user_access_index;
+        ftxui::Component edit_access_toggle = std::make_shared<IgnoreTab>(ftxui::Menu(
+            &state->new_user_access_labels, &state->edit_user_access_index, edit_access_option));
+        ftxui::MenuOption key_menu_option;
+        key_menu_option.entries_option.transform = AlignedMenuEntryTransform;
+        ftxui::Component key_menu =
+            ClickableList(state, ftxui::Menu(&state->user_keys_labels,
+                                             &state->selected_user_key_index, key_menu_option));
+        ftxui::InputOption key_option = SingleLineInputOption();
+        key_option.on_enter = AddUserKeyHandler(state);
+        ftxui::Component input_key =
+            ftxui::Input(&state->new_key_text, "ssh-ed25519 AAAA... comment", key_option);
+        ftxui::Component keys_modal = ftxui::Renderer(
+            ftxui::Container::Vertical({input_rename, edit_access_toggle, key_menu, input_key}),
+            UserKeysModalRenderer(state, input_rename, edit_access_toggle, key_menu, input_key));
+
         return WithRowDeleteConfirm(
-            state, ftxui::Renderer(root, ManageUsersRenderer(state, user_menu, input_username,
-                                                             input_public_key)));
+            state, LayeredModal(main_view, keys_modal, &state->show_user_keys_modal));
     }
 
     // ---- Help and the seldom-used windows (see InfoWindow) -------------------

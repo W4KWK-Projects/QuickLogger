@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,38 @@ namespace ql
     // be imported -- a sibling "imports" directory next to `db_path`, same
     // rationale as ExportsDir.
     std::string ImportsDir(const std::string& db_path);
+
+    // An SSH user's own exports and received imports: "ssh-users/<username>"
+    // inside ExportsDir / ImportsDir, apart from the console's files and
+    // each other's. With a blank `ssh_username` (the console), just
+    // ExportsDir / ImportsDir. An SSH user's files are only staging for a
+    // ZMODEM transfer, so they're cleaned up after a while (see
+    // RemoveOldSshUserFiles); the console's are kept for good.
+    std::string SessionExportsDir(const std::string& db_path, const std::string& ssh_username);
+    std::string SessionImportsDir(const std::string& db_path, const std::string& ssh_username);
+
+    // An SSH user's own settings file: "settings/<username>.txt" next to
+    // `db_path` (the same file ssh_server.cpp's PerUserSettingsPath opens).
+    std::string SshUserSettingsPath(const std::string& db_path, const std::string& username);
+
+    // Moves an SSH user's settings file and their export and import
+    // directories (see SessionExportsDir) from `old_username`'s names to
+    // `new_username`'s, when the user is renamed. Anything already under
+    // the new names (left by a user removed earlier) is replaced. What
+    // doesn't exist is skipped. Returns false, with `error` set, if
+    // something couldn't be moved.
+    bool MoveSshUserFiles(const std::string& db_path, const std::string& old_username,
+                          const std::string& new_username, std::string* error);
+
+    // How long an SSH user's exported and received files are kept.
+    constexpr std::int64_t kSshUserFileMaxAgeSeconds = 7 * 24 * 60 * 60;
+
+    // Deletes every file under the SSH users' export and import directories
+    // (see SessionExportsDir) last changed more than `max_age_seconds` ago,
+    // and any user directory left empty. The console's own files, directly
+    // in ExportsDir / ImportsDir, are never touched. Returns how many files
+    // were deleted.
+    int RemoveOldSshUserFiles(const std::string& db_path, std::int64_t max_age_seconds);
 
     // Lists the files directly inside `dir` whose name ends in `extension`
     // (e.g. ".qlnet"), sorted alphabetically. Returns an empty list (not an

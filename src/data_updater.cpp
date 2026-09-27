@@ -21,6 +21,7 @@
 #endif
 
 #include "db/database.hpp"
+#include "file_export.hpp"
 #include "models.hpp"
 #include "uls_import.hpp"
 
@@ -186,10 +187,19 @@ namespace ql
 
     static void RunUpdaterLoop(const std::string& db_path)
     {
+        std::time_t last_cleanup = 0;
         while (!ShouldStop())
         {
             try
             {
+                // Hourly: SSH users' old exported and received files (see
+                // RemoveOldSshUserFiles). The console's are never touched.
+                std::time_t now = std::time(nullptr);
+                if (now - last_cleanup >= 60 * 60)
+                {
+                    last_cleanup = now;
+                    RemoveOldSshUserFiles(db_path, kSshUserFileMaxAgeSeconds);
+                }
                 if (IsRefreshDue(db_path))
                 {
                     RunRefreshInChildProcess(db_path);

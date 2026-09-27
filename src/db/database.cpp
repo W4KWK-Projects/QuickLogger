@@ -128,13 +128,14 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT NOT NULL,
     public_key TEXT NOT NULL,
     created_at INTEGER NOT NULL DEFAULT 0,
-    last_login_at INTEGER NOT NULL DEFAULT 0
+    last_login_at INTEGER NOT NULL DEFAULT 0,
+    view_only INTEGER NOT NULL DEFAULT 0
 );
 )sql";
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 7;
+    static constexpr int kSchemaVersion = 8;
 
     static int ReadUserVersion(sqlite3* db)
     {
@@ -388,6 +389,9 @@ CREATE TABLE IF NOT EXISTS users (
 
         // Up to 1.4.3 a username had only one key.
         UpgradeUsersTable();
+        // Since 1.6.0 a user can be view-only; everyone already there
+        // stays a full user.
+        EnsureColumnExists(db_, "users", "view_only", "INTEGER NOT NULL DEFAULT 0");
 
         std::string set_version = "PRAGMA user_version = " + std::to_string(kSchemaVersion) + ";";
         sqlite3_exec(db_, set_version.c_str(), nullptr, nullptr, nullptr);
@@ -1650,12 +1654,16 @@ COMMIT;
         user.public_key = row.ColumnText(2);
         user.created_at = row.ColumnInt64(3);
         user.last_login_at = row.ColumnInt64(4);
+        user.view_only = row.ColumnInt64(5) != 0;
         return user;
     }
 
     bool Database::CreateUser(const User& user)
     {
-        for (const User& existing : GetUserKeys(user.username))
+        std::vector<User> existing_keys = GetUserKeys(user.username);
+        // Another key is filed under the username as it's already written.
+        std::string username = existing_keys.empty() ? user.username : existing_keys[0].username;
+        for (const User& existing : existing_keys)
         {
             if (SamePublicKey(existing.public_key, user.public_key))
             {
@@ -1666,22 +1674,46 @@ COMMIT;
                 return false;
             }
         }
+        // Another key for an existing username takes that username's
+        // access, whatever `user` says.
         Statement statement(db_, R"sql(
-        INSERT INTO users (username, public_key, created_at, last_login_at)
-        VALUES (?,?,?,0);
+        INSERT INTO users (username, public_key, created_at, last_login_at, view_only)
+        VALUES (?,?,?,0, COALESCE((SELECT view_only FROM users WHERE username = ? LIMIT 1), ?));
     )sql");
-        statement.BindText(0, user.username);
+        statement.BindText(0, username);
         statement.BindText(1, user.public_key);
         statement.BindInt64(2, user.created_at);
+        statement.BindText(3, username);
+        statement.BindInt64(4, user.view_only ? 1 : 0);
         statement.Step();
         return true;
+    }
+
+    void Database::SetUserViewOnly(const std::string& username, bool view_only)
+    {
+        Statement statement(db_,
+                            "UPDATE users SET view_only = ? WHERE username = ? COLLATE NOCASE;");
+        statement.BindInt64(0, view_only ? 1 : 0);
+        statement.BindText(1, username);
+        statement.Step();
+    }
+
+    bool Database::IsUserViewOnly(const std::string& username)
+    {
+        Statement statement(
+            db_,
+            "SELECT EXISTS(SELECT 1 FROM users WHERE username = ? COLLATE NOCASE AND "
+            "view_only);");
+        statement.BindText(0, username);
+        statement.Step();
+        return statement.ColumnInt64(0) != 0;
     }
 
     std::vector<User> Database::GetUserKeys(const std::string& username)
     {
         Statement statement(db_, R"sql(
-        SELECT id, username, public_key, created_at, last_login_at
-        FROM users WHERE username = ? ORDER BY id;
+        SELECT id, username, public_key, created_at, last_login_at, view_only
+        FROM users WHERE username = ? COLLATE NOCASE ORDER BY id;
     )sql");
         statement.BindText(0, username);
         std::vector<User> keys;
@@ -1695,7 +1727,7 @@ COMMIT;
     std::vector<User> Database::ListUsers()
     {
         Statement statement(db_, R"sql(
-        SELECT id, username, public_key, created_at, last_login_at
+        SELECT id, username, public_key, created_at, last_login_at, view_only
         FROM users ORDER BY username COLLATE NOCASE, username, id;
     )sql");
         std::vector<User> users;
@@ -1711,6 +1743,30 @@ COMMIT;
         Statement statement(db_, "DELETE FROM users WHERE id = ?;");
         statement.BindInt64(0, id);
         statement.Step();
+    }
+
+    void Database::DeleteUser(const std::string& username)
+    {
+        Statement statement(db_, "DELETE FROM users WHERE username = ? COLLATE NOCASE;");
+        statement.BindText(0, username);
+        statement.Step();
+    }
+
+    bool Database::RenameUser(const std::string& old_username, const std::string& new_username)
+    {
+        for (const User& key : GetUserKeys(new_username))
+        {
+            if (ToUpperAscii(key.username) != ToUpperAscii(old_username))
+            {
+                return false;
+            }
+        }
+        Statement statement(db_,
+                            "UPDATE users SET username = ? WHERE username = ? COLLATE NOCASE;");
+        statement.BindText(0, new_username);
+        statement.BindText(1, old_username);
+        statement.Step();
+        return true;
     }
 
     void Database::UpdateUserLastLogin(std::int64_t id, std::int64_t last_login_at)

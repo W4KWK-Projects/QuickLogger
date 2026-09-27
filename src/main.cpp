@@ -140,7 +140,7 @@ static int RunQuickLogger(int argc, char** argv)
     int exit_code = 0;
     try
     {
-        ql::RunInteractiveSession("settings.txt", /*is_console_session=*/true);
+        ql::RunInteractiveSession("settings.txt", /*is_console_session=*/true, "");
     }
     catch (const std::exception& e)
     {

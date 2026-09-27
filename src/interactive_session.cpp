@@ -325,7 +325,8 @@ namespace ql
         std::thread thread_;
     };
 
-    void RunInteractiveSession(const std::string& settings_path, bool is_console_session)
+    void RunInteractiveSession(const std::string& settings_path, bool is_console_session,
+                               const std::string& ssh_username)
     {
         ftxui::ScreenInteractive screen = ftxui::ScreenInteractive::Fullscreen();
         ql::Database db("quicklogger.db");
@@ -335,8 +336,20 @@ namespace ql
         state.db_path = "quicklogger.db";
         state.screen = &screen;
         state.is_console_session = is_console_session;
+        // Decided once, at login: a change in Manage Users applies from
+        // the user's next login.
+        state.ssh_username = is_console_session ? std::string() : ssh_username;
+        state.view_only_user =
+            !is_console_session && !ssh_username.empty() && db.IsUserViewOnly(ssh_username);
         state.settings_path = settings_path;
         state.settings = ql::LoadSettings(state.settings_path);
+        // An SSH user's callsign is their username (usernames are
+        // callsigns), and isn't theirs to change.
+        if (!state.ssh_username.empty() && ql::UsernameIsCallsign(state.ssh_username))
+        {
+            state.callsign_editable = false;
+            state.settings.callsign = state.ssh_username;
+        }
         ql::SetUse24HourClock(state.settings.use_24_hour_clock);
 
         // First launch (or an upgrade from before the ZIP code became required):

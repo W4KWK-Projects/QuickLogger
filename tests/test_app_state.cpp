@@ -2,6 +2,7 @@
 // check-ins, numbered picks, autocomplete, county fill-in, import/export.
 
 #include <cstdio>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
@@ -620,18 +621,18 @@ namespace ql
     QL_TEST(AnInvalidPublicKeyIsRefusedWithAnExample)
     {
         Fixture f;
-        f.state.new_user_username = "wes";
+        f.state.new_user_username = "K4WES";
         f.state.new_user_public_key = "AAAAC3NzaC1lZDI1NTE5AAAAINM3eCDBCkdxto9OIGli2KKno";
         AddUserFromForm(&f.state);
         CHECK(f.state.form_error.find("key type is missing") != std::string::npos);
         CHECK(f.state.form_error.find("ssh-ed25519 AAAA") != std::string::npos);
         CHECK(f.db()->ListUsers().empty());
-        CHECK_EQ(f.state.new_user_username, std::string("wes"));  // Form kept for fixing.
+        CHECK_EQ(f.state.new_user_username, std::string("K4WES"));  // Form kept for fixing.
 
         f.state.new_user_public_key = std::string("  ") + kTestKey + "\n";
         AddUserFromForm(&f.state);
         CHECK(f.state.form_error.empty());
-        std::vector<User> keys = f.db()->GetUserKeys("wes");
+        std::vector<User> keys = f.db()->GetUserKeys("K4WES");
         REQUIRE(keys.size() == 1);
         CHECK_EQ(keys[0].public_key, std::string(kTestKey));
     }
@@ -641,65 +642,305 @@ namespace ql
         "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBPYZZ9VZA4tifTMUe"
         "aD4+NLAlPM4vzya7Gu9uPVDpEo2sNfAt3I7zE92dNSClawZGhwfo1iPr+IIYJgRU6d/hzc= desktop";
 
-    QL_TEST(EachOfAUsersKeysIsListedAndRemovedOnItsOwn)
+    QL_TEST(UsersAreListedOnceWithTheirKeysInAWindow)
     {
         Fixture f;
-        f.state.new_user_username = "wes";
+        f.state.new_user_username = "K4WES";
         f.state.new_user_public_key = kTestKey;
         AddUserFromForm(&f.state);
-        f.state.new_user_username = "wes";
+        f.state.new_user_username = "K4WES";
         f.state.new_user_public_key = kOtherTestKey;
         AddUserFromForm(&f.state);
-        CHECK_EQ(f.state.status_message, std::string("Added another key for \"wes\"."));
-        REQUIRE(f.state.manage_users_labels.size() == 2);
-        // Told apart by type, fingerprint and comment.
-        CHECK(f.state.manage_users_labels[0].find("ED25519 SHA256:zSpp/") != std::string::npos);
-        CHECK(f.state.manage_users_labels[0].find("test@quicklogger") != std::string::npos);
-        CHECK(f.state.manage_users_labels[0].find("never") != std::string::npos);
-        CHECK(f.state.manage_users_labels[1].find("ECDSA   SHA256:19j6m") != std::string::npos);
-        CHECK(f.state.manage_users_labels[1].find("desktop") != std::string::npos);
-        CHECK(UserListHeader(80).find("Fingerprint") != std::string::npos);
+        CHECK_EQ(f.state.status_message,
+                 std::string("Added another key for \"K4WES\" (full access)."));
+        // One row for the user, however many keys.
+        REQUIRE(f.state.manage_users_labels.size() == 1);
+        CHECK(f.state.manage_users_labels[0].find("Full") != std::string::npos);
+        CHECK(f.state.manage_users_labels[0].find(" 2 ") != std::string::npos);
+        CHECK(UserListHeader(80).find("Keys") != std::string::npos);
 
-        // The same key again doesn't add a row.
-        f.state.new_user_username = "wes";
-        f.state.new_user_public_key = kOtherTestKey;
-        AddUserFromForm(&f.state);
-        CHECK_EQ(f.state.status_message, std::string("\"wes\" already has that key."));
-        CHECK_EQ(f.state.manage_users.size(), std::size_t{2});
+        // F4 by number opens the Edit User window, with their keys told
+        // apart by type, fingerprint and comment.
+        StartRowPick(&f.state, RowPickAction::kEditUser);
+        CHECK(RowPickPrompt(&f.state).find("Edit which user?") == 0);
+        TypeRowPickDigit(&f.state, '1');
+        FinishRowPick(&f.state);
+        REQUIRE(f.state.show_user_keys_modal);
+        CHECK_EQ(f.state.user_keys_username, std::string("K4WES"));
+        REQUIRE(f.state.user_keys_labels.size() == 2);
+        CHECK(f.state.user_keys_labels[0].find("ED25519 SHA256:zSpp/") != std::string::npos);
+        CHECK(f.state.user_keys_labels[0].find("test@quicklogger") != std::string::npos);
+        CHECK(f.state.user_keys_labels[0].find("never") != std::string::npos);
+        CHECK(f.state.user_keys_labels[1].find("ECDSA   SHA256:19j6m") != std::string::npos);
+        CHECK(UserKeyListHeader(80).find("Fingerprint") != std::string::npos);
 
-        StartRowPick(&f.state, RowPickAction::kRemoveUser);
+        // The same key again doesn't add one; a bad one is explained.
+        f.state.new_key_text = kOtherTestKey;
+        AddKeyToShownUser(&f.state);
+        CHECK_EQ(f.state.status_message, std::string("\"K4WES\" already has that key."));
+        CHECK_EQ(f.state.user_keys.size(), std::size_t{2});
+        f.state.new_key_text = "not a key";
+        AddKeyToShownUser(&f.state);
+        CHECK(!f.state.form_error.empty());
+
+        // Removing one key leaves the user and their other key.
+        StartRowPick(&f.state, RowPickAction::kRemoveUserKey);
         TypeRowPickDigit(&f.state, '2');
         FinishRowPick(&f.state);
         CHECK_EQ(f.state.row_delete_title, std::string("Remove SSH Key"));
         CHECK(f.state.row_delete_lines[0].find("(desktop)") != std::string::npos);
         ConfirmRowDelete(&f.state);
-        REQUIRE(f.state.manage_users.size() == 1);
-        CHECK_EQ(f.state.manage_users[0].public_key, std::string(kTestKey));
+        REQUIRE(f.state.user_keys.size() == 1);
+        CHECK_EQ(f.state.user_keys[0].public_key, std::string(kTestKey));
+        CHECK(f.state.manage_users_labels[0].find(" 1 ") != std::string::npos);
 
-        // Their last key: removing it removes them.
-        StartRowPick(&f.state, RowPickAction::kRemoveUser);
+        // Their last key: removing it removes them, and closes the window.
+        StartRowPick(&f.state, RowPickAction::kRemoveUserKey);
         TypeRowPickDigit(&f.state, '1');
         FinishRowPick(&f.state);
         CHECK_EQ(f.state.row_delete_title, std::string("Remove SSH User"));
         ConfirmRowDelete(&f.state);
-        CHECK_EQ(f.state.status_message, std::string("Removed \"wes\"."));
+        CHECK(!f.state.show_user_keys_modal);
         CHECK(f.state.manage_users.empty());
+        CHECK(f.state.manage_user_names.empty());
+    }
+
+    QL_TEST(AUsersAccessIsChosenWhenAddedAndSwitchedByNumber)
+    {
+        Fixture f;
+        f.state.new_user_username = "KB4VEW";
+        f.state.new_user_public_key = kTestKey;
+        f.state.new_user_access_index = 1;
+        AddUserFromForm(&f.state);
+        CHECK_EQ(f.state.status_message, std::string("Added \"KB4VEW\" (view-only)."));
+        CHECK(f.db()->IsUserViewOnly("KB4VEW"));
+        CHECK_EQ(f.state.new_user_access_index, 0);  // The form resets to full access.
+        REQUIRE(f.state.manage_users_labels.size() == 1);
+        CHECK(f.state.manage_users_labels[0].find("View-Only") != std::string::npos);
+
+        // Another key keeps the user's access, whatever the form says.
+        f.state.new_user_username = "KB4VEW";
+        f.state.new_user_public_key = kOtherTestKey;
+        AddUserFromForm(&f.state);
+        CHECK_EQ(f.state.status_message,
+                 std::string("Added another key for \"KB4VEW\" (view-only)."));
+
+        // Editing them switches every key of the username; the window
+        // starts on their current access.
+        REQUIRE(f.state.manage_users_labels.size() == 1);
+        CHECK(f.state.manage_users_labels[0].find("View-Only") != std::string::npos);
+        StartRowPick(&f.state, RowPickAction::kEditUser);
+        TypeRowPickDigit(&f.state, '1');
+        FinishRowPick(&f.state);
+        REQUIRE(f.state.show_user_keys_modal);
+        CHECK_EQ(f.state.edit_user_access_index, 1);
+        f.state.edit_user_access_index = 0;
+        SaveEditedUser(&f.state);
+        CHECK(!f.state.show_user_keys_modal);
+        CHECK(!f.db()->IsUserViewOnly("KB4VEW"));
+        for (const User& key : f.db()->GetUserKeys("KB4VEW"))
+        {
+            CHECK(!key.view_only);
+        }
+        CHECK(f.state.status_message.find("a full user") != std::string::npos);
+    }
+
+    QL_TEST(AViewOnlyUserCanOnlyWatchAndChangeTheirSettings)
+    {
+        Fixture f;
+        f.state.view_only_user = true;
+        std::int64_t net_id = AddTestNet(f.db(), "Skywarn");
+        RefreshNets(&f.state);
+
+        // No open session: nothing to view, and nothing is started.
+        StartSelectedNet(&f.state);
+        CHECK_EQ(f.state.page, kPageNetList);
+        CHECK_EQ(f.state.form_error, std::string("No session of Skywarn is open to view."));
+
+        // An open one: straight to watching it, no resume prompt.
+        NetInstance session;
+        session.net_id = net_id;
+        session.instance_date = "2026-09-27";
+        session.net_control_callsign = "K4AAA";
+        session.id = f.db()->CreateNetInstance(session);
+        StartSelectedNet(&f.state);
+        CHECK(!f.state.show_confirm_prompt);
+        CHECK_EQ(f.state.page, kPageActiveNet);
+        CHECK(f.state.viewing_only);
+        CHECK_EQ(f.state.active_instance.id, session.id);
+
+        // Logging, editing, closing and deleting are all refused, whatever
+        // leads there.
+        f.state.modal_station.callsign = "K4BBB";
+        CHECK(!LogStationCheckIn(&f.state));
+        CHECK(f.state.form_error.find("View-only users can't") == 0);
+        CHECK(f.db()->GetCheckInsForNetInstance(session.id).empty());
+        CloseActiveNet(&f.state);
+        CHECK(f.db()->GetNetInstanceById(session.id)->status == NetInstanceStatus::kOpen);
+        StopViewing(&f.state);
+
+        StartRowPick(&f.state, RowPickAction::kEditNet);
+        CHECK(f.state.row_pick_action == RowPickAction::kNone);
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
+        CHECK(f.state.edit_net_id != net_id);
+        f.state.edit_net_id = net_id;
+        f.state.saved_station.callsign = "K4AAA";
+        CHECK(!SaveNetStationForm(&f.state));
+        CHECK(f.db()->GetSavedStationsForNet(net_id).empty());
+        f.state.new_net_name = "Tailgate";
+        StartAdHocNet(&f.state);
+        CHECK_EQ(f.db()->GetAllNets().size(), std::size_t{1});
+        ShowCreateNetPageHandler show_create(&f.state);
+        show_create();
+        CHECK_EQ(f.state.page, kPageNetList);
+        ShowImportNetPageHandler show_import(&f.state);
+        show_import();
+        CHECK_EQ(f.state.page, kPageNetList);
+
+        // Their own settings they can change.
+        OpenSettingsForm(&f.state);
+        f.state.settings_path = f.dir().File("viewer.txt");
+        f.state.settings_form.location = "37402";
+        REQUIRE(SaveSettingsForm(&f.state));
+        CHECK_EQ(f.state.settings.location, std::string("37402"));
+    }
+
+    QL_TEST(AViewOnlyUserSeesOnlyTheirKeys)
+    {
+        Fixture f;
+        f.state.view_only_user = true;
+        AddTestNet(f.db(), "Skywarn");
+        RefreshNets(&f.state);
+        // New, Edit and Import do nothing.
+        NetListKeyHandler keys(&f.state);
+        CHECK(keys(ftxui::Event::F2));
+        CHECK(keys(ftxui::Event::F7));
+        CHECK(keys(ftxui::Event::F9));
+        CHECK_EQ(f.state.page, kPageNetList);
+        CHECK(f.state.row_pick_action == RowPickAction::kNone);
+        // Help lists only what they can do.
+        OpenHelp(&f.state);
+        bool lists_new = false;
+        for (const std::vector<std::string>& row : f.state.info_cells)
+        {
+            lists_new = lists_new || row[0] == "F2";
+        }
+        CHECK(!lists_new);
+    }
+
+    QL_TEST(UsernamesAreCallSigns)
+    {
+        Fixture f;
+        f.state.new_user_public_key = kTestKey;
+        f.state.new_user_username = "tester";
+        AddUserFromForm(&f.state);
+        CHECK(f.state.form_error.find("TESTER isn't a valid US or Canadian call sign") !=
+              std::string::npos);
+        f.state.new_user_username = "k4wes/m";
+        AddUserFromForm(&f.state);
+        CHECK(f.state.form_error.find("without /M") != std::string::npos);
+        CHECK(f.db()->ListUsers().empty());
+
+        // Canadian call signs too, as everywhere else.
+        f.state.new_user_username = "VE3ABC";
+        AddUserFromForm(&f.state);
+        CHECK(f.state.form_error.empty());
+        CHECK_EQ(f.db()->GetUserKeys("VE3ABC").size(), std::size_t{1});
+
+        // Typed in lowercase, kept in capitals, and found either way.
+        f.state.new_user_username = " k4wes ";
+        f.state.new_user_public_key = kOtherTestKey;
+        AddUserFromForm(&f.state);
+        CHECK(f.state.form_error.empty());
+        REQUIRE(f.db()->GetUserKeys("k4wes").size() == 1);
+        CHECK_EQ(f.db()->GetUserKeys("k4wes")[0].username, std::string("K4WES"));
+    }
+
+    QL_TEST(RenamingAUserTakesTheirSettingsAndFilesAlong)
+    {
+        Fixture f;
+        for (const char* username : {"K4WES", "KB4VEW"})
+        {
+            User user;
+            user.username = username;
+            user.public_key = kTestKey;
+            f.db()->CreateUser(user);
+        }
+        EnsureDirectory(f.dir().File("settings"));
+        WriteTextFile(SshUserSettingsPath(f.state.db_path, "K4WES"), "location=37402\n");
+        EnsureDirectory(SessionExportsDir(f.state.db_path, "K4WES"));
+        WriteTextFile(SessionExportsDir(f.state.db_path, "K4WES") + "/log.txt", "x");
+        RefreshUsers(&f.state);
+        OpenUserKeys(&f.state, 0);
+        REQUIRE(f.state.user_keys_username == "K4WES");
+        CHECK_EQ(f.state.rename_username, std::string("K4WES"));
+
+        // Not a call sign, or someone else's: refused, and nothing saved.
+        f.state.edit_user_access_index = 1;
+        f.state.rename_username = "wes";
+        SaveEditedUser(&f.state);
+        CHECK(f.state.form_error.find("isn't a valid") != std::string::npos);
+        f.state.rename_username = "kb4vew";
+        SaveEditedUser(&f.state);
+        CHECK_EQ(f.state.form_error, std::string("KB4VEW is already a user."));
+        CHECK(f.state.show_user_keys_modal);
+        CHECK_EQ(f.db()->GetUserKeys("K4WES").size(), std::size_t{1});
+        CHECK(!f.db()->IsUserViewOnly("K4WES"));
+
+        // Renamed and made view-only in one save.
+        f.state.rename_username = "w4new";
+        SaveEditedUser(&f.state);
+        CHECK(f.state.form_error.empty());
+        CHECK_EQ(f.state.status_message,
+                 std::string("Renamed K4WES to W4NEW, now view-only, from their next login."));
+        CHECK(!f.state.show_user_keys_modal);
+        CHECK(f.db()->GetUserKeys("K4WES").empty());
+        REQUIRE(f.db()->GetUserKeys("W4NEW").size() == 1);
+        CHECK_EQ(f.db()->GetUserKeys("W4NEW")[0].username, std::string("W4NEW"));
+        CHECK(f.db()->IsUserViewOnly("W4NEW"));
+        CHECK_EQ(f.state.manage_user_names[static_cast<std::size_t>(f.state.selected_user_index)],
+                 std::string("W4NEW"));
+        // Their settings and files moved with them.
+        CHECK(!std::filesystem::exists(SshUserSettingsPath(f.state.db_path, "K4WES")));
+        CHECK_EQ(ReadTextFile(SshUserSettingsPath(f.state.db_path, "W4NEW")),
+                 std::string("location=37402\n"));
+        CHECK_EQ(ListFilesWithExtension(SessionExportsDir(f.state.db_path, "W4NEW"), ".txt").size(),
+                 std::size_t{1});
+        CHECK(!std::filesystem::exists(SessionExportsDir(f.state.db_path, "K4WES")));
+    }
+
+    QL_TEST(AnSshUsersCallsignIsTheirUsername)
+    {
+        Fixture f;
+        f.state.ssh_username = "K4WES";
+        f.state.callsign_editable = false;
+        f.state.settings_path = f.dir().File("k4wes.txt");
+        OpenSettingsForm(&f.state);
+        f.state.settings_form.callsign = "W4KWK";  // However it got there.
+        REQUIRE(SaveSettingsForm(&f.state));
+        CHECK_EQ(f.state.settings.callsign, std::string("K4WES"));
     }
 
     QL_TEST(RemovingAUserByNumber)
     {
         Fixture f;
-        f.state.new_user_username = "wes";
+        f.state.new_user_username = "K4WES";
         f.state.new_user_public_key = kTestKey;
         AddUserFromForm(&f.state);
         CHECK_EQ(f.state.manage_users.size(), std::size_t{1});
         AddUserFromForm(&f.state);  // Blank form now.
         CHECK(!f.state.form_error.empty());
+        f.state.new_user_username = "K4WES";
+        f.state.new_user_public_key = kOtherTestKey;
+        AddUserFromForm(&f.state);
+        // The user goes, with every key.
         StartRowPick(&f.state, RowPickAction::kRemoveUser);
         TypeRowPickDigit(&f.state, '1');
         FinishRowPick(&f.state);
+        CHECK_EQ(f.state.row_delete_lines[0], std::string("Remove K4WES and all 2 of their keys?"));
         ConfirmRowDelete(&f.state);
         CHECK(f.state.manage_users.empty());
+        CHECK(f.db()->GetUserKeys("K4WES").empty());
     }
 
     // ---- Starting, resuming and closing --------------------------------------------
@@ -1481,6 +1722,38 @@ namespace ql
         CHECK(text.find("K4AAA") != std::string::npos);
         CHECK(text.find("Ann") != std::string::npos);
         CHECK(f.state.status_message.find("Saved to") == 0);
+    }
+
+    QL_TEST(AnSshUsersFilesAreTheirOwnAndCleanedUpAfterAWeek)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        f.state.ssh_username = "wes";
+        ExportNetLog(&f.state, "Skywarn", f.state.active_instance, f.state.active_check_ins);
+        CHECK(f.state.form_error.empty());
+        std::string mine = f.dir().File("exports/ssh-users/wes");
+        CHECK_EQ(ListFilesWithExtension(mine, ".txt").size(), std::size_t{1});
+        CHECK(ListFilesWithExtension(f.dir().File("exports"), ".txt").empty());
+
+        // Only their own received files are offered for import.
+        EnsureDirectory(ImportsDir(f.state.db_path));
+        EnsureDirectory(SessionImportsDir(f.state.db_path, "wes"));
+        EnsureDirectory(SessionImportsDir(f.state.db_path, "ann"));
+        WriteTextFile(ImportsDir(f.state.db_path) + "/console.qlnet", "x");
+        WriteTextFile(SessionImportsDir(f.state.db_path, "wes") + "/mine.qlnet", "x");
+        WriteTextFile(SessionImportsDir(f.state.db_path, "ann") + "/hers.qlnet", "x");
+        RefreshImportNetFiles(&f.state);
+        REQUIRE(f.state.import_net_files.size() == 1);
+        CHECK_EQ(f.state.import_net_files[0], std::string("mine.qlnet"));
+
+        // A week on, the SSH users' files go; the console's stay.
+        f.state.ssh_username.clear();
+        ExportNetLog(&f.state, "Skywarn", f.state.active_instance, f.state.active_check_ins);
+        CHECK_EQ(RemoveOldSshUserFiles(f.state.db_path, kSshUserFileMaxAgeSeconds), 0);
+        CHECK_EQ(RemoveOldSshUserFiles(f.state.db_path, -60), 3);
+        CHECK(!std::filesystem::exists(mine));
+        CHECK_EQ(ListFilesWithExtension(f.dir().File("exports"), ".txt").size(), std::size_t{1});
+        CHECK_EQ(ListFilesWithExtension(f.dir().File("imports"), ".qlnet").size(), std::size_t{1});
     }
 
     QL_TEST(ImportingANetFileAddsItAsANewNet)
