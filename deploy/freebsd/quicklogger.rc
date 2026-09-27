@@ -36,10 +36,28 @@ command="/usr/sbin/daemon"
 command_args="-r -R 5 -P ${pidfile} -o /var/log/quicklogger.log -t ${name} /usr/local/bin/QuickLogger --headless --ssh-port=${quicklogger_port}"
 
 start_precmd="${name}_prestart"
+stop_cmd="${name}_stop"
 
 quicklogger_prestart()
 {
     install -d -o "${quicklogger_user}" -m 755 "/var/run/${name}"
+}
+
+# daemon(8) doesn't exit until everything holding its log pipe has gone,
+# and every SSH connection's process holds it -- so stopping only daemon
+# (rc.subr's default) waits as long as anyone stays connected. Stops
+# them all instead: daemon first, so it doesn't restart anything.
+quicklogger_stop()
+{
+    rc_pid=$(check_pidfile "${pidfile}" "${procname}")
+    if [ -z "${rc_pid}" ]; then
+        echo "${name} not running? (check ${pidfile})."
+        return 1
+    fi
+    echo "Stopping ${name}."
+    kill -TERM "${rc_pid}"
+    pkill -TERM -U "${quicklogger_user}" QuickLogger
+    wait_for_pids "${rc_pid}"
 }
 
 run_rc_command "$1"
