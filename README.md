@@ -352,6 +352,31 @@ Host quicklogger
 
 after which `ssh quicklogger` is all you type. Most other SSH clients have an equivalent "enable compression" setting.
 
+### If the screen freezes after you've been away
+
+Over the internet, a session can look frozen when you come back to it (nothing you type or click does anything) even though your terminal still shows it connected. Running QuickLogger on your own machine never does this, because no network sits in between.
+
+Being idle isn't the cause: the server redraws the clock every minute, so a connection is never quiet. The connection itself has died, usually because your computer slept, your Wi-Fi or VPN reconnected, or your network changed. Your SSH client doesn't find out until it tries to send something, and it can then keep waiting for many minutes before giving up.
+
+The fix is on your end: have your SSH client check the connection every 30 seconds, so a dead one is closed within about a minute and a half instead of leaving a frozen screen. With `ssh`, add `-o ServerAliveInterval=30`:
+
+```
+ssh -o ServerAliveInterval=30 -p 2222 <username>@<host>
+```
+
+or add it to your `~/.ssh/config` entry (see above):
+
+```
+Host quicklogger
+    HostName <host>
+    Port 2222
+    User <username>
+    Compression yes
+    ServerAliveInterval 30
+```
+
+PuTTY's equivalent is Connection → "Seconds between keepalives" (set it to 30). When a session does drop, just reconnect: a net session you were running is still open, and QuickLogger offers to resume it.
+
 ### Why Manage Users is console-only
 
 Adding/removing SSH users is deliberately only reachable from whoever is physically at the machine's own console — never over SSH, regardless of whose key the SSH session authenticated with. This isn't a missing feature; it's a deliberate simplification: it means there's no admin/permission system to build, and no way for a compromised or malicious SSH session to ever add itself another account, no matter what. The trade-off is that adding a new operator always needs someone at the console in that moment.
