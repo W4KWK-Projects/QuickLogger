@@ -75,3 +75,8 @@ jobs:
           cmake --build build -j
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  # The Linux release binaries, built and checked on other distributions,
+  # kept as a workflow artifact (see linux-binary.yml).
+  linux-binaries:
+    uses: ./.github/workflows/linux-binary.yml

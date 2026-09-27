@@ -23,7 +23,7 @@ This README has two halves: **[Running QuickLogger](#running-quicklogger)** (wha
 
 ## Download (macOS)
 
-Each [release](https://github.com/W4KWK-Projects/QuickLogger/releases) has a ready-to-run macOS binary for Apple Silicon Macs, built for macOS 13 or later: `QuickLogger-<version>-macos-arm64.tar.gz`. On other platforms, [build it](#building-quicklogger).
+Each [release](https://github.com/W4KWK-Projects/QuickLogger/releases) has a ready-to-run macOS binary for Apple Silicon Macs, built for macOS 13 or later: `QuickLogger-<version>-macos-arm64.tar.gz`. For Linux and FreeBSD, see below; on other platforms, [build it](#building-quicklogger).
 
 1. Install its one outside library: `brew install libssh`.
 2. Unpack it: `tar xzf QuickLogger-<version>-macos-arm64.tar.gz`.
@@ -33,6 +33,20 @@ Each [release](https://github.com/W4KWK-Projects/QuickLogger/releases) has a rea
 Each release also has a `.sha256` file for checking the download: `shasum -a 256 -c QuickLogger-<version>-macos-arm64.tar.gz.sha256`.
 
 Releases also have a FreeBSD 15 (amd64) binary, `QuickLogger-<version>-freebsd-amd64.tar.gz`, built and tested on FreeBSD. It needs `sudo pkg install libssh curl sqlite3`. To run it as an always-on server that installs each new release by itself, see [deploy/freebsd](deploy/freebsd/README.md).
+
+## Download (Linux)
+
+Releases have Linux binaries for 64-bit PCs (`QuickLogger-<version>-linux-amd64.tar.gz`) and 64-bit ARM, such as a Raspberry Pi running a 64-bit OS (`QuickLogger-<version>-linux-arm64.tar.gz`). They're built on Ubuntu 22.04, run on it and anything newer, and are checked on Debian 12 and 13, Ubuntu 24.04 and Fedora before each release. Alpine and other musl-based systems need to [build it](#building-quicklogger).
+
+1. Install the libraries it uses:
+   - Debian 12: `sudo apt install libssh-4 libcurl4 libsqlite3-0`
+   - Debian 13, Ubuntu 24.04 and newer: `sudo apt install libssh-4 libcurl4t64 libsqlite3-0`
+   - Ubuntu 22.04: `sudo apt install libssh-4 libcurl4 libsqlite3-0`
+   - Fedora: `sudo dnf install libssh libcurl sqlite-libs`
+2. Unpack it: `tar xzf QuickLogger-<version>-linux-amd64.tar.gz` (or `-arm64`).
+3. Move `QuickLogger` into the directory you want its data in, and start it there (see [Starting it](#starting-it)).
+
+Check the download with `sha256sum -c QuickLogger-<version>-linux-amd64.tar.gz.sha256`.
 
 ## What you need to run it
 

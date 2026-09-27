@@ -1,0 +1,90 @@
+# Builds the Linux binaries (amd64 and arm64) and checks they run on other
+# distributions than the one they're built on. Called two ways:
+#
+# - by release.yml for a tag, attaching them to that release's page;
+# - by build.yml on every push and pull request, keeping them as a
+#   workflow artifact, so the packaging is known to work before a release.
+#
+# Built on Ubuntu 22.04, the oldest glibc a hosted runner offers, so the
+# binaries also run on newer distributions. They link the system's libssh,
+# libcurl, SQLite and zlib, which every mainstream distribution packages
+# under the same library names.
+name: Linux binaries
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to build and attach to; blank builds this commit and keeps the result as an artifact.
+        type: string
+        default: ""
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    name: linux-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    env:
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.sha }}
+
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev
+
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: |
+          version=$(sed -n 's/^project(QuickLogger VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          name="QuickLogger-$version-linux-${{ matrix.arch }}"
+          mkdir -p "dist/$name"
+          cp build/QuickLogger README.md "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+          echo "NAME=$name" >> "$GITHUB_ENV"
+
+      # Each with only the runtime packages the README lists for it.
+      - name: Check it runs on other distributions
+        run: |
+          check() {
+            echo "== $1"
+            docker run --rm -v "$PWD/dist/$NAME:/q:ro" "$1" sh -c "$2 > /dev/null && /q/QuickLogger --version"
+          }
+          check debian:12 "apt-get update -qq && apt-get install -y -qq libssh-4 libcurl4 libsqlite3-0"
+          check debian:13 "apt-get update -qq && apt-get install -y -qq libssh-4 libcurl4t64 libsqlite3-0"
+          check ubuntu:24.04 "apt-get update -qq && apt-get install -y -qq libssh-4 libcurl4t64 libsqlite3-0"
+          check fedora:latest "dnf install -y -q libssh libcurl sqlite-libs zlib"
+
+      - name: Attach to the release
+        if: inputs.tag != ''
+        run: gh release upload "$TAG" "dist/$NAME.tar.gz" "dist/$NAME.tar.gz.sha256" --clobber
+
+      - name: Keep as an artifact
+        if: inputs.tag == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: |
+            dist/${{ env.NAME }}.tar.gz
+            dist/${{ env.NAME }}.tar.gz.sha256
+          retention-days: 7

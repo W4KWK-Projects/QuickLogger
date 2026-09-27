@@ -1,6 +1,7 @@
-# Builds the macOS (Apple Silicon) and FreeBSD (amd64) binaries for a
-# tagged release and attaches them to that release's GitHub page, creating
-# the page if it doesn't exist yet. The hosted server installs the FreeBSD
+# Builds the macOS (Apple Silicon), FreeBSD (amd64) and Linux (amd64,
+# arm64 -- see linux-binary.yml) binaries for a tagged release and attaches
+# them to that release's GitHub page, creating the page if it doesn't exist
+# yet. The hosted server installs the FreeBSD
 # one by itself (see deploy/freebsd). Runs on every pushed tag starting with "v" (e.g. v1.1.0); it can also
 # be run by hand for a tag that already exists (Actions > Release binaries >
 # Run workflow), which replaces the binary on that release.
@@ -110,3 +111,10 @@ jobs:
 
       - name: Attach to the release
         run: gh release upload "$TAG" "$ASSET" "$ASSET.sha256" --clobber
+
+  # After the macOS job, which creates the release page.
+  linux:
+    needs: macos
+    uses: ./.github/workflows/linux-binary.yml
+    with:
+      tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
