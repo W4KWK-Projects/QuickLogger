@@ -1085,6 +1085,47 @@ namespace ql
         CHECK_EQ(f.state.modal_station.callsign, std::string("K4NAS/M"));
     }
 
+    QL_TEST(ASavedStationNotAmongTheMatchesIsStillFilledIn)
+    {
+        Fixture f;
+        LoadZipData(f.db());
+        // As above: K4NAS and K4NAT are beyond the radius; AK4NAS is nearby.
+        f.db()->BulkUpsertUlsStations({MakeStation("K4NAS", "NASHVILLE, NAN", "37201"),
+                                       MakeStation("K4NAT", "NASHVILLE, NAT", "37201"),
+                                       MakeStation("AK4NAS", "NEARBY, AL", "37402")},
+                                      0, 3, 1);
+        std::int64_t net_id = AddTestNet(f.db(), "Skywarn");
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
+
+        // Enter takes the callsign typed in full over the match marked ">".
+        f.state.saved_station.callsign = "K4NAS";
+        RefreshSavedStationSuggestions(&f.state);
+        REQUIRE(f.state.saved_station_suggestions.size() == 1);
+        CHECK_EQ(f.state.saved_station_suggestions[0].callsign, std::string("AK4NAS"));
+        ApplySelectedSavedStationSuggestion(&f.state);
+        CHECK_EQ(f.state.saved_station.callsign, std::string("K4NAS"));
+        CHECK_EQ(f.state.saved_station.name, std::string("NASHVILLE, NAN"));
+        CHECK(f.state.saved_station_suggestions.empty());
+
+        // Saved without picking anything or pressing Enter: the FCC details
+        // are used all the same.
+        f.state.saved_station = Station();
+        f.state.saved_station.callsign = "K4NAT";
+        RefreshSavedStationSuggestions(&f.state);
+        CHECK(f.state.saved_station_suggestions.empty());
+        REQUIRE(SaveNetStationForm(&f.state));
+        std::optional<Station> saved = f.db()->FindStationByCallsign("K4NAT");
+        REQUIRE(saved.has_value());
+        CHECK_EQ(saved->name, std::string("NASHVILLE, NAT"));
+
+        // What the operator typed isn't overwritten.
+        f.state.saved_station = Station();
+        f.state.saved_station.callsign = "K4NAS";
+        f.state.saved_station.name = "Nan";
+        CHECK(FillSavedStationFromKnownStation(&f.state));
+        CHECK_EQ(f.state.saved_station.name, std::string("Nan"));
+    }
+
     QL_TEST(AutocompleteShowsAsManyAsTheScreenHasRoomFor)
     {
         Fixture f;

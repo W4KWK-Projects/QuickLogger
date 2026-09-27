@@ -454,6 +454,14 @@ namespace ql
 
         if (state_->show_saved_station_modal)
         {
+            bool leaving_callsign = event == ftxui::Event::Tab || event == ftxui::Event::TabReverse;
+            if (leaving_callsign && state_->saved_station_callsign_input &&
+                state_->saved_station_callsign_input->Focused())
+            {
+                // What's known about the callsign typed, whether or not it
+                // was among the matches (see FillSavedStationFromKnownStation).
+                FillSavedStationFromKnownStation(state_);
+            }
             if (MoveSuggestionHighlight(event, state_->saved_station_callsign_input,
                                         state_->saved_station_suggestions.size(),
                                         &state_->selected_saved_station_suggestion_index))

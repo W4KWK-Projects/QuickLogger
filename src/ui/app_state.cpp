@@ -1298,9 +1298,13 @@ namespace ql
         }
     }
 
-    bool FillCheckInFromKnownStation(AppState* state)
+    // Fills `station`'s blank fields from what's known about its callsign,
+    // exactly or, failing that, without a portable indicator: a station
+    // known to some net, or else the FCC data at any distance. Returns
+    // whether the station was found.
+    static bool FillStationFromKnown(AppState* state, Station* station)
     {
-        std::string callsign = NormalizeCallsign(state->modal_station.callsign);
+        std::string callsign = NormalizeCallsign(station->callsign);
         if (callsign.empty())
         {
             return false;
@@ -1323,7 +1327,6 @@ namespace ql
         {
             return false;
         }
-        Station* station = &state->modal_station;
         FillIfBlank(&station->name, known->name);
         FillIfBlank(&station->member_id, known->member_id);
         FillIfBlank(&station->street_address, known->street_address);
@@ -1335,8 +1338,30 @@ namespace ql
         FillIfBlank(&station->license_class, known->license_class);
         FillIfBlank(&station->email, known->email);
         BackfillCountyFromZip(state, station);
-        FillIfBlank(&state->modal_remarks,
-                    state->db->GetSavedNetStationRemarks(state->active_instance.net_id, callsign));
+        return true;
+    }
+
+    bool FillCheckInFromKnownStation(AppState* state)
+    {
+        if (!FillStationFromKnown(state, &state->modal_station))
+        {
+            return false;
+        }
+        FillIfBlank(&state->modal_remarks, state->db->GetSavedNetStationRemarks(
+                                               state->active_instance.net_id,
+                                               NormalizeCallsign(state->modal_station.callsign)));
+        return true;
+    }
+
+    bool FillSavedStationFromKnownStation(AppState* state)
+    {
+        if (!FillStationFromKnown(state, &state->saved_station))
+        {
+            return false;
+        }
+        FillIfBlank(&state->saved_station_remarks,
+                    state->db->GetSavedNetStationRemarks(
+                        state->edit_net_id, NormalizeCallsign(state->saved_station.callsign)));
         return true;
     }
 
@@ -2568,7 +2593,6 @@ namespace ql
         {
             return false;
         }
-
         bool already_saved = false;
         for (const Station& existing : state->edit_net_saved_stations)
         {
@@ -2577,6 +2601,13 @@ namespace ql
                 already_saved = true;
                 break;
             }
+        }
+        // A new one gets what's known about it, even if it wasn't picked
+        // from the matches. (One already saved is being edited: a field
+        // cleared there is meant to be cleared.)
+        if (!already_saved)
+        {
+            FillSavedStationFromKnownStation(state);
         }
 
         BackfillCountyFromZip(state, &state->saved_station);
@@ -2902,6 +2933,30 @@ namespace ql
     {
         if (state->saved_station_suggestions.empty())
         {
+            FillSavedStationFromKnownStation(state);
+            return;
+        }
+        // The callsign typed in full is the one meant, even if it's listed
+        // further down or isn't among the matches at all (a station
+        // further away than the Nearby Radius). Otherwise, the match
+        // marked ">".
+        std::string typed = NormalizeCallsign(state->saved_station.callsign);
+        bool typed_is_listed = false;
+        for (std::size_t i = 0; i < state->saved_station_suggestions.size(); ++i)
+        {
+            if (state->saved_station_suggestions[i].callsign == typed)
+            {
+                state->selected_saved_station_suggestion_index = static_cast<int>(i);
+                typed_is_listed = true;
+                break;
+            }
+        }
+        if (!typed_is_listed && state->selected_saved_station_suggestion_index == 0 &&
+            FillSavedStationFromKnownStation(state))
+        {
+            state->saved_station_suggestions.clear();
+            state->saved_station_suggestion_labels.clear();
+            state->saved_station_suggestion_sources.clear();
             return;
         }
 

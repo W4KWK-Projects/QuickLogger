@@ -933,6 +933,11 @@ namespace ql
     // was found.
     bool FillCheckInFromKnownStation(AppState* state);
 
+    // The same for the Saved Station window (Edit Net): fills
+    // AppState::saved_station's blank fields, and its default remarks for
+    // this net if AppState::saved_station_remarks is blank.
+    bool FillSavedStationFromKnownStation(AppState* state);
+
     // The header line above the autocomplete matches (the New Check-In and
     // Saved Station windows), laid out for a `terminal_width`-column
     // terminal, with the matches' "> " gutter.
@@ -1081,10 +1086,12 @@ namespace ql
     // suggestions if the callsign field is empty.
     void RefreshSavedStationSuggestions(AppState* state);
 
-    // Copies the highlighted entry of AppState::saved_station_suggestions
-    // into AppState::saved_station and clears the suggestion list. Mirrors
-    // ApplySelectedCallsignSuggestion for the saved-station mini-form. Does
-    // nothing if there are no suggestions.
+    // Enter on the Saved Station window's callsign: copies the highlighted
+    // entry of AppState::saved_station_suggestions into
+    // AppState::saved_station and clears the suggestion list. A callsign
+    // typed in full is taken even if it's further down the list or not in
+    // it at all (FillSavedStationFromKnownStation), unless the highlight
+    // was moved; with no suggestions, it's looked up the same way.
     void ApplySelectedSavedStationSuggestion(AppState* state);
 
     // Fills in `station->county` if it's currently blank -- a no-op
