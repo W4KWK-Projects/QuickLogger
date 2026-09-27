@@ -39,6 +39,11 @@ if ! grep -q '^md99' /etc/fstab; then
     swapon -aL
 fi
 
+# Only the first virtual console gets a login prompt (it's what the
+# provider's web console shows); the other seven are never used.
+sed -i '' -E '/^ttyv[1-7][[:space:]]/s/onifexists/off/' /etc/ttys
+kill -HUP 1
+
 # Lets an unprivileged process listen on port 22 (ports below 22 stay
 # root-only).
 sed -i '' '/^net\.inet\.ip\.portrange\.reservedhigh=/d' /etc/sysctl.conf
