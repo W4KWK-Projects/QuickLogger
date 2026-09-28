@@ -13,9 +13,9 @@ This README has two halves: **[Running QuickLogger](#running-quicklogger)** (wha
 | **macOS** | Full (console + SSH server) | Built and run natively (Apple Silicon) |
 | **Linux** (glibc and musl) | Full (console + SSH server) | Built and the full test suite run on every change, following [Building QuickLogger](#building-quicklogger): Ubuntu 22.04 and 24.04, Debian 13, Fedora and Alpine (musl), including CMake 3.16 |
 | **FreeBSD** 14 / 15 | Full (console + SSH server) | Built on a FreeBSD machine by following [Building QuickLogger](#building-quicklogger) exactly (compiled and linked, 1.4.3). Runs as expected. Basic functionality confirmed. |
-| **Windows** | Console only — no SSH server, no ZMODEM | Every source file compiles cleanly with mingw-w64; not yet linked or run; MSVC not tried |
+| **Windows** | Console only — no SSH server, no ZMODEM | Built and the full test suite run on every change, with Visual Studio + vcpkg and with MSYS2 (UCRT64), following [Building QuickLogger](#building-quicklogger); not yet run interactively |
 
-"Compiles cleanly" means the source was compiled (not linked) for that target with a Clang-based cross-compiler. The libraries QuickLogger depends on are standard and available on all of these systems, but until it has been built and run on a given platform, treat that platform as new — bug reports welcome.
+The libraries QuickLogger depends on are standard and available on all of these systems, but until it has been built and run on a given platform, treat that platform as new — bug reports welcome.
 
 ---
 
@@ -160,7 +160,7 @@ The Windows build is a **console-only** program: everything works in a local ter
 
 ## What you need to build it
 
-- **A C++17 compiler** with `std::filesystem` — GCC 9+, Clang 9+ or MSVC 2019+. (Verified with Clang; GCC hasn't been tried.)
+- **A C++17 compiler** with `std::filesystem` — GCC 9+, Clang 9+ or MSVC 2019+. (Clang, GCC and MSVC are all built with and tested.)
 - **CMake 3.16 or newer.**
 - **git, and network access on the first build** — CMake downloads and builds FTXUI (the terminal UI library) itself, so there's nothing to install for it. See [Building offline](#building-offline) if you can't.
 - **Development files** (headers + libraries) for:
