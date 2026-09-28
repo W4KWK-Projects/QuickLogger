@@ -1,5 +1,5 @@
-# Builds QuickLogger and runs its tests on Linux, following the README's
-# "Building QuickLogger" steps with each distribution's packages as the
+# Builds QuickLogger and runs its tests on Linux and Windows, following the
+# README's "Building QuickLogger" steps with each platform's packages as the
 # README lists them, on every push and pull request to main. One job uses
 # CMake 3.16, the oldest CMake the build supports.
 name: Build
@@ -69,6 +69,42 @@ jobs:
       - name: Install packages
         run: ${{ matrix.install }}
       - uses: actions/checkout@v5
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  # Windows (console only), both ways the README gives: Visual Studio with
+  # vcpkg (preinstalled on the runner), and MSYS2's UCRT64 environment
+  # (also preinstalled, at C:\msys64).
+  windows-msvc:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install packages
+        run: '& "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install sqlite3 curl zlib --triplet x64-windows'
+      - name: Build
+        run: |
+          cmake -S . -B build "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+          cmake --build build --config Release
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+  windows-mingw:
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: C:\msys64\usr\bin\bash.exe --login -eo pipefail {0}
+    env:
+      MSYSTEM: UCRT64
+      # Keeps the login shell in the checkout rather than $HOME.
+      CHERE_INVOKING: 1
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install packages
+        run: pacman -Sy --needed --noconfirm git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-sqlite3 mingw-w64-ucrt-x86_64-curl mingw-w64-ucrt-x86_64-zlib
       - name: Build
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release

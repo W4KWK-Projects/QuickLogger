@@ -145,7 +145,14 @@ namespace ql
 
     std::string FileUrl(const std::string& path)
     {
-        return "file://" + path;
+        // A Windows path (C:\...\l_amat.zip) needs forward slashes and a
+        // leading slash of its own: file:///C:/.../l_amat.zip.
+        std::string url_path = std::filesystem::path(path).generic_string();
+        if (url_path.empty() || url_path[0] != '/')
+        {
+            url_path = "/" + url_path;
+        }
+        return "file://" + url_path;
     }
 
     Station MakeStation(const std::string& callsign, const std::string& name,
