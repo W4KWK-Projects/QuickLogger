@@ -1869,6 +1869,7 @@ namespace ql
         CHECK(f.state.form_error.empty());
         std::string mine = f.dir().File("exports/ssh-users/wes");
         CHECK_EQ(ListFilesWithExtension(mine, ".txt").size(), std::size_t{1});
+        CHECK_EQ(ListFilesWithExtension(mine, ".qlsession").size(), std::size_t{1});
         CHECK(ListFilesWithExtension(f.dir().File("exports"), ".txt").empty());
 
         // Only their own received files are offered for import.
@@ -1886,7 +1887,8 @@ namespace ql
         f.state.ssh_username.clear();
         ExportNetLog(&f.state, "Skywarn", f.state.active_instance, f.state.active_check_ins);
         CHECK_EQ(RemoveOldSshUserFiles(f.state.db_path, kSshUserFileMaxAgeSeconds), 0);
-        CHECK_EQ(RemoveOldSshUserFiles(f.state.db_path, -60), 3);
+        // Wes's log and .qlsession, and both users' received files.
+        CHECK_EQ(RemoveOldSshUserFiles(f.state.db_path, -60), 4);
         CHECK(!std::filesystem::exists(mine));
         CHECK_EQ(ListFilesWithExtension(f.dir().File("exports"), ".txt").size(), std::size_t{1});
         CHECK_EQ(ListFilesWithExtension(f.dir().File("imports"), ".qlnet").size(), std::size_t{1});
@@ -1920,6 +1922,221 @@ namespace ql
         REQUIRE(f.state.nets.size() == 1);
         CHECK_EQ(f.state.nets[0].name, std::string("Their Net"));
         CHECK_EQ(f.state.page, kPageNetList);
+    }
+
+    QL_TEST(ExportingASessionAlsoWritesItsSessionFile)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        Station ann = MakeStation("K4AAA", "Ann Able", "37415", "Chattanooga");
+        ann.street_address = "1 Main St";
+        ann.grid_square = "EM75";
+        f.state.modal_station = ann;
+        f.state.modal_remarks = "mobile";
+        REQUIRE(LogStationCheckIn(&f.state));
+        ExportNetLog(&f.state, "Skywarn", f.state.active_instance, f.state.active_check_ins);
+        CHECK(f.state.form_error.empty());
+        std::vector<std::string> files =
+            ListFilesWithExtension(f.dir().File("exports"), ".qlsession");
+        REQUIRE(files.size() == 1);
+        CHECK_EQ(files[0], std::string("Skywarn_2026-09-24.qlsession"));
+
+        // It holds the session exactly, with its stations' details.
+        std::string error;
+        std::optional<NetSlice> slice =
+            ReadSessionSliceFile(f.dir().File("exports/" + files[0]), &error);
+        REQUIRE(slice.has_value());
+        CHECK_EQ(slice->net.name, std::string("Skywarn"));
+        REQUIRE(slice->instances.size() == 1);
+        CHECK_EQ(slice->instances[0].started_at, std::int64_t{1000});
+        CHECK_EQ(slice->check_ins.size(), std::size_t{2});
+        bool has_ann = false;
+        for (const Station& station : slice->other_stations)
+        {
+            has_ann =
+                has_ann || (station.callsign == "K4AAA" && station.street_address == "1 Main St" &&
+                            station.grid_square == "EM75");
+        }
+        CHECK(has_ann);
+    }
+
+    // A session logged on another QuickLogger, exported to a .qlsession file
+    // in this one's imports/.
+    static void WriteSessionFileFromElsewhere(const Fixture& f, const std::string& net_name,
+                                              const std::string& file_name)
+    {
+        Database other(f.dir().File("elsewhere-" + file_name + ".db"));
+        std::int64_t net_id = AddTestNet(&other, net_name);
+        std::int64_t session = AddTestInstance(&other, net_id, "2026-09-20", 5000, "N0XYZ");
+        AddTestCheckIn(&other, session, "N0XYZ", 1);
+        Station bob = MakeStation("K4BBB", "Bob Baker", "37402", "Chattanooga");
+        other.RecordManualCheckInStation(bob, 1);
+        CheckIn check_in;
+        check_in.net_instance_id = session;
+        check_in.callsign = "K4BBB";
+        check_in.sequence_number = 2;
+        check_in.remarks = "portable";
+        check_in.checked_in_at = 5100;
+        other.AddCheckIn(check_in);
+        std::string error;
+        EnsureDirectory(ImportsDir(f.state.db_path));
+        REQUIRE(WriteNetSliceFile(ImportsDir(f.state.db_path) + "/" + file_name,
+                                  GatherSessionSlice(&other, session), &error));
+    }
+
+    QL_TEST(ImportingASessionAddsItToTheNetBeingViewed)
+    {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("Skywarn");
+        WriteSessionFileFromElsewhere(f, "Skywarn (laptop)", "offline.qlsession");
+        // A whole net's export isn't offered, and isn't a session.
+        EnsureDirectory(ImportsDir(f.state.db_path));
+        WriteTextFile(ImportsDir(f.state.db_path) + "/whole.qlnet", "x");
+
+        RefreshNets(&f.state);
+        f.state.selected_net_index = 0;
+        f.state.history_ad_hoc = false;
+        OpenSessionImport(&f.state);
+        CHECK_EQ(f.state.page, kPageImportNet);
+        REQUIRE(f.state.import_net_files.size() == 1);
+        CHECK_EQ(f.state.import_net_files[0], std::string("offline.qlsession"));
+
+        ImportSelectedSession(&f.state);
+        CHECK(f.state.form_error.empty());
+        CHECK_EQ(f.state.page, kPageNetHistory);
+        CHECK(f.state.status_message.find("2026-09-20") != std::string::npos);
+        CHECK(f.state.status_message.find("logged as \"Skywarn (laptop)\"") != std::string::npos);
+        std::vector<NetInstance> sessions = f.db()->GetNetInstancesForNet(net_id);
+        REQUIRE(sessions.size() == 2);
+        // It's the one highlighted, with its check-ins.
+        const NetInstance& imported =
+            f.state.history_instances[static_cast<std::size_t>(f.state.selected_history_index)];
+        CHECK_EQ(imported.instance_date, std::string("2026-09-20"));
+        CHECK_EQ(imported.started_at, std::int64_t{5000});
+        REQUIRE(f.state.history_check_ins.size() == 2);
+        CHECK_EQ(f.state.history_check_ins[1].remarks, std::string("portable"));
+        // Its stations are saved to the net, with their details.
+        std::optional<Station> bob = f.db()->FindStationByCallsign("K4BBB");
+        REQUIRE(bob.has_value());
+        CHECK_EQ(bob->name, std::string("Bob Baker"));
+        CHECK_EQ(f.db()->GetSavedNetStationRemarks(net_id, "K4BBB"), std::string("portable"));
+
+        // The same session again is refused.
+        OpenSessionImport(&f.state);
+        ImportSelectedSession(&f.state);
+        CHECK(f.state.form_error.find("already has that session") != std::string::npos);
+        CHECK_EQ(f.state.page, kPageImportNet);
+        CHECK_EQ(f.db()->GetNetInstancesForNet(net_id).size(), std::size_t{2});
+        LeaveImportPage(&f.state);
+        CHECK_EQ(f.state.page, kPageNetHistory);
+        CHECK(!f.state.import_session);
+    }
+
+    QL_TEST(ImportingASessionFromAdHocHistoryMakesANewAdHocNet)
+    {
+        Fixture f;
+        WriteSessionFileFromElsewhere(f, "Tailgate", "tailgate.qlsession");
+        f.state.history_ad_hoc = true;
+        OpenSessionImport(&f.state);
+        ImportSelectedSession(&f.state);
+        CHECK(f.state.form_error.empty());
+        std::vector<NetInstance> ad_hoc = f.db()->GetAdHocNetInstances();
+        REQUIRE(ad_hoc.size() == 1);
+        std::optional<Net> net = f.db()->GetNetById(ad_hoc[0].net_id);
+        REQUIRE(net.has_value());
+        CHECK_EQ(net->name, std::string("Tailgate"));
+        CHECK(net->is_ad_hoc);
+        CHECK(net->imported_at > 0);
+
+        // Again: refused, not a second ad hoc net.
+        OpenSessionImport(&f.state);
+        ImportSelectedSession(&f.state);
+        CHECK(f.state.form_error.find("already has that session") != std::string::npos);
+        CHECK_EQ(f.db()->GetAdHocNetInstances().size(), std::size_t{1});
+    }
+
+    QL_TEST(AViewOnlyUserCanExportButNeverImport)
+    {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("Skywarn");
+        f.db()->CloseNetInstance(f.state.active_instance.id, 2000);
+        WriteSessionFileFromElsewhere(f, "Skywarn", "offline.qlsession");
+        {
+            Database other(f.dir().File("other.db"));
+            std::int64_t other_net = AddTestNet(&other, "Their Net");
+            std::string error;
+            REQUIRE(WriteNetSliceFile(ImportsDir(f.state.db_path) + "/their.qlnet",
+                                      GatherNetSlice(&other, other_net), &error));
+        }
+        f.state.view_only_user = true;
+        RefreshNets(&f.state);
+        f.state.selected_net_index = 0;
+        f.state.history_ad_hoc = false;
+        RefreshNetHistory(&f.state);
+        f.state.page = kPageNetHistory;
+
+        // Exporting works: the log and its .qlsession.
+        ExportNetHistoryLogHandler export_log(&f.state);
+        export_log();
+        CHECK(f.state.form_error.empty());
+        CHECK_EQ(ListFilesWithExtension(f.dir().File("exports"), ".txt").size(), std::size_t{1});
+        CHECK_EQ(ListFilesWithExtension(f.dir().File("exports"), ".qlsession").size(),
+                 std::size_t{1});
+        f.state.show_zmodem_confirm_modal = false;
+        // And a whole net (F8 on Recurring Nets).
+        f.state.page = kPageNetList;
+        NetListKeyHandler net_list_keys(&f.state);
+        CHECK(net_list_keys(ftxui::Event::F8));
+        CHECK(f.state.form_error.empty());
+        CHECK_EQ(ListFilesWithExtension(f.dir().File("exports"), ".qlnet").size(), std::size_t{1});
+        f.state.show_zmodem_confirm_modal = false;
+        f.state.page = kPageNetHistory;
+
+        // No way into importing a session: F6 in History, or directly.
+        NetHistoryKeyHandler keys(&f.state);
+        CHECK(keys(ftxui::Event::F6));
+        CHECK_EQ(f.state.page, kPageNetHistory);
+        OpenSessionImport(&f.state);
+        CHECK_EQ(f.state.page, kPageNetHistory);
+        CHECK(f.state.form_error.find("View-only users can't") == 0);
+
+        // Nor any import that gets there anyway: a session, a net, or a
+        // ZMODEM receive.
+        f.state.import_session = true;
+        f.state.import_session_net_id = net_id;
+        f.state.page = kPageImportNet;
+        RefreshImportNetFiles(&f.state);
+        REQUIRE(f.state.import_net_files.size() == 1);
+        ImportSelectedNetSliceHandler import_selected(&f.state);
+        import_selected();
+        CHECK_EQ(f.db()->GetNetInstancesForNet(net_id).size(), std::size_t{1});
+        f.state.import_session = false;
+        RefreshImportNetFiles(&f.state);
+        REQUIRE(f.state.import_net_files.size() == 1);
+        import_selected();
+        CHECK_EQ(f.db()->GetAllNets().size(), std::size_t{1});
+        StartZmodemReceive(&f.state);
+        CHECK(!f.state.show_zmodem_confirm_modal);
+        f.state.zmodem_action = ZmodemAction::kReceive;
+        ConfirmZmodemAction(&f.state);
+        CHECK(f.state.form_error.find("View-only users can't import") == 0);
+    }
+
+    QL_TEST(AWholeNetFileIsNotASession)
+    {
+        Fixture f;
+        {
+            Database other(f.dir().File("other.db"));
+            std::int64_t net_id = AddTestNet(&other, "Their Net");
+            AddTestInstance(&other, net_id, "2026-01-01", 1, "N0XYZ");
+            AddTestInstance(&other, net_id, "2026-01-08", 2, "N0XYZ");
+            std::string error;
+            REQUIRE(WriteNetSliceFile(f.dir().File("their.qlsession"),
+                                      GatherNetSlice(&other, net_id), &error));
+        }
+        std::string error;
+        CHECK(!ReadSessionSliceFile(f.dir().File("their.qlsession"), &error).has_value());
+        CHECK(error.find("more than one session") != std::string::npos);
     }
 
     QL_TEST(DeletingANetFromEditNet)

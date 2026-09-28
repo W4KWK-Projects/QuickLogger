@@ -84,4 +84,32 @@ namespace ql
     // unchanged. Returns the new net's id.
     std::int64_t ApplyNetSlice(Database* db, const NetSlice& slice, std::int64_t imported_at);
 
+    // ---- One session (.qlsession) ------------------------------------------
+    //
+    // A .qlsession file is a NetSlice holding exactly one session: its net's
+    // definition, the session, its check-ins, and the details of every
+    // station in them (as other_stations). Written by F7 Export next to the
+    // session's text log, so a session logged somewhere else (on a laptop
+    // while the server was out of reach) can be added to a net here with
+    // History's F6 Import. Same file format as .qlnet (WriteNetSliceFile).
+
+    // Reads session `instance_id` out of `db`, ready for WriteNetSliceFile.
+    NetSlice GatherSessionSlice(Database* db, std::int64_t instance_id);
+
+    // Reads a .qlsession file; like ReadNetSliceFile, but refuses a file
+    // that doesn't hold exactly one session.
+    std::optional<NetSlice> ReadSessionSliceFile(const std::string& source_path,
+                                                 std::string* error);
+
+    // Adds the one session in `slice` to net `net_id` as a new session, with
+    // its check-ins. Each of its stations is saved to the net as logging
+    // one does, its details merged in (see Database::SaveNetStation); a
+    // station already saved to the net keeps its default remarks, and a new
+    // one gets its remarks from this session. Refuses (returning 0, with
+    // `error` set) if the net already has a session on the same date with
+    // the same start time -- most likely this one, imported before.
+    // Otherwise returns the new session's id.
+    std::int64_t ApplySessionSlice(Database* db, const NetSlice& slice, std::int64_t net_id,
+                                   std::string* error);
+
 }  // namespace ql

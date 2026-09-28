@@ -20,11 +20,11 @@ namespace ql
         return false;
     }
 
-    bool SendFileViaZmodem(ftxui::ScreenInteractive* screen, const std::string& path,
-                           std::string* error)
+    bool SendFilesViaZmodem(ftxui::ScreenInteractive* screen, const std::vector<std::string>& paths,
+                            std::string* error)
     {
         (void)screen;
-        (void)path;
+        (void)paths;
         *error = "ZMODEM transfers aren't supported on Windows.";
         return false;
     }
@@ -46,6 +46,7 @@ namespace ql
 #include <cstdlib>
 #include <ctime>
 #include <string>
+#include <vector>
 
 #include <sys/wait.h>
 #include <unistd.h>
@@ -149,7 +150,7 @@ namespace ql
     }
 
     // Runs inside ScreenInteractive::WithRestoredIO's closure: forks and
-    // execs `sz path_` with the real terminal's stdin/stdout inherited
+    // execs `sz` with `paths_` (one batch) and the real terminal's stdin/stdout inherited
     // (never redirected -- a ZMODEM-aware client needs to see the raw
     // protocol bytes in the same stream it's already reading), then waits
     // for it with a bounded timeout. Writes its outcome into `*ok_`/`*error_`
@@ -177,8 +178,8 @@ namespace ql
     class RunSzProcess
     {
     public:
-        RunSzProcess(std::string path, bool* ok, std::string* error)
-            : path_(std::move(path)), ok_(ok), error_(error)
+        RunSzProcess(std::vector<std::string> paths, bool* ok, std::string* error)
+            : paths_(std::move(paths)), ok_(ok), error_(error)
         {
         }
 
@@ -186,6 +187,15 @@ namespace ql
         {
             *ok_ = false;
             error_->clear();
+
+            // Built before fork(): the child only execs.
+            std::vector<char*> argv;
+            argv.push_back(const_cast<char*>("sz"));
+            for (const std::string& path : paths_)
+            {
+                argv.push_back(const_cast<char*>(path.c_str()));
+            }
+            argv.push_back(nullptr);
 
             pid_t pid = fork();
             if (pid < 0)
@@ -195,7 +205,7 @@ namespace ql
             }
             if (pid == 0)
             {
-                execlp("sz", "sz", path_.c_str(), static_cast<char*>(nullptr));
+                execvp("sz", argv.data());
                 _exit(127);
             }
 
@@ -214,13 +224,13 @@ namespace ql
         }
 
     private:
-        std::string path_;
+        std::vector<std::string> paths_;
         bool* ok_;
         std::string* error_;
     };
 
-    bool SendFileViaZmodem(ftxui::ScreenInteractive* screen, const std::string& path,
-                           std::string* error)
+    bool SendFilesViaZmodem(ftxui::ScreenInteractive* screen, const std::vector<std::string>& paths,
+                            std::string* error)
     {
         if (!ZmodemSendAvailable())
         {
@@ -229,7 +239,7 @@ namespace ql
         }
 
         bool ok = false;
-        ftxui::Closure run = screen->WithRestoredIO(RunSzProcess(path, &ok, error));
+        ftxui::Closure run = screen->WithRestoredIO(RunSzProcess(paths, &ok, error));
         run();
         // FTXUI took the terminal back, turning movement reports on again.
         RequestMouseMovementReportsOff();

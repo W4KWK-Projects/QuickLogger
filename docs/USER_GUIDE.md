@@ -113,9 +113,12 @@ Several operators can log the same session at once (over SSH), for example a Net
 **F6** on Recurring Nets shows the highlighted net's past sessions: when each started and ended, its roles, its number of check-ins (on a wide enough terminal) and whether it's still open. The bottom list shows the check-ins of the highlighted session.
 
 - **Up/Down** choose a session.
-- **F7** exports the highlighted session's log.
+- **F7** exports the highlighted session's log, and the session itself as a `.qlsession` file for importing elsewhere (see [Exporting and importing](#exporting-and-importing)).
+- **F6** imports a session logged somewhere else (see below).
 - **F4** deletes one check-in from that session (by its #). If it held a role, the role is cleared too.
-- **F5** deletes a whole closed session (by number). An open session has to be resumed and closed first.
+- **F5** deletes a whole closed session (by number). An open session has to be resumed and closed first. At 80 columns it isn't on the key bar, but it always works.
+
+**Importing a session** adds one session to this net's history, without touching the rest of it. It's for a session logged on another QuickLogger: during an outage, say, a net logged on a laptop instead of the server. On the computer where it was logged, **F7** on that session (on the net's page or in History) saves its `.qlsession` file. On this one, put the file in `imports/` (or receive it over SSH with **F3**), open this net's History, press **F6**, highlight the file and press **F2**. The session and its check-ins are added as they were logged: times, roles, remarks and comments, and each station's details, and its stations are saved to this net. It goes into the net whose History you're on, even if the net had another name where it was logged (the message after importing says so). A session this net already has, with the same date and start time, is refused. On ad hoc History, an imported session becomes a new ad hoc net with its own name.
 
 ## Editing and deleting by number
 
@@ -183,13 +186,13 @@ Exports are written to the `exports/` folder next to QuickLogger's database; imp
 
 | What | Key | File |
 |---|---|---|
-| A session's log | F7 on the active net or History | `NetName_date_log.txt` |
+| A session's log | F7 on the active net or History | `NetName_date_log.txt`, and `NetName_date.qlsession`: the session exactly, for **F6** in History on another QuickLogger |
 | A net's saved stations | F7 on Edit Net | `NetName_saved_stations.txt` |
 | A whole net, to share | F8 on Recurring Nets | `NetName.qlnet`: the net, its saved stations and its full history |
 
 **Importing a net:** put the `.qlnet` file in `imports/` (or receive it with **F3**, below), press **F9** on Recurring Nets, highlight the file and press **F2**. It's added as a new net marked *imported*, so it can't overwrite one of yours.
 
-**Over SSH (ZMODEM):** after an export, QuickLogger offers to send the file to your terminal. Open your terminal's receive window, then press **Enter**; **Esc** skips it and the file stays in `exports/`. To upload a `.qlnet`, press **F3** on the Import page, then send the file from your terminal. This needs a terminal that supports ZMODEM (such as ZOC or SecureCRT) and `lrzsz` installed where QuickLogger runs.
+**Over SSH (ZMODEM):** after an export, QuickLogger offers to send the file to your terminal. Open your terminal's receive window, then press **Enter**; **Esc** skips it and the file stays in `exports/`. To upload a `.qlnet` or `.qlsession`, press **F3** on the Import page (F9 on Recurring Nets for a net, F6 in History for a session), then send the file from your terminal. A session's export sends both its log and its `.qlsession` in one transfer. This needs a terminal that supports ZMODEM (such as ZOC or SecureCRT) and `lrzsz` installed where QuickLogger runs.
 
 **File format:** exported logs and saved-station lists are plain text in a fixed format, the same whatever terminal they came from, so a program can read them by column position. A few header lines come first (the net's name and, for a log, its date, times, roles and status), then a blank line, a column-heading line and one line per check-in or station. Each column starts two spaces after the one before; longer values are cut to fit, and trailing spaces are dropped.
 

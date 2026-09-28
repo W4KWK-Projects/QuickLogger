@@ -304,9 +304,16 @@ namespace ql
             export_log();
             return true;
         }
-        // Nothing in History can be deleted by a view-only user.
-        if (state_->view_only_user && (event == ftxui::Event::F4 || event == ftxui::Event::F5))
+        // Nothing in History can be deleted or imported by a view-only
+        // user.
+        if (state_->view_only_user &&
+            (event == ftxui::Event::F4 || event == ftxui::Event::F5 || event == ftxui::Event::F6))
         {
+            return true;
+        }
+        if (event == ftxui::Event::F6)
+        {
+            OpenSessionImport(state_);
             return true;
         }
         if (event == ftxui::Event::F5)
@@ -565,6 +572,7 @@ namespace ql
         {
             return;
         }
+        state_->import_session = false;
         RefreshImportNetFiles(state_);
         state_->form_error.clear();
         state_->status_message.clear();
@@ -655,6 +663,11 @@ namespace ql
 
     void ImportSelectedNetSliceHandler::operator()() const
     {
+        if (state_->import_session)
+        {
+            ImportSelectedSession(state_);
+            return;
+        }
         ImportSelectedNetSlice(state_);
     }
 
@@ -665,9 +678,7 @@ namespace ql
 
     void ImportNetBackHandler::operator()() const
     {
-        state_->form_error.clear();
-        state_->status_message.clear();
-        state_->page = kPageNetList;
+        LeaveImportPage(state_);
     }
 
     bool ImportNetKeyHandler::operator()(const ftxui::Event& event) const

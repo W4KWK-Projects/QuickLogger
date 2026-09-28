@@ -1729,17 +1729,37 @@ namespace ql
     // secondary note on an otherwise-successful export, not a failure of
     // the export itself, so it's folded into status_message rather than
     // form_error.
+    // "a", "a and b", "a, b and c".
+    static std::string ListPaths(const std::vector<std::string>& paths)
+    {
+        std::string text;
+        for (std::size_t i = 0; i < paths.size(); ++i)
+        {
+            if (i > 0)
+            {
+                text += i + 1 == paths.size() ? " and " : ", ";
+            }
+            text += paths[i];
+        }
+        return text;
+    }
+
     void OfferZmodemSend(AppState* state, const std::string& path)
+    {
+        OfferZmodemSendFiles(state, {path});
+    }
+
+    void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths)
     {
         if (!ZmodemSendAvailable())
         {
 #if defined(_WIN32)
             // No ZMODEM on Windows at all (see zmodem_send.cpp), so there's
             // nothing to install.
-            state->status_message = "Saved to " + path + ".";
+            state->status_message = "Saved to " + ListPaths(paths) + ".";
 #else
             state->status_message =
-                "Saved to " + path + " (install 'sz'/lrzsz for ZMODEM download).";
+                "Saved to " + ListPaths(paths) + " (install 'sz'/lrzsz for ZMODEM download).";
 #endif
             return;
         }
@@ -1751,14 +1771,16 @@ namespace ql
         // dropped into it with no warning. ConfirmZmodemAction/
         // CancelZmodemAction (wired to the modal's F2/Enter and Esc) do the
         // actual send.
-        state->status_message = "Saved to " + path + ".";
+        state->status_message = "Saved to " + ListPaths(paths) + ".";
         state->zmodem_action = ZmodemAction::kSend;
-        state->zmodem_confirm_path = path;
+        state->zmodem_send_paths = paths;
         state->show_zmodem_confirm_modal = true;
     }
 
-    static void ExportLinesToFile(AppState* state, const std::string& path,
-                                  std::vector<std::string> lines)
+    // Writes an export's lines to `path`; on failure, says why in
+    // form_error and returns false.
+    static bool WriteExportLines(AppState* state, const std::string& path,
+                                 std::vector<std::string> lines)
     {
         // Rows whose last columns are empty would otherwise end in padding.
         for (std::string& line : lines)
@@ -1770,11 +1792,19 @@ namespace ql
         {
             state->status_message.clear();
             state->form_error = error;
-            return;
+            return false;
         }
-
         state->form_error.clear();
-        OfferZmodemSend(state, path);
+        return true;
+    }
+
+    static void ExportLinesToFile(AppState* state, const std::string& path,
+                                  std::vector<std::string> lines)
+    {
+        if (WriteExportLines(state, path, std::move(lines)))
+        {
+            OfferZmodemSend(state, path);
+        }
     }
 
     void ConfirmZmodemAction(AppState* state)
@@ -1784,19 +1814,25 @@ namespace ql
 
         if (state->zmodem_action == ZmodemAction::kSend)
         {
-            if (SendFileViaZmodem(state->screen, state->zmodem_confirm_path, &error))
+            if (SendFilesViaZmodem(state->screen, state->zmodem_send_paths, &error))
             {
                 state->status_message =
-                    "Saved to " + state->zmodem_confirm_path + " and sent via ZMODEM.";
+                    "Saved to " + ListPaths(state->zmodem_send_paths) + " and sent via ZMODEM.";
             }
             else
             {
                 state->status_message =
-                    "Saved to " + state->zmodem_confirm_path + " (" + error + ")";
+                    "Saved to " + ListPaths(state->zmodem_send_paths) + " (" + error + ")";
             }
             return;
         }
 
+        // Receiving is only ever for importing, which a view-only user
+        // can't do (StartZmodemReceive refuses too).
+        if (RefuseViewOnly(state, "import files"))
+        {
+            return;
+        }
         if (ReceiveFileViaZmodem(state->screen,
                                  SessionImportsDir(state->db_path, state->ssh_username), &error))
         {
@@ -1816,7 +1852,8 @@ namespace ql
         state->show_zmodem_confirm_modal = false;
         if (state->zmodem_action == ZmodemAction::kSend)
         {
-            state->status_message = "Saved to " + state->zmodem_confirm_path + " (ZMODEM skipped).";
+            state->status_message =
+                "Saved to " + ListPaths(state->zmodem_send_paths) + " (ZMODEM skipped).";
         }
         else
         {
@@ -2773,10 +2810,25 @@ namespace ql
         std::vector<std::string> rows = FormatRows(cells, layout);
         lines.insert(lines.end(), rows.begin(), rows.end());
 
-        std::string path = SessionExportsDir(state->db_path, state->ssh_username) + "/" +
+        std::string stem = SessionExportsDir(state->db_path, state->ssh_username) + "/" +
                            SanitizeFilenameComponent(net_name) + "_" +
-                           SanitizeFilenameComponent(instance.instance_date) + "_log.txt";
-        ExportLinesToFile(state, path, lines);
+                           SanitizeFilenameComponent(instance.instance_date);
+        std::string log_path = stem + "_log.txt";
+        if (!WriteExportLines(state, log_path, lines))
+        {
+            return;
+        }
+        // And the session exactly, for History's F6 Import on another
+        // QuickLogger (see GatherSessionSlice).
+        std::string session_path = stem + ".qlsession";
+        std::string error;
+        if (!WriteNetSliceFile(session_path, GatherSessionSlice(state->db, instance.id), &error))
+        {
+            state->status_message.clear();
+            state->form_error = "Saved " + log_path + ", but not " + session_path + ": " + error;
+            return;
+        }
+        OfferZmodemSendFiles(state, {log_path, session_path});
     }
 
     void ExportSavedStations(AppState* state, const std::string& net_name,
@@ -2823,8 +2875,9 @@ namespace ql
 
     void RefreshImportNetFiles(AppState* state)
     {
-        state->import_net_files = ListFilesWithExtension(
-            SessionImportsDir(state->db_path, state->ssh_username), ".qlnet");
+        state->import_net_files =
+            ListFilesWithExtension(SessionImportsDir(state->db_path, state->ssh_username),
+                                   state->import_session ? ".qlsession" : ".qlnet");
         if (state->selected_import_file_index >= static_cast<int>(state->import_net_files.size()))
         {
             state->selected_import_file_index = 0;
@@ -2874,9 +2927,143 @@ namespace ql
         state->page = kPageNetList;
     }
 
+    void OpenSessionImport(AppState* state)
+    {
+        if (RefuseViewOnly(state, "import sessions"))
+        {
+            return;
+        }
+        state->import_session = true;
+        state->import_session_ad_hoc = state->history_ad_hoc;
+        state->import_session_net_id = 0;
+        state->import_session_net_name.clear();
+        if (!state->history_ad_hoc)
+        {
+            if (state->selected_net_index >= static_cast<int>(state->nets.size()))
+            {
+                return;
+            }
+            const Net& net = state->nets[state->selected_net_index];
+            state->import_session_net_id = net.id;
+            state->import_session_net_name = net.name;
+        }
+        state->selected_import_file_index = 0;
+        RefreshImportNetFiles(state);
+        state->form_error.clear();
+        state->status_message.clear();
+        state->page = kPageImportNet;
+    }
+
+    void LeaveImportPage(AppState* state)
+    {
+        state->form_error.clear();
+        state->status_message.clear();
+        if (state->import_session)
+        {
+            state->import_session = false;
+            RefreshNetHistory(state);
+            state->page = kPageNetHistory;
+            return;
+        }
+        state->page = kPageNetList;
+    }
+
+    void ImportSelectedSession(AppState* state)
+    {
+        if (RefuseViewOnly(state, "import sessions"))
+        {
+            return;
+        }
+        if (state->import_net_files.empty())
+        {
+            state->status_message.clear();
+            state->form_error = "No session files to import yet.";
+            return;
+        }
+
+        std::string path = SessionImportsDir(state->db_path, state->ssh_username) + "/" +
+                           state->import_net_files[state->selected_import_file_index];
+        std::string error;
+        std::optional<NetSlice> slice = ReadSessionSliceFile(path, &error);
+        if (!slice.has_value())
+        {
+            state->status_message.clear();
+            state->form_error = error;
+            return;
+        }
+
+        std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+        std::int64_t net_id = state->import_session_net_id;
+        std::string net_name = state->import_session_net_name;
+        std::int64_t instance_id = 0;
+        try
+        {
+            if (state->import_session_ad_hoc)
+            {
+                // Imported before: an ad hoc net of the same name with the
+                // same session.
+                const NetInstance& session = slice->instances[0];
+                for (const NetInstance& existing : state->db->GetAdHocNetInstances())
+                {
+                    std::optional<Net> existing_net = state->db->GetNetById(existing.net_id);
+                    if (existing_net.has_value() && existing_net->name == slice->net.name &&
+                        existing.instance_date == session.instance_date &&
+                        existing.started_at == session.started_at)
+                    {
+                        state->status_message.clear();
+                        state->form_error = "The ad hoc net " + slice->net.name +
+                                            " already has that session, so nothing was imported.";
+                        return;
+                    }
+                }
+                // A new ad hoc net, as it was defined where it was logged.
+                Net net = slice->net;
+                net.is_ad_hoc = true;
+                net.imported_at = now;
+                net.default_location = ExtractZipCode(net.default_location);
+                MoveBadFrequencyToComments(&net.default_frequency, &net.comments);
+                net_id = state->db->CreateNet(net);
+                net_name = net.name;
+            }
+            instance_id = ApplySessionSlice(state->db, *slice, net_id, &error);
+        }
+        catch (const std::exception& e)
+        {
+            error = std::string("Import failed: ") + e.what();
+        }
+        if (instance_id == 0)
+        {
+            state->status_message.clear();
+            state->form_error = error;
+            return;
+        }
+
+        const NetInstance& session = slice->instances[0];
+        std::string message = "Imported the session of " + session.instance_date;
+        if (!state->import_session_ad_hoc && slice->net.name != net_name)
+        {
+            message += " (logged as \"" + slice->net.name + "\")";
+        }
+        message += " into " + net_name + ".";
+
+        state->import_session = false;
+        RefreshNetHistory(state);
+        for (std::size_t i = 0; i < state->history_instances.size(); ++i)
+        {
+            if (state->history_instances[i].id == instance_id)
+            {
+                state->selected_history_index = static_cast<int>(i);
+                RefreshHistoryCheckIns(state);
+            }
+        }
+        state->form_error.clear();
+        state->status_message = message;
+        state->page = kPageNetHistory;
+    }
+
     void StartZmodemReceive(AppState* state)
     {
-        if (RefuseViewOnly(state, "import nets"))
+        if (RefuseViewOnly(state, "import files"))
         {
             return;
         }
@@ -4118,7 +4305,7 @@ namespace ql
                 case kPageNetHistory:
                     return {
                         {"Up/Down", "Choose a session; its check-ins show below.", false},
-                        {"F7", "Export the highlighted session's log.", false},
+                        {"F7", "Export the highlighted session's log (and .qlsession).", false},
                         {"F8", "Statistics for this net.", true},
                         {"F9", "Find a station's check-ins to every net.", true},
                         {"Esc", "Back.", false},
@@ -4217,8 +4404,9 @@ namespace ql
                 return {
                     {"Up/Down", "Choose a session; its check-ins show below.", false},
                     {"F4", "Delete a check-in from that session (by #).", false},
-                    {"F5", "Delete a closed session (by number).", false},
-                    {"F7", "Export the highlighted session's log.", false},
+                    {"F6", "Import a session exported elsewhere (.qlsession).", false},
+                    {"F7", "Export the highlighted session's log (and .qlsession).", false},
+                    {"F5", "Delete a closed session (by number).", true},
                     {"F8", "Statistics for this net.", true},
                     {"F9", "Find a station's check-ins to every net.", true},
                     {"Esc", "Back.", false},
@@ -4239,7 +4427,7 @@ namespace ql
                 return {
                     {"F2/Enter", "Import the highlighted file.", false},
                     {"F3", "Receive a file from your terminal (ZMODEM).", false},
-                    {"Esc", "Back.", false},
+                    {"Esc", state->import_session ? "Back to History." : "Back.", false},
                 };
             case kPageManageUsers:
                 if (state->show_user_keys_modal)

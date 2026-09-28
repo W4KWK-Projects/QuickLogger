@@ -162,12 +162,12 @@ namespace ql
         // one AppState-level flag rather than a per-page copy, since only
         // one page is ever showing at a time. `zmodem_action` says which
         // operation Confirm/CancelZmodemAction should actually run;
-        // `zmodem_confirm_path` only matters for kSend (the file already
+        // `zmodem_send_paths` only matters for kSend (the files already
         // written and waiting to go out -- kReceive has no path yet, it
         // always lands under ImportsDir).
         bool show_zmodem_confirm_modal = false;
         ZmodemAction zmodem_action = ZmodemAction::kSend;
-        std::string zmodem_confirm_path;
+        std::vector<std::string> zmodem_send_paths;
 
         // Edit Net page: confirmation before Database::DeleteNetCompletely
         // (F8 there) -- this permanently erases the net's whole history
@@ -234,6 +234,14 @@ namespace ql
         // which one is highlighted. Refreshed by RefreshImportNetFiles.
         std::vector<std::string> import_net_files;
         int selected_import_file_index = 0;
+        // The same page, opened with F6 on History to import one session
+        // (*.qlsession) rather than a whole net: into net
+        // import_session_net_id, or, from ad hoc History, as a new ad hoc
+        // net (import_session_ad_hoc). Esc returns to History.
+        bool import_session = false;
+        bool import_session_ad_hoc = false;
+        std::int64_t import_session_net_id = 0;
+        std::string import_session_net_name;
 
         // Manage Users page (console-only -- see kPageManageUsers and
         // AppState::is_console_session), refreshed by RefreshUsers:
@@ -774,9 +782,11 @@ namespace ql
     // under exports/ next to the database (see file_export.hpp), containing
     // exactly what's shown on screen for it: the net name, date, role
     // callsigns and status, then the same header/rows FormatCheckInHeaderRow/
-    // FormatCheckInRows already produce for the on-screen list. On a
-    // failed write, sets AppState::form_error and stops there. On a
-    // successful write, hands off to OfferZmodemSend (see below). Shared by
+    // FormatCheckInRows already produce for the on-screen list -- and next
+    // to it, the session itself in a .qlsession file (GatherSessionSlice),
+    // for History's F6 Import on another QuickLogger. On a failed write,
+    // sets AppState::form_error and stops there. Otherwise offers both
+    // files for ZMODEM download (OfferZmodemSendFiles). Shared by
     // the active-net page (the currently open instance, from
     // AppState::active_check_ins) and the net-history page (a past
     // instance, re-querying its check-ins fresh the same way
@@ -814,11 +824,30 @@ namespace ql
     // first (see ConfirmZmodemAction/CancelZmodemAction). If `sz` isn't
     // installed, status_message just says so and no modal appears.
     void OfferZmodemSend(AppState* state, const std::string& path);
+    // The same for several files written together, sent as one batch.
+    void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths);
 
-    // Reloads AppState::import_net_files from whatever *.qlnet files are
-    // currently sitting under ImportsDir(db_path). Call when opening the
-    // import-net page and after a ZMODEM receive completes.
+    // Reloads AppState::import_net_files from whatever *.qlnet files (or
+    // *.qlsession, when AppState::import_session) are currently sitting
+    // under ImportsDir(db_path). Call when opening the import page and
+    // after a ZMODEM receive completes.
     void RefreshImportNetFiles(AppState* state);
+
+    // F6 on History: opens the import page for one session (see
+    // AppState::import_session), to go into the net whose History it is --
+    // or, on ad hoc History, to become a new ad hoc net.
+    void OpenSessionImport(AppState* state);
+
+    // F2 on the import page when importing a session: reads the highlighted
+    // .qlsession file (ReadSessionSliceFile), adds its session to the net
+    // (ApplySessionSlice), and returns to History with it highlighted. Sets
+    // AppState::form_error instead, leaving the page open, if the file
+    // can't be read or the net already has that session.
+    void ImportSelectedSession(AppState* state);
+
+    // Esc on the import page: back to History for a session import, else
+    // to the net list.
+    void LeaveImportPage(AppState* state);
 
     // F2 on the import-net page: reads the highlighted file
     // (AppState::import_net_files[selected_import_file_index]) via
@@ -834,7 +863,7 @@ namespace ql
     void StartZmodemReceive(AppState* state);
 
     // F2/Enter on the ZMODEM confirmation modal: runs whichever operation
-    // AppState::zmodem_action names (SendFileViaZmodem for kSend,
+    // AppState::zmodem_action names (SendFilesViaZmodem for kSend,
     // ReceiveFileViaZmodem for kReceive -- both block for as long as they
     // take, which is fine here since the operator was already told what to
     // do via the modal they just dismissed to get here), folds the outcome

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <ctime>
 #include <memory>
 #include <utility>
@@ -383,8 +384,10 @@ namespace ql
             if (state_->zmodem_action == ZmodemAction::kSend)
             {
                 rows.push_back(ftxui::text("Ready to send:"));
-                rows.push_back(ftxui::text("  " + state_->zmodem_confirm_path) |
-                               ftxui::color(kColorLabel));
+                for (const std::string& path : state_->zmodem_send_paths)
+                {
+                    rows.push_back(ftxui::text("  " + path) | ftxui::color(kColorLabel));
+                }
                 rows.push_back(ftxui::text(""));
                 rows.push_back(
                     ftxui::text("Open your terminal's file-receive (ZMODEM) dialog now, then"));
@@ -1576,6 +1579,31 @@ namespace ql
 
     // ---- Net history page ---------------------------------------------------
 
+    // An F-key's number (F9 is 9, F10 is 10); anything else sorts after
+    // every F-key.
+    static int FunctionKeyNumber(const KeyHint& hint)
+    {
+        if (hint.key.size() < 2 || hint.key[0] != 'F' || hint.key[1] < '0' || hint.key[1] > '9')
+        {
+            return 1000;
+        }
+        return std::atoi(hint.key.c_str() + 1);
+    }
+
+    static bool ComesBeforeInKeyOrder(const KeyHint& first, const KeyHint& second)
+    {
+        return FunctionKeyNumber(first) < FunctionKeyNumber(second);
+    }
+
+    // `hints` with the F-keys in number order (Esc and the like stay after
+    // them, in the order given) -- for a bar whose extra keys (see
+    // AddExtraKeysThatFit) fall between its others.
+    static std::vector<KeyHint> InKeyOrder(std::vector<KeyHint> hints)
+    {
+        std::stable_sort(hints.begin(), hints.end(), ComesBeforeInKeyOrder);
+        return hints;
+    }
+
     class NetHistoryRenderer
     {
     public:
@@ -1635,24 +1663,29 @@ namespace ql
             {
                 return PageChrome("History: " + net_name, content, PickKeyHints(state_));
             }
+            // At 80 columns the bar has room for F8 but not F5 or F9; they
+            // always work and appear once there's room (Help lists them).
             std::vector<KeyHint> extras;
             if (!state_->history_ad_hoc)
             {
-                extras.push_back({"F8", "Net Stats"});
+                extras.push_back({"F8", "Stats"});
+            }
+            if (!state_->view_only_user)
+            {
+                extras.push_back({"F5", "Del Session"});
             }
             extras.push_back({"F9", "Find Station"});
             if (state_->view_only_user)
             {
-                return PageChrome(
-                    "History: " + net_name, content,
-                    AddExtraKeysThatFit({{"F7", "Export"}, {"Esc", "Back"}}, extras, 1));
+                return PageChrome("History: " + net_name, content,
+                                  InKeyOrder(AddExtraKeysThatFit(
+                                      {{"F7", "Export"}, {"Esc", "Back"}}, extras, 1)));
             }
-            return PageChrome("History: " + net_name, content,
-                              AddExtraKeysThatFit({{"F4", "Del Check-In"},
-                                                   {"F5", "Del Session"},
-                                                   {"F7", "Export"},
-                                                   {"Esc", "Back"}},
-                                                  extras, 1));
+            return PageChrome(
+                "History: " + net_name, content,
+                InKeyOrder(AddExtraKeysThatFit(
+                    {{"F4", "Del Check-In"}, {"F6", "Import"}, {"F7", "Export"}, {"Esc", "Back"}},
+                    extras, 1)));
         }
 
     private:
@@ -1979,24 +2012,39 @@ namespace ql
 
         ftxui::Element operator()() const
         {
+            bool session = state_->import_session;
+            std::string pattern = session ? "*.qlsession" : "*.qlnet";
             ftxui::Element file_list =
                 state_->import_net_files.empty()
                     ? HintText(state_->ssh_username.empty()
-                                   ? "No *.qlnet files in imports/ yet. Press F3 to receive one "
-                                     "via ZMODEM."
-                                   : "No *.qlnet files received yet. Press F3 to receive one via "
-                                     "ZMODEM.")
+                                   ? "No " + pattern +
+                                         " files in imports/ yet. Press F3 to receive one via "
+                                         "ZMODEM."
+                                   : "No " + pattern +
+                                         " files received yet. Press F3 to receive one via ZMODEM.")
                     : file_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
 
-            ftxui::Element content = ftxui::vbox({
-                Heading("Files ready to import:"),
-                Framed(file_list) | ftxui::flex,
-                StatusLine(state_->status_message),
-                ErrorLine(state_->form_error),
-            });
+            ftxui::Elements rows;
+            if (session)
+            {
+                rows.push_back(HintParagraph(
+                    state_->import_session_ad_hoc
+                        ? "A session exported with F7 (its .qlsession file) becomes a new ad hoc "
+                          "net here."
+                        : "A session exported with F7 (its .qlsession file) is added to " +
+                              state_->import_session_net_name + "'s history."));
+            }
+            rows.push_back(Heading("Files ready to import:"));
+            rows.push_back(Framed(file_list) | ftxui::flex);
+            rows.push_back(StatusLine(state_->status_message));
+            rows.push_back(ErrorLine(state_->form_error));
 
+            std::string title = !session ? "Import Net"
+                                : state_->import_session_ad_hoc
+                                    ? "Import Ad Hoc Session"
+                                    : "Import Session: " + state_->import_session_net_name;
             return PageChrome(
-                "Import Net", content,
+                title, ftxui::vbox(rows),
                 {{"F2/Enter", "Import"}, {"F3", "Receive (ZMODEM)"}, {"Esc", "Back"}});
         }
 
