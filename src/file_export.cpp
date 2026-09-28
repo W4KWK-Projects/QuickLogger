@@ -217,7 +217,9 @@ namespace ql
 
         std::string temp_path = TemporaryPathFor(path);
         {
-            std::ofstream file(temp_path, std::ios::trunc);
+            // Binary, so every platform writes the same bytes: in text mode
+            // Windows would turn each "\n" into "\r\n".
+            std::ofstream file(temp_path, std::ios::binary | std::ios::trunc);
             if (!file.is_open())
             {
                 *error = "Could not open " + path + " for writing.";
