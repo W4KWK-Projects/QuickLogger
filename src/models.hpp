@@ -15,6 +15,8 @@ namespace ql
     {
         kManual = 0,
         kUls = 2,
+        // Canada's amateur call sign database (ISED); see uls_import.hpp.
+        kIsed = 3,
     };
 
     // A callsign the logger has ever seen, independent of any particular net.
@@ -167,8 +169,8 @@ namespace ql
 
     // Approximate center point of a US ZIP code (from the Census Bureau's
     // ZCTA gazetteer), used to estimate distance for the saved-station
-    // form's ULS proximity autocomplete. See Database::GetAllZipCentroids
-    // and AppState::zip_centroids_cache (loaded once, not queried live).
+    // form's ULS proximity autocomplete. See Database::FindZipCentroid and
+    // GetZipCentroidsInBox.
     struct ZipCentroid
     {
         std::string zip;
@@ -223,17 +225,21 @@ namespace ql
     // autocomplete keeps in memory for every licensee near the net (see
     // AppState::nearby_uls_callsigns), with the rest of a station's details
     // looked up only for the few that match what's typed.
+    //
+    // Kept small, as there may be tens of thousands of them per session at
+    // the widest radius: a US call sign is at most 6 characters, so it's
+    // stored in place rather than as a std::string, and the distance only
+    // needs a float. 12 bytes each.
     struct NearbyUlsCallsign
     {
-        std::string callsign;
-        double miles = -1.0;
+        char callsign[8] = {};
+        float miles = -1.0F;
     };
 
     // The county a US ZIP code is in, for filling in Station::county (FCC's
     // ULS data has none). For a ZIP that crosses a county line, this is the
     // county where most of its residents live -- see FetchAndLoadZipCounties
-    // in uls_import.cpp. Loaded once per process into
-    // AppState::zip_county_by_zip rather than queried live.
+    // in uls_import.cpp. Looked up with Database::FindZipCounty.
     struct ZipCounty
     {
         std::string zip;
@@ -245,8 +251,7 @@ namespace ql
     // town gets the right county even when most of the ZIP's residents live
     // in a different one. `place` is uppercase with its Census suffix
     // removed ("NEWTON", not "Newton city"), ready to compare against a
-    // station's city. Loaded alongside ZipCounty; see
-    // AppState::zip_place_county_by_key.
+    // station's city. Looked up with Database::FindZipPlaceCounty.
     struct ZipPlaceCounty
     {
         std::string zip;

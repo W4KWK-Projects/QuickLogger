@@ -861,13 +861,13 @@ namespace ql
             return;
         }
 
-        // Known to some net first; failing that, the FCC data (any
+        // Known to some net first; failing that, the FCC or ISED data (any
         // distance -- the full callsign was typed, so there's no guessing).
         std::optional<Station> station =
             state_->db->FindStationByCallsign(state_->modal_station.callsign);
         if (!station.has_value())
         {
-            station = state_->db->FindUlsStationByCallsign(state_->modal_station.callsign);
+            station = state_->db->FindLicensedStationByCallsign(state_->modal_station.callsign);
         }
         if (station.has_value())
         {

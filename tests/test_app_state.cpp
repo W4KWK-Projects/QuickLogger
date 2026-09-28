@@ -1367,6 +1367,61 @@ namespace ql
         CHECK_EQ(f.state.saved_station.name, std::string("Nan"));
     }
 
+    QL_TEST(CanadianCallSignsComeFromIsedWithoutDistance)
+    {
+        Fixture f;
+        LoadZipData(f.db());
+        Station ann = MakeStation("VA3ABC", "Able, Ann");
+        ann.city = "OTTAWA";
+        ann.state = "ON";
+        ann.zip = "K1A 0B1";
+        ann.license_class = "Advanced";
+        f.db()->ReplaceIsedStations(
+            {ann, MakeStation("VE3XYZ", "Zed, Zoe"), MakeStation("VE3XZZ", "Zulu, Zak")}, 1);
+        f.db()->BulkUpsertUlsStations({MakeStation("K4AAC", "NEARBY, NED", "37402")}, 0, 1, 1);
+        f.StartNet("Skywarn");
+
+        // A call sign that looks Canadian: ISED's matches, tagged, in order.
+        ClearModalFields(&f.state);
+        f.state.modal_station.callsign = "ve3x";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 2);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("VE3XYZ"));
+        CHECK_EQ(f.state.modal_callsign_suggestion_sources[0], std::string("(ISED)"));
+        CHECK(f.state.modal_callsign_suggestion_labels[1].find("(ISED)") != std::string::npos);
+
+        // Anything else doesn't look in ISED's data at all.
+        f.state.modal_station.callsign = "3X";
+        RefreshCallsignSuggestions(&f.state);
+        CHECK(f.state.modal_callsign_suggestions.empty());
+        f.state.modal_station.callsign = "K4AA";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 1);
+        CHECK_EQ(f.state.modal_callsign_suggestion_sources[0].find("(ULS"), std::size_t{0});
+
+        // A whole Canadian call sign is filled in, as a US one is.
+        ClearModalFields(&f.state);
+        f.state.modal_station.callsign = "VA3ABC/P";
+        CHECK(FillCheckInFromKnownStation(&f.state));
+        CHECK_EQ(f.state.modal_station.name, std::string("Able, Ann"));
+        CHECK_EQ(f.state.modal_station.zip, std::string("K1A 0B1"));
+
+        // The saved-station form gets the same.
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(f.state.active_instance.net_id));
+        f.state.saved_station.callsign = "VA3";
+        RefreshSavedStationSuggestions(&f.state);
+        REQUIRE(f.state.saved_station_suggestions.size() == 1);
+        CHECK_EQ(f.state.saved_station_suggestion_sources[0], std::string("(ISED)"));
+
+        OpenStationCard(&f.state, "VA3ABC");
+        bool shows_class = false;
+        for (const std::string& line : f.state.info_summary)
+        {
+            shows_class = shows_class || line.find("Advanced") != std::string::npos;
+        }
+        CHECK(shows_class);
+    }
+
     QL_TEST(AutocompleteShowsAsManyAsTheScreenHasRoomFor)
     {
         Fixture f;

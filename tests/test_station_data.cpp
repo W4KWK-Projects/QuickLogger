@@ -37,6 +37,7 @@ namespace ql
     static void MarkAllLoaded(Database* db, std::int64_t now)
     {
         db->UpsertImportRunStatus(MakeStatus(kUlsDataset, "complete", now - 10, now - 5, 100));
+        db->UpsertImportRunStatus(MakeStatus(kIsedDataset, "complete", now - 10, now - 5, 100));
         db->UpsertImportRunStatus(MakeStatus(kZipCountyDataset, "complete", now - 10, now - 5, 0));
         ZipCentroid centroid;
         centroid.zip = "37415";
@@ -53,6 +54,7 @@ namespace ql
         Database db(dir.File("q.db"));
         DataRefreshPlan plan = PlanDataRefresh(&db, Now());
         CHECK(plan.uls);
+        CHECK(plan.ised);
         CHECK(plan.zip_centroids);
         CHECK(plan.zip_counties);
         CHECK(DataRefreshPlanHasWork(plan));
@@ -109,6 +111,7 @@ namespace ql
         db.RequestImportRun(kDataRefreshJob, now);
         DataRefreshPlan plan = PlanDataRefresh(&db, now);
         CHECK(plan.uls);
+        CHECK(plan.ised);
         CHECK(plan.zip_counties);
         CHECK(!plan.zip_centroids);  // Loaded fine; no need to fetch again.
     }
@@ -242,8 +245,23 @@ namespace ql
                             RelRow("37415", "4706500001", "Chattanooga city", "500");
         WriteTextFile(dir.File("towns.txt"), towns);
 
+        // ISED: semicolon-delimited, a header row, CRLF line endings, as
+        // ISED ships it. VE3CLB is a club call sign, with the club's own
+        // name and address.
+        std::string ised =
+            "callsign;first_name;surname;address_line;city;prov_cd;postal_code;qual_a;qual_b;"
+            "qual_c;qual_d;qual_e;club_name;club_name_2;club_address;club_city;club_prov_cd;"
+            "club_postal_code\r\n"
+            "VA3ABC;Ann;Able;1 Main St;OTTAWA;ON;K1A0B1;A;;C;D;;;;;;;\r\n"
+            "VE2XYZ;Luc;Tremblay;;;QC;;;;;;E;;;;;;\r\n"
+            "VE3CLB;Bob;Trustee;2 Side Rd;TORONTO;ON;M5V2T6;A;;;;;RADIO CLUB;OF TORONTO;PO BOX "
+            "9;TORONTO;ON;M5W1A1\r\n"
+            ";;;;;;;;;;;;;;;;;\r\n";
+        WriteZipFile(dir.File("amateur_delim.zip"), {{"amateur_delim.txt", ised, true}});
+
         DataSources sources;
         sources.uls_zip_url = FileUrl(dir.File("l_amat.zip"));
+        sources.ised_zip_url = FileUrl(dir.File("amateur_delim.zip"));
         sources.zip_gazetteer_url = FileUrl(dir.File("gaz.zip"));
         sources.zip_gazetteer_file_name = "gaz.txt";
         sources.zcta_county_url = FileUrl(dir.File("county.txt"));
@@ -256,6 +274,7 @@ namespace ql
     {
         DataRefreshPlan plan;
         plan.uls = true;
+        plan.ised = true;
         plan.zip_centroids = true;
         plan.zip_counties = true;
         return plan;
@@ -318,6 +337,35 @@ namespace ql
         CHECK_EQ(uls->status, std::string("complete"));
         CHECK_EQ(uls->records_imported, std::int64_t{3});
         CHECK(uls->completed_at > 0);
+
+        // ISED: names as "Surname, First", postal codes spaced, the highest
+        // qualification as the class, and a club by its own name and address.
+        std::optional<Station> ann = db.FindIsedStationByCallsign("va3abc");
+        REQUIRE(ann.has_value());
+        CHECK_EQ(ann->name, std::string("Able, Ann"));
+        CHECK_EQ(ann->street_address, std::string("1 Main St"));
+        CHECK_EQ(ann->city, std::string("OTTAWA"));
+        CHECK_EQ(ann->state, std::string("ON"));
+        CHECK_EQ(ann->zip, std::string("K1A 0B1"));
+        CHECK_EQ(ann->license_class, std::string("Advanced"));
+        CHECK(ann->data_source == StationDataSource::kIsed);
+        CHECK_EQ(db.FindIsedStationByCallsign("VE2XYZ")->license_class,
+                 std::string("Basic with Honours"));
+        std::optional<Station> club = db.FindIsedStationByCallsign("VE3CLB");
+        REQUIRE(club.has_value());
+        CHECK_EQ(club->name, std::string("RADIO CLUB OF TORONTO"));
+        CHECK_EQ(club->street_address, std::string("PO BOX 9"));
+        CHECK_EQ(club->zip, std::string("M5W 1A1"));
+        CHECK_EQ(db.GetImportRunStatus(kIsedDataset)->records_imported, std::int64_t{3});
+        // Found by prefix, in order; and by FindLicensedStationByCallsign
+        // alongside the FCC's.
+        std::vector<Station> ve = db.SearchIsedStationsByCallsignPrefix("ve", 10);
+        REQUIRE(ve.size() == 2);
+        CHECK_EQ(ve[0].callsign, std::string("VE2XYZ"));
+        CHECK_EQ(ve[1].callsign, std::string("VE3CLB"));
+        CHECK(db.SearchIsedStationsByCallsignPrefix("VE3", 10).size() == 1);
+        CHECK_EQ(db.FindLicensedStationByCallsign("VA3ABC")->name, std::string("Able, Ann"));
+        CHECK_EQ(db.FindLicensedStationByCallsign("W4KWK")->name, std::string("KEENE, WES"));
 
         // Gazetteer: good rows only, padded last column and all.
         std::vector<ZipCentroid> centroids = db.GetAllZipCentroids();

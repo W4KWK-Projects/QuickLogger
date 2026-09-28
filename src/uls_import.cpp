@@ -2,6 +2,7 @@
 
 #include <curl/curl.h>
 
+#include <algorithm>
 #include <charconv>
 #include <cstdint>
 #include <cstdio>
@@ -33,6 +34,10 @@ namespace ql
     {
         DataSources sources;
         sources.uls_zip_url = "https://data.fcc.gov/download/pub/uls/complete/l_amat.zip";
+        // ISED's amateur call sign database, republished daily: one
+        // semicolon-delimited file of every Canadian amateur and club call
+        // sign (see LoadIsed).
+        sources.ised_zip_url = "https://apc-cap.ic.gc.ca/datafiles/amateur_delim.zip";
         // Census Bureau ZCTA gazetteer: approximate lat/lon centroid per US
         // ZIP code, used to estimate distance for the proximity autocomplete
         // (see AppendNearbyUlsSuggestions in app_state.cpp). Centroids are
@@ -397,14 +402,78 @@ namespace ql
         return true;
     }
 
+    // Where a piece of text is in UlsLicenses::text.
+    struct TextRef
+    {
+        std::uint32_t offset = 0;
+        std::uint16_t length = 0;
+    };
+
+    // One active license, holding only what's imported -- about 800,000 of
+    // these are in memory at once, so each is kept small: its text lives in
+    // one shared buffer (UlsLicenses::text) rather than in strings of its
+    // own, the state and ZIP in place, and the class as a pointer to one of
+    // LicenseClassFromCode's names. About 48 bytes, where a Station is more
+    // than 250 before its text.
+    struct UlsRecord
+    {
+        TextRef callsign;
+        TextRef name;
+        TextRef street_address;
+        TextRef city;
+        char state[3] = {};
+        char zip[6] = {};
+        const char* license_class = "";
+    };
+
+    // Copies up to size - 1 characters of `text` into `field`.
+    template <std::size_t N>
+    static void CopyField(std::string_view text, char (&field)[N])
+    {
+        std::size_t length = text.size() < N - 1 ? text.size() : N - 1;
+        std::memcpy(field, text.data(), length);
+        field[length] = '\0';
+    }
+
     // Everything needed from the three FCC files, for the active licenses
     // only. HD.dat is read first to find those (about half of its 1.7M rows);
     // EN.dat and AM.dat then fill in just those records, found by numeric id
     // -- far less memory and hashing than keeping all 1.7M EN.dat entries.
+    // The ids are a sorted list searched by halves rather than a hash map:
+    // 8 bytes an id instead of about 50.
     struct UlsLicenses
     {
-        std::vector<Station> stations;
-        std::unordered_map<std::uint32_t, std::uint32_t> index_by_id;
+        std::vector<UlsRecord> records;
+        // Every record's text, one after another.
+        std::string text;
+        // (id, index into records), sorted by id once HD.dat has been read.
+        std::vector<std::pair<std::uint32_t, std::uint32_t>> ids;
+
+        TextRef Store(std::string_view value)
+        {
+            TextRef ref;
+            ref.offset = static_cast<std::uint32_t>(text.size());
+            ref.length = static_cast<std::uint16_t>(value.size() < 0xFFFF ? value.size() : 0xFFFF);
+            text.append(value.data(), ref.length);
+            return ref;
+        }
+
+        std::string_view Text(TextRef ref) const
+        {
+            return std::string_view(text.data() + ref.offset, ref.length);
+        }
+
+        // The record with FCC id `id`, or nullptr if it isn't an active one.
+        UlsRecord* Find(std::uint32_t id)
+        {
+            std::vector<std::pair<std::uint32_t, std::uint32_t>>::iterator it = std::lower_bound(
+                ids.begin(), ids.end(), std::pair<std::uint32_t, std::uint32_t>(id, 0));
+            if (it == ids.end() || it->first != id)
+            {
+                return nullptr;
+            }
+            return &records[it->second];
+        }
     };
 
     class HdLineHandler
@@ -424,9 +493,9 @@ namespace ql
             {
                 return;
             }
-            licenses_->index_by_id[id] = static_cast<std::uint32_t>(licenses_->stations.size());
-            licenses_->stations.emplace_back();
-            licenses_->stations.back().callsign = std::string(fields[kHdCallSign]);
+            licenses_->ids.emplace_back(id, static_cast<std::uint32_t>(licenses_->records.size()));
+            licenses_->records.emplace_back();
+            licenses_->records.back().callsign = licenses_->Store(fields[kHdCallSign]);
         }
 
     private:
@@ -444,18 +513,17 @@ namespace ql
             {
                 return;
             }
-            std::unordered_map<std::uint32_t, std::uint32_t>::const_iterator it =
-                licenses_->index_by_id.find(ParseRecordId(FieldOrEmpty(fields, kEnUniqueSystemId)));
-            if (it == licenses_->index_by_id.end())
+            UlsRecord* record =
+                licenses_->Find(ParseRecordId(FieldOrEmpty(fields, kEnUniqueSystemId)));
+            if (record == nullptr)
             {
                 return;
             }
-            Station& station = licenses_->stations[it->second];
-            station.name = std::string(FieldOrEmpty(fields, kEnEntityName));
-            station.street_address = std::string(FieldOrEmpty(fields, kEnStreetAddress));
-            station.city = std::string(FieldOrEmpty(fields, kEnCity));
-            station.state = std::string(FieldOrEmpty(fields, kEnState));
-            station.zip = std::string(NormalizeZip5(FieldOrEmpty(fields, kEnZip)));
+            record->name = licenses_->Store(FieldOrEmpty(fields, kEnEntityName));
+            record->street_address = licenses_->Store(FieldOrEmpty(fields, kEnStreetAddress));
+            record->city = licenses_->Store(FieldOrEmpty(fields, kEnCity));
+            CopyField(FieldOrEmpty(fields, kEnState), record->state);
+            CopyField(NormalizeZip5(FieldOrEmpty(fields, kEnZip)), record->zip);
         }
 
     private:
@@ -473,14 +541,13 @@ namespace ql
             {
                 return;
             }
-            std::unordered_map<std::uint32_t, std::uint32_t>::const_iterator it =
-                licenses_->index_by_id.find(ParseRecordId(FieldOrEmpty(fields, kAmUniqueSystemId)));
-            if (it == licenses_->index_by_id.end())
+            UlsRecord* record =
+                licenses_->Find(ParseRecordId(FieldOrEmpty(fields, kAmUniqueSystemId)));
+            if (record == nullptr)
             {
                 return;
             }
-            licenses_->stations[it->second].license_class =
-                LicenseClassFromCode(FieldOrEmpty(fields, kAmOperatorClass));
+            record->license_class = LicenseClassFromCode(FieldOrEmpty(fields, kAmOperatorClass));
         }
 
     private:
@@ -491,35 +558,58 @@ namespace ql
                                ProgressReporter* reporter, std::int64_t* out_records,
                                std::string* error)
     {
-        // Roughly how the time splits: reading the three files, then writing
-        // to the database.
         UlsLicenses licenses;
-        licenses.stations.reserve(1000000);
-        licenses.index_by_id.reserve(1000000);
+        licenses.records.reserve(900000);
+        licenses.ids.reserve(900000);
+        licenses.text.reserve(std::size_t{48} * 1024 * 1024);
 
         HdLineHandler hd_handler(&licenses);
         EnLineHandler en_handler(&licenses);
         AmLineHandler am_handler(&licenses);
-        if (!ForEachUlsRecord(cache_dir + "/HD.dat", reporter, 0.0, 0.15, &hd_handler) ||
-            !ForEachUlsRecord(cache_dir + "/EN.dat", reporter, 0.15, 0.2, &en_handler) ||
+        if (!ForEachUlsRecord(cache_dir + "/HD.dat", reporter, 0.0, 0.15, &hd_handler))
+        {
+            *error = reporter->StopRequested() ? "Interrupted." : "Failed to read the FCC files.";
+            return false;
+        }
+        std::sort(licenses.ids.begin(), licenses.ids.end());
+        if (!ForEachUlsRecord(cache_dir + "/EN.dat", reporter, 0.15, 0.2, &en_handler) ||
             !ForEachUlsRecord(cache_dir + "/AM.dat", reporter, 0.35, 0.05, &am_handler))
         {
             *error = reporter->StopRequested() ? "Interrupted." : "Failed to read the FCC files.";
             return false;
         }
-        if (licenses.stations.empty())
+        if (licenses.records.empty())
         {
             *error = "HD.dat had no active licenses.";
             return false;
         }
+        // Not needed from here on.
+        std::vector<std::pair<std::uint32_t, std::uint32_t>>().swap(licenses.ids);
 
+        // Written a batch at a time, each batch briefly as Stations.
         std::int64_t now = Now();
         constexpr std::size_t kBatchSize = 5000;
-        std::size_t total = licenses.stations.size();
+        std::size_t total = licenses.records.size();
+        std::vector<Station> batch;
+        batch.reserve(kBatchSize);
         for (std::size_t start = 0; start < total; start += kBatchSize)
         {
             std::size_t end = start + kBatchSize < total ? start + kBatchSize : total;
-            db->BulkUpsertUlsStations(licenses.stations, start, end, now);
+            batch.clear();
+            for (std::size_t i = start; i < end; ++i)
+            {
+                const UlsRecord& record = licenses.records[i];
+                Station station;
+                station.callsign = std::string(licenses.Text(record.callsign));
+                station.name = std::string(licenses.Text(record.name));
+                station.street_address = std::string(licenses.Text(record.street_address));
+                station.city = std::string(licenses.Text(record.city));
+                station.state = record.state;
+                station.zip = record.zip;
+                station.license_class = record.license_class;
+                batch.push_back(std::move(station));
+            }
+            db->BulkUpsertUlsStations(batch, 0, batch.size(), now);
             reporter->Report(0.4 + 0.6 * static_cast<double>(end) / static_cast<double>(total),
                              static_cast<std::int64_t>(end));
             if (reporter->StopRequested())
@@ -530,7 +620,13 @@ namespace ql
         }
 
         // Licenses no longer in the file have expired or been cancelled.
-        db->DeleteUlsStationsNotIn(licenses.stations);
+        std::vector<std::string_view> callsigns;
+        callsigns.reserve(total);
+        for (const UlsRecord& record : licenses.records)
+        {
+            callsigns.push_back(licenses.Text(record.callsign));
+        }
+        db->DeleteUlsStationsNotIn(callsigns);
 
         *out_records = static_cast<std::int64_t>(total);
         return true;
@@ -561,6 +657,154 @@ namespace ql
         reporter->BeginStep("Importing FCC license data", base + download_span + extract_span,
                             span - download_span - extract_span);
         return ParseAndImport(cache_dir, db, reporter, out_records, error);
+    }
+
+    // ---- ISED (Canadian) call sign data -------------------------------------
+
+    // amateur_delim.txt: a header row, then one call sign per line, fields
+    // separated by ';' (0-indexed; confirmed against a real download):
+    static constexpr std::size_t kIsedCallsign = 0;
+    static constexpr std::size_t kIsedFirstName = 1;
+    static constexpr std::size_t kIsedSurname = 2;
+    static constexpr std::size_t kIsedAddress = 3;
+    static constexpr std::size_t kIsedCity = 4;
+    static constexpr std::size_t kIsedProvince = 5;
+    static constexpr std::size_t kIsedPostalCode = 6;
+    // Qualifications, each its letter or blank: A Basic, B Morse (5 wpm),
+    // C Morse (12 wpm), D Advanced, E Basic with Honours.
+    static constexpr std::size_t kIsedQualBasic = 7;
+    static constexpr std::size_t kIsedQualAdvanced = 10;
+    static constexpr std::size_t kIsedQualHonours = 11;
+    // A club call sign carries the club's own name and address as well as
+    // its trustee's.
+    static constexpr std::size_t kIsedClubName = 12;
+    static constexpr std::size_t kIsedClubName2 = 13;
+    static constexpr std::size_t kIsedClubAddress = 14;
+    static constexpr std::size_t kIsedClubCity = 15;
+    static constexpr std::size_t kIsedClubProvince = 16;
+    static constexpr std::size_t kIsedClubPostalCode = 17;
+
+    // "B4E2X8" as Canadians write it, "B4E 2X8".
+    static std::string FormatPostalCode(std::string_view code)
+    {
+        std::string text(code);
+        if (text.size() == 6)
+        {
+            text.insert(3, " ");
+        }
+        return text;
+    }
+
+    // The highest qualification, as a licence class.
+    static std::string IsedLicenseClass(const std::vector<std::string_view>& fields)
+    {
+        if (!FieldOrEmpty(fields, kIsedQualAdvanced).empty())
+        {
+            return "Advanced";
+        }
+        if (!FieldOrEmpty(fields, kIsedQualHonours).empty())
+        {
+            return "Basic with Honours";
+        }
+        if (!FieldOrEmpty(fields, kIsedQualBasic).empty())
+        {
+            return "Basic";
+        }
+        return "";
+    }
+
+    // One line of amateur_delim.txt as a Station, or false for the header
+    // or a line without a call sign.
+    static bool ParseIsedLine(const std::vector<std::string_view>& fields, Station* station)
+    {
+        std::string_view callsign = FieldOrEmpty(fields, kIsedCallsign);
+        if (callsign.empty() || callsign == "callsign")
+        {
+            return false;
+        }
+        *station = Station();
+        station->callsign = ToUpperAscii(std::string(callsign));
+        station->data_source = StationDataSource::kIsed;
+        station->license_class = IsedLicenseClass(fields);
+        std::string club = std::string(FieldOrEmpty(fields, kIsedClubName));
+        if (!FieldOrEmpty(fields, kIsedClubName2).empty())
+        {
+            club += (club.empty() ? "" : " ") + std::string(FieldOrEmpty(fields, kIsedClubName2));
+        }
+        if (!club.empty())
+        {
+            station->name = club;
+        }
+        else
+        {
+            // "Surname, First", as the FCC data has names.
+            std::string surname(FieldOrEmpty(fields, kIsedSurname));
+            std::string first(FieldOrEmpty(fields, kIsedFirstName));
+            station->name =
+                surname.empty() || first.empty() ? surname + first : surname + ", " + first;
+        }
+        bool club_address = !club.empty() && !FieldOrEmpty(fields, kIsedClubCity).empty();
+        station->street_address =
+            std::string(FieldOrEmpty(fields, club_address ? kIsedClubAddress : kIsedAddress));
+        station->city = std::string(FieldOrEmpty(fields, club_address ? kIsedClubCity : kIsedCity));
+        station->state =
+            std::string(FieldOrEmpty(fields, club_address ? kIsedClubProvince : kIsedProvince));
+        station->zip = FormatPostalCode(
+            FieldOrEmpty(fields, club_address ? kIsedClubPostalCode : kIsedPostalCode));
+        return true;
+    }
+
+    static bool LoadIsed(const DataSources& sources, const std::string& cache_dir, Database* db,
+                         ProgressReporter* reporter, int base, int span, std::int64_t* out_records,
+                         std::string* error)
+    {
+        std::string zip_path = cache_dir + "/amateur_delim.zip";
+        reporter->BeginStep("Downloading Canadian call sign data", base, span / 2);
+        if (!DownloadFile(sources.ised_zip_url, zip_path, 600L, reporter, error))
+        {
+            return false;
+        }
+        reporter->BeginStep("Importing Canadian call sign data", base + span / 2, span - span / 2);
+        if (!ExtractZipEntries(zip_path, cache_dir, {"amateur_delim.txt"}, error))
+        {
+            *error = "Failed to extract the ISED archive: " + *error;
+            return false;
+        }
+        std::ifstream file(cache_dir + "/amateur_delim.txt", std::ios::binary);
+        if (!file.good())
+        {
+            *error = "The ISED archive had no amateur_delim.txt.";
+            return false;
+        }
+        std::vector<Station> stations;
+        std::string line;
+        std::vector<std::string_view> fields;
+        Station station;
+        while (std::getline(file, line))
+        {
+            if (!line.empty() && line.back() == '\r')
+            {
+                line.pop_back();
+            }
+            SplitFields(line, ';', &fields);
+            if (ParseIsedLine(fields, &station))
+            {
+                stations.push_back(station);
+            }
+        }
+        if (stations.empty())
+        {
+            *error = "The ISED file had no call signs.";
+            return false;
+        }
+        if (reporter->StopRequested())
+        {
+            *error = "Interrupted.";
+            return false;
+        }
+        db->ReplaceIsedStations(stations, Now());
+        *out_records = static_cast<std::int64_t>(stations.size());
+        return true;
     }
 
     // ---- ZIP centroids -----------------------------------------------------
@@ -940,6 +1184,20 @@ namespace ql
         return requested || now - status.started_at >= kFailedLoadRetrySeconds;
     }
 
+    // The FCC or ISED licence data (`status`) is due: never loaded; failed
+    // (and due a retry); a "running" row left behind by an older version of
+    // the app, which ran imports inside a session; or a week old.
+    static bool IsLicenceDataDue(const std::optional<ImportRunStatus>& status, std::int64_t now,
+                                 bool requested)
+    {
+        if (!status.has_value() || status->status != "complete")
+        {
+            return !status.has_value() || status->status != "failed" ||
+                   IsRetryDue(*status, now, requested);
+        }
+        return requested || now - status->completed_at > kUlsStalenessThresholdSeconds;
+    }
+
     DataRefreshPlan PlanDataRefresh(Database* db, std::int64_t now)
     {
         std::optional<ImportRunStatus> job = db->GetImportRunStatus(kDataRefreshJob);
@@ -947,18 +1205,8 @@ namespace ql
 
         DataRefreshPlan plan;
 
-        std::optional<ImportRunStatus> uls = db->GetImportRunStatus(kUlsDataset);
-        if (!uls.has_value() || uls->status != "complete")
-        {
-            // Never loaded; failed; or a "running" row left behind by an
-            // older version of the app, which ran imports inside a session.
-            plan.uls =
-                !uls.has_value() || uls->status != "failed" || IsRetryDue(*uls, now, requested);
-        }
-        else
-        {
-            plan.uls = requested || now - uls->completed_at > kUlsStalenessThresholdSeconds;
-        }
+        plan.uls = IsLicenceDataDue(db->GetImportRunStatus(kUlsDataset), now, requested);
+        plan.ised = IsLicenceDataDue(db->GetImportRunStatus(kIsedDataset), now, requested);
 
         if (!db->HasAnyZipCentroids())
         {
@@ -978,7 +1226,7 @@ namespace ql
 
     bool DataRefreshPlanHasWork(const DataRefreshPlan& plan)
     {
-        return plan.uls || plan.zip_centroids || plan.zip_counties;
+        return plan.uls || plan.ised || plan.zip_centroids || plan.zip_counties;
     }
 
     // Records one dataset's outcome. A failure keeps the figures from the
@@ -1024,10 +1272,11 @@ namespace ql
 
         // Each planned step's share of the overall percentage, by roughly how
         // long it takes.
-        int uls_weight = plan.uls ? 90 : 0;
+        int uls_weight = plan.uls ? 86 : 0;
+        int ised_weight = plan.ised ? 4 : 0;
         int centroid_weight = plan.zip_centroids ? 4 : 0;
         int county_weight = plan.zip_counties ? 6 : 0;
-        int total_weight = uls_weight + centroid_weight + county_weight;
+        int total_weight = uls_weight + ised_weight + centroid_weight + county_weight;
         if (total_weight == 0)
         {
             return "complete";
@@ -1047,6 +1296,22 @@ namespace ql
                 return "interrupted";
             }
             RecordDatasetOutcome(db, kUlsDataset, ok, started_at, records, error);
+            all_ok = all_ok && ok;
+            base += span;
+        }
+
+        if (plan.ised)
+        {
+            int span = 100 * ised_weight / total_weight;
+            std::int64_t started_at = Now();
+            std::int64_t records = 0;
+            std::string error;
+            bool ok = LoadIsed(sources, cache_dir, db, &reporter, base, span, &records, &error);
+            if (reporter.StopRequested())
+            {
+                return "interrupted";
+            }
+            RecordDatasetOutcome(db, kIsedDataset, ok, started_at, records, error);
             all_ok = all_ok && ok;
             base += span;
         }
@@ -1135,6 +1400,19 @@ namespace ql
         {
             message += " The last attempt (" + FormatLocalDateTime(uls->started_at) +
                        ") failed: " + uls->last_error + " It will be retried automatically.";
+        }
+
+        std::optional<ImportRunStatus> ised = db->GetImportRunStatus(kIsedDataset);
+        if (UlsDataLoaded(ised))
+        {
+            message += " Canadian (ISED) call sign data last updated " +
+                       FormatLocalDateTime(ised->completed_at) + " (" +
+                       std::to_string(ised->records_imported) + " records).";
+        }
+        if (ised.has_value() && ised->status == "failed")
+        {
+            message += " Canadian call sign data failed to load (" + ised->last_error +
+                       "); it will be retried automatically.";
         }
 
         std::optional<ImportRunStatus> centroids = db->GetImportRunStatus(kZipCentroidsDataset);

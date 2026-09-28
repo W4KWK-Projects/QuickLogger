@@ -55,7 +55,7 @@ namespace ql
                                    table + "'"),
                      std::int64_t{1});
         }
-        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{8});
+        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{9});
         CHECK_EQ(CountRows(dir.File("q.db"),
                            "SELECT COUNT(*) FROM pragma_table_info('import_runs') WHERE name IN "
                            "('phase','percent','heartbeat_at','requested_at')"),
@@ -114,7 +114,7 @@ namespace ql
         )sql");
 
         Database db(path);
-        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{8});
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{9});
         std::vector<Net> nets = db.GetAllNets();
         REQUIRE(nets.size() == 1);
         CHECK_EQ(nets[0].created_at, std::int64_t{0});  // Unknown, not guessed.
@@ -606,6 +606,23 @@ namespace ql
         CHECK_EQ(found[3].miles, -1.0);
 
         CHECK_EQ(db.SearchNearbyUlsStations("K1", nearby, {"374"}, 2).size(), std::size_t{2});
+
+        // The in-memory list: every nearby station, the same order, callsign
+        // and distance only.
+        std::vector<NearbyUlsCallsign> listed = db.ListNearbyUlsCallsigns(nearby, {"374"});
+        REQUIRE(listed.size() == 5);
+        CHECK_EQ(std::string(listed[0].callsign), std::string("K1BBB"));
+        CHECK_EQ(std::string(listed[1].callsign), std::string("K1CCC"));
+        CHECK_EQ(std::string(listed[2].callsign), std::string("W9ZZZ"));
+        CHECK_EQ(std::string(listed[3].callsign), std::string("K1AAA"));
+        CHECK(listed[3].miles > 12.3F && listed[3].miles < 12.5F);
+        CHECK_EQ(std::string(listed[4].callsign), std::string("K1EEE"));
+        CHECK(listed[4].miles < 0.0F);
+
+        // Single lookups, and the centroids in a box.
+        CHECK_EQ(db.FindZipCentroid("37402")->lat, 35.05);
+        CHECK(!db.FindZipCentroid("99999").has_value());
+        CHECK_EQ(db.GetZipCentroidsInBox(35.0, 35.2, -85.4, -85.2).size(), std::size_t{2});
         // A prefix ending in 9 (whose "next" prefix isn't a digit).
         std::vector<NearbyZip> nine = {Near("37900", 5.0)};
         db.BulkUpsertUlsStations(
@@ -623,6 +640,8 @@ namespace ql
         CHECK_EQ(db.GetAllZipCounties().size(), std::size_t{2});
         db.ReplaceZipCountyData({{"37415", "Hamilton"}}, {});
         CHECK_EQ(db.GetAllZipCounties().size(), std::size_t{1});
+        CHECK_EQ(db.FindZipCounty("37415"), std::string("Hamilton"));
+        CHECK_EQ(db.FindZipCounty("30752"), std::string(""));
         CHECK(db.GetAllZipPlaceCounties().empty());
     }
 

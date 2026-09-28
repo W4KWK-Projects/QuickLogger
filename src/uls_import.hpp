@@ -9,7 +9,9 @@ namespace ql
     class Database;
 
     // The station data QuickLogger downloads for itself: the FCC ULS amateur
-    // license database (callsign -> name/address/license class), the Census
+    // license database (callsign -> name/address/license class), its
+    // Canadian counterpart from ISED (Innovation, Science and Economic
+    // Development Canada's amateur call sign database), the Census
     // ZIP gazetteer (ZIP -> lat/lon, for the saved-station proximity search)
     // and the Census ZIP-to-county data (for Station::county). All of it is
     // shared by every session, kept up to date automatically by the data
@@ -18,6 +20,7 @@ namespace ql
 
     // One row per dataset, recording its last load.
     constexpr const char* kUlsDataset = "uls";
+    constexpr const char* kIsedDataset = "ised";
     constexpr const char* kZipCentroidsDataset = "zip_centroids";
     // Named "_data" rather than reusing the older "zip_counties" row, which
     // described an earlier, less accurate way of building the same table --
@@ -27,7 +30,7 @@ namespace ql
     constexpr const char* kDataRefreshJob = "data_refresh";
 
     // FCC republishes the ULS amateur database weekly; a completed load
-    // older than this is due for a refresh.
+    // older than this is due for a refresh. ISED's is refreshed as often.
     constexpr std::int64_t kUlsStalenessThresholdSeconds = std::int64_t{7} * 24 * 60 * 60;
     // How long after a failed load before it's tried again on its own.
     constexpr std::int64_t kFailedLoadRetrySeconds = std::int64_t{60} * 60;
@@ -41,6 +44,7 @@ namespace ql
     struct DataSources
     {
         std::string uls_zip_url;
+        std::string ised_zip_url;
         std::string zip_gazetteer_url;
         std::string zip_gazetteer_file_name;  // The file inside that zip.
         std::string zcta_county_url;
@@ -53,15 +57,16 @@ namespace ql
     struct DataRefreshPlan
     {
         bool uls = false;
+        bool ised = false;
         bool zip_centroids = false;
         bool zip_counties = false;
     };
 
     // Works out what's due: a dataset that has never loaded, whose last
-    // attempt failed more than kFailedLoadRetrySeconds ago, or (ULS only)
-    // whose last load is more than a week old. A refresh requested by hand
-    // (Database::RequestImportRun on kDataRefreshJob) makes the ULS data and
-    // anything that failed due immediately.
+    // attempt failed more than kFailedLoadRetrySeconds ago, or (the FCC and
+    // ISED licence data) whose last load is more than a week old. A refresh
+    // requested by hand (Database::RequestImportRun on kDataRefreshJob)
+    // makes the licence data and anything that failed due immediately.
     DataRefreshPlan PlanDataRefresh(Database* db, std::int64_t now);
 
     // True if `plan` has anything to do.

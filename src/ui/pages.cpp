@@ -2166,7 +2166,7 @@ namespace ql
 
     // A Station Card line ("Name:           Ann Amateur"), colored like a
     // form: the label as field labels are, what's known as entered data is,
-    // and what isn't ("(none)", "(not in the FCC data)", "none yet") as
+    // and what isn't ("(none)", "(not in the FCC or ISED data)", "none yet") as
     // hints are.
     static ftxui::Element StationCardLine(const std::string& line)
     {

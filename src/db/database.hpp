@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "../models.hpp"
@@ -238,6 +239,7 @@ namespace ql
         // since the last one stops turning up in autocomplete. Returns how
         // many were deleted.
         int DeleteUlsStationsNotIn(const std::vector<Station>& current);
+        int DeleteUlsStationsNotIn(const std::vector<std::string_view>& current_callsigns);
         // Autocomplete's FCC tier: ULS stations whose callsign contains
         // `substring` (case-insensitive) and who live near the operator,
         // nearest first (then by callsign), at most `limit` of them (-1 for
@@ -249,10 +251,31 @@ namespace ql
         std::vector<NearbyUlsStation> SearchNearbyUlsStations(
             const std::string& substring, const std::vector<NearbyZip>& nearby_zips,
             const std::vector<std::string>& zip3_prefixes, int limit);
+        // Every station SearchNearbyUlsStations("") would return, in the same
+        // order, as just its callsign and distance: what autocomplete keeps
+        // in memory (see AppState::nearby_uls_callsigns). Read from the
+        // (zip, callsign) index alone, never the table's rows.
+        std::vector<NearbyUlsCallsign> ListNearbyUlsCallsigns(
+            const std::vector<NearbyZip>& nearby_zips,
+            const std::vector<std::string>& zip3_prefixes);
         // Exact-callsign lookup against the ULS table, for resolving a
         // specific operator's info (see LogOperatorCheckIn) rather than
         // searching/ranking candidates.
         std::optional<Station> FindUlsStationByCallsign(const std::string& callsign);
+
+        // Canada's amateur call sign database (ISED -- see uls_import.hpp),
+        // in its own table like the FCC's. Replaced wholesale on each load,
+        // in one transaction: it's small (about 90,000 call signs), and a
+        // call sign no longer listed simply isn't there afterwards.
+        void ReplaceIsedStations(const std::vector<Station>& stations, std::int64_t updated_at);
+        std::optional<Station> FindIsedStationByCallsign(const std::string& callsign);
+        // Autocomplete's Canadian tier: ISED call signs starting with
+        // `prefix` (case-insensitive), in order, at most `limit` of them.
+        std::vector<Station> SearchIsedStationsByCallsignPrefix(const std::string& prefix,
+                                                                int limit);
+        // A call sign's licence details from whichever database has it:
+        // the FCC's, else ISED's.
+        std::optional<Station> FindLicensedStationByCallsign(const std::string& callsign);
 
         // Approximate lat/lon centroids for US ZIP codes (from the Census
         // Bureau's ZCTA gazetteer), used to estimate distance for the
@@ -260,21 +283,28 @@ namespace ql
         // same background worker that imports ULS data (see uls_import.hpp);
         // BulkUpsertZipCentroids is a plain overwrite-on-conflict batch
         // upsert, same performance rationale as BulkUpsertUlsStations.
-        // GetAllZipCentroids is meant to be called once per process run and
-        // cached (see AppState::zip_centroids_cache), not queried live.
+        // Sessions look up what they need rather than holding the table.
         void BulkUpsertZipCentroids(const std::vector<ZipCentroid>& batch);
         std::vector<ZipCentroid> GetAllZipCentroids();
+        std::optional<ZipCentroid> FindZipCentroid(const std::string& zip);
+        // Every centroid inside a latitude/longitude box, from an index on
+        // (lat, lon): the candidates for NearbyZips, a few hundred rows
+        // rather than the whole table.
+        std::vector<ZipCentroid> GetZipCentroidsInBox(double min_lat, double max_lat,
+                                                      double min_lon, double max_lon);
         bool HasAnyZipCentroids();
 
         // ZIP-to-county data (see ZipCounty/ZipPlaceCounty in models.hpp and
         // FetchAndLoadZipCounties in uls_import.cpp). Replaced wholesale in
         // one transaction -- it's derived from Census files, never edited.
-        // The getters are meant to be called once per process and cached
-        // (see AppState::zip_county_by_zip), not queried live.
+        // FindZipCounty and FindZipPlaceCounty (for a `place` as
+        // NormalizePlaceName writes it) look up one, "" if there's none.
         void ReplaceZipCountyData(const std::vector<ZipCounty>& zip_counties,
                                   const std::vector<ZipPlaceCounty>& zip_place_counties);
         std::vector<ZipCounty> GetAllZipCounties();
         std::vector<ZipPlaceCounty> GetAllZipPlaceCounties();
+        std::string FindZipCounty(const std::string& zip);
+        std::string FindZipPlaceCounty(const std::string& zip, const std::string& place);
 
         bool HasAnyUlsStations();
 

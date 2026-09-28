@@ -53,7 +53,7 @@ Check the download with `sha256sum -c QuickLogger-<version>-linux-amd64.tar.gz.s
 On every platform:
 
 - **A terminal that handles UTF-8 and colors** — any modern terminal emulator. (On Windows: Windows Terminal, or the console in Windows 10 or later.) QuickLogger takes over the whole terminal window.
-- **Internet access** for the first launch, which downloads the FCC's amateur license database (about 200 MB) and some Census ZIP-code and county files (about 30 MB, once), and refreshes the FCC data about weekly. Without it the rest of QuickLogger still works, but callsign, ZIP and county lookups have no data to draw on.
+- **Internet access** for the first launch, which downloads the FCC's amateur license database (about 200 MB), Canada's (ISED's, about 2 MB) and some Census ZIP-code and county files (about 30 MB, once), and refreshes the FCC and ISED data about weekly. Without it the rest of QuickLogger still works, but callsign, ZIP and county lookups have no data to draw on.
 - **Write access to the directory you launch it from** — it keeps its data there (see [Files it creates](#files-it-creates)).
 
 The runtime libraries QuickLogger is linked against, by platform (installing the [build packages](#what-you-need-to-build-it) instead also covers these):
@@ -100,7 +100,7 @@ QuickLogger creates and uses these files/directories, all as siblings of whereve
 - `settings.txt` — your own callsign and home ZIP (local console session only; never included in any export)
 - `settings/` — one settings file per SSH login user (see below)
 - `exports/`, `imports/` — where "download"/"upload" style features (net-slice export/import, ZMODEM) read and write files. The local console's files go directly in them and are kept for good. Each SSH user's go in their own `ssh-users/<username>/` folder inside them, where only that user sees them, and are deleted after 7 days; for an SSH user they're only a stop on the way to or from their own computer.
-- `uls_cache/` — downloaded FCC and Census files (see [Station data](#station-data)); safe to delete while QuickLogger isn't running
+- `uls_cache/` — downloaded FCC, ISED and Census files (see [Station data](#station-data)); safe to delete while QuickLogger isn't running
 - `ssh_host_ed25519_key` — the SSH server's host key (see below)
 
 ### How much disk space and memory it needs
@@ -142,7 +142,7 @@ The number of users hardly matters. Each login adds a settings file of about 50 
 
 So even installation B needs only about **1 GB after 10 years**, and most of that is `uls_cache/`. You can delete `uls_cache/` while QuickLogger isn't running to get that space back. It fills up again at the next weekly refresh.
 
-**Memory.** Each session, local or over SSH, uses about 10 MB. The station-data updater idles at about 2 MB. It imports the FCC data (at first launch, then for under a minute once a week) in a separate short-lived process that peaks at about 275 MB and returns all of it to the system when it finishes. (On Windows the import runs inside the QuickLogger process, so that memory stays in use until QuickLogger exits.)
+**Memory.** Each session, local or over SSH, uses about 5 MB of its own, whatever it's doing; typing a callsign with the widest Nearby Radius (250 miles) adds about 2 MB. Sessions read the database through a memory map, so the operating system keeps one copy of the pages being read, shared by every session, rather than each session copying them. The station-data updater idles at about 2 MB. It imports the FCC data (at first launch, then for under a minute once a week) in a separate short-lived process that peaks at about 130 MB and returns all of it to the system when it finishes. (On Windows the import runs inside the QuickLogger process, so that memory stays in use until QuickLogger exits.)
 
 **Recommendation.**
 

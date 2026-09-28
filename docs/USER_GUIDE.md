@@ -79,7 +79,7 @@ In the window, **F2** logs and clears the form for the next station, **F3** logs
 
 The window is as wide as your terminal allows (less a margin), so long remarks and comments fit, and from 90 columns its fields are in two columns.
 
-**Details for any licensed station:** when you log a callsign, or leave the Callsign field with **Tab** or F4/F5/F6, its details are filled in from what's known about it: a station known to one of your nets, or else the FCC data at any distance, even if it wasn't among the matches (for example, a station farther away than your Nearby Radius). Only blank fields are filled; anything you typed is kept. A mobile or portable callsign (`W4KWK/M`) gets the details of the station itself. A station can check in only once per session, counting a mobile or portable callsign (`W4KWK/M`, `VE3/W4KWK`) as the same station; logging it again says which # it already is.
+**Details for any licensed station:** when you log a callsign, or leave the Callsign field with **Tab** or F4/F5/F6, its details are filled in from what's known about it: a station known to one of your nets, or else the FCC data at any distance (Canada's ISED data for a Canadian callsign), even if it wasn't among the matches (for example, a station farther away than your Nearby Radius). Only blank fields are filled; anything you typed is kept. A mobile or portable callsign (`W4KWK/M`) gets the details of the station itself. A station can check in only once per session, counting a mobile or portable callsign (`W4KWK/M`, `VE3/W4KWK`) as the same station; logging it again says which # it already is.
 
 On the check-in list, **F3** edits and **F5** deletes a check-in by its number (see [Editing and deleting by number](#editing-and-deleting-by-number)); **Enter** edits the highlighted one. A check-in's callsign can't be changed; delete it and log it again instead. Deleting leaves a gap in the numbers rather than renumbering the rest. **F7** exports the log.
 
@@ -140,8 +140,9 @@ In the New Check-In and Saved Station windows, matches appear as you type any pa
 1. Stations known to **this net** (checked in before, or saved to it), marked *(this net)*.
 2. Stations known to **other nets**, marked *(other net)*.
 3. **Licensed stations nearby**, from the FCC data: within your Nearby Radius (70 miles unless you change it in Settings) of the net's ZIP (or your home ZIP), nearest first, marked *(ULS, ~N mi)*. Stations whose ZIP has no location on file (usually a PO Box) follow, marked *(ULS, nearby)*.
+4. **Canadian callsigns**, from Canada's ISED database, when what you've typed starts with **V** (every Canadian amateur callsign starts VA, VE, VO or VY; no US one starts with V): callsigns starting with what you've typed, in order, marked *(ISED)*. ISED's data has no distances, so these aren't limited to your Nearby Radius.
 
-**Up/Down** move the **>** marker and **Enter** picks that match, filling in the station's details. If you typed a whole callsign, **Enter** takes that station, whether it's further down the list or not in it at all (unless you've moved the marker to another match). You stay in the Callsign field, so you can keep typing to narrow the list. While it's showing, the list takes the place of the window's other fields; they come back when you pick a match, clear the callsign or **Tab** away. If nothing matches, type the whole callsign: **Enter** then looks it up exactly, in the FCC data at any distance.
+**Up/Down** move the **>** marker and **Enter** picks that match, filling in the station's details. If you typed a whole callsign, **Enter** takes that station, whether it's further down the list or not in it at all (unless you've moved the marker to another match). You stay in the Callsign field, so you can keep typing to narrow the list. While it's showing, the list takes the place of the window's other fields; they come back when you pick a match, clear the callsign or **Tab** away. If nothing matches, type the whole callsign: **Enter** then looks it up exactly, in the FCC data at any distance, or ISED's.
 
 **Callsign rules:** only callsigns the US or Canada could issue are accepted, with or without a portable indicator (`W4KWK/M`, `/P`, `/QRP`, `/4`, `VE3/W4KWK`). Anything else, like a typo (`W4KW4`) or a foreign callsign, is refused when you log or save it.
 
@@ -211,10 +212,10 @@ Resizing the terminal re-lays everything out at once. At 80 columns everything l
 
 ## Station data
 
-QuickLogger keeps its own copy of the FCC's amateur license database, plus Census data for working out counties, and keeps it current by itself:
+QuickLogger keeps its own copy of the FCC's amateur license database and Canada's (from ISED, Innovation, Science and Economic Development Canada), plus Census data for working out counties, and keeps it current by itself:
 
 - The first download starts when QuickLogger first runs and takes a minute or two. Until it's done, a yellow **Loading station data NN%** notice shows at the top of every screen and callsign lookups find no one; everything else works.
-- After that, the FCC data is refreshed about weekly (**Updating station data** shows meanwhile; lookups keep working). A failed download is retried hourly.
+- After that, the FCC and ISED data are refreshed about weekly (**Updating station data** shows meanwhile; lookups keep working). A failed download is retried hourly.
 - **Settings** shows when the data was last updated.
 
 **County:** FCC records have no county, so QuickLogger uses the station's ZIP. For a ZIP that crosses a county line, the station's city decides when it names a town inside that ZIP; otherwise the ZIP counts as being in whichever county most of its residents live in.
@@ -224,5 +225,5 @@ QuickLogger keeps its own copy of the FCC's amateur license database, plus Censu
 - **An F-key does nothing, or does something else:** some terminal programs keep certain F-keys for themselves (F1 for their own help, F10 for their menu, F11 for full screen). Turn that off in the terminal's settings, or see its keyboard options.
 - **The screen is cut off:** QuickLogger needs at least 80×24. Make the window bigger; it adjusts straight away.
 - **Esc takes a moment:** about a tenth of a second, while QuickLogger checks that it isn't the start of another key. Pressing Esc twice quickly works as two Escs.
-- **A callsign isn't found:** check whether the station data is still loading (the notice at the top). FCC records only cover US licensees; enter Canadian and other stations' details by hand.
+- **A callsign isn't found:** check whether the station data is still loading (the notice at the top). The FCC and ISED data cover US and Canadian licensees; enter other stations' details by hand.
 - **"Net Closed" window:** another operator closed the session you were on. Press Enter, then start the net again (F3) if you need a new session.

@@ -284,25 +284,6 @@ namespace ql
         // copied into settings_form.nearby_radius_miles on save.
         std::string settings_radius_text;
 
-        // In-memory cache of the whole zip_centroids table (see
-        // EnsureZipCentroidsCached in app_state.cpp), so proximity lookups
-        // for the saved-station form's ULS tier (RefreshNearbyZips,
-        // RefreshSavedStationSuggestions) don't re-query the database on
-        // every edit-net-page-open or keystroke -- ZIP centroids are
-        // effectively static once loaded, so a one-time load per process
-        // run is enough. Empty until the first call that needs it (lazy),
-        // and left empty (harmlessly retried next time) if the database
-        // doesn't have the data yet.
-        std::vector<ZipCentroid> zip_centroids_cache;
-        std::unordered_map<std::string, ZipCentroid> zip_centroids_by_zip;
-
-        // Same idea as the pair above, for the ZIP-to-county data used by
-        // BackfillCountyFromZip: each ZIP's county, and -- for ZIPs that cross
-        // a county line -- the county of each town inside them, keyed on
-        // "<ZIP>|<TOWN>" (see ZipPlaceCounty in models.hpp).
-        std::unordered_map<std::string, std::string> zip_county_by_zip;
-        std::unordered_map<std::string, std::string> zip_place_county_by_key;
-
         // Net list page: the recurring nets a user can select and start (never
         // ad hoc ones -- see Net::is_ad_hoc).
         std::vector<Net> nets;

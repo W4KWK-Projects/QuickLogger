@@ -2,6 +2,8 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
+#include <cstring>
 #include <stdexcept>
 #include <utility>
 
@@ -103,13 +105,27 @@ CREATE TABLE IF NOT EXISTS uls_stations (
     license_class TEXT NOT NULL DEFAULT '',
     last_updated INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_uls_stations_zip ON uls_stations(zip);
+-- (zip, callsign) rather than zip alone: the nearby-stations list is read
+-- from this index without touching the table (ListNearbyUlsCallsigns).
+CREATE INDEX IF NOT EXISTS idx_uls_stations_zip_callsign ON uls_stations(zip, callsign);
+
+CREATE TABLE IF NOT EXISTS ised_stations (
+    callsign TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    street_address TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT '',
+    zip TEXT NOT NULL DEFAULT '',
+    license_class TEXT NOT NULL DEFAULT '',
+    last_updated INTEGER NOT NULL DEFAULT 0
+);
 
 CREATE TABLE IF NOT EXISTS zip_centroids (
     zip TEXT PRIMARY KEY,
     lat REAL NOT NULL,
     lon REAL NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_zip_centroids_lat_lon ON zip_centroids(lat, lon, zip);
 
 CREATE TABLE IF NOT EXISTS zip_counties (
     zip TEXT PRIMARY KEY,
@@ -135,7 +151,7 @@ CREATE TABLE IF NOT EXISTS users (
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 8;
+    static constexpr int kSchemaVersion = 9;
 
     static int ReadUserVersion(sqlite3* db)
     {
@@ -295,6 +311,16 @@ CREATE TABLE IF NOT EXISTS users (
         // transaction, never a held connection waiting on user input.
         sqlite3_busy_timeout(db_, 5000);
         sqlite3_exec(db_, "PRAGMA foreign_keys = ON;", nullptr, nullptr, nullptr);
+        // Reads go through a memory map of the file rather than into each
+        // connection's own page cache: the operating system keeps one copy
+        // of the file's pages, shared by every session's process, instead
+        // of every connection copying what it reads into memory of its own
+        // (SQLite's default cache is up to 8 MB a connection on some
+        // systems, and each session has two connections). The cache is then
+        // left small, for the pages being written. 1 GB covers the database
+        // many times over; only the parts actually read take any memory.
+        sqlite3_exec(db_, "PRAGMA mmap_size = 1073741824;", nullptr, nullptr, nullptr);
+        sqlite3_exec(db_, "PRAGMA cache_size = -1024;", nullptr, nullptr, nullptr);
         // WAL lets the UI thread's reads proceed while a background import
         // (see uls_import.hpp) holds a writer transaction open on a second
         // connection to this same file. It's also what makes it safe for
@@ -392,6 +418,8 @@ CREATE TABLE IF NOT EXISTS users (
         // Since 1.6.0 a user can be view-only; everyone already there
         // stays a full user.
         EnsureColumnExists(db_, "users", "view_only", "INTEGER NOT NULL DEFAULT 0");
+        // Since 1.6.0 covered by idx_uls_stations_zip_callsign.
+        sqlite3_exec(db_, "DROP INDEX IF EXISTS idx_uls_stations_zip;", nullptr, nullptr, nullptr);
 
         std::string set_version = "PRAGMA user_version = " + std::to_string(kSchemaVersion) + ";";
         sqlite3_exec(db_, set_version.c_str(), nullptr, nullptr, nullptr);
@@ -1486,6 +1514,171 @@ COMMIT;
         return results;
     }
 
+    static bool NearbyUlsCallsignComesFirst(const NearbyUlsCallsign& a, const NearbyUlsCallsign& b)
+    {
+        bool a_unknown = a.miles < 0.0F;
+        bool b_unknown = b.miles < 0.0F;
+        if (a_unknown != b_unknown)
+        {
+            return b_unknown;
+        }
+        if (a.miles != b.miles)
+        {
+            return a.miles < b.miles;
+        }
+        return std::strcmp(a.callsign, b.callsign) < 0;
+    }
+
+    // Appends `statement`'s rows (a callsign each) to `results`, each at
+    // `miles` away.
+    static void AppendNearbyCallsigns(Statement* statement, float miles,
+                                      std::vector<NearbyUlsCallsign>* results)
+    {
+        while (statement->Step())
+        {
+            std::string callsign = statement->ColumnText(0);
+            if (callsign.size() >= sizeof(NearbyUlsCallsign::callsign))
+            {
+                continue;  // Not a US call sign; none are this long.
+            }
+            NearbyUlsCallsign nearby;
+            std::memcpy(nearby.callsign, callsign.c_str(), callsign.size() + 1);
+            nearby.miles = miles;
+            results->push_back(nearby);
+        }
+    }
+
+    std::vector<NearbyUlsCallsign> Database::ListNearbyUlsCallsigns(
+        const std::vector<NearbyZip>& nearby_zips, const std::vector<std::string>& zip3_prefixes)
+    {
+        std::vector<NearbyUlsCallsign> results;
+        if (nearby_zips.empty())
+        {
+            return results;
+        }
+        // One small query per ZIP, each read from the (zip, callsign) index
+        // alone, rather than one query joining them all: SQLite would build
+        // and hold temporary tables for the join, several megabytes at the
+        // widest radius, where these hold nothing.
+        Statement in_zip(db_, "SELECT callsign FROM uls_stations WHERE zip = ?;");
+        for (const NearbyZip& nearby : nearby_zips)
+        {
+            in_zip.Reset();
+            in_zip.BindText(0, nearby.zip);
+            AppendNearbyCallsigns(&in_zip, static_cast<float>(nearby.miles), &results);
+        }
+        // Stations whose ZIP has no centroid (so, no distance), in the
+        // nearby ZIPs' first three digits -- see SearchNearbyUlsStations.
+        // (A nearby ZIP has a centroid, so none of these is one of them.)
+        Statement no_centroid(db_, R"sql(
+        SELECT u.callsign FROM uls_stations u WHERE u.zip >= ? AND u.zip < ?
+        AND NOT EXISTS (SELECT 1 FROM zip_centroids c WHERE c.zip = u.zip);
+    )sql");
+        for (const std::string& prefix : zip3_prefixes)
+        {
+            std::string after_prefix = prefix;
+            if (!after_prefix.empty())
+            {
+                after_prefix.back() = static_cast<char>(after_prefix.back() + 1);
+            }
+            no_centroid.Reset();
+            no_centroid.BindText(0, prefix);
+            no_centroid.BindText(1, after_prefix);
+            AppendNearbyCallsigns(&no_centroid, -1.0F, &results);
+        }
+        // Nearest first, those of unknown distance last, then by callsign.
+        std::sort(results.begin(), results.end(), NearbyUlsCallsignComesFirst);
+        return results;
+    }
+
+    // A licensed station (uls_stations or ised_stations, which share their
+    // columns) from `statement`'s current row.
+    static Station ReadLicensedStationRow(const Statement& statement, StationDataSource source)
+    {
+        Station station;
+        station.callsign = statement.ColumnText(0);
+        station.name = statement.ColumnText(1);
+        station.street_address = statement.ColumnText(2);
+        station.city = statement.ColumnText(3);
+        station.state = statement.ColumnText(4);
+        station.zip = statement.ColumnText(5);
+        station.license_class = statement.ColumnText(6);
+        station.last_updated = statement.ColumnInt64(7);
+        station.data_source = source;
+        return station;
+    }
+
+    void Database::ReplaceIsedStations(const std::vector<Station>& stations,
+                                       std::int64_t updated_at)
+    {
+        sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+        sqlite3_exec(db_, "DELETE FROM ised_stations;", nullptr, nullptr, nullptr);
+        Statement insert(db_, R"sql(
+        INSERT OR REPLACE INTO ised_stations
+            (callsign, name, street_address, city, state, zip, license_class, last_updated)
+        VALUES (?,?,?,?,?,?,?,?);
+    )sql");
+        for (const Station& station : stations)
+        {
+            insert.Reset();
+            insert.BindText(0, station.callsign);
+            insert.BindText(1, station.name);
+            insert.BindText(2, station.street_address);
+            insert.BindText(3, station.city);
+            insert.BindText(4, station.state);
+            insert.BindText(5, station.zip);
+            insert.BindText(6, station.license_class);
+            insert.BindInt64(7, updated_at);
+            insert.Step();
+        }
+        sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
+    }
+
+    std::optional<Station> Database::FindIsedStationByCallsign(const std::string& callsign)
+    {
+        Statement statement(db_, R"sql(
+        SELECT callsign, name, street_address, city, state, zip, license_class,
+               last_updated
+        FROM ised_stations WHERE callsign = ?;
+    )sql");
+        statement.BindText(0, ToUpperAscii(callsign));
+        if (!statement.Step())
+        {
+            return std::nullopt;
+        }
+        return ReadLicensedStationRow(statement, StationDataSource::kIsed);
+    }
+
+    std::vector<Station> Database::SearchIsedStationsByCallsignPrefix(const std::string& prefix,
+                                                                      int limit)
+    {
+        // A range on the primary key rather than LIKE, so it's an index
+        // lookup: every callsign from `prefix` up to `prefix` followed by
+        // '~', which sorts after every letter and digit.
+        std::string upper = ToUpperAscii(prefix);
+        Statement statement(db_, R"sql(
+        SELECT callsign, name, street_address, city, state, zip, license_class,
+               last_updated
+        FROM ised_stations WHERE callsign >= ? AND callsign < ?
+        ORDER BY callsign LIMIT ?;
+    )sql");
+        statement.BindText(0, upper);
+        statement.BindText(1, upper + "~");
+        statement.BindInt64(2, limit);
+        std::vector<Station> stations;
+        while (statement.Step())
+        {
+            stations.push_back(ReadLicensedStationRow(statement, StationDataSource::kIsed));
+        }
+        return stations;
+    }
+
+    std::optional<Station> Database::FindLicensedStationByCallsign(const std::string& callsign)
+    {
+        std::optional<Station> station = FindUlsStationByCallsign(callsign);
+        return station.has_value() ? station : FindIsedStationByCallsign(callsign);
+    }
+
     std::optional<Station> Database::FindUlsStationByCallsign(const std::string& callsign)
     {
         Statement statement(db_, R"sql(
@@ -1552,7 +1745,72 @@ COMMIT;
         return results;
     }
 
+    std::optional<ZipCentroid> Database::FindZipCentroid(const std::string& zip)
+    {
+        Statement statement(db_, "SELECT zip, lat, lon FROM zip_centroids WHERE zip = ?;");
+        statement.BindText(0, zip);
+        if (!statement.Step())
+        {
+            return std::nullopt;
+        }
+        ZipCentroid centroid;
+        centroid.zip = statement.ColumnText(0);
+        centroid.lat = statement.ColumnDouble(1);
+        centroid.lon = statement.ColumnDouble(2);
+        return centroid;
+    }
+
+    std::vector<ZipCentroid> Database::GetZipCentroidsInBox(double min_lat, double max_lat,
+                                                            double min_lon, double max_lon)
+    {
+        Statement statement(db_, R"sql(
+        SELECT zip, lat, lon FROM zip_centroids
+        WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?;
+    )sql");
+        statement.BindDouble(0, min_lat);
+        statement.BindDouble(1, max_lat);
+        statement.BindDouble(2, min_lon);
+        statement.BindDouble(3, max_lon);
+        std::vector<ZipCentroid> results;
+        while (statement.Step())
+        {
+            ZipCentroid centroid;
+            centroid.zip = statement.ColumnText(0);
+            centroid.lat = statement.ColumnDouble(1);
+            centroid.lon = statement.ColumnDouble(2);
+            results.push_back(std::move(centroid));
+        }
+        return results;
+    }
+
+    std::string Database::FindZipCounty(const std::string& zip)
+    {
+        Statement statement(db_, "SELECT county FROM zip_counties WHERE zip = ?;");
+        statement.BindText(0, zip);
+        return statement.Step() ? statement.ColumnText(0) : std::string();
+    }
+
+    std::string Database::FindZipPlaceCounty(const std::string& zip, const std::string& place)
+    {
+        Statement statement(db_,
+                            "SELECT county FROM zip_place_counties WHERE zip = ? AND place = ?;");
+        statement.BindText(0, zip);
+        statement.BindText(1, place);
+        return statement.Step() ? statement.ColumnText(0) : std::string();
+    }
+
     int Database::DeleteUlsStationsNotIn(const std::vector<Station>& current)
+    {
+        std::vector<std::string_view> callsigns;
+        callsigns.reserve(current.size());
+        for (const Station& station : current)
+        {
+            callsigns.emplace_back(station.callsign);
+        }
+        return DeleteUlsStationsNotIn(callsigns);
+    }
+
+    int Database::DeleteUlsStationsNotIn(const std::vector<std::string_view>& current_callsigns)
     {
         sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
         sqlite3_exec(db_,
@@ -1563,10 +1821,10 @@ COMMIT;
         {
             Statement insert(db_,
                              "INSERT OR IGNORE INTO current_uls_callsigns (callsign) VALUES (?);");
-            for (const Station& station : current)
+            for (std::string_view callsign : current_callsigns)
             {
                 insert.Reset();
-                insert.BindText(0, ToUpperAscii(station.callsign));
+                insert.BindText(0, ToUpperAscii(std::string(callsign)));
                 insert.Step();
             }
         }
