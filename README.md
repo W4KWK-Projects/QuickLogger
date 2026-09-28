@@ -13,7 +13,7 @@ This README has two halves: **[Running QuickLogger](#running-quicklogger)** (wha
 | **macOS** | Full (console + SSH server) | Built and run natively (Apple Silicon) |
 | **Linux** (glibc and musl) | Full (console + SSH server) | Built and the full test suite run on every change, following [Building QuickLogger](#building-quicklogger): Ubuntu 22.04 and 24.04, Debian 13, Fedora and Alpine (musl), including CMake 3.16 |
 | **FreeBSD** 14 / 15 | Full (console + SSH server) | Built on a FreeBSD machine by following [Building QuickLogger](#building-quicklogger) exactly (compiled and linked, 1.4.3). Runs as expected. Basic functionality confirmed. |
-| **Windows** | Console only — no SSH server, no ZMODEM | Built and the full test suite run on every change, with Visual Studio + vcpkg and with MSYS2 (UCRT64), following [Building QuickLogger](#building-quicklogger); not yet run interactively |
+| **Windows** | Console only — no SSH server, no ZMODEM | Built and the full test suite run on every change, with Visual Studio + vcpkg and with MSYS2 (UCRT64), following [Building QuickLogger](#building-quicklogger). The arm64 release binary was run on Windows 11 on ARM, with no problems found; x64 hasn't been run interactively yet |
 
 The libraries QuickLogger depends on are standard and available on all of these systems, but until it has been built and run on a given platform, treat that platform as new — bug reports welcome.
 
@@ -23,7 +23,7 @@ The libraries QuickLogger depends on are standard and available on all of these 
 
 ## Download (macOS)
 
-Each [release](https://github.com/W4KWK-Projects/QuickLogger/releases) has a ready-to-run macOS binary for Apple Silicon Macs, built for macOS 13 or later: `QuickLogger-<version>-macos-arm64.tar.gz`. For Linux and FreeBSD, see below; on other platforms, [build it](#building-quicklogger).
+Each [release](https://github.com/W4KWK-Projects/QuickLogger/releases) has a ready-to-run macOS binary for Apple Silicon Macs, built for macOS 13 or later: `QuickLogger-<version>-macos-arm64.tar.gz`. For Linux, FreeBSD and Windows, see below; on other platforms, [build it](#building-quicklogger).
 
 1. Install its one outside library: `brew install libssh`.
 2. Unpack it: `tar xzf QuickLogger-<version>-macos-arm64.tar.gz`.
@@ -48,6 +48,16 @@ Releases have Linux binaries for 64-bit PCs (`QuickLogger-<version>-linux-amd64.
 
 Check the download with `sha256sum -c QuickLogger-<version>-linux-amd64.tar.gz.sha256`.
 
+## Download (Windows)
+
+Releases have Windows binaries for 64-bit PCs (`QuickLogger-<version>-windows-x64.zip`) and 64-bit ARM, such as Windows in a VM on an Apple Silicon Mac or a Snapdragon laptop (`QuickLogger-<version>-windows-arm64.zip`). Each is a single `QuickLogger.exe` with nothing else to install. It's console only (see [Running on Windows](#running-on-windows)).
+
+1. Unzip it.
+2. Move `QuickLogger.exe` into the folder you want its data in, and start it there from Windows Terminal (see [Starting it](#starting-it)).
+3. The program isn't signed, so Windows SmartScreen may stop it the first time. Choose **More info**, then **Run anyway**.
+
+Check the download in PowerShell with `Get-FileHash QuickLogger-<version>-windows-x64.zip`, and compare the result with the `.sha256` file.
+
 ## What you need to run it
 
 On every platform:
@@ -64,7 +74,7 @@ The runtime libraries QuickLogger is linked against, by platform (installing the
 | **Debian / Ubuntu** | `sudo apt install libssh-4 libsqlite3-0 libcurl4` — on Ubuntu 24.04+ and Debian 13 the last one is named `libcurl4t64` |
 | **Fedora** | `sudo dnf install libssh libcurl sqlite-libs` |
 | **FreeBSD** | `sudo pkg install libssh curl sqlite3` (zlib is part of the base system) |
-| **Windows** | Nothing to install, as long as the DLLs the build depends on (`sqlite3`, `libcurl`, `zlib` — vcpkg copies them next to the `.exe`) stay alongside `QuickLogger.exe` |
+| **Windows** | Nothing to install for the release download. A build of your own with vcpkg needs the DLLs it depends on (`sqlite3`, `libcurl`, `zlib` — vcpkg copies them next to the `.exe`) to stay alongside `QuickLogger.exe` |
 
 (SQLite 3.24 or newer is required. Package names checked against the Ubuntu 22.04/24.04, Debian 13, Fedora 43 and FreeBSD 14/15 package lists, September 2026.)
 
