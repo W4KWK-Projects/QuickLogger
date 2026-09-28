@@ -1339,6 +1339,9 @@ namespace ql
             if (state_->is_console_session)
             {
                 hints.push_back({"F3", "Refresh Data"});
+            }
+            if (CanManageUsers(state_))
+            {
                 hints.push_back({"F4", "Manage Users"});
             }
             hints.push_back({"Esc", "Cancel"});

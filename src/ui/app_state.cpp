@@ -712,6 +712,16 @@ namespace ql
         return true;
     }
 
+    bool CanManageUsers(const AppState* state)
+    {
+#if defined(QUICKLOGGER_WITH_SSH)
+        return state->is_console_session;
+#else
+        (void)state;
+        return false;
+#endif
+    }
+
     void StartSelectedNet(AppState* state)
     {
         if (state->nets.empty())
@@ -4164,13 +4174,18 @@ namespace ql
                     {"Up/Down", "Move the highlight; Enter edits that check-in.", false},
                 };
             case kPageSettings:
-                return {
+            {
+                std::vector<HelpLine> lines = {
                     {"F2", "Save your settings.", false},
                     {"Esc", "Cancel.", false},
                     {"F3", "Refresh the station data now (console only).", false},
-                    {"F4", "Manage SSH users (console only).", false},
-                    {"Left/Right", "Change the time format.", false},
                 };
+#if defined(QUICKLOGGER_WITH_SSH)
+                lines.push_back({"F4", "Manage SSH users (console only).", false});
+#endif
+                lines.push_back({"Left/Right", "Change the time format.", false});
+                return lines;
+            }
             case kPageAdHocNet:
                 return {
                     {"F2", "Start an ad hoc net with the details entered.", false},

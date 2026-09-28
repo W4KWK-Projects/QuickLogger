@@ -791,8 +791,9 @@ namespace ql
 
     // F4 on the settings page, console sessions only (see
     // AppState::is_console_session -- Manage Users is never reachable over
-    // SSH, deliberately, to avoid needing an admin/permission concept):
-    // loads the user roster and switches to the Manage Users page.
+    // SSH, deliberately, to avoid needing an admin/permission concept), and
+    // only in builds with the SSH server (see CanManageUsers): loads the
+    // user roster and switches to the Manage Users page.
     class ShowManageUsersPageHandler
     {
     public:

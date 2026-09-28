@@ -42,7 +42,7 @@ On first run you're taken straight to Settings, since a callsign and home ZIP ar
 | Nearby Radius | How far, in miles, a licensed station can be from the net's ZIP (or your home ZIP) and still be suggested by autocomplete. 1 to 250; the default is 70, which is also used if you leave it blank. Raise it for a net that covers a wide area, or lower it in a crowded city to keep suggestions local. |
 | Time Format | 12-hour (3:42 PM, the default) or 24-hour (15:42), for every time shown or exported. **Left/Right** change it. |
 
-**F2** saves. Each SSH user has their own settings. Times are shown in the time zone of the computer QuickLogger runs on. At the local console only, **F3** refreshes the station data now and **F4** opens Manage Users (see the README's SSH section).
+**F2** saves. Each SSH user has their own settings. Times are shown in the time zone of the computer QuickLogger runs on. At the local console only, **F3** refreshes the station data now and **F4** opens Manage Users (see the README's SSH section); Windows has no SSH server, so no Manage Users either.
 
 ## Recurring nets
 

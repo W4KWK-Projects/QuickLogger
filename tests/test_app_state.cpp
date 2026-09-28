@@ -2288,4 +2288,26 @@ namespace ql
         CHECK(!f.Log("K4BBB"));
     }
 
+    QL_TEST(ManageUsersIsConsoleOnlyAndNeedsTheSshServer)
+    {
+        Fixture f;
+        f.state.page = kPageSettings;
+        SettingsKeyHandler settings_keys(&f.state);
+        settings_keys(ftxui::Event::F4);
+#if defined(QUICKLOGGER_WITH_SSH)
+        CHECK(CanManageUsers(&f.state));
+        CHECK_EQ(f.state.page, kPageManageUsers);
+#else
+        // No SSH server (Windows): no users to manage.
+        CHECK(!CanManageUsers(&f.state));
+        CHECK_EQ(f.state.page, kPageSettings);
+#endif
+
+        f.state.page = kPageSettings;
+        f.state.is_console_session = false;
+        CHECK(!CanManageUsers(&f.state));
+        settings_keys(ftxui::Event::F4);
+        CHECK_EQ(f.state.page, kPageSettings);
+    }
+
 }  // namespace ql

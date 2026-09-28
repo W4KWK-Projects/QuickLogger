@@ -1181,6 +1181,10 @@ namespace ql
 
     void ShowManageUsersPageHandler::operator()() const
     {
+        if (!CanManageUsers(state_))
+        {
+            return;
+        }
         RefreshUsers(state_);
         state_->new_user_username.clear();
         state_->new_user_public_key.clear();
@@ -1280,7 +1284,7 @@ namespace ql
             request_refresh();
             return true;
         }
-        if (event == ftxui::Event::F4 && state_->is_console_session)
+        if (event == ftxui::Event::F4 && CanManageUsers(state_))
         {
             ShowManageUsersPageHandler show_manage_users(state_);
             show_manage_users();

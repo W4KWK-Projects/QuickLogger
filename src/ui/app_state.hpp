@@ -958,6 +958,11 @@ namespace ql
     // function that changes shared data checks it, whatever key led there.
     bool RefuseViewOnly(AppState* state, const std::string& what);
 
+    // Whether this session can open Manage Users: only the local console,
+    // and only in a build with the SSH server (so never on Windows), since
+    // the users it manages exist only to log in over SSH.
+    bool CanManageUsers(const AppState* state);
+
     // Reloads AppState::modal_callsign_suggestions/_labels from
     // AppState::modal_station.callsign: tier 1 (SearchNetStationsByCallsignSubstring
     // against AppState::active_instance.net_id) first, then tier 2
