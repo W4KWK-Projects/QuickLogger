@@ -598,7 +598,7 @@ namespace ql
         int name_width = 3;
         for (const Net& net : state->nets)
         {
-            name_width = std::max(name_width, static_cast<int>(net.name.size()));
+            name_width = std::max(name_width, TextWidth(net.name));
         }
         state->net_name_width = std::min(name_width, kMaxNetNameColumnWidth);
 
@@ -813,6 +813,7 @@ namespace ql
         net.repeater_offset = state->new_net_offset;
         net.pl_tone = state->new_net_tone;
         net.default_location = state->new_net_location;
+        net.partial_match_canada = state->new_net_partial_match_index == 1;
         net.created_at = static_cast<std::int64_t>(std::time(nullptr));
         net.is_ad_hoc = true;
         net.id = state->db->CreateNet(net);
@@ -842,6 +843,7 @@ namespace ql
         std::optional<Net> net = state->db->GetNetById(session->net_id);
         state->active_net_name = net.has_value() ? net->name : "";
         state->active_net_zip = net.has_value() ? net->default_location : "";
+        state->active_net_partial_match_canada = net.has_value() && net->partial_match_canada;
         state->active_net_radio = net.has_value() ? DescribeNetRadio(*net) : "";
         state->active_net_is_ad_hoc = net.has_value() && net->is_ad_hoc;
         // The header shows who started it, in which role.
@@ -1189,6 +1191,7 @@ namespace ql
         state->new_net_location.clear();
         state->new_net_recurrence.clear();
         state->new_net_comments.clear();
+        state->new_net_partial_match_index = 0;
         state->form_error.clear();
     }
 
@@ -2882,10 +2885,11 @@ namespace ql
     }
 
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed,
-                                           const std::string& net_zip, std::size_t max_suggestions,
+                                           const std::string& net_zip, bool partial,
+                                           std::size_t max_suggestions,
                                            std::vector<Station>* suggestions,
                                            std::vector<std::string>* sources);
-    static void AppendCanadianSuggestions(AppState* state, const std::string& typed,
+    static void AppendCanadianSuggestions(AppState* state, const std::string& typed, bool partial,
                                           std::size_t max_suggestions,
                                           std::vector<Station>* suggestions,
                                           std::vector<std::string>* sources);
@@ -2929,10 +2933,12 @@ namespace ql
 
         // Tier 3: licensed stations near the net, from the FCC data.
         AppendNearbyUlsSuggestions(state, state->modal_station.callsign, state->active_net_zip,
-                                   kMaxSuggestions, &state->modal_callsign_suggestions,
+                                   !state->active_net_partial_match_canada, kMaxSuggestions,
+                                   &state->modal_callsign_suggestions,
                                    &state->modal_callsign_suggestion_sources);
         // Tier 4: Canadian call signs, from ISED's data.
-        AppendCanadianSuggestions(state, state->modal_station.callsign, kMaxSuggestions,
+        AppendCanadianSuggestions(state, state->modal_station.callsign,
+                                  state->active_net_partial_match_canada, kMaxSuggestions,
                                   &state->modal_callsign_suggestions,
                                   &state->modal_callsign_suggestion_sources);
         state->modal_callsign_suggestion_labels =
@@ -2979,6 +2985,7 @@ namespace ql
         state->edit_net_location = net.default_location;
         state->edit_net_recurrence = net.recurrence_description;
         state->edit_net_comments = net.comments;
+        state->edit_net_partial_match_index = net.partial_match_canada ? 1 : 0;
 
         CloseSavedStationForm(state);
         state->status_message.clear();
@@ -3015,6 +3022,7 @@ namespace ql
         net.default_location = state->edit_net_location;
         net.recurrence_description = state->edit_net_recurrence;
         net.comments = state->edit_net_comments;
+        net.partial_match_canada = state->edit_net_partial_match_index == 1;
         state->db->UpdateNet(net);
 
         RefreshNets(state);
@@ -3256,9 +3264,12 @@ namespace ql
     // database. Appended after whatever `suggestions` already holds (the
     // this-net and other-nets tiers), skipping callsigns already there,
     // until `max_suggestions` is reached. Nothing is added if neither ZIP is
-    // recognized.
+    // recognized. With `partial` (Partial Matching set to US) a call sign
+    // matches wherever `typed` appears in it; without, only if it starts
+    // with it.
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed,
-                                           const std::string& net_zip, std::size_t max_suggestions,
+                                           const std::string& net_zip, bool partial,
+                                           std::size_t max_suggestions,
                                            std::vector<Station>* suggestions,
                                            std::vector<std::string>* sources)
     {
@@ -3290,7 +3301,8 @@ namespace ql
             {
                 break;
             }
-            if (std::string_view(candidate.callsign).find(upper) == std::string_view::npos)
+            std::string_view::size_type found = std::string_view(candidate.callsign).find(upper);
+            if (found == std::string_view::npos || (!partial && found != 0))
             {
                 continue;
             }
@@ -3329,24 +3341,28 @@ namespace ql
     }
 
     // Autocomplete's Canadian tier, after the FCC one, shared like it by the
-    // New Station modal and the saved-station form: for a call sign that
-    // looks Canadian (LooksCanadian), ISED's call signs starting with what's
-    // typed, in order -- no distance, as ISED's data has no location to
-    // measure from. (Starting with, rather than containing: what's typed
-    // starts with the prefix, so only a call sign starting with it can
-    // match.) Skips callsigns already in `suggestions`; stops at
-    // `max_suggestions`.
-    static void AppendCanadianSuggestions(AppState* state, const std::string& typed,
+    // New Station modal and the saved-station form: ISED's call signs
+    // matching what's typed, in order -- no distance, as ISED's data has no
+    // location to measure from. With `partial` (Partial Matching set to
+    // Canada) that's call signs containing it anywhere; without, only
+    // those starting with it, looked up only for a call sign that looks
+    // Canadian (LooksCanadian). Skips callsigns already in `suggestions`;
+    // stops at `max_suggestions`.
+    static void AppendCanadianSuggestions(AppState* state, const std::string& typed, bool partial,
                                           std::size_t max_suggestions,
                                           std::vector<Station>* suggestions,
                                           std::vector<std::string>* sources)
     {
-        if (suggestions->size() >= max_suggestions || !LooksCanadian(typed))
+        std::string normalized = NormalizeCallsign(typed);
+        if (suggestions->size() >= max_suggestions || normalized.empty() ||
+            (!partial && !LooksCanadian(typed)))
         {
             return;
         }
-        std::vector<Station> matches = state->db->SearchIsedStationsByCallsignPrefix(
-            NormalizeCallsign(typed), static_cast<int>(max_suggestions));
+        int limit = static_cast<int>(max_suggestions);
+        std::vector<Station> matches =
+            partial ? state->db->SearchIsedStationsByCallsignSubstring(normalized, limit)
+                    : state->db->SearchIsedStationsByCallsignPrefix(normalized, limit);
         for (const Station& match : matches)
         {
             if (suggestions->size() >= max_suggestions)
@@ -3405,10 +3421,12 @@ namespace ql
 
         // Tier 3: nearby ULS-imported stations.
         AppendNearbyUlsSuggestions(state, state->saved_station.callsign, state->edit_net_location,
-                                   kMaxSuggestions, &state->saved_station_suggestions,
+                                   state->edit_net_partial_match_index == 0, kMaxSuggestions,
+                                   &state->saved_station_suggestions,
                                    &state->saved_station_suggestion_sources);
         // And Canadian call signs, from ISED's data.
-        AppendCanadianSuggestions(state, state->saved_station.callsign, kMaxSuggestions,
+        AppendCanadianSuggestions(state, state->saved_station.callsign,
+                                  state->edit_net_partial_match_index == 1, kMaxSuggestions,
                                   &state->saved_station_suggestions,
                                   &state->saved_station_suggestion_sources);
         state->saved_station_suggestion_labels =
@@ -3510,8 +3528,8 @@ namespace ql
                                        kInfoTableWidthAt80, 2);
         // Cut to the table's width: a long last column would otherwise make
         // the list scroll sideways to show it, hiding the first columns.
-        std::size_t width = static_cast<std::size_t>(InfoTableWidth(state->list_width));
-        state->info_header = FormatListHeading(state->info_columns, layout).substr(0, width);
+        int width = InfoTableWidth(state->list_width);
+        state->info_header = CutToWidth(FormatListHeading(state->info_columns, layout), width);
         if (state->info_cell_tags.empty())
         {
             state->info_rows = FormatRows(state->info_cells, layout);
@@ -3520,8 +3538,7 @@ namespace ql
         {
             std::vector<std::vector<std::string>> tagged = state->info_cells;
             std::size_t column = state->info_tag_column;
-            std::size_t room =
-                column < layout.widths.size() ? static_cast<std::size_t>(layout.widths[column]) : 0;
+            int room = column < layout.widths.size() ? layout.widths[column] : 0;
             for (std::size_t i = 0; i < tagged.size() && i < state->info_cell_tags.size(); ++i)
             {
                 const std::string& tag = state->info_cell_tags[i];
@@ -3530,9 +3547,10 @@ namespace ql
                     continue;
                 }
                 std::string& text = tagged[i][column];
-                if (room > tag.size() && text.size() + tag.size() > room)
+                int tag_width = TextWidth(tag);
+                if (room > tag_width && TextWidth(text) + tag_width > room)
                 {
-                    text.resize(room - tag.size());
+                    text = CutToWidth(text, room - tag_width);
                 }
                 text += tag;
             }
@@ -3540,7 +3558,7 @@ namespace ql
         }
         for (std::string& row : state->info_rows)
         {
-            row = row.substr(0, width);
+            row = CutToWidth(row, width);
         }
     }
 
@@ -4136,6 +4154,7 @@ namespace ql
                     {"F2", "Save the new net.", false},
                     {"Esc", "Cancel.", false},
                     {"Tab", "Move to the next field (Up/Down too).", false},
+                    {"Left/Right", "Change Partial Matching: US or Canada.", false},
                 };
             case kPageSelectRole:
                 return {
@@ -4192,6 +4211,7 @@ namespace ql
                     {"F3", "Resume an ad hoc session left open (by number).", false},
                     {"F6", "History of every ad hoc net.", false},
                     {"Esc", "Back to the net list.", false},
+                    {"Left/Right", "Change Partial Matching: US or Canada.", false},
                 };
             case kPageNetHistory:
                 return {
@@ -4213,6 +4233,7 @@ namespace ql
                     {"F9", "Edit a saved station (by number, or Enter).", false},
                     {"F5", "Saved stations that haven't checked in lately.", true},
                     {"Esc", "Back without saving.", false},
+                    {"Left/Right", "Change Partial Matching: US or Canada.", false},
                 };
             case kPageImportNet:
                 return {

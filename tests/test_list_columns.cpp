@@ -61,6 +61,25 @@ namespace ql
             std::string("#    Name   Note"));
     }
 
+    QL_TEST(AccentedAndWideCharactersTakeTheirOnScreenWidth)
+    {
+        // "é" is two bytes but one column, so the next column still lines
+        // up; so is a letter with a combining accent ("e" + U+0301).
+        ListLayout layout;
+        layout.widths = {9, 3};
+        CHECK_EQ(FormatListRow({"Sébastien", "QC"}, layout), std::string("Sébastien QC"));
+        CHECK_EQ(FormatListRow({"René", "QC"}, layout), std::string("René      QC"));
+        CHECK_EQ(FormatListRow({"Rene\u0301", "QC"}, layout), std::string("Rene\u0301      QC"));
+        CHECK_EQ(TextWidth("TROIS-RIVIÈRES"), 14);
+        // Cut by columns, never inside a character.
+        CHECK_EQ(CutToWidth("Véronique", 2), std::string("Vé"));
+        // A wide character (two columns) cut in half becomes a space.
+        CHECK_EQ(CutToWidth("A日B", 2), std::string("A "));
+        CHECK_EQ(CutToWidth("A日B", 3), std::string("A日"));
+        layout.widths = {4, 1};
+        CHECK_EQ(FormatListRow({"日本語", "x"}, layout), std::string("日本 x"));
+    }
+
     QL_TEST(ExportLayoutIsFixed)
     {
         std::vector<ListColumn> columns = {

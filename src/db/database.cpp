@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS nets (
     imported_at INTEGER NOT NULL DEFAULT 0,
     is_ad_hoc INTEGER NOT NULL DEFAULT 0,
     repeater_offset TEXT NOT NULL DEFAULT '',
-    pl_tone TEXT NOT NULL DEFAULT ''
+    pl_tone TEXT NOT NULL DEFAULT '',
+    partial_match_canada INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS net_instances (
@@ -151,7 +152,7 @@ CREATE TABLE IF NOT EXISTS users (
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 9;
+    static constexpr int kSchemaVersion = 11;
 
     static int ReadUserVersion(sqlite3* db)
     {
@@ -225,6 +226,7 @@ CREATE TABLE IF NOT EXISTS users (
         net.is_ad_hoc = row.ColumnInt64(10) != 0;
         net.repeater_offset = row.ColumnText(11);
         net.pl_tone = row.ColumnText(12);
+        net.partial_match_canada = row.ColumnInt64(13) != 0;
         return net;
     }
 
@@ -420,6 +422,9 @@ CREATE TABLE IF NOT EXISTS users (
         EnsureColumnExists(db_, "users", "view_only", "INTEGER NOT NULL DEFAULT 0");
         // Since 1.6.0 covered by idx_uls_stations_zip_callsign.
         sqlite3_exec(db_, "DROP INDEX IF EXISTS idx_uls_stations_zip;", nullptr, nullptr, nullptr);
+        // Since 1.7.0 partial matching is set per net; every net already
+        // there is taken to be a US net.
+        EnsureColumnExists(db_, "nets", "partial_match_canada", "INTEGER NOT NULL DEFAULT 0");
 
         std::string set_version = "PRAGMA user_version = " + std::to_string(kSchemaVersion) + ";";
         sqlite3_exec(db_, set_version.c_str(), nullptr, nullptr, nullptr);
@@ -789,8 +794,8 @@ COMMIT;
         INSERT INTO nets
             (name, mode, default_frequency, default_location,
              default_grid_square, recurrence_description, notes, created_at, imported_at,
-             is_ad_hoc, repeater_offset, pl_tone)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?);
+             is_ad_hoc, repeater_offset, pl_tone, partial_match_canada)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);
     )sql");
         statement.BindText(0, net.name);
         statement.BindText(1, net.mode);
@@ -804,6 +809,7 @@ COMMIT;
         statement.BindInt64(9, net.is_ad_hoc ? 1 : 0);
         statement.BindText(10, net.repeater_offset);
         statement.BindText(11, net.pl_tone);
+        statement.BindInt64(12, net.partial_match_canada ? 1 : 0);
         statement.Step();
         return sqlite3_last_insert_rowid(db_);
     }
@@ -813,7 +819,8 @@ COMMIT;
         Statement statement(db_, R"sql(
         UPDATE nets
         SET name = ?, mode = ?, default_frequency = ?, default_location = ?,
-            recurrence_description = ?, notes = ?, repeater_offset = ?, pl_tone = ?
+            recurrence_description = ?, notes = ?, repeater_offset = ?, pl_tone = ?,
+            partial_match_canada = ?
         WHERE id = ?;
     )sql");
         statement.BindText(0, net.name);
@@ -824,7 +831,8 @@ COMMIT;
         statement.BindText(5, net.comments);
         statement.BindText(6, net.repeater_offset);
         statement.BindText(7, net.pl_tone);
-        statement.BindInt64(8, net.id);
+        statement.BindInt64(8, net.partial_match_canada ? 1 : 0);
+        statement.BindInt64(9, net.id);
         statement.Step();
     }
 
@@ -833,7 +841,7 @@ COMMIT;
         Statement statement(db_, R"sql(
         SELECT id, name, mode, default_frequency, default_location,
                default_grid_square, recurrence_description, notes, created_at, imported_at,
-               is_ad_hoc, repeater_offset, pl_tone
+               is_ad_hoc, repeater_offset, pl_tone, partial_match_canada
         FROM nets ORDER BY name COLLATE NOCASE, id;
     )sql");
         std::vector<Net> nets;
@@ -849,7 +857,7 @@ COMMIT;
         Statement statement(db_, R"sql(
         SELECT id, name, mode, default_frequency, default_location,
                default_grid_square, recurrence_description, notes, created_at, imported_at,
-               is_ad_hoc, repeater_offset, pl_tone
+               is_ad_hoc, repeater_offset, pl_tone, partial_match_canada
         FROM nets WHERE id = ?;
     )sql");
         statement.BindInt64(0, net_id);
@@ -1665,6 +1673,29 @@ COMMIT;
         statement.BindText(0, upper);
         statement.BindText(1, upper + "~");
         statement.BindInt64(2, limit);
+        std::vector<Station> stations;
+        while (statement.Step())
+        {
+            stations.push_back(ReadLicensedStationRow(statement, StationDataSource::kIsed));
+        }
+        return stations;
+    }
+
+    std::vector<Station> Database::SearchIsedStationsByCallsignSubstring(
+        const std::string& substring, int limit)
+    {
+        // The inner query reads only the primary key's index, not the rows
+        // (about 90,000 call signs); only the matches' rows are read after.
+        Statement statement(db_, R"sql(
+        SELECT callsign, name, street_address, city, state, zip, license_class,
+               last_updated
+        FROM ised_stations
+        WHERE callsign IN (SELECT callsign FROM ised_stations WHERE instr(callsign, ?) > 0
+                           ORDER BY callsign LIMIT ?)
+        ORDER BY callsign;
+    )sql");
+        statement.BindText(0, ToUpperAscii(substring));
+        statement.BindInt64(1, limit);
         std::vector<Station> stations;
         while (statement.Step())
         {

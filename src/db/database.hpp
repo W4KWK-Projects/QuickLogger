@@ -273,6 +273,10 @@ namespace ql
         // `prefix` (case-insensitive), in order, at most `limit` of them.
         std::vector<Station> SearchIsedStationsByCallsignPrefix(const std::string& prefix,
                                                                 int limit);
+        // The same, for a net with Canadian partial matching on: ISED call
+        // signs containing `substring` anywhere, in order.
+        std::vector<Station> SearchIsedStationsByCallsignSubstring(const std::string& substring,
+                                                                   int limit);
         // A call sign's license details from whichever database has it:
         // the FCC's, else ISED's.
         std::optional<Station> FindLicensedStationByCallsign(const std::string& callsign);

@@ -127,6 +127,7 @@ namespace ql
         net.default_location = state_->new_net_location;
         net.recurrence_description = state_->new_net_recurrence;
         net.comments = state_->new_net_comments;
+        net.partial_match_canada = state_->new_net_partial_match_index == 1;
         net.created_at = static_cast<std::int64_t>(std::time(nullptr));
         state_->db->CreateNet(net);
 
@@ -783,6 +784,7 @@ namespace ql
         state_->active_instance = instance;
         state_->active_net_name = net.name;
         state_->active_net_zip = net.default_location;
+        state_->active_net_partial_match_canada = net.partial_match_canada;
         state_->active_net_radio = DescribeNetRadio(net);
         state_->active_net_is_ad_hoc = net.is_ad_hoc;
         state_->viewing_only = false;

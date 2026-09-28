@@ -65,6 +65,16 @@ namespace ql
     // padded or cut to its column's width, the last shown one as it is
     // (unless the layout's cut_last is set).
     std::string FormatListRow(const std::vector<std::string>& cells, const ListLayout& layout);
+
+    // How many terminal columns `text` takes, as FTXUI draws it: an accented
+    // letter ("é", two bytes in UTF-8) takes one, a combining mark none, a
+    // wide (e.g. CJK) character two. Every width and cut of text that may
+    // hold such characters -- names, cities, net names -- goes by this, not
+    // by its size in bytes.
+    int TextWidth(const std::string& text);
+    // `text` cut to at most `width` columns, never inside a character (a
+    // wide character that would be cut in half becomes a space).
+    std::string CutToWidth(const std::string& text, int width);
     std::string FormatListHeading(const std::vector<ListColumn>& columns, const ListLayout& layout);
 
 }  // namespace ql

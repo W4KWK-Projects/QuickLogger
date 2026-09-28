@@ -13,6 +13,7 @@
 #include "../date_utils.hpp"
 #include "../uls_import.hpp"
 #include "../version.hpp"
+#include "list_columns.hpp"
 #include "mouse.hpp"
 
 namespace ql
@@ -186,16 +187,16 @@ namespace ql
         const std::string help_label = " Help  ";
         const std::string status_gap = "   ";
         int left = 12 + static_cast<int>(version.size()) + 2;
-        int right = (notice.empty() ? 0 : static_cast<int>(notice.size()) + 3) +
-                    (status.empty() ? 0 : static_cast<int>(status.size() + status_gap.size())) +
+        int right = (notice.empty() ? 0 : TextWidth(notice) + 3) +
+                    (status.empty() ? 0 : TextWidth(status) + static_cast<int>(status_gap.size())) +
                     static_cast<int>(help_key.size() + help_label.size() + clock.size());
         // A trailing space after the title, and a wider gap before a status.
         int room = ftxui::Terminal::Size().dimx - left - right - (status.empty() ? 1 : 3);
         std::string title = page_title;
-        if (room < static_cast<int>(title.size()))
+        if (room < TextWidth(title))
         {
-            title = room > 3 ? title.substr(0, static_cast<std::size_t>(room - 3)) + "..."
-                             : title.substr(0, static_cast<std::size_t>(std::max(room, 0)));
+            title = room > 3 ? CutToWidth(title, room - 3) + "..."
+                             : CutToWidth(title, std::max(room, 0));
         }
 
         return ftxui::hbox({

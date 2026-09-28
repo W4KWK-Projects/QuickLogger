@@ -95,6 +95,76 @@ namespace ql
         return element;
     }
 
+    // A horizontal radio choice (the Settings page's Time Format): the chosen
+    // entry has the filled circle and is bold, and it's inverted while the
+    // choice has keyboard focus. Pair with ToggleGap as elements_infix and
+    // with focused_entry bound to the same int as selected, so the focus
+    // highlight and the choice can't point at different entries.
+    static ftxui::Element ToggleEntryTransform(const ftxui::EntryState& state)
+    {
+#if defined(_WIN32)
+        const char* marker = state.active ? "(*) " : "( ) ";
+#else
+        const char* marker = state.active ? "◉ " : "○ ";
+#endif
+        ftxui::Element element =
+            ftxui::hbox({ftxui::text(marker), ftxui::text(state.label)}) | ftxui::color(kColorData);
+        if (state.active)
+        {
+            element = element | ftxui::bold;
+        }
+        if (state.focused)
+        {
+            element = element | ftxui::inverted;
+        }
+        return element;
+    }
+
+    static ftxui::Element ToggleGap()
+    {
+        return ftxui::text("   ");
+    }
+
+    // Hands every key to its one child except Tab/Shift-Tab, which it leaves
+    // unhandled so the page's container moves focus to the next field.
+    // FTXUI's Menu otherwise takes Tab as "next entry" -- for a two-choice
+    // setting like Time Format, merely tabbing past it would flip it.
+    class IgnoreTab : public ftxui::ComponentBase
+    {
+    public:
+        explicit IgnoreTab(ftxui::Component child)
+        {
+            Add(std::move(child));
+        }
+
+        bool OnEvent(ftxui::Event event) override
+        {
+            if (event == ftxui::Event::Tab || event == ftxui::Event::TabReverse)
+            {
+                return false;
+            }
+            return ftxui::ComponentBase::OnEvent(event);
+        }
+    };
+
+    // A net's Partial Matching toggle (see Net::partial_match_canada): US
+    // or Canada, bound to `index` (an index into
+    // AppState::partial_match_labels). Left/Right change it.
+    static ftxui::Component PartialMatchToggle(AppState* state, int* index)
+    {
+        ftxui::MenuOption option = ftxui::MenuOption::Toggle();
+        option.entries_option.transform = ToggleEntryTransform;
+        option.elements_infix = ToggleGap;
+        option.focused_entry = index;
+        return std::make_shared<IgnoreTab>(
+            ftxui::Menu(&state->partial_match_labels, index, option));
+    }
+
+    static ftxui::Element PartialMatchRow(const std::string& label, const ftxui::Component& toggle)
+    {
+        return ftxui::hbox({FieldLabel(label), toggle->Render()});
+    }
+
     // The Input components for every editable Station field. Shared by the
     // New Station modal, the Edit Check-in modal, and the edit-net page's
     // saved-station form, since all three collect the same identity fields.
@@ -233,7 +303,11 @@ namespace ql
     // Appends `fields` (one row per field) to `rows`: on a terminal at least
     // kTwoColumnFormWidth wide, in two side-by-side columns (the first half
     // on the left), otherwise one under another. Only the drawing changes --
-    // Tab, Up and Down still visit the fields in the same order.
+    // Tab, Up and Down still visit the fields in the same order: down the
+    // left column, then down the right. So a control that comes after the
+    // fields in Tab order belongs in `fields` too (at the end), not drawn
+    // below them, where it would sit under the left column but be reached
+    // only after the right one.
     static void AppendFormFields(const AppState* state, const ftxui::Elements& fields,
                                  ftxui::Elements* rows)
     {
@@ -667,7 +741,8 @@ namespace ql
         CreateNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
                           ftxui::Component input_frequency, ftxui::Component input_offset,
                           ftxui::Component input_tone, ftxui::Component input_location,
-                          ftxui::Component input_recurrence, ftxui::Component input_comments)
+                          ftxui::Component input_recurrence, ftxui::Component input_comments,
+                          ftxui::Component partial_match)
             : state_(state),
               input_name_(std::move(input_name)),
               input_mode_(std::move(input_mode)),
@@ -676,21 +751,23 @@ namespace ql
               input_tone_(std::move(input_tone)),
               input_location_(std::move(input_location)),
               input_recurrence_(std::move(input_recurrence)),
-              input_comments_(std::move(input_comments))
+              input_comments_(std::move(input_comments)),
+              partial_match_(std::move(partial_match))
         {
         }
 
         ftxui::Element operator()() const
         {
             ftxui::Element content = ftxui::vbox({
-                ftxui::hbox({FieldLabel("Name:       "), input_name_->Render()}),
-                ftxui::hbox({FieldLabel("Mode:       "), input_mode_->Render()}),
-                ftxui::hbox({FieldLabel("Frequency:  "), input_frequency_->Render()}),
-                ftxui::hbox({FieldLabel("Offset:     "), input_offset_->Render()}),
-                ftxui::hbox({FieldLabel("PL Tone:    "), input_tone_->Render()}),
-                ftxui::hbox({FieldLabel("ZIP Code:   "), input_location_->Render()}),
-                ftxui::hbox({FieldLabel("Recurrence: "), input_recurrence_->Render()}),
-                ftxui::hbox({FieldLabel("Comments:   "), input_comments_->Render()}),
+                ftxui::hbox({FieldLabel("Name:             "), input_name_->Render()}),
+                ftxui::hbox({FieldLabel("Mode:             "), input_mode_->Render()}),
+                ftxui::hbox({FieldLabel("Frequency:        "), input_frequency_->Render()}),
+                ftxui::hbox({FieldLabel("Offset:           "), input_offset_->Render()}),
+                ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
+                ftxui::hbox({FieldLabel("ZIP Code:         "), input_location_->Render()}),
+                ftxui::hbox({FieldLabel("Recurrence:       "), input_recurrence_->Render()}),
+                ftxui::hbox({FieldLabel("Comments:         "), input_comments_->Render()}),
+                PartialMatchRow("Partial Matching: ", partial_match_),
                 ErrorLine(state_->form_error),
             });
 
@@ -707,6 +784,7 @@ namespace ql
         ftxui::Component input_location_;
         ftxui::Component input_recurrence_;
         ftxui::Component input_comments_;
+        ftxui::Component partial_match_;
     };
 
     ftxui::Component BuildCreateNetPage(AppState* state)
@@ -718,9 +796,8 @@ namespace ql
         ftxui::Component input_frequency =
             ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
                          FrequencyInputOption(&state->new_net_frequency));
-        ftxui::Component input_offset =
-            ftxui::Input(&state->new_net_offset, "MHz with sign, e.g. -0.6 (optional)",
-                         OffsetInputOption(&state->new_net_offset));
+        ftxui::Component input_offset = ftxui::Input(&state->new_net_offset, "e.g. -0.6 (optional)",
+                                                     OffsetInputOption(&state->new_net_offset));
         ftxui::Component input_tone = ftxui::Input(&state->new_net_tone, "e.g. 100.0 (optional)",
                                                    FrequencyInputOption(&state->new_net_tone));
         ftxui::InputOption location_option = SingleLineInputOption();
@@ -731,6 +808,8 @@ namespace ql
             &state->new_net_recurrence, "e.g. Tuesdays 8pm ET", SingleLineInputOption());
         ftxui::Component input_comments =
             ftxui::Input(&state->new_net_comments, "Anything (optional)", SingleLineInputOption());
+        ftxui::Component partial_match =
+            PartialMatchToggle(state, &state->new_net_partial_match_index);
 
         ftxui::Component root = ftxui::Container::Vertical({
             input_name,
@@ -741,13 +820,15 @@ namespace ql
             input_location,
             input_recurrence,
             input_comments,
+            partial_match,
         });
 
         state->new_net_name_input = input_name;
 
         return ftxui::Renderer(
             root, CreateNetRenderer(state, input_name, input_mode, input_frequency, input_offset,
-                                    input_tone, input_location, input_recurrence, input_comments));
+                                    input_tone, input_location, input_recurrence, input_comments,
+                                    partial_match));
     }
 
     // ---- Select-role page ---------------------------------------------------
@@ -1064,9 +1145,11 @@ namespace ql
                     ftxui::hbox({FieldLabel("Remarks:       "), input_remarks_->Render()}));
                 fields.push_back(
                     ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
+                // Last, in Tab order too: at the bottom of the right column
+                // when the form is in two.
+                fields.push_back(ftxui::vbox(
+                    {FieldLabel("Additional Role (optional):"), role_choice_menu_->Render()}));
                 AppendFormFields(state_, fields, &rows);
-                rows.push_back(FieldLabel("Additional Role (optional):"));
-                rows.push_back(role_choice_menu_->Render());
             }
             rows.push_back(DialogSeparator());
             AppendCheckInKeyRows(
@@ -1118,9 +1201,9 @@ namespace ql
                 ftxui::hbox({FieldLabel("Remarks:       "), input_remarks_->Render()}));
             fields.push_back(
                 ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
+            fields.push_back(ftxui::vbox(
+                {FieldLabel("Additional Role (optional):"), role_choice_menu_->Render()}));
             AppendFormFields(state_, fields, &rows);
-            rows.push_back(FieldLabel("Additional Role (optional):"));
-            rows.push_back(role_choice_menu_->Render());
             rows.push_back(DialogSeparator());
             AppendCheckInKeyRows(state_, {{"F2", "Save"}, {"Esc", "Cancel"}}, &rows);
 
@@ -1231,58 +1314,6 @@ namespace ql
                        state, LayeredModal(with_edit_checkin_modal, BuildZmodemConfirmModal(state),
                                            &state->show_zmodem_confirm_modal)));
     }
-
-    // A horizontal radio choice (the Settings page's Time Format): the chosen
-    // entry has the filled circle and is bold, and it's inverted while the
-    // choice has keyboard focus. Pair with ToggleGap as elements_infix and
-    // with focused_entry bound to the same int as selected, so the focus
-    // highlight and the choice can't point at different entries.
-    static ftxui::Element ToggleEntryTransform(const ftxui::EntryState& state)
-    {
-#if defined(_WIN32)
-        const char* marker = state.active ? "(*) " : "( ) ";
-#else
-        const char* marker = state.active ? "◉ " : "○ ";
-#endif
-        ftxui::Element element =
-            ftxui::hbox({ftxui::text(marker), ftxui::text(state.label)}) | ftxui::color(kColorData);
-        if (state.active)
-        {
-            element = element | ftxui::bold;
-        }
-        if (state.focused)
-        {
-            element = element | ftxui::inverted;
-        }
-        return element;
-    }
-
-    static ftxui::Element ToggleGap()
-    {
-        return ftxui::text("   ");
-    }
-
-    // Hands every key to its one child except Tab/Shift-Tab, which it leaves
-    // unhandled so the page's container moves focus to the next field.
-    // FTXUI's Menu otherwise takes Tab as "next entry" -- for a two-choice
-    // setting like Time Format, merely tabbing past it would flip it.
-    class IgnoreTab : public ftxui::ComponentBase
-    {
-    public:
-        explicit IgnoreTab(ftxui::Component child)
-        {
-            Add(std::move(child));
-        }
-
-        bool OnEvent(ftxui::Event event) override
-        {
-            if (event == ftxui::Event::Tab || event == ftxui::Event::TabReverse)
-            {
-                return false;
-            }
-            return ftxui::ComponentBase::OnEvent(event);
-        }
-    };
 
     // ---- Settings page ---------------------------------------------------
 
@@ -1401,7 +1432,7 @@ namespace ql
         AdHocNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
                          ftxui::Component input_frequency, ftxui::Component input_offset,
                          ftxui::Component input_tone, ftxui::Component input_location,
-                         ftxui::Component open_session_menu)
+                         ftxui::Component partial_match, ftxui::Component open_session_menu)
             : state_(state),
               input_name_(std::move(input_name)),
               input_mode_(std::move(input_mode)),
@@ -1409,6 +1440,7 @@ namespace ql
               input_offset_(std::move(input_offset)),
               input_tone_(std::move(input_tone)),
               input_location_(std::move(input_location)),
+              partial_match_(std::move(partial_match)),
               open_session_menu_(std::move(open_session_menu))
         {
         }
@@ -1436,12 +1468,13 @@ namespace ql
                     HintParagraph("Logs a one-off net. Ad hoc nets aren't listed with the "
                                   "recurring nets; F6 shows their history."),
                     Separator(),
-                    ftxui::hbox({FieldLabel("Name:      "), input_name_->Render()}),
-                    ftxui::hbox({FieldLabel("Mode:      "), input_mode_->Render()}),
-                    ftxui::hbox({FieldLabel("Frequency: "), input_frequency_->Render()}),
-                    ftxui::hbox({FieldLabel("Offset:    "), input_offset_->Render()}),
-                    ftxui::hbox({FieldLabel("PL Tone:   "), input_tone_->Render()}),
-                    ftxui::hbox({FieldLabel("ZIP Code:  "), input_location_->Render()}),
+                    ftxui::hbox({FieldLabel("Name:             "), input_name_->Render()}),
+                    ftxui::hbox({FieldLabel("Mode:             "), input_mode_->Render()}),
+                    ftxui::hbox({FieldLabel("Frequency:        "), input_frequency_->Render()}),
+                    ftxui::hbox({FieldLabel("Offset:           "), input_offset_->Render()}),
+                    ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
+                    ftxui::hbox({FieldLabel("ZIP Code:         "), input_location_->Render()}),
+                    PartialMatchRow("Partial Matching: ", partial_match_),
                 };
                 hints.push_back({"F2", "Start"});
             }
@@ -1492,6 +1525,7 @@ namespace ql
         ftxui::Component input_offset_;
         ftxui::Component input_tone_;
         ftxui::Component input_location_;
+        ftxui::Component partial_match_;
         ftxui::Component open_session_menu_;
     };
 
@@ -1504,15 +1538,16 @@ namespace ql
         ftxui::Component input_frequency =
             ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
                          FrequencyInputOption(&state->new_net_frequency));
-        ftxui::Component input_offset =
-            ftxui::Input(&state->new_net_offset, "MHz with sign, e.g. -0.6 (optional)",
-                         OffsetInputOption(&state->new_net_offset));
+        ftxui::Component input_offset = ftxui::Input(&state->new_net_offset, "e.g. -0.6 (optional)",
+                                                     OffsetInputOption(&state->new_net_offset));
         ftxui::Component input_tone = ftxui::Input(&state->new_net_tone, "e.g. 100.0 (optional)",
                                                    FrequencyInputOption(&state->new_net_tone));
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->new_net_location);
         ftxui::Component input_location =
             ftxui::Input(&state->new_net_location, "5-digit ZIP (optional)", location_option);
+        ftxui::Component partial_match =
+            PartialMatchToggle(state, &state->new_net_partial_match_index);
 
         ftxui::Component root = ftxui::Container::Vertical({
             input_name,
@@ -1521,6 +1556,7 @@ namespace ql
             input_offset,
             input_tone,
             input_location,
+            partial_match,
         });
 
         state->ad_hoc_net_name_input = input_name;
@@ -1532,9 +1568,10 @@ namespace ql
             state, ftxui::Menu(&state->open_ad_hoc_labels, &state->selected_open_ad_hoc_index));
 
         return WithConfirmPrompt(
-            state, ftxui::Renderer(root, AdHocNetRenderer(state, input_name, input_mode,
-                                                          input_frequency, input_offset, input_tone,
-                                                          input_location, open_session_menu)));
+            state,
+            ftxui::Renderer(root, AdHocNetRenderer(state, input_name, input_mode, input_frequency,
+                                                   input_offset, input_tone, input_location,
+                                                   partial_match, open_session_menu)));
     }
 
     // ---- Net history page ---------------------------------------------------
@@ -1709,7 +1746,7 @@ namespace ql
                         ftxui::Component input_frequency, ftxui::Component input_offset,
                         ftxui::Component input_tone, ftxui::Component input_location,
                         ftxui::Component input_recurrence, ftxui::Component input_comments,
-                        ftxui::Component saved_station_menu)
+                        ftxui::Component partial_match, ftxui::Component saved_station_menu)
             : state_(state),
               input_name_(std::move(input_name)),
               input_mode_(std::move(input_mode)),
@@ -1719,6 +1756,7 @@ namespace ql
               input_location_(std::move(input_location)),
               input_recurrence_(std::move(input_recurrence)),
               input_comments_(std::move(input_comments)),
+              partial_match_(std::move(partial_match)),
               saved_station_menu_(std::move(saved_station_menu))
         {
         }
@@ -1737,14 +1775,17 @@ namespace ql
             AppendFormFields(
                 state_,
                 {
-                    ftxui::hbox({FieldLabel("Name:       "), input_name_->Render()}),
-                    ftxui::hbox({FieldLabel("Mode:       "), input_mode_->Render()}),
-                    ftxui::hbox({FieldLabel("Frequency:  "), input_frequency_->Render()}),
-                    ftxui::hbox({FieldLabel("Offset:     "), input_offset_->Render()}),
-                    ftxui::hbox({FieldLabel("PL Tone:    "), input_tone_->Render()}),
-                    ftxui::hbox({FieldLabel("ZIP Code:   "), input_location_->Render()}),
-                    ftxui::hbox({FieldLabel("Recurrence: "), input_recurrence_->Render()}),
-                    ftxui::hbox({FieldLabel("Comments:   "), input_comments_->Render()}),
+                    ftxui::hbox({FieldLabel("Name:             "), input_name_->Render()}),
+                    ftxui::hbox({FieldLabel("Mode:             "), input_mode_->Render()}),
+                    ftxui::hbox({FieldLabel("Frequency:        "), input_frequency_->Render()}),
+                    ftxui::hbox({FieldLabel("Offset:           "), input_offset_->Render()}),
+                    ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
+                    ftxui::hbox({FieldLabel("ZIP Code:         "), input_location_->Render()}),
+                    ftxui::hbox({FieldLabel("Recurrence:       "), input_recurrence_->Render()}),
+                    ftxui::hbox({FieldLabel("Comments:         "), input_comments_->Render()}),
+                    // Last, in Tab order too: at the bottom of the right
+                    // column when the form is in two.
+                    PartialMatchRow("Partial Matching: ", partial_match_),
                 },
                 &rows);
             rows.push_back(Separator());
@@ -1799,6 +1840,7 @@ namespace ql
         ftxui::Component input_location_;
         ftxui::Component input_recurrence_;
         ftxui::Component input_comments_;
+        ftxui::Component partial_match_;
         ftxui::Component saved_station_menu_;
     };
 
@@ -1859,7 +1901,7 @@ namespace ql
             ftxui::Input(&state->edit_net_frequency, "MHz, e.g. 146.940",
                          FrequencyInputOption(&state->edit_net_frequency));
         ftxui::Component input_offset =
-            ftxui::Input(&state->edit_net_offset, "MHz with sign, e.g. -0.6 (optional)",
+            ftxui::Input(&state->edit_net_offset, "e.g. -0.6 (optional)",
                          OffsetInputOption(&state->edit_net_offset));
         ftxui::Component input_tone = ftxui::Input(&state->edit_net_tone, "e.g. 100.0 (optional)",
                                                    FrequencyInputOption(&state->edit_net_tone));
@@ -1871,6 +1913,8 @@ namespace ql
             &state->edit_net_recurrence, "e.g. Tuesdays 8pm ET", SingleLineInputOption());
         ftxui::Component input_comments =
             ftxui::Input(&state->edit_net_comments, "Anything (optional)", SingleLineInputOption());
+        ftxui::Component partial_match =
+            PartialMatchToggle(state, &state->edit_net_partial_match_index);
 
         ftxui::MenuOption saved_station_menu_option;
         saved_station_menu_option.on_enter = LoadSavedStationHandler(state);
@@ -1888,13 +1932,14 @@ namespace ql
             input_location,
             input_recurrence,
             input_comments,
+            partial_match,
             saved_station_menu,
         });
         state->edit_net_name_input = input_name;
         ftxui::Component main_view = ftxui::Renderer(
             root, EditNetRenderer(state, input_name, input_mode, input_frequency, input_offset,
                                   input_tone, input_location, input_recurrence, input_comments,
-                                  saved_station_menu));
+                                  partial_match, saved_station_menu));
 
         ftxui::InputOption callsign_option = SingleLineInputOption();
         callsign_option.on_change = SavedStationCallsignChangeHandler(state);
@@ -2233,7 +2278,7 @@ namespace ql
                 int summary_lines = 0;
                 for (const std::string& line : state_->info_summary)
                 {
-                    int length = static_cast<int>(line.size());
+                    int length = TextWidth(line);
                     summary_lines += std::max(1, (length + text_width - 1) / text_width);
                 }
                 int other_rows =

@@ -1422,6 +1422,87 @@ namespace ql
         CHECK(shows_class);
     }
 
+    QL_TEST(PartialMatchingIsSetPerNetToUsOrCanadianData)
+    {
+        Fixture f;
+        LoadZipData(f.db());
+        f.db()->ReplaceIsedStations({MakeStation("VE3EVA", "Able, Eva")}, 1);
+        f.db()->BulkUpsertUlsStations({MakeStation("KQ4EVW", "NEAR, NED", "37402"),
+                                       MakeStation("EV4AA", "EARLY, EVE", "37402")},
+                                      0, 2, 1);
+        f.StartNet("Skywarn");
+
+        // A US net, as every net is unless changed: US call signs match
+        // anywhere, Canadian ones only from the start.
+        CHECK(!f.state.active_net_partial_match_canada);
+        f.state.modal_station.callsign = "ev";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 2);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("EV4AA"));
+        CHECK_EQ(f.state.modal_callsign_suggestions[1].callsign, std::string("KQ4EVW"));
+        f.state.modal_station.callsign = "3e";
+        RefreshCallsignSuggestions(&f.state);
+        CHECK(f.state.modal_callsign_suggestions.empty());
+        f.state.modal_station.callsign = "ve3";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 1);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("VE3EVA"));
+
+        // A Canadian net: the other way round.
+        f.state.active_net_partial_match_canada = true;
+        f.state.modal_station.callsign = "ev";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 2);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("EV4AA"));
+        CHECK_EQ(f.state.modal_callsign_suggestions[1].callsign, std::string("VE3EVA"));
+        CHECK_EQ(f.state.modal_callsign_suggestion_sources[1], std::string("(ISED)"));
+        f.state.modal_station.callsign = "3e";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 1);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("VE3EVA"));
+
+        // Set on Edit Net, and used by its Saved Station window.
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(f.state.active_instance.net_id));
+        CHECK_EQ(f.state.edit_net_partial_match_index, 0);
+        f.state.saved_station.callsign = "3E";
+        RefreshSavedStationSuggestions(&f.state);
+        CHECK(f.state.saved_station_suggestions.empty());
+        f.state.edit_net_partial_match_index = 1;
+        RefreshSavedStationSuggestions(&f.state);
+        REQUIRE(f.state.saved_station_suggestions.size() == 1);
+        CHECK_EQ(f.state.saved_station_suggestions[0].callsign, std::string("VE3EVA"));
+        CHECK(SaveEditNetForm(&f.state));
+        std::optional<Net> saved = f.db()->GetNetById(f.state.edit_net_id);
+        REQUIRE(saved.has_value());
+        CHECK(saved->partial_match_canada);
+    }
+
+    QL_TEST(NewNetsSavePartialMatching)
+    {
+        Fixture f;
+        // New recurring nets: US unless changed.
+        ResetCreateNetForm(&f.state);
+        CHECK_EQ(f.state.new_net_partial_match_index, 0);
+        f.state.new_net_name = "Canadian Net";
+        f.state.new_net_partial_match_index = 1;
+        CreateNetSubmitHandler create(&f.state);
+        create();
+        REQUIRE(f.state.nets.size() == 1);
+        CHECK(f.state.nets[0].partial_match_canada);
+        // The form is back to US for the next net.
+        CHECK_EQ(f.state.new_net_partial_match_index, 0);
+
+        // Ad hoc nets too.
+        f.state.operator_callsign = "W4KWK";
+        f.state.new_net_name = "Tailgate";
+        f.state.new_net_partial_match_index = 1;
+        StartAdHocNet(&f.state);
+        CHECK(f.state.start_net.partial_match_canada);
+        std::optional<Net> ad_hoc = f.db()->GetNetById(f.state.start_net.id);
+        REQUIRE(ad_hoc.has_value());
+        CHECK(ad_hoc->partial_match_canada);
+    }
+
     QL_TEST(AutocompleteShowsAsManyAsTheScreenHasRoomFor)
     {
         Fixture f;

@@ -49,6 +49,7 @@ On first run you're taken straight to Settings, since a callsign and home ZIP ar
 A recurring net is one you run again and again: a weekly Skywarn net, a club's Tuesday net. Its sessions and check-ins build up its history, and the stations that check in are remembered for autocomplete.
 
 - **Create:** **F2** on Recurring Nets. Only the name is required; Mode, Frequency, ZIP Code (5 digits) and Recurrence ("Tuesdays 8pm ET") are optional. A net's ZIP centers nearby-station autocomplete on where the net meets.
+- **Partial Matching** (US or Canada) decides which licensed-station data autocomplete matches anywhere in a callsign, rather than only at its start; see [Callsign autocomplete](#callsign-autocomplete).
 - **Frequency** is in MHz (146.940, 7.235) and must be in a US or Canadian amateur band. Only digits and a decimal point can be typed there.
 - **Offset** is a repeater's offset in MHz with its sign, the way radios, CHIRP and RepeaterBook show it: **-0.6** or **+0.6** on 2 m, **+5** or **-5** on 70 cm, **-1.6** on 1.25 m. A bare "+" or "-" isn't accepted (the standard offset isn't the same everywhere on 6 m and 70 cm and up), nor is kHz: typing -600 tells you to type -0.6. With a frequency, the frequency plus the offset has to be in an amateur band too.
 - **PL Tone** is a standard CTCSS tone, 67.0 to 254.1 (e.g. 100.0, 88.5). Typing 100 saves as 100.0. A DCS code or anything else goes in Comments.
@@ -140,7 +141,13 @@ In the New Check-In and Saved Station windows, matches appear as you type any pa
 1. Stations known to **this net** (checked in before, or saved to it), marked *(this net)*.
 2. Stations known to **other nets**, marked *(other net)*.
 3. **Licensed stations nearby**, from the FCC data: within your Nearby Radius (70 miles unless you change it in Settings) of the net's ZIP (or your home ZIP), nearest first, marked *(ULS, ~N mi)*. Stations whose ZIP has no location on file (usually a PO Box) follow, marked *(ULS, nearby)*.
-4. **Canadian callsigns**, from Canada's ISED database, when what you've typed starts with **V** (every Canadian amateur callsign starts VA, VE, VO or VY; no US one starts with V): callsigns starting with what you've typed, in order, marked *(ISED)*. ISED's data has no distances, so these aren't limited to your Nearby Radius.
+4. **Canadian callsigns**, from Canada's ISED database, in order, marked *(ISED)*. ISED's data has no locations, so these aren't limited to your Nearby Radius.
+
+**Partial Matching** is set for each net, on New Recurring Net, Ad Hoc Net and Edit Net: **US** (the FCC data) or **Canada** (ISED's data). **Left/Right** change it. The licensed-station list it names (3 or 4 above) matches wherever what you've typed appears in a callsign; the other matches only callsigns starting with what you've typed.
+
+- **US** (the default for new nets, and for every net from before 1.7.0): `EV` finds a nearby KQ4EVW. Canadian callsigns come up once what you've typed starts with **V** (every Canadian amateur callsign starts VA, VE, VO or VY; no US one starts with V).
+- **Canada**, for a net whose stations are mostly Canadian: `3EV` finds VE3EVA. Nearby US callsigns come up only when they start with what you've typed.
+- Partial Matching doesn't change the first two lists, which always match anywhere in the callsign.
 
 **Up/Down** move the **>** marker and **Enter** picks that match, filling in the station's details. If you typed a whole callsign, **Enter** takes that station, whether it's further down the list or not in it at all (unless you've moved the marker to another match). You stay in the Callsign field, so you can keep typing to narrow the list. While it's showing, the list takes the place of the window's other fields; they come back when you pick a match, clear the callsign or **Tab** away. If nothing matches, type the whole callsign: **Enter** then looks it up exactly, in the FCC data at any distance, or ISED's.
 

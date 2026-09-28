@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstddef>
 
+#include <ftxui/screen/string.hpp>
+
 namespace ql
 {
 
@@ -147,11 +149,38 @@ namespace ql
                 row += cells[i];
                 break;
             }
-            std::string cell = cells[i].substr(0, static_cast<std::size_t>(width));
-            cell.append(static_cast<std::size_t>(width) - cell.size(), ' ');
+            std::string cell = CutToWidth(cells[i], width);
+            cell.append(static_cast<std::size_t>(width - TextWidth(cell)), ' ');
             row += cell;
         }
         return row;
+    }
+
+    int TextWidth(const std::string& text)
+    {
+        return ftxui::string_width(text);
+    }
+
+    std::string CutToWidth(const std::string& text, int width)
+    {
+        // One entry per column; a wide character's second is empty.
+        std::vector<std::string> cells = ftxui::Utf8ToGlyphs(text);
+        if (static_cast<int>(cells.size()) <= width)
+        {
+            return text;
+        }
+        std::string cut;
+        for (int i = 0; i < width; ++i)
+        {
+            cut += cells[static_cast<std::size_t>(i)];
+        }
+        if (width > 0 && cells[static_cast<std::size_t>(width)].empty())
+        {
+            // The last column kept is the first half of a wide character.
+            cut.resize(cut.size() - cells[static_cast<std::size_t>(width - 1)].size());
+            cut += ' ';
+        }
+        return cut;
     }
 
     std::string FormatListHeading(const std::vector<ListColumn>& columns, const ListLayout& layout)

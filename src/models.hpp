@@ -88,6 +88,12 @@ namespace ql
         // Started from the Ad Hoc Net page: kept out of the Recurring Nets
         // list, with its sessions resumed and browsed from that page instead.
         bool is_ad_hoc = false;
+        // Which licensed-station data callsign autocomplete matches
+        // partially: in it, a call sign matches wherever what's typed appears
+        // ("EV" finds KQ4EVW); in the other, only call signs starting with
+        // it. False is the FCC's US data (the default, and every net from
+        // before 1.7.0), true is ISED's Canadian data.
+        bool partial_match_canada = false;
     };
 
     enum class NetInstanceStatus

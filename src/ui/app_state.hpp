@@ -326,6 +326,13 @@ namespace ql
         std::string new_net_location;
         std::string new_net_recurrence;
         std::string new_net_comments;
+        // Partial Matching (see Net::partial_match_canada), an index into
+        // partial_match_labels for its toggle; also used by the Ad Hoc Net
+        // page.
+        int new_net_partial_match_index = 0;
+        // The Partial Matching toggle's choices, on New Recurring Net, Ad
+        // Hoc Net and Edit Net: 0 is US, 1 is Canada.
+        std::vector<std::string> partial_match_labels{"US", "Canada"};
 
         // The net being started or resumed: set by StartSelectedNet, the Ad
         // Hoc page and the resume prompt, and read by the Select Role and
@@ -364,6 +371,8 @@ namespace ql
         // The active net's ZIP (Net::default_location), for nearby-station
         // autocomplete; see RefreshNearbyZips.
         std::string active_net_zip;
+        // The active net's Partial Matching (see Net::partial_match_canada).
+        bool active_net_partial_match_canada = false;
         // The active net's frequency, offset and PL tone as the session page
         // shows them (see DescribeNetRadio).
         std::string active_net_radio;
@@ -470,6 +479,7 @@ namespace ql
         std::string edit_net_location;
         std::string edit_net_recurrence;
         std::string edit_net_comments;
+        int edit_net_partial_match_index = 0;  // As new_net_partial_match_index.
         std::vector<Station> edit_net_saved_stations;
         std::vector<std::string>
             edit_net_saved_station_labels;  // Kept in sync by RefreshEditNetSavedStations.
