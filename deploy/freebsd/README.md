@@ -9,6 +9,7 @@ These files set up a FreeBSD 15 server (amd64 or arm64, 1 GB of RAM or more) to 
 - Everything QuickLogger keeps in `/var/db/quicklogger`: the database, its SSH host key, each user's settings, and database backups.
 - **Automatic updates.** Every 5 minutes, `quicklogger-update` checks GitHub for a new release. When one's out and its FreeBSD build is attached, it downloads it, checks its checksum and that it runs, then waits until nobody is connected (or until 4 AM, when anyone still connected is disconnected; an open net session can be resumed), backs up the database and restarts on the new version. Pre-releases are never installed. It logs to `/var/log/messages` (`grep quicklogger-update /var/log/messages`).
 - Nightly FreeBSD security updates and package upgrades, neither of which restarts anything (a kernel update waits for a reboot), 1 GB of swap for the weekly station data import, and times shown in the server's time zone (America/New_York unless you say otherwise).
+- **No mail to root.** Cron jobs' output is dropped, and FreeBSD's daily, weekly and monthly reports (security checks included) go to `/var/log/daily.log`, `weekly.log` and `monthly.log` instead of root's mailbox.
 
 ## Setting one up
 

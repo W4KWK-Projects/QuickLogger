@@ -9,6 +9,9 @@
 # - QuickLogger runs as the unprivileged quicklogger user, from
 #   /var/db/quicklogger (database, host key, per-user settings, backups).
 # - FreeBSD's own security updates and package audits run nightly.
+# - Nothing is mailed to root: cron jobs' output is dropped, FreeBSD's
+#   daily, weekly and monthly reports go to log files in /var/log, and
+#   QuickLogger's updater logs to /var/log/messages.
 #
 # To seed the database, copy quicklogger.db (and optionally
 # ssh_host_ed25519_key) into /var/db/quicklogger before or after running
@@ -67,14 +70,31 @@ sysrc quicklogger_enable=YES quicklogger_port=22
 # Updates: QuickLogger every 5 minutes; FreeBSD and packages nightly.
 # Neither nightly job restarts anything: QuickLogger picks up upgraded
 # libraries at its next restart (its next release), and a kernel update
-# waits for a reboot.
+# waits for a reboot. No mail: quicklogger-update logs what it does to
+# /var/log/messages, and `freebsd-update cron` (which mails root when
+# there are updates) is replaced by a plain fetch.
 cat > /etc/cron.d/quicklogger <<'CRON'
+MAILTO=""
 SHELL=/bin/sh
 PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
 */5 * * * * root lockf -t 0 /var/run/quicklogger-update.lock /usr/local/sbin/quicklogger-update
-30 3 * * * root freebsd-update cron && freebsd-update install --not-running-from-cron > /dev/null 2>&1 || true
+30 3 * * * root freebsd-update fetch --not-running-from-cron > /dev/null 2>&1 && freebsd-update install --not-running-from-cron > /dev/null 2>&1 || true
 45 3 * * * root pkg upgrade -y > /dev/null 2>&1 || true
 CRON
+
+# Nobody reads root's mail on a server like this. FreeBSD's own cron jobs
+# (/etc/crontab) send none either, and periodic's daily, weekly and
+# monthly reports, security checks included, go to /var/log/daily.log,
+# weekly.log and monthly.log (rotated by newsyslog) instead.
+if ! grep -q '^MAILTO=' /etc/crontab; then
+    sed -i '' '1i\
+MAILTO=""
+' /etc/crontab
+fi
+sysrc -f /etc/periodic.conf \
+    daily_output=/var/log/daily.log daily_status_security_output=/var/log/daily.log \
+    weekly_output=/var/log/weekly.log weekly_status_security_output=/var/log/weekly.log \
+    monthly_output=/var/log/monthly.log monthly_status_security_output=/var/log/monthly.log
 # Rotate the log weekly, keeping 4.
 echo '/var/log/quicklogger.log quicklogger:quicklogger 640 4 * $W0D0 JC' > /etc/newsyslog.conf.d/quicklogger.conf
 
