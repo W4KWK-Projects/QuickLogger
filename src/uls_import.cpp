@@ -695,7 +695,7 @@ namespace ql
         return text;
     }
 
-    // The highest qualification, as a licence class.
+    // The highest qualification, as a license class.
     static std::string IsedLicenseClass(const std::vector<std::string_view>& fields)
     {
         if (!FieldOrEmpty(fields, kIsedQualAdvanced).empty())
@@ -1184,10 +1184,10 @@ namespace ql
         return requested || now - status.started_at >= kFailedLoadRetrySeconds;
     }
 
-    // The FCC or ISED licence data (`status`) is due: never loaded; failed
+    // The FCC or ISED license data (`status`) is due: never loaded; failed
     // (and due a retry); a "running" row left behind by an older version of
     // the app, which ran imports inside a session; or a week old.
-    static bool IsLicenceDataDue(const std::optional<ImportRunStatus>& status, std::int64_t now,
+    static bool IsLicenseDataDue(const std::optional<ImportRunStatus>& status, std::int64_t now,
                                  bool requested)
     {
         if (!status.has_value() || status->status != "complete")
@@ -1205,8 +1205,8 @@ namespace ql
 
         DataRefreshPlan plan;
 
-        plan.uls = IsLicenceDataDue(db->GetImportRunStatus(kUlsDataset), now, requested);
-        plan.ised = IsLicenceDataDue(db->GetImportRunStatus(kIsedDataset), now, requested);
+        plan.uls = IsLicenseDataDue(db->GetImportRunStatus(kUlsDataset), now, requested);
+        plan.ised = IsLicenseDataDue(db->GetImportRunStatus(kIsedDataset), now, requested);
 
         if (!db->HasAnyZipCentroids())
         {

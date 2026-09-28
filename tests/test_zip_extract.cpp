@@ -15,7 +15,7 @@ namespace ql
         std::string text;
         for (int i = 0; i < 20000; ++i)
         {
-            text += "HD|" + std::to_string(i) + "|some|repeated|licence|data\n";
+            text += "HD|" + std::to_string(i) + "|some|repeated|license|data\n";
         }
         return text;
     }

@@ -64,9 +64,9 @@ namespace ql
 
     // Works out what's due: a dataset that has never loaded, whose last
     // attempt failed more than kFailedLoadRetrySeconds ago, or (the FCC and
-    // ISED licence data) whose last load is more than a week old. A refresh
+    // ISED license data) whose last load is more than a week old. A refresh
     // requested by hand (Database::RequestImportRun on kDataRefreshJob)
-    // makes the licence data and anything that failed due immediately.
+    // makes the license data and anything that failed due immediately.
     DataRefreshPlan PlanDataRefresh(Database* db, std::int64_t now);
 
     // True if `plan` has anything to do.
