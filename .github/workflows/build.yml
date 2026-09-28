@@ -116,3 +116,8 @@ jobs:
   # kept as a workflow artifact (see linux-binary.yml).
   linux-binaries:
     uses: ./.github/workflows/linux-binary.yml
+
+  # The Windows release binary, kept as a workflow artifact (see
+  # windows-binary.yml).
+  windows-binary:
+    uses: ./.github/workflows/windows-binary.yml

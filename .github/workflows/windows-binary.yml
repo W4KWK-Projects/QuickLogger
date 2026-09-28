@@ -1,0 +1,81 @@
+# Builds the Windows (x64, console-only) binary. Called two ways:
+#
+# - by release.yml for a tag, attaching it to that release's page;
+# - by build.yml on every push and pull request, keeping it as a workflow
+#   artifact, so the packaging is known to work before a release.
+#
+# Built with Visual Studio and vcpkg's static libraries and the static C++
+# runtime, so QuickLogger.exe is a single file that needs no DLLs or
+# Visual C++ Redistributable installed.
+name: Windows binary
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to build and attach to; blank builds this commit and keeps the result as an artifact.
+        type: string
+        default: ""
+
+jobs:
+  windows:
+    name: windows-x64
+    runs-on: windows-2025
+    env:
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.sha }}
+
+      - name: Install packages
+        run: '& "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install sqlite3 curl zlib --triplet x64-windows-static'
+
+      - name: Build
+        run: |
+          cmake -S . -B build "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
+          cmake --build build --config Release
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Package
+        run: |
+          $version = (Select-String -Path CMakeLists.txt -Pattern '^project\(QuickLogger VERSION ([0-9.]+)').Matches[0].Groups[1].Value
+          $name = "QuickLogger-$version-windows-x64"
+          New-Item -ItemType Directory -Path "dist\$name" | Out-Null
+          Copy-Item build\Release\QuickLogger.exe, README.md "dist\$name\"
+          & "dist\$name\QuickLogger.exe" --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Compress-Archive -Path "dist\$name" -DestinationPath "dist\$name.zip"
+          $hash = (Get-FileHash "dist\$name.zip" -Algorithm SHA256).Hash.ToLower()
+          [System.IO.File]::WriteAllText("$PWD\dist\$name.zip.sha256", "$hash  $name.zip`n")
+          "NAME=$name" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Only Windows' own DLLs, i.e. nothing the user would have to install.
+      - name: Check it needs no other DLLs
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $dlls = & $dumpbin.FullName /dependents "dist\$env:NAME\QuickLogger.exe" | Where-Object { $_ -match '^\s+\S+\.dll$' } | ForEach-Object { $_.Trim() }
+          $dlls
+          $extra = $dlls | Where-Object { $_ -match '^(vcruntime|msvcp|libcurl|sqlite|zlib)' }
+          if ($extra) { Write-Error "Depends on: $extra"; exit 1 }
+
+      - name: Attach to the release
+        if: inputs.tag != ''
+        shell: bash
+        run: gh release upload "$TAG" "dist/$NAME.zip" "dist/$NAME.zip.sha256" --clobber
+
+      - name: Keep as an artifact
+        if: inputs.tag == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: |
+            dist/${{ env.NAME }}.zip
+            dist/${{ env.NAME }}.zip.sha256
+          retention-days: 7
