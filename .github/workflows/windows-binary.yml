@@ -1,8 +1,10 @@
 # Builds the Windows (x64 and arm64, console-only) binaries. Called two ways:
 #
-# - by release.yml for a tag, attaching it to that release's page;
-# - by build.yml on every push and pull request, keeping it as a workflow
-#   artifact, so the packaging is known to work before a release.
+# - by release.yml for a tag, attaching them to that release's page;
+# - by hand (Actions > Windows binary > Run workflow), which builds the
+#   chosen branch, keeps the binaries as a workflow artifact, and also
+#   checks the README's two ways to build it. It isn't part of build.yml
+#   because Windows builds are slow.
 #
 # Built with Visual Studio and vcpkg's static libraries and the static C++
 # runtime, so QuickLogger.exe is a single file that needs no DLLs or
@@ -17,6 +19,10 @@ on:
         description: Release tag to build and attach to; blank builds this commit and keeps the result as an artifact.
         type: string
         default: ""
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   windows:
@@ -103,3 +109,41 @@ jobs:
             dist/${{ env.NAME }}.zip
             dist/${{ env.NAME }}.zip.sha256
           retention-days: 7
+
+  # By hand only: the build both ways the README gives, Visual Studio with
+  # vcpkg (preinstalled on the runner) and MSYS2's UCRT64 environment (also
+  # preinstalled, at C:\msys64).
+  windows-msvc:
+    if: inputs.tag == ''
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install packages
+        run: '& "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install sqlite3 curl zlib --triplet x64-windows'
+      - name: Build
+        run: |
+          cmake -S . -B build "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+          cmake --build build --config Release
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+  windows-mingw:
+    if: inputs.tag == ''
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: C:\msys64\usr\bin\bash.exe --login -eo pipefail {0}
+    env:
+      MSYSTEM: UCRT64
+      # Keeps the login shell in the checkout rather than $HOME.
+      CHERE_INVOKING: 1
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install packages
+        run: pacman -Sy --needed --noconfirm git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-sqlite3 mingw-w64-ucrt-x86_64-curl mingw-w64-ucrt-x86_64-zlib
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
