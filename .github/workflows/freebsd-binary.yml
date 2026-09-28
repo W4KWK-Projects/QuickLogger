@@ -1,0 +1,88 @@
+# Builds the FreeBSD 15 binaries (amd64 and arm64) in FreeBSD VMs on a
+# Linux runner, and runs the tests there. Called two ways:
+#
+# - by release.yml for a tag, attaching them to that release's page;
+# - by hand (Actions > FreeBSD binaries > Run workflow), which builds the
+#   chosen branch and keeps the result as a workflow artifact. It isn't
+#   part of build.yml because the arm64 VM is emulated and slow.
+#
+# Each tarball carries deploy/ for the hosted server, whose updater
+# installs those scripts too (see deploy/freebsd).
+name: FreeBSD binaries
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to build and attach to; blank builds this commit and keeps the result as an artifact.
+        type: string
+        default: ""
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  freebsd:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            vm_arch: x86_64
+          - arch: arm64
+            vm_arch: aarch64
+    name: freebsd-${{ matrix.arch }}
+    runs-on: ubuntu-24.04
+    # arm64 runs under emulation.
+    timeout-minutes: 180
+    env:
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.sha }}
+
+      - name: Build and test on FreeBSD
+        # Pinned to a commit. The repository's Actions settings allow only
+        # GitHub's own actions plus this one, by this exact commit.
+        uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff  # v1.5.8
+        with:
+          release: "15.0"
+          arch: ${{ matrix.vm_arch }}
+          usesh: true
+          prepare: pkg install -y cmake git sqlite3 curl libssh
+          run: |
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+            cmake --build build -j 2
+            ctest --test-dir build --output-on-failure
+            ./build/QuickLogger --version
+            file build/QuickLogger
+
+      - name: Package
+        run: |
+          version=$(sed -n 's/^project(QuickLogger VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          name="QuickLogger-$version-freebsd-${{ matrix.arch }}"
+          mkdir -p "dist/$name"
+          cp build/QuickLogger README.md "dist/$name/"
+          # The server scripts, which a server's updater installs too.
+          cp -R deploy/freebsd "dist/$name/deploy"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+          echo "NAME=$name" >> "$GITHUB_ENV"
+
+      - name: Attach to the release
+        if: inputs.tag != ''
+        run: gh release upload "$TAG" "dist/$NAME.tar.gz" "dist/$NAME.tar.gz.sha256" --clobber
+
+      - name: Keep as an artifact
+        if: inputs.tag == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: |
+            dist/${{ env.NAME }}.tar.gz
+            dist/${{ env.NAME }}.tar.gz.sha256
+          retention-days: 7

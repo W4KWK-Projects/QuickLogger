@@ -1,4 +1,5 @@
-# Builds the macOS (Apple Silicon), FreeBSD (amd64), Linux (amd64,
+# Builds the macOS (Apple Silicon), FreeBSD (amd64, arm64 -- see
+# freebsd-binary.yml), Linux (amd64,
 # arm64 -- see linux-binary.yml) and Windows (x64 -- see windows-binary.yml)
 # binaries for a tagged release and attaches
 # them to that release's GitHub page, creating the page if it doesn't exist
@@ -72,46 +73,12 @@ jobs:
           fi
           gh release upload "$TAG" "$ASSET" "$ASSET.sha256" --clobber
 
-  # In a FreeBSD VM on a Linux runner. After the macOS job, which creates
-  # the release page.
+  # After the macOS job, which creates the release page.
   freebsd:
     needs: macos
-    runs-on: ubuntu-24.04
-    env:
-      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ env.TAG }}
-
-      - name: Build and test on FreeBSD
-        # Pinned to a commit. The repository's Actions settings allow only
-        # GitHub's own actions plus this one, by this exact commit.
-        uses: vmactions/freebsd-vm@a2f9a41fa97f6848b8c3b791087dfcdaa5b473ff  # v1.5.8
-        with:
-          release: "15.0"
-          usesh: true
-          prepare: pkg install -y cmake git sqlite3 curl libssh
-          run: |
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-            cmake --build build -j 2
-            ctest --test-dir build --output-on-failure
-
-      - name: Package
-        run: |
-          name="QuickLogger-${TAG#v}-freebsd-amd64"
-          mkdir -p "dist/$name"
-          cp build/QuickLogger README.md "dist/$name/"
-          # The server scripts, which a server's updater installs too.
-          cp -R deploy/freebsd "dist/$name/deploy"
-          tar -C dist -czf "dist/$name.tar.gz" "$name"
-          (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
-          echo "ASSET=dist/$name.tar.gz" >> "$GITHUB_ENV"
-
-      - name: Attach to the release
-        run: gh release upload "$TAG" "$ASSET" "$ASSET.sha256" --clobber
+    uses: ./.github/workflows/freebsd-binary.yml
+    with:
+      tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
   # After the macOS job, which creates the release page.
   linux:

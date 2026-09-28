@@ -1,6 +1,6 @@
 # Running QuickLogger as a FreeBSD server
 
-These files set up a FreeBSD 15 server (amd64, 1 GB of RAM or more) to run QuickLogger for SSH users around the clock, and to keep it on the latest release without anyone touching it.
+These files set up a FreeBSD 15 server (amd64 or arm64, 1 GB of RAM or more) to run QuickLogger for SSH users around the clock, and to keep it on the latest release without anyone touching it.
 
 ## What you get
 

@@ -38,7 +38,8 @@ if [ -z "$version" ] || [ "$version" = "null" ] || [ "$version" = "$installed" ]
     exit 0
 fi
 
-asset="QuickLogger-$version-freebsd-amd64.tar.gz"
+# uname -m is amd64 or arm64, as in the release file names.
+asset="QuickLogger-$version-freebsd-$(uname -m).tar.gz"
 url=$(printf '%s' "$release" | jq -r --arg name "$asset" '.assets[] | select(.name == $name) | .browser_download_url')
 if [ -z "$url" ]; then
     # The release is published before its FreeBSD build is attached.
