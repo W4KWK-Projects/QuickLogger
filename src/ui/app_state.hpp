@@ -582,6 +582,13 @@ namespace ql
     // same name can be told apart), and "session open" if one is.
     void RefreshNets(AppState* state);
 
+    // Highlights, on the net list, the recurring net whose newest session
+    // this operator started (Database::GetNetLastStartedBy) -- most people
+    // log the same net every time, so at login it's usually just F3/Enter.
+    // Leaves the highlight alone if they've started none. Call once, after
+    // RefreshNets, when the session begins.
+    void HighlightLastLoggedNet(AppState* state);
+
     // Whether the highlighted net on the net list has a session open.
     bool SelectedNetHasOpenSession(const AppState* state);
 

@@ -105,6 +105,22 @@ namespace ql
 
     // ---- Logging -------------------------------------------------------------------
 
+    QL_TEST(LoginHighlightsTheNetLastLogged)
+    {
+        Fixture f;
+        AddTestNet(f.db(), "ARES");
+        std::int64_t skywarn = AddTestNet(f.db(), "Skywarn");
+        std::int64_t tag = AddTestNet(f.db(), "TAG");
+        RefreshNets(&f.state);
+        HighlightLastLoggedNet(&f.state);
+        CHECK_EQ(f.state.selected_net_index, 0);  // Never logged one: left alone.
+
+        AddTestInstance(f.db(), tag, "2026-01-01", 1, "W4KWK");
+        AddTestInstance(f.db(), skywarn, "2026-01-02", 2, "W4KWK");
+        HighlightLastLoggedNet(&f.state);
+        CHECK_EQ(f.state.nets[static_cast<std::size_t>(f.state.selected_net_index)].id, skywarn);
+    }
+
     QL_TEST(StartingANetLogsTheOperatorFirst)
     {
         Fixture f;

@@ -61,10 +61,10 @@ A recurring net is one you run again and again: a weekly Skywarn net, a club's T
 
 ## Running a net
 
-1. Highlight the net and press **F3** (or Enter).
+1. Highlight the net and press **F3** (or Enter): **Log Net** on the key bar. When you log in, the net you last started is already highlighted, so it's usually just **F3**.
 2. Choose your **role**: Net Control, Alternate Net Control or Logger. (**Viewer** is for watching a session that's already open; see [Sharing a session](#sharing-a-session).)
 
-If the net already has a session open, the list says *session open*, a line under the list says so when it's highlighted, and the key bar reads **F3/Enter Join** instead of Start. Press it anyway: you're asked what to do (see [Sharing a session](#sharing-a-session)).
+If the net already has a session open, the list says *session open*, a line under the list says so when it's highlighted, and the key bar reads **F3/Enter Join** instead of Log Net. Press it anyway: you're asked what to do (see [Sharing a session](#sharing-a-session)).
 3. Confirm your callsign (it's filled in from Settings) and press **F2**. You're logged as check-in #1, in your role.
 
 **F2** opens the **New Check-In** window. Type the callsign (see [autocomplete](#callsign-autocomplete)) and fill in whatever else you have:
@@ -91,7 +91,7 @@ On the check-in list, **F3** edits and **F5** deletes a check-in by its number (
 Several operators can log the same session at once (over SSH), for example a Net Control and a Logger.
 
 - **Is a session open?** On Recurring Nets, a net being logged right now shows *session open*, and when it's highlighted the key bar reads **F3/Enter Join**.
-- **Joining or watching:** highlight the net and press **F3** (or Enter), the same key that starts a net. Because a session is open, QuickLogger asks what you want to do:
+- **Joining or watching:** highlight the net and press **F3** (or Enter), the same key that logs a net. Because a session is open, QuickLogger asks what you want to do:
   - **F2/Enter Resume:** log check-ins in the same session, alongside the others.
   - **F4 View:** only watch it. You can't change anything.
   - **F3 Close & New:** close that session and start a new one. Don't use this to join someone else's net.
@@ -238,6 +238,6 @@ QuickLogger keeps its own copy of the FCC's amateur license database and Canada'
 - **The screen is cut off:** QuickLogger needs at least 80×24. Make the window bigger; it adjusts straight away.
 - **Esc takes a moment:** about a tenth of a second, while QuickLogger checks that it isn't the start of another key. Pressing Esc twice quickly works as two Escs.
 - **A callsign isn't found:** check whether the station data is still loading (the notice at the top). The FCC and ISED data cover US and Canadian licensees; enter other stations' details by hand.
-- **"Net Closed" window:** another operator closed the session you were on. Press Enter, then start the net again (F3) if you need a new session.
+- **"Net Closed" window:** another operator closed the session you were on. Press Enter, then log the net again (F3) if you need a new session.
 - **"Failed to open database 'quicklogger.db': unable to open database file" under WSL:** QuickLogger is in a Windows folder (a path starting `/mnt/c/`, such as your Windows Downloads or OneDrive), where its database can't work. Move the QuickLogger folder into your Linux home directory (for example `mv QuickLogger-<version>-linux-amd64 ~/`) and start it from there.
 - **"./QuickLogger: not found" although the file is there, under WSL:** that WSL distribution isn't a regular Linux one (Docker Desktop's own distribution, or Alpine). Install Debian or Ubuntu (`wsl --install -d Debian`), install the libraries the README lists for it, and run QuickLogger there.

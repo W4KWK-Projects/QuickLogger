@@ -682,12 +682,18 @@ namespace ql
                                        ? ftxui::text("  (view-only)") | ftxui::color(kColorLabel)
                                        : ftxui::emptyElement()});
 
+            // What F3/Enter will do with the highlighted net -- by far the
+            // most used key, so it's spelled out under the list.
             bool open_session = SelectedNetHasOpenSession(state_);
             ftxui::Element open_session_hint =
-                !open_session ? ftxui::emptyElement()
-                : state_->view_only_user
-                    ? HintText("Session open: F3/Enter to view it.")
-                    : HintText("Session open: F3/Enter to join it, view it, or start a new one.");
+                open_session
+                    ? (state_->view_only_user
+                           ? HintText("Session open: F3/Enter to view it.")
+                           : HintText(
+                                 "Session open: F3/Enter to join it, view it, or start a new one."))
+                : state_->view_only_user || state_->nets.empty()
+                    ? ftxui::emptyElement()
+                    : HintText("Choose your net with Up/Down, then press F3 (or Enter) to log it.");
 
             ftxui::Element content = ftxui::vbox({
                 callsign_hint,
@@ -729,7 +735,7 @@ namespace ql
             return PageChrome("Recurring Nets", content,
                               {
                                   {"F2", "New"},
-                                  {"F3/Enter", open_session ? "Join" : "Start"},
+                                  {"F3/Enter", open_session ? "Join" : "Log Net"},
                                   {"F4", "Settings"},
                                   {"F5", "AdHoc"},
                                   {"F6", "History"},
@@ -871,7 +877,7 @@ namespace ql
         {
             ftxui::Element content = ftxui::vbox({
                 ftxui::hbox(
-                    {ftxui::text("Starting: ") | ftxui::color(kColorLabel),
+                    {ftxui::text("Logging: ") | ftxui::color(kColorLabel),
                      ftxui::text(state_->start_net.name) | ftxui::bold | ftxui::color(kColorData)}),
                 Separator(),
                 HintText("Select your role for this net:"),
@@ -942,7 +948,8 @@ namespace ql
                 ErrorLine(state_->form_error),
             });
 
-            return PageChrome("Enter Callsign", content, {{"F2/Enter", "Start"}, {"Esc", "Back"}});
+            return PageChrome("Enter Callsign", content,
+                              {{"F2/Enter", "Start Log"}, {"Esc", "Back"}});
         }
 
     private:
@@ -1502,7 +1509,7 @@ namespace ql
                     ftxui::hbox({FieldLabel("ZIP Code:         "), input_location_->Render()}),
                     PartialMatchRow("Partial Matching: ", partial_match_),
                 };
-                hints.push_back({"F2", "Start"});
+                hints.push_back({"F2", "Log Net"});
             }
             if (!state_->open_ad_hoc_sessions.empty())
             {

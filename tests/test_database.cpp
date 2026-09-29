@@ -336,6 +336,28 @@ namespace ql
         CHECK_EQ(nets[1].id, second);
     }
 
+    QL_TEST(NetLastStartedByIsTheNewestRecurringOne)
+    {
+        TempDir dir;
+        Database db(dir.File("q.db"));
+        std::int64_t skywarn = AddTestNet(&db, "Skywarn");
+        std::int64_t ares = AddTestNet(&db, "ARES");
+        Net ad_hoc;
+        ad_hoc.name = "Tailgate";
+        ad_hoc.is_ad_hoc = true;
+        std::int64_t tailgate = db.CreateNet(ad_hoc);
+        CHECK(!db.GetNetLastStartedBy("W4KWK").has_value());
+
+        AddTestInstance(&db, ares, "2026-01-01", 1, "W4KWK");
+        AddTestInstance(&db, skywarn, "2026-01-02", 2, "W4KWK");
+        // Newer, but an ad hoc net, or someone else's session.
+        AddTestInstance(&db, tailgate, "2026-01-03", 3, "W4KWK");
+        AddTestInstance(&db, ares, "2026-01-04", 4, "K4AAA");
+        CHECK_EQ(db.GetNetLastStartedBy("W4KWK").value_or(0), skywarn);
+        CHECK_EQ(db.GetNetLastStartedBy("w4kwk").value_or(0), skywarn);
+        CHECK_EQ(db.GetNetLastStartedBy("K4AAA").value_or(0), ares);
+    }
+
     QL_TEST(NetsWithOpenSessionsAreFound)
     {
         TempDir dir;

@@ -138,6 +138,10 @@ namespace ql
         // someone is logging right now, or one whose session ended without
         // being closed (see ResumeOpenNet in app_state.hpp).
         std::vector<std::int64_t> GetNetIdsWithOpenInstances();
+        // The recurring (not ad hoc) net whose newest session `callsign`
+        // started (NetInstance::created_by), or nullopt if they've started
+        // none.
+        std::optional<std::int64_t> GetNetLastStartedBy(const std::string& callsign);
         // Sets one of the instance's three role-callsign columns (kRoleNetControl/
         // kRoleAlternateNetControl/kRoleLogger) to `callsign` -- `callsign` is
         // "" to clear it. Used by ApplyCheckInRoleDesignation to keep these

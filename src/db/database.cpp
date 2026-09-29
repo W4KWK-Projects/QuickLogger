@@ -986,6 +986,23 @@ COMMIT;
         return net_ids;
     }
 
+    std::optional<std::int64_t> Database::GetNetLastStartedBy(const std::string& callsign)
+    {
+        Statement statement(db_, R"sql(
+        SELECT i.net_id
+        FROM net_instances i JOIN nets n ON n.id = i.net_id
+        WHERE n.is_ad_hoc = 0 AND i.created_by = ?
+        ORDER BY i.instance_date DESC, i.started_at DESC, i.id DESC
+        LIMIT 1;
+    )sql");
+        statement.BindText(0, ToUpperAscii(callsign));
+        if (!statement.Step())
+        {
+            return std::nullopt;
+        }
+        return statement.ColumnInt64(0);
+    }
+
     bool Database::CloseNetInstance(std::int64_t instance_id, std::int64_t closed_at)
     {
         Statement statement(db_, R"sql(

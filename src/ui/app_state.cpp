@@ -618,6 +618,28 @@ namespace ql
         }
     }
 
+    void HighlightLastLoggedNet(AppState* state)
+    {
+        if (state->settings.callsign.empty())
+        {
+            return;
+        }
+        std::optional<std::int64_t> net_id =
+            state->db->GetNetLastStartedBy(state->settings.callsign);
+        if (!net_id.has_value())
+        {
+            return;
+        }
+        for (std::size_t i = 0; i < state->nets.size(); ++i)
+        {
+            if (state->nets[i].id == *net_id)
+            {
+                state->selected_net_index = static_cast<int>(i);
+                return;
+            }
+        }
+    }
+
     bool SelectedNetHasOpenSession(const AppState* state)
     {
         if (state->selected_net_index < 0 ||
@@ -4510,10 +4532,10 @@ namespace ql
             case kPageNetList:
                 return {
                     {"F2", "Create a new recurring net.", false},
-                    {"F3/Enter", "Start the highlighted net, or join or view its open session.",
+                    {"F3/Enter", "Log the highlighted net, or join or view its open session.",
                      false},
                     {"F4", "Settings: your callsign, home ZIP and time format.", false},
-                    {"F5", "Ad hoc nets: start one, resume one, or see their history.", false},
+                    {"F5", "Ad hoc nets: log one, resume one, or see their history.", false},
                     {"F6", "History of the highlighted net: view, export, delete.", false},
                     {"F7", "Edit a net (by number): its details and saved stations.", false},
                     {"F8", "Export the highlighted net to a file to share.", false},
@@ -4536,7 +4558,7 @@ namespace ql
                 };
             case kPageEnterCallsign:
                 return {
-                    {"F2/Enter", "Start the net, with you checked in as #1.", false},
+                    {"F2/Enter", "Start the log, with you checked in as #1.", false},
                     {"Esc", "Back to choosing a role.", false},
                 };
             case kPageActiveNet:
@@ -4579,7 +4601,7 @@ namespace ql
             }
             case kPageAdHocNet:
                 return {
-                    {"F2", "Start an ad hoc net with the details entered.", false},
+                    {"F2", "Log an ad hoc net with the details entered.", false},
                     {"F3", "Resume an ad hoc session left open (by number).", false},
                     {"F6", "History of every ad hoc net.", false},
                     {"Esc", "Back to the net list.", false},

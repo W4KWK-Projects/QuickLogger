@@ -365,6 +365,7 @@ namespace ql
         }
 
         ql::RefreshNets(&state);
+        ql::HighlightLastLoggedNet(&state);
 
         ftxui::Component net_list_page = ql::BuildNetListPage(&state);
         ftxui::Component create_net_page = ql::BuildCreateNetPage(&state);
