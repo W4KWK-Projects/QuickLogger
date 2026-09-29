@@ -3809,6 +3809,39 @@ namespace ql
     }
     static constexpr int kInfoTableWidthAt80 = 70;
 
+    // The open window's columns, each but the last widening no further than
+    // its longest entry needs, so on a wide terminal the room left over goes
+    // to the last column (Remarks, or Comment) rather than to blank space
+    // after short net names. The last column takes all of that room.
+    static std::vector<ListColumn> FitInfoColumns(const AppState* state, int available)
+    {
+        std::vector<ListColumn> columns = state->info_columns;
+        for (std::size_t column = 0; column + 1 < columns.size(); ++column)
+        {
+            int needed = TextWidth(columns[column].heading);
+            for (std::size_t row = 0; row < state->info_cells.size(); ++row)
+            {
+                if (column >= state->info_cells[row].size())
+                {
+                    continue;
+                }
+                int width = TextWidth(state->info_cells[row][column]);
+                if (column == state->info_tag_column && row < state->info_cell_tags.size())
+                {
+                    width += TextWidth(state->info_cell_tags[row]);
+                }
+                needed = std::max(needed, width);
+            }
+            columns[column].max_width =
+                std::max(columns[column].width, std::min(columns[column].max_width, needed));
+        }
+        if (!columns.empty())
+        {
+            columns.back().max_width = std::max(columns.back().max_width, available);
+        }
+        return columns;
+    }
+
     // Lays the open window's table out for AppState::list_width (it widens
     // with the terminal, like the lists).
     static void FormatInfoTable(AppState* state)
@@ -3819,12 +3852,24 @@ namespace ql
         {
             return;
         }
-        ListLayout layout = LayOutList(state->info_columns, InfoTableWidth(state->list_width),
-                                       kInfoTableWidthAt80, 2);
+        int width = InfoTableWidth(state->list_width);
+        ListLayout layout = LayOutList(FitInfoColumns(state, width), width, kInfoTableWidthAt80, 2);
         // Cut to the table's width: a long last column would otherwise make
         // the list scroll sideways to show it, hiding the first columns.
-        int width = InfoTableWidth(state->list_width);
+        // On a wider terminal, padded to the width the columns take, so the
+        // window is as wide as its last column. (At 80 it's as it always
+        // was.)
         state->info_header = CutToWidth(FormatListHeading(state->info_columns, layout), width);
+        int used = 0;
+        for (int column_width : layout.widths)
+        {
+            used += column_width > 0 ? column_width + (used > 0 ? layout.gap : 0) : 0;
+        }
+        int header_width = TextWidth(state->info_header);
+        if (width > kInfoTableWidthAt80 && header_width < used)
+        {
+            state->info_header.append(static_cast<std::size_t>(used - header_width), ' ');
+        }
         if (state->info_cell_tags.empty())
         {
             state->info_rows = FormatRows(state->info_cells, layout);
