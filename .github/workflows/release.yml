@@ -2,9 +2,11 @@
 # freebsd-binary.yml), Linux (amd64,
 # arm64 -- see linux-binary.yml) and Windows (x64 -- see windows-binary.yml)
 # binaries for a tagged release and attaches
-# them to that release's GitHub page, creating the page if it doesn't exist
-# yet. The hosted server installs the FreeBSD
-# one by itself (see deploy/freebsd). Runs on every pushed tag starting with "v" (e.g. v1.1.0); it can also
+# them to that release's GitHub page, creating the page as a draft if it
+# doesn't exist yet. The draft is published only once every build has
+# succeeded, so nobody -- and not the hosted server, which installs the
+# FreeBSD one by itself from the latest release (see deploy/freebsd) -- sees
+# a release with downloads missing. Runs on every pushed tag starting with "v" (e.g. v1.1.0); it can also
 # be run by hand for a tag that already exists (Actions > Release binaries >
 # Run workflow), which replaces the binary on that release.
 name: Release binaries
@@ -69,27 +71,44 @@ jobs:
       - name: Attach to the release
         run: |
           if ! gh release view "$TAG" > /dev/null 2>&1; then
-            gh release create "$TAG" --verify-tag --title "QuickLogger ${TAG#v}" --generate-notes
+            gh release create "$TAG" --verify-tag --draft --title "QuickLogger ${TAG#v}" --generate-notes
           fi
           gh release upload "$TAG" "$ASSET" "$ASSET.sha256" --clobber
 
-  # After the macOS job, which creates the release page.
+  # After the macOS job, which creates the (draft) release page.
   freebsd:
     needs: macos
     uses: ./.github/workflows/freebsd-binary.yml
     with:
       tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
-  # After the macOS job, which creates the release page.
+  # After the macOS job, which creates the (draft) release page.
   linux:
     needs: macos
     uses: ./.github/workflows/linux-binary.yml
     with:
       tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
-  # After the macOS job, which creates the release page.
+  # After the macOS job, which creates the (draft) release page.
   windows:
     needs: macos
     uses: ./.github/workflows/windows-binary.yml
     with:
       tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+  # Makes the draft public once every binary is attached. Skipped if any
+  # build failed, leaving the draft for a fix and a re-tag. A release that's
+  # already public (a manual re-run for an old tag) is left as it is.
+  publish:
+    needs: [macos, freebsd, linux, windows]
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Publish the release
+        run: |
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "true" ]; then
+            gh release edit "$TAG" --draft=false --latest
+          fi
