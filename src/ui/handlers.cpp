@@ -1414,6 +1414,10 @@ namespace ql
         {
             CloseActiveNet(state);
         }
+        else if (state->confirm_prompt == ConfirmPrompt::kImportOtherNet && yes)
+        {
+            ImportSelectedSessionAnyway(state);
+        }
         return event != ftxui::Event::Custom;
     }
 

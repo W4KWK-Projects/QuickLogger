@@ -2969,7 +2969,20 @@ namespace ql
         state->page = kPageNetList;
     }
 
+    static void ImportSession(AppState* state, bool name_checked);
+
     void ImportSelectedSession(AppState* state)
+    {
+        ImportSession(state, false);
+    }
+
+    void ImportSelectedSessionAnyway(AppState* state)
+    {
+        CancelConfirmPrompt(state);
+        ImportSession(state, true);
+    }
+
+    static void ImportSession(AppState* state, bool name_checked)
     {
         if (RefuseViewOnly(state, "import sessions"))
         {
@@ -2990,6 +3003,19 @@ namespace ql
         {
             state->status_message.clear();
             state->form_error = error;
+            return;
+        }
+
+        // Logged under a name nothing like this net's: probably the wrong
+        // net's History, so ask first.
+        if (!name_checked && !state->import_session_ad_hoc &&
+            !NetNamesLookAlike(slice->net.name, state->import_session_net_name))
+        {
+            ShowConfirmPrompt(state, ConfirmPrompt::kImportOtherNet, "Import Into This Net?",
+                              {"This session was logged as \"" + slice->net.name + "\", not " +
+                                   state->import_session_net_name + ".",
+                               "If it belongs to another net, press Esc and import it from "
+                               "that net's History instead."});
             return;
         }
 

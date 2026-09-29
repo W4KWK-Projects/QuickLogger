@@ -92,6 +92,9 @@ namespace ql
         // Someone else closed (or deleted) the active net's session: Enter
         // returns to the net list. Not a question; nothing else closes it.
         kSessionClosed,
+        // Importing a session logged under a net name nothing like the
+        // History it's going into (see NetNamesLookAlike).
+        kImportOtherNet,
     };
 
     // The on-screen lists a RowPickAction picks from.
@@ -843,7 +846,11 @@ namespace ql
     // (ApplySessionSlice), and returns to History with it highlighted. Sets
     // AppState::form_error instead, leaving the page open, if the file
     // can't be read or the net already has that session.
+    // If the file's net name is nothing like the net's (NetNamesLookAlike),
+    // it asks first (ConfirmPrompt::kImportOtherNet) instead of importing.
     void ImportSelectedSession(AppState* state);
+    // F2/Enter on that question: imports it anyway.
+    void ImportSelectedSessionAnyway(AppState* state);
 
     // Esc on the import page: back to History for a session import, else
     // to the net list.

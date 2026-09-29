@@ -36,4 +36,14 @@ namespace ql
     // County" or "1234 Main St" have no ZIP.
     std::string ExtractZipCode(const std::string& text);
 
+    // True if two net names have something in common, however loosely, so
+    // "Hamilton Co. ARES Net" and "Hamilton County ARES" look alike, as do
+    // "TAG Skywarn" and "Tennessee Alabama Georgia Net", but "TAG Skywarn"
+    // and "Hamilton County ARES" don't. Generous on purpose: it's there to
+    // catch a session being imported into the wrong net, so it errs toward
+    // "alike". Words every net name might have ("net", "amateur", "radio",
+    // "county", ...) don't count; if either name has nothing else, the two
+    // look alike.
+    bool NetNamesLookAlike(const std::string& a, const std::string& b);
+
 }  // namespace ql

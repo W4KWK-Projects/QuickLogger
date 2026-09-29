@@ -607,6 +607,10 @@ namespace ql
             {
                 rows.push_back(KeyHintRow({{"Enter", "Recurring Nets"}}));
             }
+            else if (state_->confirm_prompt == ConfirmPrompt::kImportOtherNet)
+            {
+                rows.push_back(KeyHintRow({{"F2/Enter", "Import Anyway"}, {"Esc", "Cancel"}}));
+            }
             else
             {
                 rows.push_back(KeyHintRow({{"F2/Enter", "Close Net"}, {"Esc", "Keep Logging"}}));
@@ -2064,8 +2068,8 @@ namespace ql
 
         ftxui::Component root = ftxui::Container::Vertical({file_menu});
         ftxui::Component main_view = ftxui::Renderer(root, ImportNetRenderer(state, file_menu));
-        return LayeredModal(main_view, BuildZmodemConfirmModal(state),
-                            &state->show_zmodem_confirm_modal);
+        return WithConfirmPrompt(state, LayeredModal(main_view, BuildZmodemConfirmModal(state),
+                                                     &state->show_zmodem_confirm_modal));
     }
 
     // ---- Manage users page --------------------------------------------------

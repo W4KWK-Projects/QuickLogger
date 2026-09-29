@@ -2032,6 +2032,39 @@ namespace ql
         CHECK(!f.state.import_session);
     }
 
+    QL_TEST(ImportingASessionFromANetWithAnUnlikeNameAsksFirst)
+    {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("TAG Skywarn");
+        WriteSessionFileFromElsewhere(f, "Hamilton County ARES", "ares.qlsession");
+        RefreshNets(&f.state);
+        f.state.selected_net_index = 0;
+        f.state.history_ad_hoc = false;
+        OpenSessionImport(&f.state);
+
+        // Asked first; nothing imported yet, and Esc imports nothing.
+        ImportSelectedSession(&f.state);
+        CHECK(f.state.show_confirm_prompt);
+        CHECK(f.state.confirm_prompt == ConfirmPrompt::kImportOtherNet);
+        REQUIRE(!f.state.confirm_prompt_lines.empty());
+        CHECK(f.state.confirm_prompt_lines[0].find("\"Hamilton County ARES\"") !=
+              std::string::npos);
+        CHECK_EQ(f.state.page, kPageImportNet);
+        CHECK_EQ(f.db()->GetNetInstancesForNet(net_id).size(), std::size_t{1});
+        CancelConfirmPrompt(&f.state);
+        CHECK_EQ(f.db()->GetNetInstancesForNet(net_id).size(), std::size_t{1});
+
+        // Asked again; this time imported anyway.
+        ImportSelectedSession(&f.state);
+        REQUIRE(f.state.show_confirm_prompt);
+        ImportSelectedSessionAnyway(&f.state);
+        CHECK(!f.state.show_confirm_prompt);
+        CHECK_EQ(f.state.page, kPageNetHistory);
+        CHECK_EQ(f.db()->GetNetInstancesForNet(net_id).size(), std::size_t{2});
+        CHECK(f.state.status_message.find("logged as \"Hamilton County ARES\"") !=
+              std::string::npos);
+    }
+
     QL_TEST(ImportingASessionFromAdHocHistoryMakesANewAdHocNet)
     {
         Fixture f;

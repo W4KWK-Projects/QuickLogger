@@ -43,6 +43,39 @@ namespace ql
         CHECK_EQ(ToUpperAscii("lo\xC3\xADza"), std::string("LO\xC3\xADZA"));
     }
 
+    QL_TEST(NetNamesLookAlikeIsGenerous)
+    {
+        // The same net, written differently.
+        CHECK(NetNamesLookAlike("TAG Skywarn", "TAG Skywarn"));
+        CHECK(NetNamesLookAlike("TAG Skywarn", "tag skywarn net"));
+        CHECK(NetNamesLookAlike("Hamilton Co. ARES Net", "Hamilton County ARES"));
+        CHECK(NetNamesLookAlike("220 EOR net", "220EOR"));
+        CHECK(NetNamesLookAlike("TAG Skywarn", "Sky Warn"));
+        // Only one word in common.
+        CHECK(NetNamesLookAlike("TAG Skywarn", "Skywarn Weekly Net"));
+        CHECK(NetNamesLookAlike("Hamilton Co. ARES Net", "Bradley County ARES"));
+        CHECK(NetNamesLookAlike("Dixie Traders Net", "Dixie Swap Net"));
+        // Typos, and a shortened word.
+        CHECK(NetNamesLookAlike("TAG Skywarn", "TAG Skywran"));
+        CHECK(NetNamesLookAlike("Hamilton Co. ARES Net", "Hamliton ARES"));
+        CHECK(NetNamesLookAlike("Dixie Traders Net", "Dixie Trader"));
+        // Acronyms.
+        CHECK(NetNamesLookAlike("TAG Skywarn", "Tennessee Alabama Georgia Net"));
+        CHECK(NetNamesLookAlike("CARC Net", "Chattanooga Amateur Radio Club"));
+        CHECK(NetNamesLookAlike("Amateur Radio Emergency Service", "ARES"));
+        // Accents don't matter.
+        CHECK(NetNamesLookAlike("Réseau Québec", "Reseau Quebec"));
+        // Nothing but common words: no way to tell, so alike.
+        CHECK(NetNamesLookAlike("Weekly Net", "TAG Skywarn"));
+
+        // Different nets.
+        CHECK(!NetNamesLookAlike("TAG Skywarn", "Hamilton County ARES"));
+        CHECK(!NetNamesLookAlike("TAG Skywarn", "Dixie Traders Net"));
+        CHECK(!NetNamesLookAlike("220 EOR net", "Hamilton Co. ARES Net"));
+        CHECK(!NetNamesLookAlike("220 EOR net", "440 Net"));
+        CHECK(!NetNamesLookAlike("Hamilton County ARES", "Bradley County RACES"));
+    }
+
     QL_TEST(ExtractZipCodeFindsTheZipInFreeText)
     {
         CHECK_EQ(ExtractZipCode("37415"), std::string("37415"));

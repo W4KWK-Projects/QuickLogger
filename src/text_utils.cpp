@@ -1,6 +1,10 @@
 #include "text_utils.hpp"
 
+#include <algorithm>
 #include <cctype>
+#include <cstddef>
+#include <set>
+#include <vector>
 
 namespace ql
 {
@@ -143,6 +147,239 @@ namespace ql
             result += static_cast<char>(std::toupper(c));
         }
         return result;
+    }
+
+    // A name's words: runs of letters and digits, uppercase, accents folded
+    // (see NormalizePlaceName). Common abbreviations are spelled out, so
+    // "Co." and "County" are the same word.
+    static std::vector<std::string> NameWords(const std::string& name)
+    {
+        std::string normalized = NormalizePlaceName(name);
+        std::vector<std::string> words;
+        std::string word;
+        for (std::size_t i = 0; i <= normalized.size(); ++i)
+        {
+            char c = i < normalized.size() ? normalized[i] : ' ';
+            if (std::isalnum(static_cast<unsigned char>(c)) != 0)
+            {
+                word += c;
+                continue;
+            }
+            if (word.empty())
+            {
+                continue;
+            }
+            if (word == "CO" || word == "CTY" || word == "CNTY")
+            {
+                word = "COUNTY";
+            }
+            else if (word == "WX")
+            {
+                word = "WEATHER";
+            }
+            else if (word == "EMERG" || word == "EMRG")
+            {
+                word = "EMERGENCY";
+            }
+            words.push_back(word);
+            word.clear();
+        }
+        return words;
+    }
+
+    // Words that say nothing about which net it is.
+    static bool IsCommonNetWord(const std::string& word)
+    {
+        static const std::set<std::string> kCommon = {
+            "A",       "AN",        "AND",      "AT",          "FOR",      "IN",      "OF",
+            "ON",      "THE",       "NET",      "NETS",        "SESSION",  "AMATEUR", "RADIO",
+            "HAM",     "HAMS",      "CLUB",     "ASSOCIATION", "ASSN",     "SOCIETY", "GROUP",
+            "COUNTY",  "CITY",      "AREA",     "REGIONAL",    "DISTRICT", "WEEKLY",  "DAILY",
+            "NIGHTLY", "MONTHLY",   "MORNING",  "AFTERNOON",   "EVENING",  "NIGHT",   "MONDAY",
+            "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY",      "SATURDAY", "SUNDAY",  "FM",
+            "SSB",     "HF",        "VHF",      "UHF",         "DMR",      "REPEATER"};
+        return kCommon.count(word) != 0;
+    }
+
+    static bool IsAllDigits(const std::string& word)
+    {
+        for (char c : word)
+        {
+            if (std::isdigit(static_cast<unsigned char>(c)) == 0)
+            {
+                return false;
+            }
+        }
+        return !word.empty();
+    }
+
+    // Edit distance, counting a swap of two neighboring letters as one edit.
+    static std::size_t TypoDistance(const std::string& a, const std::string& b)
+    {
+        std::vector<std::vector<std::size_t>> d(a.size() + 1,
+                                                std::vector<std::size_t>(b.size() + 1, 0));
+        for (std::size_t i = 0; i <= a.size(); ++i)
+        {
+            d[i][0] = i;
+        }
+        for (std::size_t j = 0; j <= b.size(); ++j)
+        {
+            d[0][j] = j;
+        }
+        for (std::size_t i = 1; i <= a.size(); ++i)
+        {
+            for (std::size_t j = 1; j <= b.size(); ++j)
+            {
+                std::size_t cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                d[i][j] = std::min({d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost});
+                if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1])
+                {
+                    d[i][j] = std::min(d[i][j], d[i - 2][j - 2] + 1);
+                }
+            }
+        }
+        return d[a.size()][b.size()];
+    }
+
+    // Two words alike: the same, one inside the other ("SKY", "SKYWARN"), or
+    // a typo apart. Numbers ("220", "146") only match exactly.
+    static bool WordsLookAlike(const std::string& a, const std::string& b)
+    {
+        if (a == b)
+        {
+            return true;
+        }
+        if (IsAllDigits(a) || IsAllDigits(b))
+        {
+            return false;
+        }
+        const std::string& shorter = a.size() <= b.size() ? a : b;
+        const std::string& longer = a.size() <= b.size() ? b : a;
+        if (shorter.size() >= 3 && longer.find(shorter) != std::string::npos)
+        {
+            return true;
+        }
+        if (shorter.size() >= 7)
+        {
+            return TypoDistance(a, b) <= 2;
+        }
+        if (shorter.size() >= 4)
+        {
+            return TypoDistance(a, b) <= 1;
+        }
+        return false;
+    }
+
+    // The first letters of `words`, e.g. "TAG" for Tennessee Alabama
+    // Georgia; with `skip_filler`, leaving out "the", "of", "and" and "net".
+    static std::string Initials(const std::vector<std::string>& words, bool skip_filler)
+    {
+        std::string initials;
+        for (const std::string& word : words)
+        {
+            if (skip_filler && (word == "THE" || word == "OF" || word == "AND" || word == "NET"))
+            {
+                continue;
+            }
+            initials += word[0];
+        }
+        return initials;
+    }
+
+    // Whether a word of `words` (two letters or more) is the initials of
+    // `other`.
+    static bool HasAcronymOf(const std::vector<std::string>& words,
+                             const std::vector<std::string>& other)
+    {
+        std::string all = Initials(other, false);
+        std::string trimmed = Initials(other, true);
+        for (const std::string& word : words)
+        {
+            if (word.size() >= 2 && !IsAllDigits(word) && (word == all || word == trimmed))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static std::string JoinWords(const std::vector<std::string>& words)
+    {
+        std::string joined;
+        for (const std::string& word : words)
+        {
+            joined += word;
+        }
+        return joined;
+    }
+
+    bool NetNamesLookAlike(const std::string& a, const std::string& b)
+    {
+        std::vector<std::string> words_a = NameWords(a);
+        std::vector<std::string> words_b = NameWords(b);
+
+        // Written with different spacing: "220 EOR" and "220EOR".
+        std::string joined_a = JoinWords(words_a);
+        std::string joined_b = JoinWords(words_b);
+        if (joined_a == joined_b)
+        {
+            return true;
+        }
+
+        std::vector<std::string> key_a;
+        std::vector<std::string> key_b;
+        for (const std::string& word : words_a)
+        {
+            if (!IsCommonNetWord(word))
+            {
+                key_a.push_back(word);
+            }
+        }
+        for (const std::string& word : words_b)
+        {
+            if (!IsCommonNetWord(word))
+            {
+                key_b.push_back(word);
+            }
+        }
+        if (key_a.empty() || key_b.empty())
+        {
+            return true;
+        }
+
+        for (const std::string& word_a : key_a)
+        {
+            for (const std::string& word_b : key_b)
+            {
+                if (WordsLookAlike(word_a, word_b))
+                {
+                    return true;
+                }
+            }
+        }
+        if (HasAcronymOf(key_a, words_b) || HasAcronymOf(key_b, words_a))
+        {
+            return true;
+        }
+        // One name's words run together inside the other's: "SKYWARN" in
+        // "TAG SKY WARN".
+        std::string key_joined_a = JoinWords(key_a);
+        std::string key_joined_b = JoinWords(key_b);
+        for (const std::string& word : key_a)
+        {
+            if (word.size() >= 4 && key_joined_b.find(word) != std::string::npos)
+            {
+                return true;
+            }
+        }
+        for (const std::string& word : key_b)
+        {
+            if (word.size() >= 4 && key_joined_a.find(word) != std::string::npos)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
 }  // namespace ql
