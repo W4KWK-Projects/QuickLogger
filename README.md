@@ -46,6 +46,8 @@ Releases have Linux binaries for 64-bit PCs (`QuickLogger-<version>-linux-amd64.
 2. Unpack it: `tar xzf QuickLogger-<version>-linux-amd64.tar.gz` (or `-arm64`).
 3. Move `QuickLogger` into the directory you want its data in, and start it there (see [Starting it](#starting-it)).
 
+On Windows under WSL, use a Debian or Ubuntu distribution, and keep QuickLogger in your Linux home directory, not a Windows folder under `/mnt/c/` (its database can't work there).
+
 Check the download with `sha256sum -c QuickLogger-<version>-linux-amd64.tar.gz.sha256`.
 
 ## Download (Windows)
@@ -162,7 +164,7 @@ So even installation B needs only about **1 GB after 10 years**, and most of tha
 
 ### Running on Windows
 
-The Windows build is a **console-only** program: everything works in a local terminal window, but there is no built-in SSH server (it depends on `fork()` and pseudo-terminals, which Windows doesn't have), no ZMODEM, and `--headless`, `--ssh-port` and `--no-ssh` don't apply. To host a shared instance that other operators SSH into, run QuickLogger on a macOS, Linux or FreeBSD machine — or, on a Windows machine, in WSL2, where the Linux build should behave like any other Linux system.
+The Windows build is a **console-only** program: everything works in a local terminal window, but there is no built-in SSH server (it depends on `fork()` and pseudo-terminals, which Windows doesn't have), no ZMODEM, and `--headless`, `--ssh-port` and `--no-ssh` don't apply. To host a shared instance that other operators SSH into, run QuickLogger on a macOS, Linux or FreeBSD machine — or, on a Windows machine, in WSL2, where the Linux build behaves like any other Linux system (see [Download (Linux)](#download-linux)).
 
 ---
 
