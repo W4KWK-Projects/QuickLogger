@@ -11,6 +11,7 @@
 #include "../src/db/database.hpp"
 #include "../src/file_export.hpp"
 #include "../src/net_slice.hpp"
+#include "../src/show_folder.hpp"
 #include "../src/ui/app_state.hpp"
 #include "../src/ui/handlers.hpp"
 #include "test_framework.hpp"
@@ -1858,6 +1859,38 @@ namespace ql
         CHECK(text.find("K4AAA") != std::string::npos);
         CHECK(text.find("Ann") != std::string::npos);
         CHECK(f.state.status_message.find("Saved to") == 0);
+    }
+
+    QL_TEST(ALocalExportOffersTheFolderNotZmodem)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        {
+            LocalTerminalScope local;
+            CHECK(IsLocalTerminal(true));
+            CHECK(!IsLocalTerminal(false));
+            ExportNetLog(&f.state, "Skywarn", f.state.active_instance, f.state.active_check_ins);
+            CHECK(f.state.status_message.find("Saved to") == 0);
+            // Show Folder where there's a desktop to show it on; never ZMODEM.
+            CHECK_EQ(f.state.show_zmodem_confirm_modal, CanShowInFileManager());
+            if (f.state.show_zmodem_confirm_modal)
+            {
+                CHECK(f.state.zmodem_action == ZmodemAction::kShowFolder);
+                CHECK_EQ(f.state.zmodem_send_paths.size(), std::size_t{2});
+                CancelZmodemAction(&f.state);
+                CHECK(!f.state.show_zmodem_confirm_modal);
+                CHECK(f.state.status_message.find("Saved to") == 0);
+            }
+
+            // Nor is there anyone to receive a file from.
+            StartZmodemReceive(&f.state);
+            CHECK(!f.state.show_zmodem_confirm_modal);
+        }
+        // Inside an ordinary SSH login, it's a remote terminal as before.
+        CHECK(!IsLocalTerminal(true));
+        ExportNetLog(&f.state, "Skywarn", f.state.active_instance, f.state.active_check_ins);
+        CHECK(f.state.zmodem_action != ZmodemAction::kShowFolder);
+        f.state.show_zmodem_confirm_modal = false;
     }
 
     QL_TEST(AnSshUsersFilesAreTheirOwnAndCleanedUpAfterAWeek)

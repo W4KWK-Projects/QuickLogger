@@ -20,6 +20,7 @@
 #include "../geo_utils.hpp"
 #include "../net_slice.hpp"
 #include "../public_key.hpp"
+#include "../show_folder.hpp"
 #include "../text_utils.hpp"
 #include "../zmodem_send.hpp"
 #include "list_columns.hpp"
@@ -1752,6 +1753,19 @@ namespace ql
 
     void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths)
     {
+        // The files are already on this computer: nothing to send, but the
+        // folder can be opened for the operator.
+        if (IsLocalTerminal(state->is_console_session))
+        {
+            state->status_message = "Saved to " + ListPaths(paths) + ".";
+            if (CanShowInFileManager())
+            {
+                state->zmodem_action = ZmodemAction::kShowFolder;
+                state->zmodem_send_paths = paths;
+                state->show_zmodem_confirm_modal = true;
+            }
+            return;
+        }
         if (!ZmodemSendAvailable())
         {
 #if defined(_WIN32)
@@ -1813,6 +1827,15 @@ namespace ql
         state->show_zmodem_confirm_modal = false;
         std::string error;
 
+        if (state->zmodem_action == ZmodemAction::kShowFolder)
+        {
+            if (!ShowInFileManager(state->zmodem_send_paths, &error))
+            {
+                state->status_message =
+                    "Saved to " + ListPaths(state->zmodem_send_paths) + " (" + error + ").";
+            }
+            return;
+        }
         if (state->zmodem_action == ZmodemAction::kSend)
         {
             if (SendFilesViaZmodem(state->screen, state->zmodem_send_paths, &error))
@@ -1851,6 +1874,10 @@ namespace ql
     void CancelZmodemAction(AppState* state)
     {
         state->show_zmodem_confirm_modal = false;
+        if (state->zmodem_action == ZmodemAction::kShowFolder)
+        {
+            return;
+        }
         if (state->zmodem_action == ZmodemAction::kSend)
         {
             state->status_message =
@@ -3147,6 +3174,11 @@ namespace ql
     void StartZmodemReceive(AppState* state)
     {
         if (RefuseViewOnly(state, "import files"))
+        {
+            return;
+        }
+        // Nobody on the other end of a local terminal to send one.
+        if (IsLocalTerminal(state->is_console_session))
         {
             return;
         }
@@ -4577,6 +4609,13 @@ namespace ql
                     {"Left/Right", "Change Partial Matching: US or Canada.", false},
                 };
             case kPageImportNet:
+                if (IsLocalTerminal(state->is_console_session))
+                {
+                    return {
+                        {"F2/Enter", "Import the highlighted file.", false},
+                        {"Esc", state->import_session ? "Back to History." : "Back.", false},
+                    };
+                }
                 return {
                     {"F2/Enter", "Import the highlighted file.", false},
                     {"F3", "Receive a file from your terminal (ZMODEM).", false},

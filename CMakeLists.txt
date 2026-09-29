@@ -91,6 +91,7 @@ set(quicklogger_sources
     src/net_slice.cpp
     src/public_key.cpp
     src/zmodem_send.cpp
+    src/show_folder.cpp
     src/zip_extract.cpp
     src/uls_import.cpp
     src/data_updater.cpp
@@ -172,6 +173,8 @@ if(WIN32)
     # and FTXUI) from defining min()/max() macros that break std::min/max.
     target_compile_definitions(quicklogger_core PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN
                                _CRT_SECURE_NO_WARNINGS)
+    # Show Folder (show_folder.cpp) selects exported files in File Explorer.
+    target_link_libraries(quicklogger_core PUBLIC shell32 ole32)
     if(MSVC)
         # The sources are UTF-8 (box-drawing characters, em dashes in
         # string literals); MSVC otherwise assumes the system code page.

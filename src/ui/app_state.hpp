@@ -34,11 +34,14 @@ namespace ql
     // show_zmodem_confirm_modal) is currently about to run -- see
     // ConfirmZmodemAction/CancelZmodemAction. The same modal/keys are
     // shared by every page that can trigger either direction; this is what
-    // tells them apart.
+    // tells them apart. kShowFolder isn't ZMODEM: at a local terminal (see
+    // IsLocalTerminal) the same modal instead offers to open the exports
+    // folder in the desktop's file manager.
     enum class ZmodemAction
     {
         kSend,
         kReceive,
+        kShowFolder,
     };
 
     // Edit and delete on a list work by number: the key (e.g. F5 Delete
@@ -827,7 +830,10 @@ namespace ql
     // transfer hijacks the real terminal and can't show anything while in
     // flight, so the operator needs a chance to get their client ready
     // first (see ConfirmZmodemAction/CancelZmodemAction). If `sz` isn't
-    // installed, status_message just says so and no modal appears.
+    // installed, status_message just says so and no modal appears. At a
+    // local terminal (IsLocalTerminal) ZMODEM is never offered; with a
+    // desktop to show it on, the modal offers F2 Show Folder instead
+    // (zmodem_action = kShowFolder).
     void OfferZmodemSend(AppState* state, const std::string& path);
     // The same for several files written together, sent as one batch.
     void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths);

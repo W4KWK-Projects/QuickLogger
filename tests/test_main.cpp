@@ -4,6 +4,7 @@
 #include <string>
 
 #include "test_framework.hpp"
+#include "test_helpers.hpp"
 
 namespace ql
 {
@@ -70,5 +71,8 @@ namespace ql
 // Usage: quicklogger_tests [name-substring]
 int main(int argc, char** argv)
 {
+    // Counts as an SSH login, so exports never open a real file manager
+    // window (see LocalTerminalScope).
+    ql::SetTestEnvironment("SSH_TTY", "quicklogger_tests");
     return ql::RunTests(argc > 1 ? argv[1] : nullptr);
 }

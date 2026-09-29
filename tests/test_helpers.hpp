@@ -32,6 +32,22 @@ namespace ql
         std::string path_;
     };
 
+    // Sets environment variable `name` to `value`, or removes it if
+    // `value` is empty.
+    void SetTestEnvironment(const char* name, const std::string& value);
+
+    // The whole test run counts as an SSH login (SSH_TTY is set in main),
+    // so no export ever opens a real file manager window. While one of
+    // these is in scope, the run counts as a local terminal instead.
+    class LocalTerminalScope
+    {
+    public:
+        LocalTerminalScope();
+        ~LocalTerminalScope();
+        LocalTerminalScope(const LocalTerminalScope&) = delete;
+        LocalTerminalScope& operator=(const LocalTerminalScope&) = delete;
+    };
+
     void WriteTextFile(const std::string& path, const std::string& contents);
     std::string ReadTextFile(const std::string& path);
     bool FileExists(const std::string& path);

@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -12,6 +13,34 @@
 
 namespace ql
 {
+
+    void SetTestEnvironment(const char* name, const std::string& value)
+    {
+#if defined(_WIN32)
+        _putenv_s(name, value.c_str());
+#else
+        if (value.empty())
+        {
+            unsetenv(name);
+        }
+        else
+        {
+            setenv(name, value.c_str(), 1);
+        }
+#endif
+    }
+
+    LocalTerminalScope::LocalTerminalScope()
+    {
+        SetTestEnvironment("SSH_CONNECTION", "");
+        SetTestEnvironment("SSH_CLIENT", "");
+        SetTestEnvironment("SSH_TTY", "");
+    }
+
+    LocalTerminalScope::~LocalTerminalScope()
+    {
+        SetTestEnvironment("SSH_TTY", "quicklogger_tests");
+    }
 
     TempDir::TempDir()
     {

@@ -13,6 +13,7 @@
 #include <ftxui/screen/terminal.hpp>
 
 #include "../date_utils.hpp"
+#include "../show_folder.hpp"
 #include "../uls_import.hpp"
 #include "chrome.hpp"
 #include "handlers.hpp"
@@ -379,6 +380,20 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Elements rows;
+            if (state_->zmodem_action == ZmodemAction::kShowFolder)
+            {
+                rows.push_back(Heading("Exported"));
+                rows.push_back(DialogSeparator());
+                rows.push_back(ftxui::text("Saved to:"));
+                for (const std::string& path : state_->zmodem_send_paths)
+                {
+                    rows.push_back(ftxui::text("  " + path) | ftxui::color(kColorLabel));
+                }
+                rows.push_back(DialogSeparator());
+                rows.push_back(KeyHintRow({{"F2/Enter", "Show Folder"}, {"Esc", "Close"}}));
+                return ftxui::vbox(rows) | ftxui::color(kColorHeading) |
+                       ftxui::borderStyled(kColorDialogBorder);
+            }
             rows.push_back(Heading("ZMODEM"));
             rows.push_back(DialogSeparator());
             if (state_->zmodem_action == ZmodemAction::kSend)
@@ -2051,6 +2066,12 @@ namespace ql
                                 : state_->import_session_ad_hoc
                                     ? "Import Ad Hoc Session"
                                     : "Import Session: " + state_->import_session_net_name;
+            // No ZMODEM at a local terminal: there's no one to receive from.
+            if (IsLocalTerminal(state_->is_console_session))
+            {
+                return PageChrome(title, ftxui::vbox(rows),
+                                  {{"F2/Enter", "Import"}, {"Esc", "Back"}});
+            }
             return PageChrome(
                 title, ftxui::vbox(rows),
                 {{"F2/Enter", "Import"}, {"F3", "Receive (ZMODEM)"}, {"Esc", "Back"}});
