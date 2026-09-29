@@ -753,7 +753,13 @@ namespace ql
 
     ftxui::Component BuildNetListPage(AppState* state)
     {
+        // Every list's `focused_entry` (where the highlight bar is drawn) is
+        // bound to the same int as its `selected` (where PickableRows puts
+        // the ">"), so moving the selection in code -- the net last logged
+        // at login, a check-in just added -- moves the bar too, and the two
+        // can't point at different rows.
         ftxui::MenuOption net_menu_option;
+        net_menu_option.focused_entry = &state->selected_net_index;
         net_menu_option.on_enter = StartSelectedNetHandler(state);
         net_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component net_menu = ClickableList(
@@ -1255,6 +1261,7 @@ namespace ql
     ftxui::Component BuildActiveNetPage(AppState* state)
     {
         ftxui::MenuOption check_in_menu_option;
+        check_in_menu_option.focused_entry = &state->selected_check_in_index;
         check_in_menu_option.on_enter = EditSelectedCheckInHandler(state);
         check_in_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component check_in_menu = ClickableList(
@@ -1597,8 +1604,12 @@ namespace ql
         // Only rendered while picking (see AdHocNetRenderer::OpenSessionRows),
         // and deliberately left out of `root`: Tab and the arrow keys stay on
         // the form's fields.
+        // Highlight bound to the selection, as on the net list.
+        ftxui::MenuOption open_session_menu_option;
+        open_session_menu_option.focused_entry = &state->selected_open_ad_hoc_index;
         ftxui::Component open_session_menu = ClickableList(
-            state, ftxui::Menu(&state->open_ad_hoc_labels, &state->selected_open_ad_hoc_index));
+            state, ftxui::Menu(&state->open_ad_hoc_labels, &state->selected_open_ad_hoc_index,
+                               open_session_menu_option));
 
         return WithConfirmPrompt(
             state,
@@ -1741,6 +1752,7 @@ namespace ql
     ftxui::Component BuildNetHistoryPage(AppState* state)
     {
         ftxui::MenuOption instance_menu_option;
+        instance_menu_option.focused_entry = &state->selected_history_index;
         instance_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         instance_menu_option.on_change = HistoryInstanceChangedHandler(state);
         ftxui::Component instance_menu =
@@ -1748,6 +1760,7 @@ namespace ql
                                              &state->selected_history_index, instance_menu_option));
 
         ftxui::MenuOption checkin_menu_option;
+        checkin_menu_option.focused_entry = &state->selected_history_check_in_index;
         checkin_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component checkin_menu = ClickableList(
             state, ftxui::Menu(&state->history_check_in_labels,
@@ -1980,6 +1993,7 @@ namespace ql
             PartialMatchToggle(state, &state->edit_net_partial_match_index);
 
         ftxui::MenuOption saved_station_menu_option;
+        saved_station_menu_option.focused_entry = &state->selected_saved_station_index;
         saved_station_menu_option.on_enter = LoadSavedStationHandler(state);
         saved_station_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component saved_station_menu = ClickableList(
