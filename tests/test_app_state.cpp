@@ -1887,7 +1887,9 @@ namespace ql
             CHECK(!f.state.show_zmodem_confirm_modal);
         }
         // Inside an ordinary SSH login, it's a remote terminal as before.
+        // (Where there's no ZMODEM at all, as on Windows, nothing is offered.)
         CHECK(!IsLocalTerminal(true));
+        f.state.zmodem_action = ZmodemAction::kReceive;
         ExportNetLog(&f.state, "Skywarn", f.state.active_instance, f.state.active_check_ins);
         CHECK(f.state.zmodem_action != ZmodemAction::kShowFolder);
         f.state.show_zmodem_confirm_modal = false;
