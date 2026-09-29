@@ -72,7 +72,7 @@ If the net already has a session open, the list says *session open*, a line unde
 | Field | Notes |
 |---|---|
 | Callsign | Required; US or Canadian only |
-| Name, Member ID, Street Addr, City, County, State, Zip, Grid Square | The station's details, kept for next time. County fills in from the ZIP. |
+| Name, Member ID, Street Addr, City, County, State, Zip, Grid Square | The station's details, kept for next time. County fills in from the ZIP, and so does a blank Grid Square (US ZIPs only): the 4-character grid of the ZIP's center. That is approximate, and near a grid edge it can be the neighboring square. Type your own to override it. Each time QuickLogger starts, it fills in any stored station's blank Grid Square the same way; a grid that's already there is never changed. |
 | Signal Report, Remarks, Comment | This check-in only. Remarks start out as the station's default remarks for this net, and whatever you log becomes its new default. |
 | Additional Role | Gives this station one of the session's other roles (the ones you don't hold yourself). Only one station holds each role; giving it to another moves it. |
 

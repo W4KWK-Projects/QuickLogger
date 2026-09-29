@@ -329,6 +329,24 @@ namespace ql
         CHECK(DistanceMiles(33.7490, -84.3880, 35.0456, -85.3097) - miles < 0.0001);
     }
 
+    QL_TEST(MaidenheadGrid4MatchesKnownLocations)
+    {
+        // Well-known reference points.
+        CHECK_EQ(MaidenheadGrid4(35.0456, -85.3097), std::string("EM75"));   // Chattanooga
+        CHECK_EQ(MaidenheadGrid4(41.7145, -72.7278), std::string("FN31"));   // ARRL, Newington
+        CHECK_EQ(MaidenheadGrid4(34.0522, -118.2437), std::string("DM04"));  // Los Angeles
+        CHECK_EQ(MaidenheadGrid4(47.6062, -122.3321), std::string("CN87"));  // Seattle
+        CHECK_EQ(MaidenheadGrid4(21.3069, -157.8583), std::string("BL11"));  // Honolulu
+        CHECK_EQ(MaidenheadGrid4(-33.8688, 151.2093), std::string("QF56"));  // Sydney
+        CHECK_EQ(MaidenheadGrid4(51.5074, -0.1278), std::string("IO91"));    // London
+        // The corners of the world.
+        CHECK_EQ(MaidenheadGrid4(-90.0, -180.0), std::string("AA00"));
+        CHECK_EQ(MaidenheadGrid4(90.0, 180.0), std::string("RR99"));
+        // Off the globe.
+        CHECK_EQ(MaidenheadGrid4(91.0, 0.0), std::string());
+        CHECK_EQ(MaidenheadGrid4(0.0, 181.0), std::string());
+    }
+
     QL_TEST(NearbyZip3PrefixesKeepsOnlyPrefixesInRange)
     {
         std::vector<ZipCentroid> centroids;

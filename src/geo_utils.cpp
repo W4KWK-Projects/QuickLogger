@@ -34,6 +34,27 @@ namespace ql
         return kEarthRadiusMiles * c;
     }
 
+    std::string MaidenheadGrid4(double lat, double lon)
+    {
+        if (!(lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0))
+        {
+            return std::string();
+        }
+        // The poles and the antimeridian belong to the last square.
+        double x = std::min(lon + 180.0, 359.999999);
+        double y = std::min(lat + 90.0, 179.999999);
+        int field_lon = static_cast<int>(x / 20.0);
+        int field_lat = static_cast<int>(y / 10.0);
+        int square_lon = static_cast<int>((x - field_lon * 20.0) / 2.0);
+        int square_lat = static_cast<int>(y - field_lat * 10.0);
+        std::string grid;
+        grid += static_cast<char>('A' + field_lon);
+        grid += static_cast<char>('A' + field_lat);
+        grid += static_cast<char>('0' + square_lon);
+        grid += static_cast<char>('0' + square_lat);
+        return grid;
+    }
+
     std::vector<NearbyZip> NearbyZips(double origin_lat, double origin_lon, double radius_miles,
                                       const std::vector<ZipCentroid>& centroids)
     {

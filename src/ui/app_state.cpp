@@ -1476,6 +1476,7 @@ namespace ql
         FillIfBlank(&station->license_class, known->license_class);
         FillIfBlank(&station->email, known->email);
         BackfillCountyFromZip(state, station);
+        BackfillGridFromZip(state, station);
         return true;
     }
 
@@ -3144,6 +3145,7 @@ namespace ql
         // Fill County in now, so it shows in the form as soon as the station
         // is picked rather than only once it's saved.
         BackfillCountyFromZip(state, &state->modal_station);
+        BackfillGridFromZip(state, &state->modal_station);
 
         std::string default_remarks = state->db->GetSavedNetStationRemarks(
             state->active_instance.net_id, state->modal_station.callsign);
@@ -3658,6 +3660,7 @@ namespace ql
         // is picked rather than only once it's saved. (ULS records never
         // carry a county, so a ULS suggestion always needs this.)
         BackfillCountyFromZip(state, &state->saved_station);
+        BackfillGridFromZip(state, &state->saved_station);
         state->saved_station_suggestions.clear();
         state->saved_station_suggestion_labels.clear();
         state->saved_station_suggestion_sources.clear();
@@ -3688,6 +3691,29 @@ namespace ql
             }
         }
         station->county = state->db->FindZipCounty(zip5);
+    }
+
+    void BackfillGridFromZip(AppState* state, Station* station)
+    {
+        if (!station->grid_square.empty() || station->zip.size() < 5)
+        {
+            return;
+        }
+        // A US ZIP is 5 digits, or 9 with the +4; a Canadian postal code
+        // is not, and has no centroid.
+        std::string zip5 = station->zip.substr(0, 5);
+        for (char c : zip5)
+        {
+            if (c < '0' || c > '9')
+            {
+                return;
+            }
+        }
+        std::optional<ZipCentroid> centroid = state->db->FindZipCentroid(zip5);
+        if (centroid.has_value())
+        {
+            station->grid_square = MaidenheadGrid4(centroid->lat, centroid->lon);
+        }
     }
 
     // ---- The seldom-used windows ------------------------------------------------

@@ -297,6 +297,11 @@ namespace ql
         std::vector<ZipCentroid> GetZipCentroidsInBox(double min_lat, double max_lat,
                                                       double min_lon, double max_lon);
         bool HasAnyZipCentroids();
+        // Gives every station in `stations` with a blank Grid Square and a
+        // US ZIP that has a centroid the 4-character grid of that centroid
+        // (see MaidenheadGrid4). A grid already there is never touched. Run
+        // once each time the program starts. Returns how many were filled.
+        int FillBlankGridSquaresFromZip();
 
         // ZIP-to-county data (see ZipCounty/ZipPlaceCounty in models.hpp and
         // FetchAndLoadZipCounties in uls_import.cpp). Replaced wholesale in

@@ -11,6 +11,12 @@ namespace ql
     // Great-circle distance between two lat/lon points, in miles.
     double DistanceMiles(double lat1, double lon1, double lat2, double lon2);
 
+    // The 4-character Maidenhead grid square (e.g. "EM75") containing
+    // (lat, lon), or "" when the point is off the globe. Squares are 2 degrees
+    // of longitude by 1 of latitude, so a point near an edge can land in the
+    // neighboring square from where the station really is.
+    std::string MaidenheadGrid4(double lat, double lon);
+
     // The ZIP codes among `centroids` within `radius_miles` of
     // (origin_lat, origin_lon), with their distances, nearest first. The
     // radius is the operator's Nearby Radius setting

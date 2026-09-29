@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "../frequency_rules.hpp"
+#include "../geo_utils.hpp"
 #include "../public_key.hpp"
 #include "../text_utils.hpp"
 #include "sqlite_statement.hpp"
@@ -1752,6 +1753,44 @@ COMMIT;
             statement.Step();
         }
         sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
+    }
+
+    int Database::FillBlankGridSquaresFromZip()
+    {
+        // zip_centroids holds only 5-digit US ZIPs, so a Canadian postal
+        // code never matches; a ZIP+4 matches on its first five digits.
+        Statement blanks(db_, R"sql(
+        SELECT s.callsign, c.lat, c.lon FROM stations s
+        JOIN zip_centroids c ON c.zip = substr(s.zip, 1, 5)
+        WHERE s.grid_square = '';
+    )sql");
+        std::vector<std::pair<std::string, std::string>> grids;
+        while (blanks.Step())
+        {
+            std::string grid = MaidenheadGrid4(blanks.ColumnDouble(1), blanks.ColumnDouble(2));
+            if (!grid.empty())
+            {
+                grids.emplace_back(blanks.ColumnText(0), grid);
+            }
+        }
+        if (grids.empty())
+        {
+            return 0;
+        }
+
+        Statement update(db_,
+                         "UPDATE stations SET grid_square = ? WHERE callsign = ? "
+                         "AND grid_square = '';");
+        sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+        for (const std::pair<std::string, std::string>& grid : grids)
+        {
+            update.Reset();
+            update.BindText(0, grid.second);
+            update.BindText(1, grid.first);
+            update.Step();
+        }
+        sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr);
+        return static_cast<int>(grids.size());
     }
 
     bool Database::HasAnyZipCentroids()

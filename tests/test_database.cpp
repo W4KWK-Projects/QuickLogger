@@ -580,6 +580,34 @@ namespace ql
         return nearby;
     }
 
+    QL_TEST(BlankGridSquaresAreFilledFromTheZipAndTypedOnesKept)
+    {
+        TempDir dir;
+        Database db(dir.File("q.db"));
+        Station blank = MakeStation("K1AAA", "", "37415");
+        Station zip_plus_four = MakeStation("K1BBB", "", "374152623");
+        Station typed = MakeStation("K1CCC", "", "37415");
+        typed.grid_square = "EM74xx";
+        Station no_centroid = MakeStation("K1DDD", "", "37499");
+        Station canadian = MakeStation("VE3AAA", "", "K1A 0B1");
+        db.UpsertStation(blank);
+        db.UpsertStation(zip_plus_four);
+        db.UpsertStation(typed);
+        db.UpsertStation(no_centroid);
+        db.UpsertStation(canadian);
+        std::vector<ZipCentroid> centroids = {{"37415", 35.10, -85.28}};
+        db.BulkUpsertZipCentroids(centroids);
+
+        CHECK_EQ(db.FillBlankGridSquaresFromZip(), 2);
+        CHECK_EQ(db.FindStationByCallsign("K1AAA")->grid_square, std::string("EM75"));
+        CHECK_EQ(db.FindStationByCallsign("K1BBB")->grid_square, std::string("EM75"));
+        CHECK_EQ(db.FindStationByCallsign("K1CCC")->grid_square, std::string("EM74xx"));
+        CHECK_EQ(db.FindStationByCallsign("K1DDD")->grid_square, std::string());
+        CHECK_EQ(db.FindStationByCallsign("VE3AAA")->grid_square, std::string());
+        // Nothing left to fill the next time.
+        CHECK_EQ(db.FillBlankGridSquaresFromZip(), 0);
+    }
+
     QL_TEST(NearbyUlsSearchListsTheNearestFirst)
     {
         TempDir dir;

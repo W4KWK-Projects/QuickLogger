@@ -91,6 +91,23 @@ namespace ql
         }
     }
 
+    // Fills saved stations' blank Grid Squares from their ZIPs (see
+    // Database::FillBlankGridSquaresFromZip), once as the program starts.
+    // The connection is closed again before this returns -- the caller may
+    // fork next (THE FORK RULE, ssh_server.hpp).
+    static void FillBlankGridSquares(const std::string& db_path)
+    {
+        try
+        {
+            Database db(db_path);
+            db.FillBlankGridSquaresFromZip();
+        }
+        catch (const std::exception& e)
+        {
+            std::fprintf(stderr, "Station data updater: %s\n", e.what());
+        }
+    }
+
     // Claims and runs a refresh if one is due. Returns whether one ran.
     static bool RunRefreshIfDue(Database* db, const std::string& db_path)
     {
@@ -187,6 +204,7 @@ namespace ql
 
     static void RunUpdaterLoop(const std::string& db_path)
     {
+        FillBlankGridSquares(db_path);
         std::time_t last_cleanup = 0;
         while (!ShouldStop())
         {
@@ -222,6 +240,7 @@ namespace ql
     // thread, and the memory it used stays with the process afterward.
     static void RunUpdaterLoop(const std::string& db_path)
     {
+        FillBlankGridSquares(db_path);
         while (!ShouldStop())
         {
             try

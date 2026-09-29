@@ -1211,4 +1211,9 @@ namespace ql
     // no county).
     void BackfillCountyFromZip(AppState* state, Station* station);
 
+    // Fills a blank Grid Square with the 4-character grid of the station's
+    // ZIP centroid, so a picked or looked-up station comes with an
+    // approximate grid. US 5-digit ZIPs only; a typed grid is never touched.
+    void BackfillGridFromZip(AppState* state, Station* station);
+
 }  // namespace ql
