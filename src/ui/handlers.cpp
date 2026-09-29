@@ -1418,6 +1418,10 @@ namespace ql
         {
             ImportSelectedSessionAnyway(state);
         }
+        else if (state->confirm_prompt == ConfirmPrompt::kImportLookAlikeNet && yes)
+        {
+            ImportSelectedNetSliceAnyway(state);
+        }
         return event != ftxui::Event::Custom;
     }
 

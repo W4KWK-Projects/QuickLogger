@@ -611,6 +611,10 @@ namespace ql
             {
                 rows.push_back(KeyHintRow({{"F2/Enter", "Import Anyway"}, {"Esc", "Cancel"}}));
             }
+            else if (state_->confirm_prompt == ConfirmPrompt::kImportLookAlikeNet)
+            {
+                rows.push_back(KeyHintRow({{"F2/Enter", "Import New"}, {"Esc", "Cancel"}}));
+            }
             else
             {
                 rows.push_back(KeyHintRow({{"F2/Enter", "Close Net"}, {"Esc", "Keep Logging"}}));

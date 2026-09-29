@@ -2885,7 +2885,35 @@ namespace ql
         }
     }
 
+    static void ImportNetSlice(AppState* state, bool names_checked);
+
     void ImportSelectedNetSlice(AppState* state)
+    {
+        ImportNetSlice(state, false);
+    }
+
+    void ImportSelectedNetSliceAnyway(AppState* state)
+    {
+        CancelConfirmPrompt(state);
+        ImportNetSlice(state, true);
+    }
+
+    // `names`, quoted and joined: "A", "B" and "C".
+    static std::string QuotedList(const std::vector<std::string>& names)
+    {
+        std::string list;
+        for (std::size_t i = 0; i < names.size(); ++i)
+        {
+            if (i > 0)
+            {
+                list += i + 1 == names.size() ? " and " : ", ";
+            }
+            list += "\"" + names[i] + "\"";
+        }
+        return list;
+    }
+
+    static void ImportNetSlice(AppState* state, bool names_checked)
     {
         if (RefuseViewOnly(state, "import nets"))
         {
@@ -2907,6 +2935,34 @@ namespace ql
             state->status_message.clear();
             state->form_error = error;
             return;
+        }
+
+        // Probably a net that's already here (imported before, or set up
+        // by hand): ask before adding a second one.
+        if (!names_checked)
+        {
+            std::vector<std::string> alike;
+            for (const Net& net : state->nets)
+            {
+                if (NetNamesLookAlike(slice->net.name, net.name, false))
+                {
+                    alike.push_back(net.name);
+                }
+            }
+            if (!alike.empty())
+            {
+                std::string first_line =
+                    alike.size() == 1 && ToUpperAscii(alike[0]) == ToUpperAscii(slice->net.name)
+                        ? "You already have a net named \"" + alike[0] + "\"."
+                        : "This file's net, \"" + slice->net.name + "\", looks like " +
+                              QuotedList(alike) + ", which you already have.";
+                ShowConfirmPrompt(
+                    state, ConfirmPrompt::kImportLookAlikeNet, "Import As a New Net?",
+                    {first_line, "Importing adds it as a separate net, next to " +
+                                     std::string(alike.size() == 1 ? "that one" : "those") +
+                                     ". If it's already here, press Esc."});
+                return;
+            }
         }
 
         try

@@ -313,7 +313,7 @@ namespace ql
         return joined;
     }
 
-    bool NetNamesLookAlike(const std::string& a, const std::string& b)
+    bool NetNamesLookAlike(const std::string& a, const std::string& b, bool alike_if_unsure)
     {
         std::vector<std::string> words_a = NameWords(a);
         std::vector<std::string> words_b = NameWords(b);
@@ -344,7 +344,7 @@ namespace ql
         }
         if (key_a.empty() || key_b.empty())
         {
-            return true;
+            return alike_if_unsure;
         }
 
         for (const std::string& word_a : key_a)

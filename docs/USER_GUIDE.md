@@ -190,7 +190,7 @@ Exports are written to the `exports/` folder next to QuickLogger's database; imp
 | A net's saved stations | F7 on Edit Net | `NetName_saved_stations.txt` |
 | A whole net, to share | F8 on Recurring Nets | `NetName.qlnet`: the net, its saved stations and its full history |
 
-**Importing a net:** put the `.qlnet` file in `imports/` (or receive it with **F3**, below), press **F9** on Recurring Nets, highlight the file and press **F2**. It's added as a new net marked *imported*, so it can't overwrite one of yours.
+**Importing a net:** put the `.qlnet` file in `imports/` (or receive it with **F3**, below), press **F9** on Recurring Nets, highlight the file and press **F2**. It's added as a new net marked *imported*, so it can't overwrite one of yours. If you already have a net with the same or a similar name, QuickLogger asks first, in case it's one you already have: **F2/Enter** imports it as a new net anyway, **Esc** cancels.
 
 **Over SSH (ZMODEM):** after an export, QuickLogger offers to send the file to your terminal. Open your terminal's receive window, then press **Enter**; **Esc** skips it and the file stays in `exports/`. To upload a `.qlnet` or `.qlsession`, press **F3** on the Import page (F9 on Recurring Nets for a net, F6 in History for a session), then send the file from your terminal. A session's export sends both its log and its `.qlsession` in one transfer. This needs a terminal that supports ZMODEM (such as ZOC or SecureCRT) and `lrzsz` installed where QuickLogger runs.
 

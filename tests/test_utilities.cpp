@@ -67,6 +67,9 @@ namespace ql
         CHECK(NetNamesLookAlike("Réseau Québec", "Reseau Quebec"));
         // Nothing but common words: no way to tell, so alike.
         CHECK(NetNamesLookAlike("Weekly Net", "TAG Skywarn"));
+        CHECK(!NetNamesLookAlike("Weekly Net", "TAG Skywarn", false));
+        // Unless they're the same.
+        CHECK(NetNamesLookAlike("Weekly Net", "weekly  net", false));
 
         // Different nets.
         CHECK(!NetNamesLookAlike("TAG Skywarn", "Hamilton County ARES"));

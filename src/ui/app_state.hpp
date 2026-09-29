@@ -95,6 +95,8 @@ namespace ql
         // Importing a session logged under a net name nothing like the
         // History it's going into (see NetNamesLookAlike).
         kImportOtherNet,
+        // Importing a .qlnet whose name looks like a net already here.
+        kImportLookAlikeNet,
     };
 
     // The on-screen lists a RowPickAction picks from.
@@ -862,7 +864,11 @@ namespace ql
     // net via ApplyNetSlice, refreshes AppState::nets, and returns to the
     // net list. Sets AppState::form_error instead (leaving the page open)
     // if there's nothing highlighted or the file can't be read.
+    // If nets already here look like the file's (NetNamesLookAlike), it
+    // asks first (ConfirmPrompt::kImportLookAlikeNet) instead of importing.
     void ImportSelectedNetSlice(AppState* state);
+    // F2/Enter on that question: imports it as a new net anyway.
+    void ImportSelectedNetSliceAnyway(AppState* state);
 
     // F3 on the import-net page: opens the ZMODEM confirmation modal with
     // zmodem_action = kReceive, so ConfirmZmodemAction runs

@@ -1924,6 +1924,43 @@ namespace ql
         CHECK_EQ(f.state.page, kPageNetList);
     }
 
+    QL_TEST(ImportingANetFileLikeANetAlreadyHereAsksFirst)
+    {
+        Fixture f;
+        {
+            Database other(f.dir().File("other.db"));
+            std::int64_t net_id = AddTestNet(&other, "Hamilton County ARES");
+            std::string error;
+            REQUIRE(WriteNetSliceFile(ImportsDir(f.state.db_path) + "/ares.qlnet",
+                                      GatherNetSlice(&other, net_id), &error));
+        }
+        AddTestNet(f.db(), "Hamilton Co. ARES Net");
+        AddTestNet(f.db(), "TAG Skywarn");
+        RefreshNets(&f.state);
+        RefreshImportNetFiles(&f.state);
+        REQUIRE(f.state.import_net_files.size() == 1);
+
+        // Asked first, naming only the net that looks like it; Esc imports
+        // nothing.
+        ImportSelectedNetSlice(&f.state);
+        CHECK(f.state.show_confirm_prompt);
+        CHECK(f.state.confirm_prompt == ConfirmPrompt::kImportLookAlikeNet);
+        REQUIRE(!f.state.confirm_prompt_lines.empty());
+        CHECK(f.state.confirm_prompt_lines[0].find("\"Hamilton Co. ARES Net\"") !=
+              std::string::npos);
+        CHECK(f.state.confirm_prompt_lines[0].find("TAG") == std::string::npos);
+        CancelConfirmPrompt(&f.state);
+        CHECK_EQ(f.state.nets.size(), std::size_t{2});
+
+        // Imported as a new net anyway.
+        ImportSelectedNetSlice(&f.state);
+        REQUIRE(f.state.show_confirm_prompt);
+        ImportSelectedNetSliceAnyway(&f.state);
+        CHECK(!f.state.show_confirm_prompt);
+        CHECK_EQ(f.state.nets.size(), std::size_t{3});
+        CHECK_EQ(f.state.page, kPageNetList);
+    }
+
     QL_TEST(ExportingASessionAlsoWritesItsSessionFile)
     {
         Fixture f;

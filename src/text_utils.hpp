@@ -42,8 +42,10 @@ namespace ql
     // and "Hamilton County ARES" don't. Generous on purpose: it's there to
     // catch a session being imported into the wrong net, so it errs toward
     // "alike". Words every net name might have ("net", "amateur", "radio",
-    // "county", ...) don't count; if either name has nothing else, the two
-    // look alike.
-    bool NetNamesLookAlike(const std::string& a, const std::string& b);
+    // "county", ...) don't count; if either name has nothing else, there's
+    // no telling, and the answer is `alike_if_unsure` -- true where a false
+    // "alike" is the safe answer (no needless question), false where it
+    // would raise one.
+    bool NetNamesLookAlike(const std::string& a, const std::string& b, bool alike_if_unsure = true);
 
 }  // namespace ql
