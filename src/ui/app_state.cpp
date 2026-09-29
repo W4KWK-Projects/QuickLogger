@@ -2958,9 +2958,9 @@ namespace ql
                               QuotedList(alike) + ", which you already have.";
                 ShowConfirmPrompt(
                     state, ConfirmPrompt::kImportLookAlikeNet, "Import As a New Net?",
-                    {first_line, "Importing adds it as a separate net, next to " +
-                                     std::string(alike.size() == 1 ? "that one" : "those") +
-                                     ". If it's already here, press Esc."});
+                    {first_line, "Importing adds it as a separate net, next to the existing " +
+                                     std::string(alike.size() == 1 ? "one" : "ones") +
+                                     ". Press Esc to cancel."});
                 return;
             }
         }
