@@ -1013,7 +1013,40 @@ COMMIT;
         statement.BindInt64(2, instance_id);
         statement.BindInt64(3, static_cast<std::int64_t>(NetInstanceStatus::kOpen));
         statement.Step();
-        return sqlite3_changes(db_) > 0;
+        if (sqlite3_changes(db_) == 0)
+        {
+            return false;
+        }
+        RenumberCheckIns(instance_id);
+        return true;
+    }
+
+    void Database::RenumberCheckIns(std::int64_t instance_id)
+    {
+        std::vector<std::int64_t> ids;
+        {
+            Statement select(db_, R"sql(
+            SELECT id FROM check_ins WHERE net_instance_id = ?
+            ORDER BY sequence_number, id;
+        )sql");
+            select.BindInt64(0, instance_id);
+            while (select.Step())
+            {
+                ids.push_back(select.ColumnInt64(0));
+            }
+        }
+        // A savepoint rather than BEGIN, so it also works inside a caller's
+        // transaction.
+        sqlite3_exec(db_, "SAVEPOINT renumber_check_ins;", nullptr, nullptr, nullptr);
+        Statement update(db_, "UPDATE check_ins SET sequence_number = ? WHERE id = ?;");
+        for (std::size_t i = 0; i < ids.size(); ++i)
+        {
+            update.BindInt64(0, static_cast<std::int64_t>(i + 1));
+            update.BindInt64(1, ids[i]);
+            update.Step();
+            update.Reset();
+        }
+        sqlite3_exec(db_, "RELEASE renumber_check_ins;", nullptr, nullptr, nullptr);
     }
 
     void Database::DeleteNetInstance(std::int64_t instance_id)
@@ -1276,9 +1309,28 @@ COMMIT;
 
     void Database::DeleteCheckIn(std::int64_t check_in_id)
     {
+        std::int64_t instance_id = 0;
+        bool closed = false;
+        {
+            Statement find(db_, R"sql(
+            SELECT i.id, i.status FROM check_ins c JOIN net_instances i ON i.id = c.net_instance_id
+            WHERE c.id = ?;
+        )sql");
+            find.BindInt64(0, check_in_id);
+            if (find.Step())
+            {
+                instance_id = find.ColumnInt64(0);
+                closed =
+                    find.ColumnInt64(1) == static_cast<std::int64_t>(NetInstanceStatus::kClosed);
+            }
+        }
         Statement statement(db_, "DELETE FROM check_ins WHERE id = ?;");
         statement.BindInt64(0, check_in_id);
         statement.Step();
+        if (closed)
+        {
+            RenumberCheckIns(instance_id);
+        }
         DeleteUnusedStations();
     }
 

@@ -358,6 +358,43 @@ namespace ql
         CHECK_EQ(db.GetNetLastStartedBy("K4AAA").value_or(0), ares);
     }
 
+    static std::vector<std::string> CallsignsWithNumbers(Database* db, std::int64_t instance_id)
+    {
+        std::vector<std::string> rows;
+        for (const CheckIn& check_in : db->GetCheckInsForNetInstance(instance_id))
+        {
+            rows.push_back(std::to_string(check_in.sequence_number) + " " + check_in.callsign);
+        }
+        return rows;
+    }
+
+    QL_TEST(CheckInsAreRenumberedOnlyOnceTheSessionIsClosed)
+    {
+        TempDir dir;
+        Database db(dir.File("q.db"));
+        std::int64_t net = AddTestNet(&db, "Skywarn");
+        std::int64_t session = AddTestInstance(&db, net, "2026-01-01", 1, "W4KWK");
+        AddTestCheckIn(&db, session, "W4KWK", 1, kRoleNone);
+        std::int64_t typo = AddTestCheckIn(&db, session, "K4AAA", 2, kRoleNone);
+        AddTestCheckIn(&db, session, "K4BBB", 3, kRoleNone);
+        AddTestCheckIn(&db, session, "K4CCC", 4, kRoleNone);
+
+        // Open: the others keep their numbers.
+        db.DeleteCheckIn(typo);
+        CHECK(CallsignsWithNumbers(&db, session) ==
+              std::vector<std::string>({"1 W4KWK", "3 K4BBB", "4 K4CCC"}));
+
+        // Closed: numbered without gaps, in the same order.
+        REQUIRE(db.CloseNetInstance(session, 5));
+        CHECK(CallsignsWithNumbers(&db, session) ==
+              std::vector<std::string>({"1 W4KWK", "2 K4BBB", "3 K4CCC"}));
+
+        // A delete from a closed session renumbers straight away.
+        db.DeleteCheckIn(db.GetCheckInsForNetInstance(session)[1].id);
+        CHECK(CallsignsWithNumbers(&db, session) ==
+              std::vector<std::string>({"1 W4KWK", "2 K4CCC"}));
+    }
+
     QL_TEST(NetsWithOpenSessionsAreFound)
     {
         TempDir dir;

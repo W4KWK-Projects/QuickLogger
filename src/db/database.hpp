@@ -133,7 +133,15 @@ namespace ql
         // Closes an open instance as of `closed_at`. Returns false, changing
         // nothing, if it's already closed (someone else got there first, and
         // their end time stands) or no longer exists.
+        // Closing it also numbers its check-ins 1, 2, 3... in order
+        // (RenumberCheckIns), closing any gaps left by deletes.
         bool CloseNetInstance(std::int64_t instance_id, std::int64_t closed_at);
+        // Numbers the instance's check-ins 1, 2, 3... in their current
+        // order, closing the gaps deleted check-ins leave. Only for a closed
+        // instance: while one is open, a check-in keeps its number, so
+        // someone sharing the session who's about to pick "#5" still gets
+        // the station they see as #5.
+        void RenumberCheckIns(std::int64_t instance_id);
         // The nets that have at least one instance still open -- i.e. a net
         // someone is logging right now, or one whose session ended without
         // being closed (see ResumeOpenNet in app_state.hpp).
@@ -191,9 +199,9 @@ namespace ql
                                std::int64_t* newest_id);
         void UpdateCheckIn(const CheckIn& check_in);
         // Removes one check-in entry entirely (e.g. logged in error). Does not
-        // touch the Station record or renumber other check-ins' sequence
-        // numbers -- a gap in the sequence is harmless, it's just a display
-        // ordinal.
+        // touch the Station record. In an open session the others keep their
+        // numbers, leaving a gap until it's closed; in a closed one they're
+        // renumbered straight away (RenumberCheckIns).
         void DeleteCheckIn(std::int64_t check_in_id);
         // Clears designated_role back to kRoleNone on every check-in in
         // `net_instance_id` currently holding `role`, except `except_check_in_id`

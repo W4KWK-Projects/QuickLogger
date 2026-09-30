@@ -305,6 +305,11 @@ namespace ql
             copy.net_instance_id = instance_id;
             db->AddCheckIn(copy);
         }
+        // Numbered without gaps once closed, as if it had been closed here.
+        if (instance.status == NetInstanceStatus::kClosed)
+        {
+            db->RenumberCheckIns(instance_id);
+        }
         return instance_id;
     }
 
