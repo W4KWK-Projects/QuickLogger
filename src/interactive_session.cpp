@@ -24,6 +24,7 @@
 #include "uls_import.hpp"
 #include "ui/app_state.hpp"
 #include "ui/chrome.hpp"
+#include "ui/frame_writer.hpp"
 #include "ui/handlers.hpp"
 #include "ui/mouse.hpp"
 #include "ui/pages.hpp"
@@ -354,7 +355,11 @@ namespace ql
         std::fflush(stdout);
         std::setvbuf(stdout, output_buffer, _IOFBF, sizeof(output_buffer));
 
+        // Sends only what changed from one frame to the next (see
+        // frame_writer.hpp), rather than the whole screen every time.
+        ql::FrameWriter frame_writer;
         ftxui::ScreenInteractive screen = ftxui::ScreenInteractive::Fullscreen();
+        ql::InstallFrameWriter(&screen, &frame_writer);
         ql::Database db("quicklogger.db");
 
         ql::AppState state;

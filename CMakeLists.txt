@@ -42,14 +42,31 @@ endif()
 # build, which needs `git` and network access the first time. To build
 # offline, point FETCHCONTENT_SOURCE_DIR_FTXUI at an existing checkout of
 # FTXUI v5.0.0 (cmake -DFETCHCONTENT_SOURCE_DIR_FTXUI=/path/to/FTXUI ...).
+#
+# The download is patched (cmake/patch_ftxui.cmake) with a hook that lets
+# QuickLogger send only the changed parts of each frame -- over SSH, tens of
+# bytes per keystroke instead of the whole screen. A checkout given through
+# FETCHCONTENT_SOURCE_DIR_FTXUI isn't patched; the app then works exactly the
+# same, drawing whole frames as FTXUI does.
 include(FetchContent)
 
 FetchContent_Declare(
     ftxui
     GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI
     GIT_TAG        v5.0.0
+    PATCH_COMMAND  ${CMAKE_COMMAND} -DFTXUI_SOURCE_DIR=<SOURCE_DIR>
+                   -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch_ftxui.cmake
 )
 FetchContent_MakeAvailable(ftxui)
+
+file(STRINGS "${ftxui_SOURCE_DIR}/include/ftxui/component/screen_interactive.hpp"
+     quicklogger_ftxui_frame_writer REGEX "void SetFrameWriter\\(")
+if(quicklogger_ftxui_frame_writer)
+    set(quicklogger_ftxui_frame_writer ON)
+else()
+    set(quicklogger_ftxui_frame_writer OFF)
+    message(STATUS "FTXUI has no frame-writer hook (not patched); drawing whole frames")
+endif()
 
 find_package(SQLite3 REQUIRED)
 # CMake's FindSQLite3 names its target SQLite::SQLite3 before 4.3 and
@@ -114,6 +131,7 @@ set(quicklogger_sources
     src/ui/escape_splitter.cpp
     src/ui/list_columns.cpp
     src/ui/mouse.cpp
+    src/ui/frame_writer.cpp
 )
 
 if(QUICKLOGGER_ENABLE_SSH)
@@ -145,6 +163,9 @@ if(QUICKLOGGER_ENABLE_SSH)
 endif()
 
 add_library(quicklogger_core STATIC ${quicklogger_sources})
+if(quicklogger_ftxui_frame_writer)
+    target_compile_definitions(quicklogger_core PUBLIC QUICKLOGGER_FTXUI_FRAME_WRITER)
+endif()
 set_source_files_properties(src/version.cpp PROPERTIES
     COMPILE_DEFINITIONS "QUICKLOGGER_VERSION=\"${PROJECT_VERSION}\"")
 add_executable(QuickLogger src/main.cpp)
@@ -206,6 +227,7 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_escape_splitter.cpp
         tests/test_list_columns.cpp
         tests/test_mouse.cpp
+        tests/test_frame_writer.cpp
         tests/test_zip_extract.cpp
         tests/test_database.cpp
         tests/test_station_data.cpp
