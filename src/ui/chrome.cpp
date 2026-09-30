@@ -26,33 +26,30 @@ namespace ql
         return static_cast<int>(hint.key.size() + hint.label.size()) + 5;
     }
 
-    // Greedily fills each row up to `max_width` before starting a new
-    // one, so a wide terminal gets as much of row one as possible and a
-    // narrow one only spills onto extra rows as far as it has to.
-    static std::vector<std::vector<KeyHint>> WrapKeyHints(const std::vector<KeyHint>& hints,
-                                                          int max_width)
+    // Where each bar row starts when hints of these `widths` are wrapped:
+    // each row is filled up to `max_width` before the next is started, so a
+    // wide terminal gets as much of row one as possible and a narrow one
+    // only spills onto extra rows as far as it has to. Works on widths alone,
+    // so wrapping copies no hints.
+    static std::size_t CountKeyHintRows(const int* widths, std::size_t count, int max_width)
     {
-        std::vector<std::vector<KeyHint>> rows;
-        std::vector<KeyHint> current_row;
-        int current_width = 0;
-        for (const KeyHint& hint : hints)
+        std::size_t rows = 0;
+        int row_width = 0;
+        for (std::size_t i = 0; i < count; ++i)
         {
-            int width = KeyHintWidth(hint);
-            if (!current_row.empty() && current_width + width > max_width)
+            if (rows == 0 || (row_width > 0 && row_width + widths[i] > max_width))
             {
-                rows.push_back(std::move(current_row));
-                current_row.clear();
-                current_width = 0;
+                ++rows;
+                row_width = 0;
             }
-            current_row.push_back(hint);
-            current_width += width;
-        }
-        if (!current_row.empty())
-        {
-            rows.push_back(std::move(current_row));
+            row_width += widths[i];
         }
         return rows;
     }
+
+    // One bar row's element: `hints[first]` up to (not including) `end`.
+    static ftxui::Element KeyHintRowOf(const std::vector<KeyHint>& hints, std::size_t first,
+                                       std::size_t end);
 
     ftxui::Element Heading(const std::string& text)
     {
@@ -105,23 +102,42 @@ namespace ql
         return width;
     }
 
-    ftxui::Element KeyHintRow(const std::vector<KeyHint>& hints)
+    static ftxui::Element KeyHintRowOf(const std::vector<KeyHint>& hints, std::size_t first,
+                                       std::size_t end)
     {
         ftxui::Elements pieces;
-        for (const KeyHint& hint : hints)
+        pieces.reserve(end - first + 1);
+        for (std::size_t i = first; i < end; ++i)
         {
+            const KeyHint& hint = hints[i];
+            // " F2 " and " Save  ", each made in one allocation.
+            std::string key_text;
+            key_text.reserve(hint.key.size() + 2);
+            key_text += ' ';
+            key_text += hint.key;
+            key_text += ' ';
+            std::string label_text;
+            label_text.reserve(hint.label.size() + 3);
+            label_text += ' ';
+            label_text += hint.label;
+            label_text += "  ";
             // Clicking the key or its label presses the key (see mouse.hpp).
             pieces.push_back(
                 ftxui::hbox({
-                    ftxui::text(" " + hint.key + " ") | ftxui::bgcolor(ftxui::Color::YellowLight) |
+                    ftxui::text(std::move(key_text)) | ftxui::bgcolor(ftxui::Color::YellowLight) |
                         ftxui::color(ftxui::Color::Black),
-                    ftxui::text(" " + hint.label + "  "),
+                    ftxui::text(std::move(label_text)),
                 }) |
                 ClickTarget(hint.key));
         }
         pieces.push_back(ftxui::filler());
-        return ftxui::hbox(pieces) | ftxui::bgcolor(ftxui::Color::Cyan) |
+        return ftxui::hbox(std::move(pieces)) | ftxui::bgcolor(ftxui::Color::Cyan) |
                ftxui::color(ftxui::Color::Black);
+    }
+
+    ftxui::Element KeyHintRow(const std::vector<KeyHint>& hints)
+    {
+        return KeyHintRowOf(hints, 0, hints.size());
     }
 
     static Database* g_notice_db = nullptr;
@@ -132,23 +148,52 @@ namespace ql
     }
 
     // The station-data notice's text (empty if there's none), and whether
-    // it's a problem rather than just news.
-    static std::string StationDataNoticeText(bool* is_problem)
+    // it's a problem rather than just news. Read from the database at most
+    // once a second, not on every frame: it changes only every few seconds
+    // (ScreenTicker redraws when it does), and a read takes a lock.
+    static const std::string& StationDataNoticeText(bool* is_problem, std::int64_t now)
     {
-        *is_problem = false;
-        if (g_notice_db == nullptr)
+        static std::int64_t read_at = -1;
+        static std::string text;
+        static bool problem = false;
+        if (now != read_at)
         {
-            return "";
+            read_at = now;
+            problem = false;
+            text.clear();
+            if (g_notice_db != nullptr)
+            {
+                try
+                {
+                    text = DescribeStationDataNotice(g_notice_db, now, &problem);
+                }
+                catch (const std::exception&)
+                {
+                    text.clear();
+                    problem = false;
+                }
+            }
         }
-        try
+        *is_problem = problem;
+        return text;
+    }
+
+    // The clock's text, "03:42 PM " or "15:42 ": remade only when the minute
+    // (or the 12/24-hour setting) changes, not on every frame.
+    static const std::string& ClockText(std::int64_t now)
+    {
+        static std::int64_t shown_minute = -1;
+        static bool shown_24_hour = false;
+        static std::string text;
+        std::int64_t minute = now / 60;
+        if (minute != shown_minute || Use24HourClock() != shown_24_hour)
         {
-            return DescribeStationDataNotice(
-                g_notice_db, static_cast<std::int64_t>(std::time(nullptr)), is_problem);
+            shown_minute = minute;
+            shown_24_hour = Use24HourClock();
+            text = FormatLocalTimeOfDay(now);
+            text += ' ';
         }
-        catch (const std::exception&)
-        {
-            return "";
-        }
+        return text;
     }
 
     // The station-data notice as a colored badge, or an empty element.
@@ -172,26 +217,26 @@ namespace ql
 
     ftxui::Element TopBar(const std::string& page_title, const std::string& status)
     {
+        std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
         bool is_problem = false;
-        std::string notice = StationDataNoticeText(&is_problem);
-        // Local time, to the minute. It's computed each time the bar is
-        // drawn; ScreenTicker (interactive_session.cpp) is what makes a
-        // redraw happen when the minute changes.
-        std::string clock = FormatLocalTimeOfDay(std::time(nullptr)) + " ";
-        std::string version = std::string("v") + QuickLoggerVersion() + " ";
+        const std::string& notice = StationDataNoticeText(&is_problem, now);
+        // Local time, to the minute. ScreenTicker (interactive_session.cpp)
+        // is what makes a redraw happen when the minute changes.
+        const std::string& clock = ClockText(now);
+        static const std::string version = std::string("v") + QuickLoggerVersion() + " ";
 
         // Shorten the title rather than push the right-hand side (status,
         // notice, F1 Help, clock) off the edge. Columns, not bytes: "— " is
         // two columns.
-        const std::string help_key = " F1 ";
-        const std::string help_label = " Help  ";
-        const std::string status_gap = "   ";
+        static const std::string help_key = " F1 ";
+        static const std::string help_label = " Help  ";
+        static const std::string status_gap = "   ";
         int left = 12 + static_cast<int>(version.size()) + 2;
         int right = (notice.empty() ? 0 : TextWidth(notice) + 3) +
                     (status.empty() ? 0 : TextWidth(status) + static_cast<int>(status_gap.size())) +
                     static_cast<int>(help_key.size() + help_label.size() + clock.size());
         // A trailing space after the title, and a wider gap before a status.
-        int room = ftxui::Terminal::Size().dimx - left - right - (status.empty() ? 1 : 3);
+        int room = FrameTerminalSize().dimx - left - right - (status.empty() ? 1 : 3);
         std::string title = page_title;
         if (room < TextWidth(title))
         {
@@ -218,49 +263,104 @@ namespace ql
                ftxui::bgcolor(ftxui::Color::Blue);
     }
 
+    static ftxui::Dimensions g_frame_terminal_size{0, 0};
+
+    void SetFrameTerminalSize(const ftxui::Dimensions& size)
+    {
+        g_frame_terminal_size = size;
+    }
+
+    ftxui::Dimensions FrameTerminalSize()
+    {
+        if (g_frame_terminal_size.dimx > 0)
+        {
+            return g_frame_terminal_size;
+        }
+        return ftxui::Terminal::Size();
+    }
+
     ftxui::Element BottomBar(const std::vector<KeyHint>& hints)
     {
-        int width = ftxui::Terminal::Size().dimx;
-        return BottomBarRows(WrapKeyHints(hints, width));
+        int max_width = FrameTerminalSize().dimx;
+        // Wrapped as CountKeyHintRows does, each row built straight from
+        // `hints` without copying them into rows first.
+        ftxui::Elements lines;
+        std::size_t row_start = 0;
+        int row_width = 0;
+        for (std::size_t i = 0; i < hints.size(); ++i)
+        {
+            int width = KeyHintWidth(hints[i]);
+            if (row_width > 0 && row_width + width > max_width)
+            {
+                lines.push_back(KeyHintRowOf(hints, row_start, i));
+                row_start = i;
+                row_width = 0;
+            }
+            row_width += width;
+        }
+        if (row_start < hints.size())
+        {
+            lines.push_back(KeyHintRowOf(hints, row_start, hints.size()));
+        }
+        return ftxui::vbox(std::move(lines));
     }
 
     std::vector<KeyHint> AddExtraKeysThatFit(const std::vector<KeyHint>& hints,
                                              const std::vector<KeyHint>& extras, int lines)
     {
-        int width = ftxui::Terminal::Size().dimx;
-        std::size_t most_lines =
-            std::max(WrapKeyHints(hints, width).size(), static_cast<std::size_t>(lines));
+        int max_width = FrameTerminalSize().dimx;
         // Extras go before a closing Esc, which stays last.
-        std::vector<KeyHint> all = hints;
-        std::vector<KeyHint> closing;
-        if (!all.empty() && all.back().key == "Esc")
+        bool has_closing = !hints.empty() && hints.back().key == "Esc";
+        std::size_t kept = has_closing ? hints.size() - 1 : hints.size();
+
+        // Tried by width alone: the hints' widths, then each extra's in turn
+        // (with the closing Esc's after it), counting the rows they'd need.
+        std::vector<int> widths;
+        widths.reserve(hints.size() + extras.size());
+        for (std::size_t i = 0; i < kept; ++i)
         {
-            closing.push_back(all.back());
-            all.pop_back();
+            widths.push_back(KeyHintWidth(hints[i]));
         }
+        int closing_width = has_closing ? KeyHintWidth(hints.back()) : 0;
+        widths.push_back(closing_width);
+        std::size_t with_closing = has_closing ? widths.size() : widths.size() - 1;
+        std::size_t most_lines = std::max(CountKeyHintRows(widths.data(), with_closing, max_width),
+                                          static_cast<std::size_t>(lines));
+        std::size_t extras_that_fit = 0;
         for (const KeyHint& extra : extras)
         {
-            std::vector<KeyHint> candidate = all;
-            candidate.push_back(extra);
-            candidate.insert(candidate.end(), closing.begin(), closing.end());
-            if (WrapKeyHints(candidate, width).size() > most_lines)
+            // The closing Esc's slot takes the extra, and the Esc moves after it.
+            widths.back() = KeyHintWidth(extra);
+            widths.push_back(closing_width);
+            std::size_t count = has_closing ? widths.size() : widths.size() - 1;
+            if (CountKeyHintRows(widths.data(), count, max_width) > most_lines)
             {
                 break;
             }
-            all.push_back(extra);
+            ++extras_that_fit;
         }
-        all.insert(all.end(), closing.begin(), closing.end());
+
+        std::vector<KeyHint> all;
+        all.reserve(hints.size() + extras_that_fit);
+        all.insert(all.end(), hints.begin(), hints.begin() + static_cast<std::ptrdiff_t>(kept));
+        all.insert(all.end(), extras.begin(),
+                   extras.begin() + static_cast<std::ptrdiff_t>(extras_that_fit));
+        if (has_closing)
+        {
+            all.push_back(hints.back());
+        }
         return all;
     }
 
     ftxui::Element BottomBarRows(const std::vector<std::vector<KeyHint>>& rows)
     {
         ftxui::Elements lines;
+        lines.reserve(rows.size());
         for (const std::vector<KeyHint>& row : rows)
         {
             lines.push_back(KeyHintRow(row));
         }
-        return ftxui::vbox(lines);
+        return ftxui::vbox(std::move(lines));
     }
 
     ftxui::Element PageChrome(const std::string& page_title, ftxui::Element content,

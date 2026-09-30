@@ -4,6 +4,7 @@
 #include <vector>
 
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/screen/terminal.hpp>
 
 namespace ql
 {
@@ -126,6 +127,13 @@ namespace ql
     // check-in count), shown left of all that. The title is shortened if
     // need be so none of it is pushed off the edge.
     ftxui::Element TopBar(const std::string& page_title, const std::string& status = "");
+
+    // The terminal's size for the frame being drawn. Read once as each frame
+    // starts (SafeAppEventDispatcher::Render calls SetFrameTerminalSize), so
+    // the bars and lists that need it don't each make a system call for it.
+    // Outside a frame (tests), it's read from the terminal.
+    void SetFrameTerminalSize(const ftxui::Dimensions& size);
+    ftxui::Dimensions FrameTerminalSize();
 
     // A full-width colored legend bar for the bottom of a page. Packs as many
     // hints as fit on one line given the real client terminal width

@@ -12,6 +12,7 @@
 #include "../date_utils.hpp"
 #include "../text_utils.hpp"
 #include "../uls_import.hpp"
+#include "chrome.hpp"
 #include "mouse.hpp"
 
 namespace ql
@@ -1619,6 +1620,7 @@ namespace ql
         StopMouseMovementReports();
         BeginClickTargets();
         ftxui::Dimensions terminal = ftxui::Terminal::Size();
+        SetFrameTerminalSize(terminal);
         UpdateListWidths(state_, terminal.dimx);
         state_->screen_height = terminal.dimy;
         // Not while a prompt or window is up over it, which may be about the

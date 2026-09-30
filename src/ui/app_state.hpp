@@ -769,12 +769,12 @@ namespace ql
     // gutter), laid out for a `terminal_width`-column terminal.
     std::vector<std::string> FormatCheckInList(const std::vector<std::vector<std::string>>& cells,
                                                int terminal_width);
-    std::string CheckInListHeader(int terminal_width);
+    const std::string& CheckInListHeader(int terminal_width);
 
     // The header line above History's sessions -- for the ad hoc history
     // (AppState::history_ad_hoc), which has a Net column -- laid out for a
     // `terminal_width`-column terminal, with the Menu gutter.
-    std::string NetInstanceListHeader(int terminal_width, bool ad_hoc);
+    const std::string& NetInstanceListHeader(int terminal_width, bool ad_hoc);
 
     // Reloads AppState::history_instances/history_instance_labels from the
     // database for AppState::nets[selected_net_index] (or every ad hoc net,
@@ -1001,7 +1001,7 @@ namespace ql
 
     // The header line above the Keys window's list, laid out for a
     // `terminal_width`-column terminal, with the Menu gutter.
-    std::string UserKeyListHeader(int terminal_width);
+    const std::string& UserKeyListHeader(int terminal_width);
 
     // True if `username` is a callsign an SSH username can be: a valid US
     // or Canadian call sign (see IsValidCallsign), with no portable
@@ -1077,7 +1077,7 @@ namespace ql
     // The header line above the autocomplete matches (the New Check-In and
     // Saved Station windows), laid out for a `terminal_width`-column
     // terminal, with the matches' "> " gutter.
-    std::string MatchListHeader(int terminal_width);
+    const std::string& MatchListHeader(int terminal_width);
 
     // Copies the highlighted entry of AppState::modal_callsign_suggestions
     // (AppState::selected_suggestion_index) into AppState::modal_station, pulls
@@ -1107,14 +1107,14 @@ namespace ql
 
     // The header line above Edit Net's saved stations, laid out for a
     // `terminal_width`-column terminal, with the Menu gutter.
-    std::string SavedStationListHeader(int terminal_width);
+    const std::string& SavedStationListHeader(int terminal_width);
 
     // The header line above Manage Users' key list, laid out for a
     // `terminal_width`-column terminal, with the Menu gutter.
-    std::string UserListHeader(int terminal_width);
+    const std::string& UserListHeader(int terminal_width);
 
     // The Recurring Nets list's column headings, laid out like its rows.
-    std::string NetListHeader(const AppState* state);
+    const std::string& NetListHeader(const AppState* state);
 
     // Saves AppState::saved_station (plus AppState::saved_station_remarks as its default
     // remarks) as a saved station for AppState::edit_net_id, then clears the

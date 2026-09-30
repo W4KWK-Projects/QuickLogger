@@ -2,6 +2,7 @@
 
 #include <deque>
 #include <iostream>
+#include <string_view>
 #include <utility>
 
 #include <ftxui/component/screen_interactive.hpp>
@@ -34,21 +35,28 @@ namespace ql
     static std::chrono::steady_clock::time_point g_last_row_click;
 
     // The event for a key bar's key name, or false if it isn't one key.
+    // Runs for every key on the bar on every frame, so it reads the name in
+    // place ("F3" of "F3/Enter") rather than making strings to compare.
     static bool KeyEvent(const std::string& name, ftxui::Event* event)
     {
-        std::string key = name.substr(0, name.find('/'));
+        std::string_view key(name);
+        std::string_view::size_type slash = key.find('/');
+        if (slash != std::string_view::npos)
+        {
+            key = key.substr(0, slash);
+        }
         static const ftxui::Event kFunctionKeys[] = {
             ftxui::Event::F1, ftxui::Event::F2,  ftxui::Event::F3,  ftxui::Event::F4,
             ftxui::Event::F5, ftxui::Event::F6,  ftxui::Event::F7,  ftxui::Event::F8,
             ftxui::Event::F9, ftxui::Event::F10, ftxui::Event::F11, ftxui::Event::F12,
         };
-        for (int number = 1; number <= 12; ++number)
+        // "F" and one or two digits, 1 to 12.
+        if ((key.size() == 2 || key.size() == 3) && key[0] == 'F' && key[1] >= '1' &&
+            key[1] <= '9' && (key.size() == 2 || (key[1] == '1' && key[2] >= '0' && key[2] <= '2')))
         {
-            if (key == "F" + std::to_string(number))
-            {
-                *event = kFunctionKeys[number - 1];
-                return true;
-            }
+            int number = key.size() == 2 ? key[1] - '0' : 10 + (key[2] - '0');
+            *event = kFunctionKeys[number - 1];
+            return true;
         }
         if (key == "Esc")
         {
@@ -82,7 +90,7 @@ namespace ql
         target.box.x_min = 0;
         target.box.x_max = -1;
         target.layer = g_layer;
-        g_targets.push_back(target);
+        g_targets.push_back(std::move(target));
         return ftxui::reflect(g_targets.back().box);
     }
 
@@ -93,14 +101,14 @@ namespace ql
         {
             return ftxui::nothing;
         }
-        return AddTarget(target);
+        return AddTarget(std::move(target));
     }
 
     ftxui::Decorator ClickableRow(int index)
     {
         KeyTarget target;
         target.row = index;
-        return AddTarget(target);
+        return AddTarget(std::move(target));
     }
 
     // The target under a left press in the topmost layer, or null.

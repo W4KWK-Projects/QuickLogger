@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <ctime>
 #include <exception>
+#include <cstdio>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -222,6 +223,22 @@ namespace ql
                     }
                 }
 
+                // This tick's reads under one snapshot and one lock (every
+                // few seconds, for every session on a server). Never let a
+                // failure end this thread: without it, the reads just run
+                // separately.
+                std::unique_ptr<Database::ReadTransaction> reads;
+                if (db != nullptr)
+                {
+                    try
+                    {
+                        reads = std::make_unique<Database::ReadTransaction>(db.get());
+                    }
+                    catch (const std::exception&)
+                    {
+                        reads.reset();
+                    }
+                }
                 bool changed = false;
                 std::int64_t minute = Now() / 60;
                 if (minute != drawn_minute)
@@ -328,6 +345,15 @@ namespace ql
     void RunInteractiveSession(const std::string& settings_path, bool is_console_session,
                                const std::string& ssh_username)
     {
+        // Each frame goes to the terminal in one write. Standard output to a
+        // terminal is otherwise line-buffered, and FTXUI ends every screen
+        // line with a newline, so a frame went out as one write per line --
+        // over SSH, as many small encrypted packets. FTXUI flushes after
+        // every frame and every terminal mode change, so nothing waits.
+        static char output_buffer[64 * 1024];
+        std::fflush(stdout);
+        std::setvbuf(stdout, output_buffer, _IOFBF, sizeof(output_buffer));
+
         ftxui::ScreenInteractive screen = ftxui::ScreenInteractive::Fullscreen();
         ql::Database db("quicklogger.db");
 
@@ -417,6 +443,8 @@ namespace ql
         ScreenTicker screen_ticker(&screen, &state, state.db_path);
 
         screen.Loop(ui);
+        // An SSH session's process ends with _exit, which doesn't flush.
+        std::fflush(stdout);
     }
 
 }  // namespace ql

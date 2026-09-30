@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -96,6 +97,29 @@ namespace ql
         return std::string(kMenuEntryIndicatorWidth, ' ');
     }
 
+    // A list's column heading as last built, and what it was built for: a
+    // heading only changes when the terminal's width (or, for some lists,
+    // one other thing) does, but pages ask for it on every frame.
+    struct HeadingCache
+    {
+        int width = -1;
+        int extra = -1;
+        std::string text;
+    };
+
+    // True if `cache` needs building for `width` and `extra`, and marks it
+    // as built for them.
+    static bool HeadingNeedsBuilding(HeadingCache* cache, int width, int extra)
+    {
+        if (cache->width == width && cache->extra == extra)
+        {
+            return false;
+        }
+        cache->width = width;
+        cache->extra = extra;
+        return true;
+    }
+
     static std::vector<std::string> FormatRows(const std::vector<std::vector<std::string>>& rows,
                                                const ListLayout& layout)
     {
@@ -111,11 +135,15 @@ namespace ql
     // "Chattanooga, TN", or whichever half is known.
     static std::string CityAndState(const Station& station)
     {
-        if (station.city.empty() || station.state.empty())
+        std::string text;
+        text.reserve(station.city.size() + 2 + station.state.size());
+        text += station.city;
+        if (!station.city.empty() && !station.state.empty())
         {
-            return station.city + station.state;
+            text += ", ";
         }
-        return station.city + ", " + station.state;
+        text += station.state;
+        return text;
     }
 
     // Short tag for CheckIn::designated_role, shown in its own column so a
@@ -159,28 +187,46 @@ namespace ql
         return columns;
     }
 
+    // Orders stations by callsign, for looking one up in a sorted list.
+    static bool StationCallsignBefore(const Station& station, const std::string& callsign)
+    {
+        return station.callsign < callsign;
+    }
+
     std::vector<std::vector<std::string>> CheckInCells(Database* db,
                                                        const std::vector<CheckIn>& check_ins)
     {
         std::vector<std::vector<std::string>> rows;
+        if (check_ins.empty())
+        {
+            return rows;
+        }
         rows.reserve(check_ins.size());
+        // Every check-in here is from one session: its stations in one query.
+        std::int64_t instance_id = check_ins.front().net_instance_id;
+        std::vector<Station> stations = db->GetStationsInNetInstance(instance_id);
+        static const Station kUnknownStation;
         for (const CheckIn& check_in : check_ins)
         {
-            std::optional<Station> found = db->FindStationByCallsign(check_in.callsign);
-            Station station = found.has_value() ? *found : Station();
-            rows.push_back({
-                std::to_string(check_in.sequence_number),
-                FormatLocalTimeOfDay(check_in.checked_in_at),
-                check_in.callsign,
-                station.name,
-                station.member_id,
-                CityAndState(station),
-                station.county,
-                RoleAbbreviation(check_in.designated_role),
-                check_in.signal_report,
-                check_in.remarks,
-                check_in.comment,
-            });
+            std::vector<Station>::const_iterator found = std::lower_bound(
+                stations.begin(), stations.end(), check_in.callsign, StationCallsignBefore);
+            const Station& station = found != stations.end() && found->callsign == check_in.callsign
+                                         ? *found
+                                         : kUnknownStation;
+            // Built in place: a braced list would copy every string twice.
+            std::vector<std::string>& row = rows.emplace_back();
+            row.reserve(11);
+            row.push_back(std::to_string(check_in.sequence_number));
+            row.push_back(FormatLocalTimeOfDay(check_in.checked_in_at));
+            row.push_back(check_in.callsign);
+            row.push_back(station.name);
+            row.push_back(station.member_id);
+            row.push_back(CityAndState(station));
+            row.push_back(station.county);
+            row.push_back(RoleAbbreviation(check_in.designated_role));
+            row.push_back(check_in.signal_report);
+            row.push_back(check_in.remarks);
+            row.push_back(check_in.comment);
         }
         return rows;
     }
@@ -197,9 +243,15 @@ namespace ql
         return FormatRows(cells, CheckInLayout(terminal_width));
     }
 
-    std::string CheckInListHeader(int terminal_width)
+    const std::string& CheckInListHeader(int terminal_width)
     {
-        return MenuGutter() + FormatListHeading(CheckInColumns(), CheckInLayout(terminal_width));
+        static HeadingCache cache;
+        if (HeadingNeedsBuilding(&cache, terminal_width, 0))
+        {
+            cache.text =
+                MenuGutter() + FormatListHeading(CheckInColumns(), CheckInLayout(terminal_width));
+        }
+        return cache.text;
     }
 
     // -- Net sessions (History) --
@@ -227,11 +279,11 @@ namespace ql
                                                      const std::string& net_name,
                                                      std::int64_t check_ins, bool ad_hoc)
     {
-        std::vector<std::string> cells = {
-            instance.instance_date,
-            FormatLocalTimeOfDay(instance.started_at),
-            FormatLocalTimeOfDay(instance.closed_at),
-        };
+        std::vector<std::string> cells;
+        cells.reserve(ad_hoc ? 9 : 8);
+        cells.push_back(instance.instance_date);
+        cells.push_back(FormatLocalTimeOfDay(instance.started_at));
+        cells.push_back(FormatLocalTimeOfDay(instance.closed_at));
         if (ad_hoc)
         {
             cells.push_back(net_name);
@@ -250,10 +302,16 @@ namespace ql
                           kScreenListWidthAt80, 1);
     }
 
-    std::string NetInstanceListHeader(int terminal_width, bool ad_hoc)
+    const std::string& NetInstanceListHeader(int terminal_width, bool ad_hoc)
     {
-        return MenuGutter() + FormatListHeading(NetInstanceColumns(ad_hoc),
-                                                NetInstanceLayout(terminal_width, ad_hoc));
+        static HeadingCache cache;
+        if (HeadingNeedsBuilding(&cache, terminal_width, ad_hoc ? 1 : 0))
+        {
+            cache.text =
+                MenuGutter() + FormatListHeading(NetInstanceColumns(ad_hoc),
+                                                 NetInstanceLayout(terminal_width, ad_hoc));
+        }
+        return cache.text;
     }
 
     // -- A net's saved stations (Edit Net, exported lists) --
@@ -272,8 +330,16 @@ namespace ql
     static std::vector<std::string> SavedStationCells(const Station& station,
                                                       const std::string& default_remarks)
     {
-        return {station.callsign, station.name,        station.member_id, CityAndState(station),
-                station.county,   station.grid_square, default_remarks};
+        std::vector<std::string> cells;
+        cells.reserve(7);
+        cells.push_back(station.callsign);
+        cells.push_back(station.name);
+        cells.push_back(station.member_id);
+        cells.push_back(CityAndState(station));
+        cells.push_back(station.county);
+        cells.push_back(station.grid_square);
+        cells.push_back(default_remarks);
+        return cells;
     }
 
     static ListLayout SavedStationLayout(int terminal_width)
@@ -282,10 +348,15 @@ namespace ql
                           kScreenListWidthAt80, 1);
     }
 
-    std::string SavedStationListHeader(int terminal_width)
+    const std::string& SavedStationListHeader(int terminal_width)
     {
-        return MenuGutter() +
-               FormatListHeading(SavedStationColumns(), SavedStationLayout(terminal_width));
+        static HeadingCache cache;
+        if (HeadingNeedsBuilding(&cache, terminal_width, 0))
+        {
+            cache.text = MenuGutter() + FormatListHeading(SavedStationColumns(),
+                                                          SavedStationLayout(terminal_width));
+        }
+        return cache.text;
     }
 
     // -- SSH users and their keys (Manage Users) --
@@ -325,8 +396,13 @@ namespace ql
             ++count;
             last_login_at = std::max(last_login_at, key.last_login_at);
         }
-        return {username, view_only ? "View-Only" : "Full", std::to_string(count),
-                DescribeLastLogin(last_login_at)};
+        std::vector<std::string> cells;
+        cells.reserve(4);
+        cells.push_back(username);
+        cells.emplace_back(view_only ? "View-Only" : "Full");
+        cells.push_back(std::to_string(count));
+        cells.push_back(DescribeLastLogin(last_login_at));
+        return cells;
     }
 
     static ListLayout UserLayout(int terminal_width)
@@ -334,9 +410,15 @@ namespace ql
         return LayOutList(UserColumns(), ScreenListWidth(terminal_width), kScreenListWidthAt80, 1);
     }
 
-    std::string UserListHeader(int terminal_width)
+    const std::string& UserListHeader(int terminal_width)
     {
-        return MenuGutter() + FormatListHeading(UserColumns(), UserLayout(terminal_width));
+        static HeadingCache cache;
+        if (HeadingNeedsBuilding(&cache, terminal_width, 0))
+        {
+            cache.text =
+                MenuGutter() + FormatListHeading(UserColumns(), UserLayout(terminal_width));
+        }
+        return cache.text;
     }
 
     // The Keys window's rows: each key's type, fingerprint and comment
@@ -356,8 +438,13 @@ namespace ql
     static std::vector<std::string> UserKeyCells(const User& key)
     {
         PublicKeyDescription description = DescribePublicKey(key.public_key);
-        return {description.type, description.fingerprint, DescribeLastLogin(key.last_login_at),
-                description.comment};
+        std::vector<std::string> cells;
+        cells.reserve(4);
+        cells.push_back(std::move(description.type));
+        cells.push_back(std::move(description.fingerprint));
+        cells.push_back(DescribeLastLogin(key.last_login_at));
+        cells.push_back(std::move(description.comment));
+        return cells;
     }
 
     // The Keys window's list sits inside a window as wide as the check-in
@@ -373,9 +460,15 @@ namespace ql
                           1);
     }
 
-    std::string UserKeyListHeader(int terminal_width)
+    const std::string& UserKeyListHeader(int terminal_width)
     {
-        return MenuGutter() + FormatListHeading(UserKeyColumns(), UserKeyLayout(terminal_width));
+        static HeadingCache cache;
+        if (HeadingNeedsBuilding(&cache, terminal_width, 0))
+        {
+            cache.text =
+                MenuGutter() + FormatListHeading(UserKeyColumns(), UserKeyLayout(terminal_width));
+        }
+        return cache.text;
     }
 
     // How many keys `username` has in AppState::manage_users.
@@ -417,9 +510,15 @@ namespace ql
         return LayOutList(MatchColumns(), MatchListWidth(terminal_width), kMatchListWidthAt80, 1);
     }
 
-    std::string MatchListHeader(int terminal_width)
+    const std::string& MatchListHeader(int terminal_width)
     {
-        return MenuGutter() + FormatListHeading(MatchColumns(), MatchLayout(terminal_width));
+        static HeadingCache cache;
+        if (HeadingNeedsBuilding(&cache, terminal_width, 0))
+        {
+            cache.text =
+                MenuGutter() + FormatListHeading(MatchColumns(), MatchLayout(terminal_width));
+        }
+        return cache.text;
     }
 
     static std::vector<std::string> FormatMatches(const std::vector<Station>& stations,
@@ -490,10 +589,15 @@ namespace ql
                           kScreenListWidthAt80, 2);
     }
 
-    std::string NetListHeader(const AppState* state)
+    const std::string& NetListHeader(const AppState* state)
     {
-        return MenuGutter() +
-               FormatListHeading(NetListColumns(state->net_name_width), NetListLayout(state));
+        static HeadingCache cache;
+        if (HeadingNeedsBuilding(&cache, state->list_width, state->net_name_width))
+        {
+            cache.text = MenuGutter() + FormatListHeading(NetListColumns(state->net_name_width),
+                                                          NetListLayout(state));
+        }
+        return cache.text;
     }
 
     static std::vector<std::string> NetListCells(const Net& net, bool has_open_session)
@@ -511,7 +615,14 @@ namespace ql
         {
             when += when.empty() ? "session open" : ", session open";
         }
-        return {net.name, net.mode, net.default_frequency, net.recurrence_description, when};
+        std::vector<std::string> cells;
+        cells.reserve(5);
+        cells.push_back(net.name);
+        cells.push_back(net.mode);
+        cells.push_back(net.default_frequency);
+        cells.push_back(net.recurrence_description);
+        cells.push_back(std::move(when));
+        return cells;
     }
 
     static std::vector<std::string> FormatNetList(const AppState* state)
@@ -567,11 +678,17 @@ namespace ql
 
     // Appends stations from `candidates` onto `suggestions` that aren't
     // already present (by callsign), so tier 2 never duplicates a tier 1 hit.
+    // Moves candidates in (they're not used again) and stops once
+    // `suggestions` holds `max_suggestions`.
     static void AppendNewSuggestions(std::vector<Station>* suggestions,
-                                     const std::vector<Station>& candidates)
+                                     std::vector<Station>* candidates, std::size_t max_suggestions)
     {
-        for (const Station& candidate : candidates)
+        for (Station& candidate : *candidates)
         {
+            if (suggestions->size() >= max_suggestions)
+            {
+                return;
+            }
             bool already_included = false;
             for (const Station& existing : *suggestions)
             {
@@ -583,19 +700,23 @@ namespace ql
             }
             if (!already_included)
             {
-                suggestions->push_back(candidate);
+                suggestions->push_back(std::move(candidate));
             }
         }
     }
 
     void RefreshNets(AppState* state)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
+        std::vector<Net> all_nets = state->db->GetAllNets();
         state->nets.clear();
-        for (const Net& net : state->db->GetAllNets())
+        state->nets.reserve(all_nets.size());
+        for (Net& net : all_nets)
         {
             if (!net.is_ad_hoc)
             {
-                state->nets.push_back(net);
+                state->nets.push_back(std::move(net));
             }
         }
         state->open_net_ids = state->db->GetNetIdsWithOpenInstances();
@@ -796,6 +917,8 @@ namespace ql
 
     void RefreshOpenAdHocSessions(AppState* state)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
         state->open_ad_hoc_sessions.clear();
         state->open_ad_hoc_labels.clear();
         for (const NetInstance& session : state->db->GetAdHocNetInstances())
@@ -1248,6 +1371,8 @@ namespace ql
 
     void RefreshActiveCheckIns(AppState* state)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
         state->active_check_ins = state->db->GetCheckInsForNetInstance(state->active_instance.id);
         state->active_check_in_cells = CheckInCells(state->db, state->active_check_ins);
         state->active_display_rows =
@@ -1675,6 +1800,8 @@ namespace ql
 
     void RefreshNetHistory(AppState* state)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
         state->history_instances.clear();
         state->history_instance_cells.clear();
         state->history_instance_labels.clear();
@@ -1719,6 +1846,8 @@ namespace ql
 
     void RefreshHistoryCheckIns(AppState* state)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
         state->history_check_in_labels.clear();
         state->history_check_in_cells.clear();
         state->history_check_ins.clear();
@@ -2155,6 +2284,7 @@ namespace ql
         // Check-ins already show their own number in the # column, so
         // that's the number to type; every other list is numbered 1, 2, 3...
         state->row_pick_numbers.clear();
+        state->row_pick_numbers.reserve(count);
         for (std::size_t i = 0; i < count; ++i)
         {
             int number = static_cast<int>(i) + 1;
@@ -2701,6 +2831,7 @@ namespace ql
             if (state->manage_user_names[i] == new_username)
             {
                 state->selected_user_index = static_cast<int>(i);
+                break;
             }
         }
         state->form_error = error;
@@ -2904,6 +3035,7 @@ namespace ql
     void ExportSavedStations(AppState* state, const std::string& net_name,
                              const std::vector<Station>& saved_stations)
     {
+        Database::ReadTransaction reads(state->db);
         std::vector<std::string> lines;
         lines.push_back("Net: " + net_name);
         lines.emplace_back("Saved Stations:");
@@ -3156,6 +3288,9 @@ namespace ql
         std::int64_t net_id = state->import_session_net_id;
         std::string net_name = state->import_session_net_name;
         std::int64_t instance_id = 0;
+        // One transaction for all of it: a new ad hoc net is kept only if its
+        // session is imported too (ApplySessionSlice's own joins this one).
+        Database::WriteTransaction transaction(state->db);
         try
         {
             if (state->import_session_ad_hoc)
@@ -3186,6 +3321,10 @@ namespace ql
                 net_name = net.name;
             }
             instance_id = ApplySessionSlice(state->db, *slice, net_id, &error);
+            if (instance_id != 0)
+            {
+                transaction.Commit();
+            }
         }
         catch (const std::exception& e)
         {
@@ -3214,6 +3353,7 @@ namespace ql
             {
                 state->selected_history_index = static_cast<int>(i);
                 RefreshHistoryCheckIns(state);
+                break;
             }
         }
         state->form_error.clear();
@@ -3312,6 +3452,8 @@ namespace ql
 
     void RefreshCallsignSuggestions(AppState* state)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
         state->modal_callsign_suggestions.clear();
         state->modal_callsign_suggestion_labels.clear();
         state->modal_callsign_suggestion_sources.clear();
@@ -3322,19 +3464,22 @@ namespace ql
             return;
         }
 
+        const std::size_t kMaxSuggestions = MaxCallsignMatches(state);
+        const int max_suggestions = static_cast<int>(kMaxSuggestions);
+
         // Tier 1: callers already known to this specific net (real check-ins
-        // or SaveNetStation).
+        // or SaveNetStation). No more than can be shown.
         state->modal_callsign_suggestions = state->db->SearchNetStationsByCallsignSubstring(
-            state->active_instance.net_id, state->modal_station.callsign);
+            state->active_instance.net_id, state->modal_station.callsign, max_suggestions);
         std::size_t tier1_count = state->modal_callsign_suggestions.size();
 
         // Tier 2: callers known to other nets (see
-        // SearchStationsByCallsignSubstring).
-        std::vector<Station> other_matches =
-            state->db->SearchStationsByCallsignSubstring(state->modal_station.callsign);
-        AppendNewSuggestions(&state->modal_callsign_suggestions, other_matches);
+        // SearchStationsByCallsignSubstring). It includes tier 1's, which
+        // are dropped as repeats, so enough to fill the rest after those.
+        std::vector<Station> other_matches = state->db->SearchStationsByCallsignSubstring(
+            state->modal_station.callsign, max_suggestions + static_cast<int>(tier1_count));
+        AppendNewSuggestions(&state->modal_callsign_suggestions, &other_matches, kMaxSuggestions);
 
-        const std::size_t kMaxSuggestions = MaxCallsignMatches(state);
         if (state->modal_callsign_suggestions.size() > kMaxSuggestions)
         {
             state->modal_callsign_suggestions.resize(kMaxSuggestions);
@@ -3467,6 +3612,8 @@ namespace ql
 
     void RefreshEditNetSavedStations(AppState* state)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
         state->edit_net_saved_stations = state->db->GetSavedStationsForNet(state->edit_net_id);
 
         state->saved_station_cells.clear();
@@ -3700,6 +3847,38 @@ namespace ql
     // recognized. With `partial` (Partial Matching set to US) a call sign
     // matches wherever `typed` appears in it; without, only if it starts
     // with it.
+    // True if `upper` is part of `candidate`'s callsign (anywhere, or only
+    // at its start unless `anywhere`). Checked in place on the fixed,
+    // zero-padded 8 bytes: this runs for every nearby licensee on every
+    // keystroke, so no strlen, string or string_view is made per candidate.
+    static bool NearbyCallsignMatches(const NearbyUlsCallsign& candidate, const std::string& upper,
+                                      bool anywhere)
+    {
+        constexpr std::size_t kField = sizeof(candidate.callsign);
+        std::size_t length = upper.size();
+        if (length == 0 || length > kField)
+        {
+            return false;
+        }
+        const char* callsign = candidate.callsign;
+        char first = upper[0];
+        std::size_t last_start = anywhere ? kField - length : 0;
+        for (std::size_t start = 0; start <= last_start; ++start)
+        {
+            // A zero byte is the end of the callsign: nothing further along.
+            if (callsign[start] == '\0')
+            {
+                return false;
+            }
+            if (callsign[start] == first &&
+                std::memcmp(callsign + start, upper.data(), length) == 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed,
                                            const std::string& net_zip, bool partial,
                                            std::size_t max_suggestions,
@@ -3734,8 +3913,7 @@ namespace ql
             {
                 break;
             }
-            std::string_view::size_type found = std::string_view(candidate.callsign).find(upper);
-            if (found == std::string_view::npos || (!partial && found != 0))
+            if (!NearbyCallsignMatches(candidate, upper, partial))
             {
                 continue;
             }
@@ -3817,6 +3995,8 @@ namespace ql
 
     void RefreshSavedStationSuggestions(AppState* state)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
         state->saved_station_suggestions.clear();
         state->saved_station_suggestion_labels.clear();
         state->saved_station_suggestion_sources.clear();
@@ -3831,14 +4011,16 @@ namespace ql
 
         // Tier 1: callers already known to this specific net (real check-ins
         // or previously saved) -- same query as the New Station modal's tier 1.
+        const int max_suggestions = static_cast<int>(kMaxSuggestions);
         state->saved_station_suggestions = state->db->SearchNetStationsByCallsignSubstring(
-            state->edit_net_id, state->saved_station.callsign);
+            state->edit_net_id, state->saved_station.callsign, max_suggestions);
         std::size_t tier1_count = state->saved_station_suggestions.size();
 
-        // Tier 2: callers known to other nets.
-        std::vector<Station> other_matches =
-            state->db->SearchStationsByCallsignSubstring(state->saved_station.callsign);
-        AppendNewSuggestions(&state->saved_station_suggestions, other_matches);
+        // Tier 2: callers known to other nets; as in RefreshCallsignSuggestions,
+        // enough to fill the rest after tier 1's repeats.
+        std::vector<Station> other_matches = state->db->SearchStationsByCallsignSubstring(
+            state->saved_station.callsign, max_suggestions + static_cast<int>(tier1_count));
+        AppendNewSuggestions(&state->saved_station_suggestions, &other_matches, kMaxSuggestions);
 
         if (state->saved_station_suggestions.size() > kMaxSuggestions)
         {
@@ -4113,6 +4295,8 @@ namespace ql
 
     void OpenStationHistory(AppState* state, const CheckIn& check_in)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
         std::vector<StationCheckInRecord> records =
             state->db->GetStationCheckInsForNet(state->active_instance.net_id, check_in.callsign);
         std::vector<std::vector<std::string>> rows;
@@ -4164,7 +4348,7 @@ namespace ql
                               std::to_string(rows.size()) + " in all since " + first_date + ".");
         }
         ShowInfoWindow(state, InfoWindow::kStationHistory, "Station History: " + check_in.callsign,
-                       summary,
+                       std::move(summary),
                        {{"Date", 10, 10, 0, 0},
                         {"Start", 8, 8, 0, 0},
                         {"#", 3, 3, 0, 0},
@@ -4172,11 +4356,13 @@ namespace ql
                         {"Signal", 6, 6, 1, 0},
                         {"Remarks", 20, 24, 0, 3},
                         {"Comment", 12, 40, 2, 0}},
-                       rows);
+                       std::move(rows));
     }
 
     void OpenRegulars(AppState* state)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
         std::vector<NetInstance> sessions = OtherSessions(state);
         if (sessions.size() > 10)
         {
@@ -4267,14 +4453,14 @@ namespace ql
                               " sessions, but not yet to this one. Enter checks the highlighted "
                               "one in.");
         }
-        std::vector<Station> stations = state->info_stations;
-        ShowInfoWindow(state, InfoWindow::kRegulars, "Regulars Not Yet Heard", summary,
+        std::vector<Station> stations = std::move(state->info_stations);
+        ShowInfoWindow(state, InfoWindow::kRegulars, "Regulars Not Yet Heard", std::move(summary),
                        {{"Callsign", 10, 10, 0, 0},
                         {"Name", 24, 30, 0, 1},
                         {"Sessions", 8, 8, 0, 0},
                         {"Last Seen", 10, 10, 0, 0}},
-                       rows);
-        state->info_stations = stations;
+                       std::move(rows));
+        state->info_stations = std::move(stations);
     }
 
     void CheckInSelectedRegular(AppState* state)
@@ -4284,17 +4470,19 @@ namespace ql
         {
             return;
         }
-        Station station = state->info_stations[static_cast<std::size_t>(state->info_selected)];
+        // Moved out: closing the window clears the list anyway.
+        Station station =
+            std::move(state->info_stations[static_cast<std::size_t>(state->info_selected)]);
         CloseInfoWindow(state);
         if (!EnsureActiveSessionOpen(state, ""))
         {
             return;
         }
         ClearModalFields(state);
-        state->modal_station = station;
+        state->modal_station = std::move(station);
         BackfillCountyFromZip(state, &state->modal_station);
-        state->modal_remarks =
-            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, station.callsign);
+        state->modal_remarks = state->db->GetSavedNetStationRemarks(state->active_instance.net_id,
+                                                                    state->modal_station.callsign);
         state->show_new_station_modal = true;
         if (state->modal_callsign_input)
         {
@@ -4304,6 +4492,8 @@ namespace ql
 
     void OpenStationCard(AppState* state, const std::string& callsign)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
         std::optional<Station> known = state->db->FindStationByCallsign(callsign);
         std::optional<Station> licensed = state->db->FindLicensedStationByCallsign(callsign);
         Station station =
@@ -4343,11 +4533,14 @@ namespace ql
             nets += (nets.empty() ? "" : ", ") + net;
         }
         summary.push_back("Saved to:       " + (nets.empty() ? std::string("no nets") : nets));
-        ShowInfoWindow(state, InfoWindow::kStationCard, "Station: " + callsign, summary, {}, {});
+        ShowInfoWindow(state, InfoWindow::kStationCard, "Station: " + callsign, std::move(summary),
+                       {}, {});
     }
 
     void OpenSessionSummary(AppState* state)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
         std::vector<std::vector<std::string>> rows;
         for (const CheckIn& check_in : state->active_check_ins)
         {
@@ -4397,17 +4590,22 @@ namespace ql
         summary.push_back(rows.empty() ? "No first-timers yet."
                                        : std::to_string(rows.size()) +
                                              " checking in to this net for the first time:");
+        // Decided before the call: `rows` is moved into it, and the order the
+        // arguments are evaluated in isn't fixed.
+        bool no_first_timers = rows.empty();
         ShowInfoWindow(state, InfoWindow::kSessionSummary,
-                       "Session Summary: " + state->active_net_name, summary,
-                       rows.empty() ? std::vector<ListColumn>()
-                                    : std::vector<ListColumn>({{"#", 3, 3, 0, 0},
-                                                               {"Callsign", 10, 10, 0, 0},
-                                                               {"Name", 30, 30, 0, 0}}),
-                       rows);
+                       "Session Summary: " + state->active_net_name, std::move(summary),
+                       no_first_timers ? std::vector<ListColumn>()
+                                       : std::vector<ListColumn>({{"#", 3, 3, 0, 0},
+                                                                  {"Callsign", 10, 10, 0, 0},
+                                                                  {"Name", 30, 30, 0, 0}}),
+                       std::move(rows));
     }
 
     void OpenNetStatistics(AppState* state)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
         if (state->history_ad_hoc ||
             state->selected_net_index >= static_cast<int>(state->nets.size()))
         {
@@ -4421,7 +4619,7 @@ namespace ql
         {
             summary.emplace_back("No sessions yet.");
             ShowInfoWindow(state, InfoWindow::kNetStatistics, "Net Statistics: " + net.name,
-                           summary, {}, {});
+                           std::move(summary), {}, {});
             return;
         }
         std::int64_t sum = 0;
@@ -4477,12 +4675,13 @@ namespace ql
             rows.push_back({tally.callsign, StationName(state->db, tally.callsign),
                             std::to_string(tally.count), tally.last_date});
         }
-        ShowInfoWindow(state, InfoWindow::kNetStatistics, "Net Statistics: " + net.name, summary,
+        ShowInfoWindow(state, InfoWindow::kNetStatistics, "Net Statistics: " + net.name,
+                       std::move(summary),
                        {{"Callsign", 10, 10, 0, 0},
                         {"Name", 24, 30, 0, 1},
                         {"Check-ins", 9, 9, 0, 0},
                         {"Last", 10, 10, 0, 0}},
-                       rows);
+                       std::move(rows));
     }
 
     // How many check-ins the station search shows at most.
@@ -4490,6 +4689,8 @@ namespace ql
 
     void RefreshStationSearch(AppState* state)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
         state->info_query = NormalizeCallsign(state->info_query);
         state->info_cells.clear();
         state->info_cell_tags.clear();
@@ -4539,6 +4740,8 @@ namespace ql
 
     void OpenQuietStations(AppState* state)
     {
+        // Its reads share one snapshot and one lock.
+        Database::ReadTransaction reads(state->db);
         std::string cutoff =
             FormatLocalDate(static_cast<std::int64_t>(std::time(nullptr)) - 182 * 24 * 3600);
         std::vector<CallsignTally> tallies = state->db->GetSavedStationActivity(state->edit_net_id);
@@ -4557,12 +4760,13 @@ namespace ql
         summary.push_back(OutOf(static_cast<int>(rows.size()), static_cast<int>(tallies.size())) +
                           " saved stations haven't checked in to this net since " + cutoff +
                           ". To remove one, close this window and use F4.");
-        ShowInfoWindow(state, InfoWindow::kQuietStations, "Quiet Saved Stations", summary,
+        ShowInfoWindow(state, InfoWindow::kQuietStations, "Quiet Saved Stations",
+                       std::move(summary),
                        {{"Callsign", 10, 10, 0, 0},
                         {"Name", 24, 30, 0, 1},
                         {"Last", 10, 10, 0, 0},
                         {"Check-ins", 9, 9, 0, 0}},
-                       rows);
+                       std::move(rows));
     }
 
     // One line of the Help window: a key and what it does; `extra` marks a
@@ -4770,8 +4974,8 @@ namespace ql
                 "* Seldom-used keys: they always work, and appear on the key bar when the "
                 "terminal is wide enough to show them.");
         }
-        ShowInfoWindow(state, InfoWindow::kHelp, "Help", summary,
-                       {{"Key", 10, 10, 0, 0}, {"What it does", 1, 1, 0, 0}}, rows);
+        ShowInfoWindow(state, InfoWindow::kHelp, "Help", std::move(summary),
+                       {{"Key", 10, 10, 0, 0}, {"What it does", 1, 1, 0, 0}}, std::move(rows));
     }
 
 }  // namespace ql

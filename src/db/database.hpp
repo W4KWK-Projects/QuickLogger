@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "../models.hpp"
+#include "sqlite_statement.hpp"
 
 struct sqlite3;
 
@@ -35,6 +36,47 @@ namespace ql
         Database(const Database&) = delete;
         Database& operator=(const Database&) = delete;
 
+        // Groups the reads made while it's in scope into one read
+        // transaction: one snapshot and one lock for all of them, instead of
+        // each query taking and releasing its own. For code that makes
+        // several reads in a row (reloading a list, autocomplete) and no
+        // writes. Does nothing if a transaction is already open.
+        class ReadTransaction
+        {
+        public:
+            explicit ReadTransaction(Database* db);
+            ~ReadTransaction();
+
+            ReadTransaction(const ReadTransaction&) = delete;
+            ReadTransaction& operator=(const ReadTransaction&) = delete;
+
+        private:
+            Database* db_;
+            bool began_ = false;
+        };
+
+        // Makes the writes while it's in scope one transaction: all of them,
+        // or none if Commit() isn't reached (an exception unwinds it, and it
+        // rolls back). One commit to disk instead of one per write. Does
+        // nothing if a transaction is already open, so one can be used
+        // inside another's; the outermost decides.
+        class WriteTransaction
+        {
+        public:
+            explicit WriteTransaction(Database* db);
+            ~WriteTransaction();
+
+            WriteTransaction(const WriteTransaction&) = delete;
+            WriteTransaction& operator=(const WriteTransaction&) = delete;
+
+            void Commit();
+
+        private:
+            Database* db_;
+            bool began_ = false;
+            bool finished_ = false;
+        };
+
         // Stations. Insert-or-update by callsign, since a Station represents
         // everything currently known about that callsign, not a check-in log.
         void UpsertStation(const Station& station);
@@ -53,21 +95,29 @@ namespace ql
         // than leaving a field blank because they didn't retype known data.
         void UpdateStationFields(const Station& station, std::int64_t updated_at);
         std::optional<Station> FindStationByCallsign(const std::string& callsign);
+        // Every station checked into net instance `instance_id`, sorted by
+        // callsign: one query where looking each check-in's station up in
+        // turn would be one per check-in.
+        std::vector<Station> GetStationsInNetInstance(std::int64_t instance_id);
         // Matches any callsign containing `substring` (case-insensitive),
         // e.g. "4FA" matches "AA4FA". This is autocomplete's second tier: any
         // station known elsewhere in the system (i.e. from another net),
         // ranked below stations known to this specific net
         // (SearchNetStationsByCallsignSubstring). A ULS tier, if added, would
         // be a separate query appended after this one, not merged into it.
-        std::vector<Station> SearchStationsByCallsignSubstring(const std::string& substring);
+        // At most `limit` of them (-1: all).
+        std::vector<Station> SearchStationsByCallsignSubstring(const std::string& substring,
+                                                               int limit = -1);
         // Matches any callsign containing `substring` (case-insensitive) among
         // stations that have either checked into a past instance of `net_id`,
         // or been explicitly saved to it (see SaveNetStation) -- e.g. imported
         // from another logging program's history. This is autocomplete's first
         // tier: prefer callers already known to this specific net before
         // broadening to SearchStationsByCallsignSubstring (other nets).
+        // At most `limit` of them (-1: all).
         std::vector<Station> SearchNetStationsByCallsignSubstring(std::int64_t net_id,
-                                                                  const std::string& substring);
+                                                                  const std::string& substring,
+                                                                  int limit = -1);
         // Associates `station.callsign` with `net_id` as "known to this net"
         // for autocomplete, without a real check-in -- for saving a station
         // from an external source (e.g. another logging program's history).
@@ -374,6 +424,8 @@ namespace ql
         void NormalizeNetFrequencies();
 
         sqlite3* db_ = nullptr;
+        // This connection's prepared statements, reused call after call.
+        StatementCache statements_;
     };
 
 }  // namespace ql

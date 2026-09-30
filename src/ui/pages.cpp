@@ -323,9 +323,9 @@ namespace ql
         ftxui::Elements left(fields.begin(), fields.begin() + static_cast<std::ptrdiff_t>(split));
         ftxui::Elements right(fields.begin() + static_cast<std::ptrdiff_t>(split), fields.end());
         rows->push_back(ftxui::hbox({
-            ftxui::vbox(left) | ftxui::xflex,
+            ftxui::vbox(std::move(left)) | ftxui::xflex,
             ftxui::text("   "),
-            ftxui::vbox(right) | ftxui::xflex,
+            ftxui::vbox(std::move(right)) | ftxui::xflex,
         }));
     }
 
@@ -346,13 +346,13 @@ namespace ql
                 ftxui::text((marked ? "> " : "  ") + labels[i]) | ftxui::color(kColorListRow);
             rows.push_back(marked ? row | ftxui::focus : row);
         }
-        int room = std::max(2, ftxui::Terminal::Size().dimy - kMatchWindowOtherRows);
+        int room = std::max(2, FrameTerminalSize().dimy - kMatchWindowOtherRows);
         int height = std::min(static_cast<int>(labels.size()), room);
         return ftxui::vbox({
             HintText("Matches: Up/Down to choose, Enter to pick the one marked >"),
             DialogFramed(ftxui::vbox({
                 ColumnHeader(header),
-                ftxui::vbox(rows) | ftxui::vscroll_indicator | ftxui::frame |
+                ftxui::vbox(std::move(rows)) | ftxui::vscroll_indicator | ftxui::frame |
                     ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height),
             })),
         });
@@ -392,7 +392,7 @@ namespace ql
                 }
                 rows.push_back(DialogSeparator());
                 rows.push_back(KeyHintRow({{"F2/Enter", "Show Folder"}, {"Esc", "Close"}}));
-                return ftxui::vbox(rows) | ftxui::color(kColorHeading) |
+                return ftxui::vbox(std::move(rows)) | ftxui::color(kColorHeading) |
                        ftxui::borderStyled(kColorDialogBorder);
             }
             rows.push_back(Heading("ZMODEM"));
@@ -426,7 +426,7 @@ namespace ql
                 rows.push_back(KeyHintRow({{"F2/Enter", "Receive"}, {"Esc", "Cancel"}}));
             }
 
-            return ftxui::vbox(rows) | ftxui::color(kColorHeading) |
+            return ftxui::vbox(std::move(rows)) | ftxui::color(kColorHeading) |
                    ftxui::borderStyled(kColorDialogBorder);
         }
 
@@ -480,6 +480,20 @@ namespace ql
         return std::string(static_cast<std::size_t>(PickNumberWidth(state) + 1 - 2), ' ');
     }
 
+    // A list's column heading over its rows, shifted right in pick mode
+    // (see PickHeaderPad). Only then is a new string made for it.
+    static ftxui::Element PickableColumnHeader(const AppState* state, PickList list,
+                                               const std::string& heading)
+    {
+        std::string pad = PickHeaderPad(state, list);
+        if (pad.empty())
+        {
+            return ColumnHeader(heading);
+        }
+        pad += heading;
+        return ColumnHeader(pad);
+    }
+
     // A list's rows: its Menu normally; in pick mode, every row with its
     // number beside it and the row about to be picked highlighted.
     static ftxui::Element PickableRows(const AppState* state, PickList list,
@@ -523,7 +537,7 @@ namespace ql
             }
             rows.push_back(row | ClickableRow(static_cast<int>(i)));
         }
-        return ftxui::vbox(rows);
+        return ftxui::vbox(std::move(rows));
     }
 
     // The prompt under a list in pick mode, with what's been typed so far.
@@ -573,7 +587,7 @@ namespace ql
                             {"Esc", "Cancel"}}));
             // Long lines wrap rather than stretching the box across the
             // whole screen.
-            return ftxui::vbox(rows) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 64) |
+            return ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 64) |
                    ftxui::color(kColorDanger) | ftxui::borderStyled(kColorDialogBorder);
         }
 
@@ -635,7 +649,7 @@ namespace ql
             {
                 rows.push_back(KeyHintRow({{"F2/Enter", "Close Net"}, {"Esc", "Keep Logging"}}));
             }
-            return ftxui::vbox(rows) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 64) |
+            return ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 64) |
                    ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder);
         }
 
@@ -700,13 +714,12 @@ namespace ql
                 callsign_hint,
                 Separator(),
                 Heading("Recurring Nets"),
-                Framed(state_->nets.empty()
-                           ? net_list_elem
-                           : ftxui::vbox({
-                                 ColumnHeader(PickHeaderPad(state_, PickList::kNets) +
-                                              NetListHeader(state_)),
-                                 net_list_elem,
-                             })) |
+                Framed(state_->nets.empty() ? net_list_elem
+                                            : ftxui::vbox({
+                                                  PickableColumnHeader(state_, PickList::kNets,
+                                                                       NetListHeader(state_)),
+                                                  net_list_elem,
+                                              })) |
                     ftxui::flex,
                 open_session_hint,
                 PickPrompt(state_, PickList::kNets),
@@ -1022,7 +1035,7 @@ namespace ql
             {
                 info.push_back(ftxui::text("   " + radio) | ftxui::color(kColorData));
             }
-            ftxui::Element info_line = ftxui::hbox(info);
+            ftxui::Element info_line = ftxui::hbox(std::move(info));
 
             ftxui::Element content = ftxui::vbox({
                 info_line,
@@ -1196,7 +1209,7 @@ namespace ql
                 state_, {{"F2", "Log & Next"}, {"F3", "Log & Close"}, {"Esc", "Cancel"}}, &rows);
             rows.push_back(ErrorLine(state_->form_error));
 
-            return CheckInWindow(state_, ftxui::vbox(rows));
+            return CheckInWindow(state_, ftxui::vbox(std::move(rows)));
         }
 
     private:
@@ -1247,7 +1260,7 @@ namespace ql
             rows.push_back(DialogSeparator());
             AppendCheckInKeyRows(state_, {{"F2", "Save"}, {"Esc", "Cancel"}}, &rows);
 
-            return CheckInWindow(state_, ftxui::vbox(rows));
+            return CheckInWindow(state_, ftxui::vbox(std::move(rows)));
         }
 
     private:
@@ -1543,9 +1556,9 @@ namespace ql
 
             if (state_->row_pick_action != RowPickAction::kNone)
             {
-                return PageChrome("Ad Hoc Net", ftxui::vbox(rows), PickKeyHints(state_));
+                return PageChrome("Ad Hoc Net", ftxui::vbox(std::move(rows)), PickKeyHints(state_));
             }
-            return PageChrome("Ad Hoc Net", ftxui::vbox(rows), hints);
+            return PageChrome("Ad Hoc Net", ftxui::vbox(std::move(rows)), hints);
         }
 
     private:
@@ -1564,7 +1577,7 @@ namespace ql
             {
                 lines.push_back(ftxui::text("  " + label) | ftxui::color(kColorListRow));
             }
-            return ftxui::vbox(lines);
+            return ftxui::vbox(std::move(lines));
         }
 
         AppState* state_;
@@ -1692,8 +1705,9 @@ namespace ql
 
             ftxui::Element content = ftxui::vbox({
                 Framed(ftxui::vbox({
-                    ColumnHeader(PickHeaderPad(state_, PickList::kNetInstances) +
-                                 NetInstanceListHeader(state_->list_width, state_->history_ad_hoc)),
+                    PickableColumnHeader(
+                        state_, PickList::kNetInstances,
+                        NetInstanceListHeader(state_->list_width, state_->history_ad_hoc)),
                     instance_list,
                 })) |
                     ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, SessionBoxHeight()),
@@ -1748,7 +1762,7 @@ namespace ql
         int SessionBoxHeight() const
         {
             int rows = static_cast<int>(state_->history_instances.size());
-            int most = std::max(3, (ftxui::Terminal::Size().dimy - 10) / 3);
+            int most = std::max(3, (FrameTerminalSize().dimy - 10) / 3);
             rows = std::max(1, std::min(rows, most));
             return rows + 3;
         }
@@ -1810,7 +1824,7 @@ namespace ql
             rows.push_back(ftxui::text("be undone."));
             rows.push_back(DialogSeparator());
             rows.push_back(KeyHintRow({{"F2/Enter", "Delete"}, {"Esc", "Cancel"}}));
-            return ftxui::vbox(rows) | ftxui::color(kColorDanger) |
+            return ftxui::vbox(std::move(rows)) | ftxui::color(kColorDanger) |
                    ftxui::borderStyled(kColorDialogBorder);
         }
 
@@ -1876,8 +1890,8 @@ namespace ql
             rows.push_back(Separator());
             rows.push_back(Heading("Saved Stations:"));
             rows.push_back(Framed(ftxui::vbox({
-                               ColumnHeader(PickHeaderPad(state_, PickList::kSavedStations) +
-                                            SavedStationListHeader(state_->list_width)),
+                               PickableColumnHeader(state_, PickList::kSavedStations,
+                                                    SavedStationListHeader(state_->list_width)),
                                saved_station_list,
                            })) |
                            ftxui::flex);
@@ -1890,16 +1904,16 @@ namespace ql
 
             if (state_->row_pick_action != RowPickAction::kNone)
             {
-                return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(rows),
-                                  PickKeyHints(state_));
+                return PageChrome("Edit Net: " + state_->edit_net_name,
+                                  ftxui::vbox(std::move(rows)), PickKeyHints(state_));
             }
             if (state_->show_saved_station_modal)
             {
                 return PageChrome(
-                    "Edit Net: " + state_->edit_net_name, ftxui::vbox(rows),
+                    "Edit Net: " + state_->edit_net_name, ftxui::vbox(std::move(rows)),
                     {{"F2", "Save & Continue"}, {"F3", "Save & Close"}, {"Esc", "Cancel"}});
             }
-            return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(rows),
+            return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(std::move(rows)),
                               AddExtraKeysThatFit(
                                   {
                                       {"F2", "Save & Close"},
@@ -1967,7 +1981,7 @@ namespace ql
             rows.push_back(
                 KeyHintRow({{"F2", "Save & Continue"}, {"F3", "Save & Close"}, {"Esc", "Cancel"}}));
             rows.push_back(ErrorLine(state_->form_error));
-            return CheckInWindow(state_, ftxui::vbox(rows));
+            return CheckInWindow(state_, ftxui::vbox(std::move(rows)));
         }
 
     private:
@@ -2100,11 +2114,11 @@ namespace ql
             // Nor where the system has none (Windows, Alpine).
             if (IsLocalTerminal(state_->is_console_session) || NoZmodemOnThisSystem())
             {
-                return PageChrome(title, ftxui::vbox(rows),
+                return PageChrome(title, ftxui::vbox(std::move(rows)),
                                   {{"F2/Enter", "Import"}, {"Esc", "Back"}});
             }
             return PageChrome(
-                title, ftxui::vbox(rows),
+                title, ftxui::vbox(std::move(rows)),
                 {{"F2/Enter", "Import"}, {"F3", "Receive (ZMODEM)"}, {"Esc", "Back"}});
         }
 
@@ -2156,8 +2170,8 @@ namespace ql
                 state_->manage_users.empty()
                     ? HintText("No SSH users yet.")
                     : ftxui::vbox({
-                          ColumnHeader(PickHeaderPad(state_, PickList::kUsers) +
-                                       UserListHeader(state_->list_width)),
+                          PickableColumnHeader(state_, PickList::kUsers,
+                                               UserListHeader(state_->list_width)),
                           PickableRows(state_, PickList::kUsers, state_->manage_users_labels,
                                        state_->selected_user_index, user_menu_) |
                               ftxui::frame | ftxui::vscroll_indicator,
@@ -2231,8 +2245,8 @@ namespace ql
             rows.push_back(DialogSeparator());
             rows.push_back(Heading("Keys:"));
             rows.push_back(Framed(ftxui::vbox({
-                ColumnHeader(PickHeaderPad(state_, PickList::kUserKeys) +
-                             UserKeyListHeader(state_->list_width)),
+                PickableColumnHeader(state_, PickList::kUserKeys,
+                                     UserKeyListHeader(state_->list_width)),
                 PickableRows(state_, PickList::kUserKeys, state_->user_keys_labels,
                              state_->selected_user_key_index, key_menu_) |
                     ftxui::frame | ftxui::vscroll_indicator |
@@ -2252,7 +2266,7 @@ namespace ql
             }
             rows.push_back(StatusLine(state_->status_message));
             rows.push_back(ErrorLine(state_->form_error));
-            return CheckInWindow(state_, ftxui::vbox(rows));
+            return CheckInWindow(state_, ftxui::vbox(std::move(rows)));
         }
 
     private:
@@ -2351,8 +2365,9 @@ namespace ql
 
         ftxui::Element operator()() const
         {
-            int screen_width = ftxui::Terminal::Size().dimx;
-            int screen_height = ftxui::Terminal::Size().dimy;
+            ftxui::Dimensions terminal = FrameTerminalSize();
+            int screen_width = terminal.dimx;
+            int screen_height = terminal.dimy;
 
             ftxui::Elements rows;
             rows.push_back(Heading(state_->info_title));
@@ -2395,7 +2410,7 @@ namespace ql
                 int height = std::min(static_cast<int>(lines.size()), room);
                 rows.push_back(DialogFramed(ftxui::vbox({
                     ColumnHeader("  " + state_->info_header),
-                    ftxui::vbox(lines) | ftxui::vscroll_indicator | ftxui::frame |
+                    ftxui::vbox(std::move(lines)) | ftxui::vscroll_indicator | ftxui::frame |
                         ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height),
                 })));
             }
@@ -2412,7 +2427,7 @@ namespace ql
             }
             keys.push_back({"Esc", "Close"});
             rows.push_back(KeyHintRow(keys));
-            return ftxui::vbox(rows) |
+            return ftxui::vbox(std::move(rows)) |
                    ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, screen_width - 4) |
                    ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder);
         }

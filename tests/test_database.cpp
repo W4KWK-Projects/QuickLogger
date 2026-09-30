@@ -4,6 +4,7 @@
 
 #include <sqlite3.h>
 
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -393,6 +394,60 @@ namespace ql
         db.DeleteCheckIn(db.GetCheckInsForNetInstance(session)[1].id);
         CHECK(CallsignsWithNumbers(&db, session) ==
               std::vector<std::string>({"1 W4KWK", "2 K4CCC"}));
+    }
+
+    QL_TEST(WriteTransactionsAreAllOrNothing)
+    {
+        TempDir dir;
+        Database db(dir.File("q.db"));
+
+        // Not committed: nothing kept.
+        {
+            Database::WriteTransaction transaction(&db);
+            AddTestNet(&db, "Dropped");
+        }
+        CHECK(db.GetAllNets().empty());
+
+        // Committed: kept.
+        {
+            Database::WriteTransaction transaction(&db);
+            AddTestNet(&db, "Kept");
+            transaction.Commit();
+        }
+        CHECK_EQ(db.GetAllNets().size(), std::size_t{1});
+
+        // An inner one joins the outer, whose rollback undoes both.
+        {
+            Database::WriteTransaction outer(&db);
+            {
+                Database::WriteTransaction inner(&db);
+                AddTestNet(&db, "Inner");
+                inner.Commit();
+            }
+            AddTestNet(&db, "Outer");
+        }
+        CHECK_EQ(db.GetAllNets().size(), std::size_t{1});
+
+        // An exception unwinding one rolls it back.
+        try
+        {
+            Database::WriteTransaction transaction(&db);
+            AddTestNet(&db, "Thrown");
+            throw std::runtime_error("failed part-way");
+        }
+        catch (const std::runtime_error&)
+        {
+        }
+        CHECK_EQ(db.GetAllNets().size(), std::size_t{1});
+
+        // Reads grouped under a ReadTransaction see the same data.
+        {
+            Database::ReadTransaction reads(&db);
+            CHECK_EQ(db.GetAllNets().size(), std::size_t{1});
+            CHECK_EQ(db.GetAllNets()[0].name, std::string("Kept"));
+        }
+        AddTestNet(&db, "After");
+        CHECK_EQ(db.GetAllNets().size(), std::size_t{2});
     }
 
     QL_TEST(NetsWithOpenSessionsAreFound)

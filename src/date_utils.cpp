@@ -11,9 +11,11 @@ namespace ql
         std::tm local_time = LocalTime(std::time(nullptr));
 
         char buffer[11];  // "YYYY-MM-DD" + '\0'
-        std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d", local_time.tm_year + 1900,
-                      local_time.tm_mon + 1, local_time.tm_mday);
-        return std::string(buffer);
+        int length =
+            std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d", local_time.tm_year + 1900,
+                          local_time.tm_mon + 1, local_time.tm_mday);
+        // The length is known: no strlen to find it again.
+        return std::string(buffer, length > 0 ? static_cast<std::size_t>(length) : 0);
     }
 
     static bool g_use_24_hour_clock = false;
@@ -36,9 +38,9 @@ namespace ql
         }
         std::tm local_time = LocalTime(static_cast<std::time_t>(unix_time));
         char buffer[32];
-        std::strftime(buffer, sizeof(buffer), g_use_24_hour_clock ? "%H:%M" : "%I:%M %p",
-                      &local_time);
-        return std::string(buffer);
+        std::size_t length = std::strftime(buffer, sizeof(buffer),
+                                           g_use_24_hour_clock ? "%H:%M" : "%I:%M %p", &local_time);
+        return std::string(buffer, length);
     }
 
     std::string FormatLocalDateTime(std::int64_t unix_time)
@@ -47,7 +49,10 @@ namespace ql
         {
             return "";
         }
-        return FormatLocalDate(unix_time) + " " + FormatLocalTimeOfDay(unix_time);
+        std::string text = FormatLocalDate(unix_time);
+        text += ' ';
+        text += FormatLocalTimeOfDay(unix_time);
+        return text;
     }
 
     std::string FormatLocalDate(std::int64_t unix_time)
@@ -58,8 +63,8 @@ namespace ql
         }
         std::tm local_time = LocalTime(static_cast<std::time_t>(unix_time));
         char buffer[16];
-        std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", &local_time);
-        return std::string(buffer);
+        std::size_t length = std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", &local_time);
+        return std::string(buffer, length);
     }
 
     std::tm LocalTime(std::time_t time_value)

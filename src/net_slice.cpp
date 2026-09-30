@@ -2,6 +2,7 @@
 
 #include <ctime>
 #include <filesystem>
+#include <iterator>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -16,46 +17,44 @@ namespace ql
 
     NetSlice GatherNetSlice(Database* db, std::int64_t net_id)
     {
+        // All of its reads under one snapshot and one lock.
+        Database::ReadTransaction reads(db);
         NetSlice slice;
         std::optional<Net> net = db->GetNetById(net_id);
         if (net.has_value())
         {
-            slice.net = *net;
+            slice.net = std::move(*net);
         }
 
         std::unordered_set<std::string> known_callsigns;
         std::vector<Station> saved = db->GetSavedStationsForNet(net_id);
-        for (const Station& station : saved)
+        slice.saved_stations.reserve(saved.size());
+        for (Station& station : saved)
         {
             NetSliceSavedStation entry;
-            entry.station = station;
             entry.default_remarks = db->GetSavedNetStationRemarks(net_id, station.callsign);
-            slice.saved_stations.push_back(std::move(entry));
             known_callsigns.insert(ToUpperAscii(station.callsign));
+            entry.station = std::move(station);
+            slice.saved_stations.push_back(std::move(entry));
         }
 
         slice.instances = db->GetNetInstancesForNet(net_id);
         for (const NetInstance& instance : slice.instances)
         {
             std::vector<CheckIn> check_ins = db->GetCheckInsForNetInstance(instance.id);
-            for (const CheckIn& check_in : check_ins)
+            for (CheckIn& check_in : check_ins)
             {
-                slice.check_ins.push_back(check_in);
-
-                std::string upper = ToUpperAscii(check_in.callsign);
-                if (known_callsigns.find(upper) != known_callsigns.end())
-                {
-                    continue;
-                }
-                known_callsigns.insert(upper);
-
                 // Only reachable for check-in history logged before stations
                 // started auto-saving on check-in -- see NetSlice::other_stations.
-                std::optional<Station> station = db->FindStationByCallsign(check_in.callsign);
-                if (station.has_value())
+                if (known_callsigns.insert(ToUpperAscii(check_in.callsign)).second)
                 {
-                    slice.other_stations.push_back(*station);
+                    std::optional<Station> station = db->FindStationByCallsign(check_in.callsign);
+                    if (station.has_value())
+                    {
+                        slice.other_stations.push_back(std::move(*station));
+                    }
                 }
+                slice.check_ins.push_back(std::move(check_in));
             }
         }
 
@@ -64,6 +63,9 @@ namespace ql
 
     std::int64_t ApplyNetSlice(Database* db, const NetSlice& slice, std::int64_t imported_at)
     {
+        // One transaction: the whole net or none of it, and one commit to
+        // disk rather than one per row.
+        Database::WriteTransaction transaction(db);
         Net net = slice.net;
         net.imported_at = imported_at;
         // A net exported by an older version may carry free text here,
@@ -104,6 +106,7 @@ namespace ql
             db->AddCheckIn(copy);
         }
 
+        transaction.Commit();
         return new_net_id;
     }
 
@@ -141,6 +144,7 @@ namespace ql
         try
         {
             Database source(source_path, /*use_wal=*/false);
+            Database::ReadTransaction reads(&source);
             std::vector<Net> nets = source.GetAllNets();
             if (nets.empty())
             {
@@ -154,18 +158,19 @@ namespace ql
             }
 
             NetSlice slice;
-            slice.net = nets[0];
+            slice.net = std::move(nets[0]);
 
             std::unordered_set<std::string> known_callsigns;
             std::vector<Station> saved = source.GetSavedStationsForNet(slice.net.id);
-            for (const Station& station : saved)
+            slice.saved_stations.reserve(saved.size());
+            for (Station& station : saved)
             {
                 NetSliceSavedStation entry;
-                entry.station = station;
                 entry.default_remarks =
                     source.GetSavedNetStationRemarks(slice.net.id, station.callsign);
-                slice.saved_stations.push_back(std::move(entry));
                 known_callsigns.insert(ToUpperAscii(station.callsign));
+                entry.station = std::move(station);
+                slice.saved_stations.push_back(std::move(entry));
             }
 
             slice.instances = source.GetNetInstancesForNet(slice.net.id);
@@ -183,11 +188,13 @@ namespace ql
                         std::optional<Station> station = source.FindStationByCallsign(upper);
                         if (station.has_value())
                         {
-                            slice.other_stations.push_back(*station);
+                            slice.other_stations.push_back(std::move(*station));
                         }
                     }
                 }
-                slice.check_ins.insert(slice.check_ins.end(), check_ins.begin(), check_ins.end());
+                slice.check_ins.insert(slice.check_ins.end(),
+                                       std::make_move_iterator(check_ins.begin()),
+                                       std::make_move_iterator(check_ins.end()));
             }
 
             return slice;
@@ -201,6 +208,8 @@ namespace ql
 
     NetSlice GatherSessionSlice(Database* db, std::int64_t instance_id)
     {
+        // All of its reads under one snapshot and one lock.
+        Database::ReadTransaction reads(db);
         NetSlice slice;
         std::optional<NetInstance> instance = db->GetNetInstanceById(instance_id);
         if (!instance.has_value())
@@ -210,9 +219,9 @@ namespace ql
         std::optional<Net> net = db->GetNetById(instance->net_id);
         if (net.has_value())
         {
-            slice.net = *net;
+            slice.net = std::move(*net);
         }
-        slice.instances.push_back(*instance);
+        slice.instances.push_back(std::move(*instance));
         slice.check_ins = db->GetCheckInsForNetInstance(instance_id);
 
         std::unordered_set<std::string> known_callsigns;
@@ -225,7 +234,7 @@ namespace ql
             std::optional<Station> station = db->FindStationByCallsign(check_in.callsign);
             if (station.has_value())
             {
-                slice.other_stations.push_back(*station);
+                slice.other_stations.push_back(std::move(*station));
             }
         }
         return slice;
@@ -253,6 +262,8 @@ namespace ql
             *error = "This file doesn't hold exactly one session.";
             return 0;
         }
+        // One transaction: the whole session or none of it.
+        Database::WriteTransaction transaction(db);
         const NetInstance& source = slice.instances[0];
         for (const NetInstance& existing : db->GetNetInstancesForNet(net_id))
         {
@@ -269,14 +280,16 @@ namespace ql
         }
 
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
-        std::unordered_map<std::string, Station> stations;
+        // The file's stations by callsign: pointers into `slice`, not copies.
+        std::unordered_map<std::string, const Station*> stations;
+        stations.reserve(slice.other_stations.size() + slice.saved_stations.size());
         for (const Station& station : slice.other_stations)
         {
-            stations[ToUpperAscii(station.callsign)] = station;
+            stations[ToUpperAscii(station.callsign)] = &station;
         }
         for (const NetSliceSavedStation& saved : slice.saved_stations)
         {
-            stations[ToUpperAscii(saved.station.callsign)] = saved.station;
+            stations[ToUpperAscii(saved.station.callsign)] = &saved.station;
         }
 
         NetInstance instance = source;
@@ -289,14 +302,15 @@ namespace ql
             std::string upper = ToUpperAscii(check_in.callsign);
             if (saved_callsigns.insert(upper).second)
             {
-                std::unordered_map<std::string, Station>::const_iterator found =
+                std::unordered_map<std::string, const Station*>::const_iterator found =
                     stations.find(upper);
-                Station station;
-                station.callsign = upper;
-                if (found != stations.end())
+                // Just the callsign, if the file has nothing else on it.
+                Station bare;
+                if (found == stations.end())
                 {
-                    station = found->second;
+                    bare.callsign = upper;
                 }
+                const Station& station = found != stations.end() ? *found->second : bare;
                 std::string remarks = db->GetSavedNetStationRemarks(net_id, upper);
                 db->SaveNetStation(net_id, station, remarks.empty() ? check_in.remarks : remarks,
                                    now);
@@ -310,6 +324,7 @@ namespace ql
         {
             db->RenumberCheckIns(instance_id);
         }
+        transaction.Commit();
         return instance_id;
     }
 

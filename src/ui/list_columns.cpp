@@ -127,10 +127,56 @@ namespace ql
         return layout;
     }
 
+    // True if every byte of `text` is printable ASCII, so each takes one
+    // column: nearly every name, callsign and remark. Measuring and cutting
+    // such text needs no UTF-8 decoding.
+    static bool IsPlainAscii(const std::string& text)
+    {
+        for (char c : text)
+        {
+            unsigned char byte = static_cast<unsigned char>(c);
+            if (byte < 0x20 || byte > 0x7E)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Appends `text` to `row`, cut or padded with spaces to exactly `width`
+    // columns.
+    static void AppendCell(std::string* row, const std::string& text, int width)
+    {
+        std::size_t columns = static_cast<std::size_t>(width);
+        if (IsPlainAscii(text))
+        {
+            std::size_t kept = std::min(text.size(), columns);
+            row->append(text, 0, kept);
+            row->append(columns - kept, ' ');
+            return;
+        }
+        std::string cut = CutToWidth(text, width);
+        int used = ftxui::string_width(cut);
+        row->append(cut);
+        row->append(static_cast<std::size_t>(std::max(width - used, 0)), ' ');
+    }
+
     std::string FormatListRow(const std::vector<std::string>& cells, const ListLayout& layout)
     {
         std::size_t last = LastShown(layout);
+        // Every column's width and the gaps between: the row's whole length
+        // when it's all ASCII, so it's allocated once.
+        std::size_t capacity = 0;
+        for (std::size_t i = 0; i < layout.widths.size(); ++i)
+        {
+            capacity += static_cast<std::size_t>(layout.widths[i] + layout.gap);
+        }
+        if (!layout.cut_last && last < cells.size())
+        {
+            capacity += cells[last].size();
+        }
         std::string row;
+        row.reserve(capacity);
         bool first = true;
         for (std::size_t i = 0; i < layout.widths.size() && i < cells.size(); ++i)
         {
@@ -149,20 +195,27 @@ namespace ql
                 row += cells[i];
                 break;
             }
-            std::string cell = CutToWidth(cells[i], width);
-            cell.append(static_cast<std::size_t>(width - TextWidth(cell)), ' ');
-            row += cell;
+            AppendCell(&row, cells[i], width);
         }
         return row;
     }
 
     int TextWidth(const std::string& text)
     {
+        if (IsPlainAscii(text))
+        {
+            return static_cast<int>(text.size());
+        }
         return ftxui::string_width(text);
     }
 
     std::string CutToWidth(const std::string& text, int width)
     {
+        if (IsPlainAscii(text))
+        {
+            std::size_t columns = static_cast<std::size_t>(std::max(width, 0));
+            return text.size() <= columns ? text : text.substr(0, columns);
+        }
         // One entry per column; a wide character's second is empty.
         std::vector<std::string> cells = ftxui::Utf8ToGlyphs(text);
         if (static_cast<int>(cells.size()) <= width)
@@ -186,6 +239,7 @@ namespace ql
     std::string FormatListHeading(const std::vector<ListColumn>& columns, const ListLayout& layout)
     {
         std::vector<std::string> headings;
+        headings.reserve(columns.size());
         for (const ListColumn& column : columns)
         {
             headings.push_back(column.heading);

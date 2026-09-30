@@ -7,19 +7,83 @@
 namespace ql
 {
 
-    Statement::Statement(sqlite3* db, const std::string& sql)
+    // Prepares `sql` (`bytes` long, or -1 if NUL-terminated) on `db`, marked
+    // persistent when it's to be kept for reuse. Throws on failure.
+    static sqlite3_stmt* PrepareStatement(sqlite3* db, const char* sql, int bytes, bool persistent)
     {
-        if (sqlite3_prepare_v2(db, sql.c_str(), static_cast<int>(sql.size()) + 1, &stmt_,
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v3(db, sql, bytes, persistent ? SQLITE_PREPARE_PERSISTENT : 0, &stmt,
                                nullptr) != SQLITE_OK)
         {
             throw std::runtime_error(std::string("Failed to prepare statement: ") +
                                      sqlite3_errmsg(db));
         }
+        return stmt;
+    }
+
+    StatementCache::~StatementCache()
+    {
+        Clear();
+    }
+
+    void StatementCache::Attach(sqlite3* db)
+    {
+        db_ = db;
+    }
+
+    void StatementCache::Clear()
+    {
+        for (std::pair<const char* const, Entry>& entry : entries_)
+        {
+            sqlite3_finalize(entry.second.stmt);
+        }
+        entries_.clear();
+    }
+
+    Statement::Statement(StatementCache* cache, const char* sql)
+    {
+        std::pair<std::unordered_map<const char*, StatementCache::Entry>::iterator, bool> found =
+            cache->entries_.try_emplace(sql);
+        StatementCache::Entry& entry = found.first->second;
+        if (found.second)
+        {
+            try
+            {
+                entry.stmt = PrepareStatement(cache->db_, sql, -1, true);
+            }
+            catch (...)
+            {
+                cache->entries_.erase(found.first);
+                throw;
+            }
+        }
+        else if (entry.in_use)
+        {
+            // Nested use of the same statement: a one-off copy.
+            stmt_ = PrepareStatement(cache->db_, sql, -1, false);
+            return;
+        }
+        entry.in_use = true;
+        stmt_ = entry.stmt;
+        cached_ = &entry;
+    }
+
+    Statement::Statement(sqlite3* db, const std::string& sql)
+        : stmt_(PrepareStatement(db, sql.c_str(), static_cast<int>(sql.size()) + 1, false))
+    {
     }
 
     Statement::~Statement()
     {
-        sqlite3_finalize(stmt_);
+        if (cached_ == nullptr)
+        {
+            sqlite3_finalize(stmt_);
+            return;
+        }
+        // Ready for the next use, and not holding its transaction open.
+        sqlite3_reset(stmt_);
+        sqlite3_clear_bindings(stmt_);
+        cached_->in_use = false;
     }
 
     void Statement::BindText(int index, const std::string& value)
