@@ -352,7 +352,7 @@ namespace ql
             HintText("Matches: Up/Down to choose, Enter to pick the one marked >"),
             DialogFramed(ftxui::vbox({
                 ColumnHeader(header),
-                ftxui::vbox(std::move(rows)) | ftxui::vscroll_indicator | ftxui::frame |
+                ftxui::vbox(std::move(rows)) | ftxui::vscroll_indicator | ftxui::yframe |
                     ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height),
             })),
         });
@@ -682,9 +682,13 @@ namespace ql
                     ? HintText(state_->view_only_user
                                    ? "No recurring nets yet."
                                    : "No recurring nets yet. Press F2 to create one.")
+                    // yframe, not frame, on every list: a row can be wider
+                    // than the box (the last column isn't cut), and frame
+                    // would then scroll the whole list sideways to show all
+                    // of the highlighted row. yframe just clips it.
                     : PickableRows(state_, PickList::kNets, state_->net_names,
                                    state_->selected_net_index, net_menu_) |
-                          ftxui::frame | ftxui::vscroll_indicator;
+                          ftxui::yframe | ftxui::vscroll_indicator;
 
             ftxui::Element callsign_hint =
                 state_->settings.callsign.empty()
@@ -1007,7 +1011,7 @@ namespace ql
                     ? HintText("No check-ins yet.")
                     : PickableRows(state_, PickList::kActiveCheckIns, state_->active_display_rows,
                                    state_->selected_check_in_index, check_in_menu_) |
-                          ftxui::frame | ftxui::vscroll_indicator;
+                          ftxui::yframe | ftxui::vscroll_indicator;
 
             // The date the net was started, with the time of day next to it.
             std::string started = state_->active_instance.instance_date;
@@ -1693,7 +1697,7 @@ namespace ql
                                                       : "No past instances of this net yet.")
                     : PickableRows(state_, PickList::kNetInstances, state_->history_instance_labels,
                                    state_->selected_history_index, instance_menu_) |
-                          ftxui::frame | ftxui::vscroll_indicator;
+                          ftxui::yframe | ftxui::vscroll_indicator;
 
             ftxui::Element checkin_list =
                 state_->history_check_in_labels.empty()
@@ -1701,7 +1705,7 @@ namespace ql
                     : PickableRows(state_, PickList::kHistoryCheckIns,
                                    state_->history_check_in_labels,
                                    state_->selected_history_check_in_index, checkin_menu_) |
-                          ftxui::frame | ftxui::vscroll_indicator;
+                          ftxui::yframe | ftxui::vscroll_indicator;
 
             ftxui::Element content = ftxui::vbox({
                 Framed(ftxui::vbox({
@@ -1868,7 +1872,7 @@ namespace ql
                     : PickableRows(state_, PickList::kSavedStations,
                                    state_->edit_net_saved_station_labels,
                                    state_->selected_saved_station_index, saved_station_menu_) |
-                          ftxui::frame | ftxui::vscroll_indicator;
+                          ftxui::yframe | ftxui::vscroll_indicator;
 
             ftxui::Elements rows;
             AppendFormFields(
@@ -2089,7 +2093,7 @@ namespace ql
                                          "ZMODEM."
                                    : "No " + pattern +
                                          " files received yet. Press F3 to receive one via ZMODEM.")
-                    : file_menu_->Render() | ftxui::frame | ftxui::vscroll_indicator;
+                    : file_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator;
 
             ftxui::Elements rows;
             if (session)
@@ -2174,7 +2178,7 @@ namespace ql
                                                UserListHeader(state_->list_width)),
                           PickableRows(state_, PickList::kUsers, state_->manage_users_labels,
                                        state_->selected_user_index, user_menu_) |
-                              ftxui::frame | ftxui::vscroll_indicator,
+                              ftxui::yframe | ftxui::vscroll_indicator,
                       });
 
             ftxui::Element content = ftxui::vbox({
@@ -2249,7 +2253,7 @@ namespace ql
                                      UserKeyListHeader(state_->list_width)),
                 PickableRows(state_, PickList::kUserKeys, state_->user_keys_labels,
                              state_->selected_user_key_index, key_menu_) |
-                    ftxui::frame | ftxui::vscroll_indicator |
+                    ftxui::yframe | ftxui::vscroll_indicator |
                     ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, 8),
             })));
             rows.push_back(PickPrompt(state_, PickList::kUserKeys));
@@ -2410,7 +2414,7 @@ namespace ql
                 int height = std::min(static_cast<int>(lines.size()), room);
                 rows.push_back(DialogFramed(ftxui::vbox({
                     ColumnHeader("  " + state_->info_header),
-                    ftxui::vbox(std::move(lines)) | ftxui::vscroll_indicator | ftxui::frame |
+                    ftxui::vbox(std::move(lines)) | ftxui::vscroll_indicator | ftxui::yframe |
                         ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height),
                 })));
             }
