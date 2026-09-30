@@ -70,46 +70,60 @@ namespace ql
     // doesn't react to the first signal immediately.
     static constexpr int kZmodemKillGraceSeconds = 2;
 
-    // True if an executable named `program` is in one of the directories on
-    // PATH -- the same lookup execlp() does. Done directly rather than via
-    // `std::system("command -v ...")`, which would start a shell just to ask.
-    static bool IsOnPath(const std::string& program)
+    // Where package managers put `sz` and `rz` (lrzsz): FreeBSD's pkg and
+    // Homebrew on Intel, Homebrew on Apple Silicon, MacPorts, then the
+    // system's own. Checked after PATH, which may not name them -- a service
+    // started at boot on FreeBSD gets only /sbin:/bin:/usr/sbin:/usr/bin.
+    static const char* const kFallbackDirectories[] = {
+        "/usr/local/bin", "/opt/homebrew/bin", "/opt/local/bin", "/usr/bin", "/bin",
+    };
+
+    // The full path of the executable named `program`: the first found in
+    // the directories on PATH (the same lookup execvp() does), then in
+    // kFallbackDirectories. Empty if there's none. Done directly rather than
+    // via `std::system("command -v ...")`, which would start a shell just to
+    // ask.
+    static std::string FindProgram(const std::string& program)
     {
+        std::vector<std::string> directories;
         const char* path = std::getenv("PATH");
-        if (path == nullptr)
-        {
-            return false;
-        }
-        std::string directories(path);
+        std::string path_list = path == nullptr ? std::string() : std::string(path);
         std::string::size_type start = 0;
-        while (start <= directories.size())
+        while (path != nullptr && start <= path_list.size())
         {
-            std::string::size_type colon = directories.find(':', start);
+            std::string::size_type colon = path_list.find(':', start);
             if (colon == std::string::npos)
             {
-                colon = directories.size();
+                colon = path_list.size();
             }
             // An empty PATH entry means the current directory.
-            std::string directory = directories.substr(start, colon - start);
-            std::string candidate = (directory.empty() ? std::string(".") : directory) + "/";
-            candidate += program;
-            if (::access(candidate.c_str(), X_OK) == 0)
-            {
-                return true;
-            }
+            std::string directory = path_list.substr(start, colon - start);
+            directories.push_back(directory.empty() ? std::string(".") : directory);
             start = colon + 1;
         }
-        return false;
+        for (const char* directory : kFallbackDirectories)
+        {
+            directories.push_back(directory);
+        }
+        for (const std::string& directory : directories)
+        {
+            std::string candidate = directory + "/" + program;
+            if (::access(candidate.c_str(), X_OK) == 0)
+            {
+                return candidate;
+            }
+        }
+        return "";
     }
 
     bool ZmodemSendAvailable()
     {
-        return IsOnPath("sz");
+        return !FindProgram("sz").empty();
     }
 
     bool ZmodemReceiveAvailable()
     {
-        return IsOnPath("rz");
+        return !FindProgram("rz").empty();
     }
 
     // Waits up to `timeout_seconds` for `pid` to exit on its own, polling
@@ -189,6 +203,7 @@ namespace ql
             error_->clear();
 
             // Built before fork(): the child only execs.
+            std::string sz = FindProgram("sz");
             std::vector<char*> argv;
             argv.push_back(const_cast<char*>("sz"));
             for (const std::string& path : paths_)
@@ -205,7 +220,7 @@ namespace ql
             }
             if (pid == 0)
             {
-                execvp("sz", argv.data());
+                execv(sz.c_str(), argv.data());
                 _exit(127);
             }
 
@@ -274,6 +289,8 @@ namespace ql
             *ok_ = false;
             error_->clear();
 
+            // Found before fork(): the child only execs.
+            std::string rz = FindProgram("rz");
             pid_t pid = fork();
             if (pid < 0)
             {
@@ -286,7 +303,7 @@ namespace ql
                 {
                     _exit(127);
                 }
-                execlp("rz", "rz", "-e", static_cast<char*>(nullptr));
+                execl(rz.c_str(), "rz", "-e", static_cast<char*>(nullptr));
                 _exit(127);
             }
 

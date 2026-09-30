@@ -27,6 +27,9 @@ load_rc_config $name
 : ${quicklogger_port:="22"}
 
 quicklogger_chdir="${quicklogger_dir}"
+# Started at boot, rc gives services only /sbin:/bin:/usr/sbin:/usr/bin,
+# but sz and rz (lrzsz, for ZMODEM) are in /usr/local/bin.
+quicklogger_env="PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin"
 # rc.subr starts daemon(8) as quicklogger_user (daemon's own -u fails to
 # set up that user's environment), so its pidfile goes in a directory that
 # user owns.
