@@ -11,7 +11,7 @@ This README has two halves: **[Running QuickLogger](#running-quicklogger)** (wha
 | Platform | Support | How well verified |
 |---|---|---|
 | **macOS** | Full (console + SSH server) | Built and run natively (Apple Silicon) |
-| **Linux** (glibc and musl) | Full (console + SSH server) | Built and the full test suite run on every change, following [Building QuickLogger](#building-quicklogger): Ubuntu 22.04 and 24.04, Debian 13, Fedora and Alpine (musl), including CMake 3.16. The amd64 and arm64 release binaries have both been run on Debian (amd64 under WSL on Windows), with basic functionality confirmed |
+| **Linux** (glibc and musl) | Full (console + SSH server); no ZMODEM on Alpine | Built and the full test suite run on every change, following [Building QuickLogger](#building-quicklogger): Ubuntu 22.04 and 24.04, Debian 13, Fedora and Alpine (musl), including CMake 3.16. The amd64 and arm64 release binaries have both been run on Debian (amd64 under WSL on Windows), with basic functionality confirmed |
 | **FreeBSD** 14 / 15 | Full (console + SSH server) | Built and the full test suite run in FreeBSD 15 for every release (amd64 and arm64), and built on a FreeBSD machine by following [Building QuickLogger](#building-quicklogger). The amd64 and arm64 release binaries have both been run on FreeBSD, with basic functionality confirmed |
 | **Windows** | Console only — no SSH server, no ZMODEM | Built and the full test suite run for every release (x64 and arm64), and with both Visual Studio + vcpkg and MSYS2 (UCRT64) on demand, following [Building QuickLogger](#building-quicklogger). The x64 and arm64 release binaries have both been run on Windows, with basic functionality confirmed |
 
@@ -88,6 +88,7 @@ The net-log/database-slice export and import features can push and pull files ov
 - Debian/Ubuntu: `sudo apt install lrzsz`
 - Fedora: `sudo dnf install lrzsz`
 - FreeBSD: `sudo pkg install lrzsz` (it installs them as `lsz`/`lrz`, which QuickLogger finds too)
+- Alpine: not supported (Alpine has no `lrzsz` package). Everything else works, SSH included; exports are saved in `exports/` and imports are read from `imports/`, but not sent or received over ZMODEM.
 - Windows: not supported
 
 ## Starting it

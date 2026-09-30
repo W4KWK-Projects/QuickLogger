@@ -1794,16 +1794,17 @@ namespace ql
             }
             return;
         }
+        // No ZMODEM on this system at all (Windows, Alpine), so there's
+        // nothing to install.
+        if (NoZmodemOnThisSystem())
+        {
+            state->status_message = "Saved to " + ListPaths(paths) + ".";
+            return;
+        }
         if (!ZmodemSendAvailable())
         {
-#if defined(_WIN32)
-            // No ZMODEM on Windows at all (see zmodem_send.cpp), so there's
-            // nothing to install.
-            state->status_message = "Saved to " + ListPaths(paths) + ".";
-#else
             state->status_message =
                 "Saved to " + ListPaths(paths) + " (install 'sz'/lrzsz for ZMODEM download).";
-#endif
             return;
         }
 
@@ -3205,8 +3206,9 @@ namespace ql
         {
             return;
         }
-        // Nobody on the other end of a local terminal to send one.
-        if (IsLocalTerminal(state->is_console_session))
+        // Nobody on the other end of a local terminal to send one, and no
+        // ZMODEM at all on some systems (Windows, Alpine).
+        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem())
         {
             return;
         }
@@ -4685,7 +4687,7 @@ namespace ql
                     {"Left/Right", "Change Partial Matching: US or Canada.", false},
                 };
             case kPageImportNet:
-                if (IsLocalTerminal(state->is_console_session))
+                if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem())
                 {
                     return {
                         {"F2/Enter", "Import the highlighted file.", false},

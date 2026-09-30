@@ -20,6 +20,11 @@ namespace ql
         return false;
     }
 
+    bool NoZmodemOnThisSystem()
+    {
+        return true;
+    }
+
     bool SendFilesViaZmodem(ftxui::ScreenInteractive* screen, const std::vector<std::string>& paths,
                             std::string* error)
     {
@@ -146,6 +151,11 @@ namespace ql
     bool ZmodemReceiveAvailable()
     {
         return !FindRz().empty();
+    }
+
+    bool NoZmodemOnThisSystem()
+    {
+        return ::access("/etc/alpine-release", F_OK) == 0;
     }
 
     // Waits up to `timeout_seconds` for `pid` to exit on its own, polling

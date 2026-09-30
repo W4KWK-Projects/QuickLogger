@@ -680,19 +680,25 @@ namespace ql
     // ---- ZMODEM ------------------------------------------------------------
 
 #if !defined(_WIN32)
-    // CI installs lrzsz and sets QL_EXPECT_LRZSZ=1, so this checks that
+    // CI sets QL_EXPECT_LRZSZ: "1" where it installs lrzsz, to check that
     // QuickLogger finds its programs under whatever names and in whatever
-    // folder each platform's package puts them (FreeBSD's are lsz and lrz).
-    // Elsewhere, where lrzsz may not be installed, there's nothing to check.
+    // folder each platform's package puts them (FreeBSD's are lsz and lrz);
+    // "0" on Alpine, which has none, to check that ZMODEM is recognized as
+    // unavailable there. Elsewhere there's nothing to check.
     QL_TEST(ZmodemProgramsAreFoundWhereLrzszIsInstalled)
     {
         const char* expected = std::getenv("QL_EXPECT_LRZSZ");
-        if (expected == nullptr || std::string(expected) != "1")
+        std::string value = expected == nullptr ? std::string() : std::string(expected);
+        if (value == "1")
         {
-            return;
+            CHECK(!NoZmodemOnThisSystem());
+            CHECK(ZmodemSendAvailable());
+            CHECK(ZmodemReceiveAvailable());
         }
-        CHECK(ZmodemSendAvailable());
-        CHECK(ZmodemReceiveAvailable());
+        else if (value == "0")
+        {
+            CHECK(NoZmodemOnThisSystem());
+        }
     }
 #endif
 

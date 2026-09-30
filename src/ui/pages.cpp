@@ -14,6 +14,7 @@
 
 #include "../date_utils.hpp"
 #include "../show_folder.hpp"
+#include "../zmodem_send.hpp"
 #include "../uls_import.hpp"
 #include "chrome.hpp"
 #include "handlers.hpp"
@@ -2096,7 +2097,8 @@ namespace ql
                                     ? "Import Ad Hoc Session"
                                     : "Import Session: " + state_->import_session_net_name;
             // No ZMODEM at a local terminal: there's no one to receive from.
-            if (IsLocalTerminal(state_->is_console_session))
+            // Nor where the system has none (Windows, Alpine).
+            if (IsLocalTerminal(state_->is_console_session) || NoZmodemOnThisSystem())
             {
                 return PageChrome(title, ftxui::vbox(rows),
                                   {{"F2/Enter", "Import"}, {"Esc", "Back"}});
