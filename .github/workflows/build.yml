@@ -63,12 +63,16 @@ jobs:
           - name: debian-13
             image: debian:trixie
             install: apt-get update && apt-get install -y build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev lrzsz
+            lrzsz: "1"
           - name: fedora
             image: fedora:latest
             install: dnf install -y gcc-c++ cmake git sqlite-devel libcurl-devel zlib-devel libssh-devel lrzsz
+            lrzsz: "1"
           - name: alpine-musl
             image: alpine:latest
-            install: apk add --no-cache build-base cmake git sqlite-dev curl-dev zlib-dev libssh-dev linux-headers lrzsz
+            # Alpine has no lrzsz package, so no ZMODEM check here.
+            install: apk add --no-cache build-base cmake git sqlite-dev curl-dev zlib-dev libssh-dev linux-headers
+            lrzsz: "0"
     name: ${{ matrix.name }}
     container: ${{ matrix.image }}
     steps:
@@ -81,7 +85,7 @@ jobs:
           cmake --build build -j
       - name: Test
         env:
-          QL_EXPECT_LRZSZ: "1"
+          QL_EXPECT_LRZSZ: ${{ matrix.lrzsz }}
         run: ctest --test-dir build --output-on-failure
 
   # The Linux release binaries, built and checked on other distributions,
