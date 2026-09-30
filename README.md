@@ -82,12 +82,12 @@ QuickLogger does **not** need `unzip`, `mkdir`, or any other command-line tool t
 
 ### Optional: `lrzsz` (ZMODEM file transfer)
 
-The net-log/database-slice export and import features can push and pull files over the terminal connection using the ZMODEM protocol, via the `sz`/`rz` command-line tools (the `lrzsz` package). It's needed on `PATH` only on the machine running QuickLogger, only for that one feature, and only where someone is connected through a ZMODEM-capable terminal (typically over SSH). If it's missing, QuickLogger still runs fine; it just skips the ZMODEM offer and tells you so.
+The net-log/database-slice export and import features can push and pull files over the terminal connection using the ZMODEM protocol, via the `sz`/`rz` command-line tools (the `lrzsz` package). It's needed only on the machine running QuickLogger, only for that one feature, and only where someone is connected through a ZMODEM-capable terminal (typically over SSH). If it's missing, QuickLogger still runs fine; it just skips the ZMODEM offer and tells you so.
 
 - macOS: `brew install lrzsz`
 - Debian/Ubuntu: `sudo apt install lrzsz`
 - Fedora: `sudo dnf install lrzsz`
-- FreeBSD: `sudo pkg install lrzsz`
+- FreeBSD: `sudo pkg install lrzsz` (it installs them as `lsz`/`lrz`, which QuickLogger finds too)
 - Windows: not supported
 
 ## Starting it

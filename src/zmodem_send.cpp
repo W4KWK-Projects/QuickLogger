@@ -116,14 +116,27 @@ namespace ql
         return "";
     }
 
+    // FreeBSD's lrzsz package installs sz and rz as lsz and lrz.
+    static std::string FindSz()
+    {
+        std::string sz = FindProgram("sz");
+        return sz.empty() ? FindProgram("lsz") : sz;
+    }
+
+    static std::string FindRz()
+    {
+        std::string rz = FindProgram("rz");
+        return rz.empty() ? FindProgram("lrz") : rz;
+    }
+
     bool ZmodemSendAvailable()
     {
-        return !FindProgram("sz").empty();
+        return !FindSz().empty();
     }
 
     bool ZmodemReceiveAvailable()
     {
-        return !FindProgram("rz").empty();
+        return !FindRz().empty();
     }
 
     // Waits up to `timeout_seconds` for `pid` to exit on its own, polling
@@ -203,7 +216,7 @@ namespace ql
             error_->clear();
 
             // Built before fork(): the child only execs.
-            std::string sz = FindProgram("sz");
+            std::string sz = FindSz();
             std::vector<char*> argv;
             argv.push_back(const_cast<char*>("sz"));
             for (const std::string& path : paths_)
@@ -290,7 +303,7 @@ namespace ql
             error_->clear();
 
             // Found before fork(): the child only execs.
-            std::string rz = FindProgram("rz");
+            std::string rz = FindRz();
             pid_t pid = fork();
             if (pid < 0)
             {

@@ -11,14 +11,15 @@ namespace ftxui
 namespace ql
 {
 
-    // True if the `sz` command (from the lrzsz package) needed to send a
-    // file via ZMODEM is installed and on PATH. Checked before attempting a
+    // True if the `sz` command (from the lrzsz package; `lsz` on FreeBSD)
+    // needed to send a file via ZMODEM is installed, on PATH or in one of
+    // the usual package directories. Checked before attempting a
     // transfer, so a missing tool produces a clear message instead of a
     // doomed exec().
     bool ZmodemSendAvailable();
 
-    // True if `rz` (the receiving half of the same lrzsz package) is
-    // installed and on PATH. lrzsz always installs both together, but this
+    // True if `rz` (the receiving half of the same lrzsz package; `lrz` on
+    // FreeBSD) is installed, found the same way. lrzsz always installs both together, but this
     // is checked independently rather than assumed from ZmodemSendAvailable
     // in case that ever stops being true on some platform.
     bool ZmodemReceiveAvailable();
