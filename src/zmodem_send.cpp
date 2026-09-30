@@ -46,6 +46,7 @@ namespace ql
 #include <cstdlib>
 #include <ctime>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <sys/wait.h>
@@ -69,6 +70,14 @@ namespace ql
     // Grace period after SIGTERM before escalating to SIGKILL, in case `sz`
     // doesn't react to the first signal immediately.
     static constexpr int kZmodemKillGraceSeconds = 2;
+    // How long to leave the terminal alone once sz or rz has finished,
+    // before QuickLogger redraws. The terminal program is still wrapping up
+    // then: ZOC, for one, prints its transfer summary (and the "OO" that
+    // ends a ZMODEM session) only after the transfer, and may ignore what
+    // arrives before. Written onto the normal screen during this pause, it
+    // disappears when QuickLogger returns to its own; any sooner, and it's
+    // left over QuickLogger's screen until the next key.
+    static constexpr useconds_t kTerminalSettleMicroseconds = 1000000;
 
     // Where package managers put `sz` and `rz` (lrzsz): FreeBSD's pkg and
     // Homebrew on Intel, Homebrew on Apple Silicon, MacPorts, then the
@@ -257,6 +266,23 @@ namespace ql
         std::string* error_;
     };
 
+    // Runs `transfer` (a RunSzProcess or RunRzProcess), then waits
+    // kTerminalSettleMicroseconds before QuickLogger takes the terminal back.
+    class ThenLetTerminalSettle
+    {
+    public:
+        explicit ThenLetTerminalSettle(ftxui::Closure transfer) : transfer_(std::move(transfer)) {}
+
+        void operator()() const
+        {
+            transfer_();
+            usleep(kTerminalSettleMicroseconds);
+        }
+
+    private:
+        ftxui::Closure transfer_;
+    };
+
     bool SendFilesViaZmodem(ftxui::ScreenInteractive* screen, const std::vector<std::string>& paths,
                             std::string* error)
     {
@@ -267,7 +293,8 @@ namespace ql
         }
 
         bool ok = false;
-        ftxui::Closure run = screen->WithRestoredIO(RunSzProcess(paths, &ok, error));
+        ftxui::Closure run =
+            screen->WithRestoredIO(ThenLetTerminalSettle(RunSzProcess(paths, &ok, error)));
         run();
         // FTXUI took the terminal back, turning movement reports on again.
         RequestMouseMovementReportsOff();
@@ -352,7 +379,8 @@ namespace ql
         EnsureDirectory(dest_dir);
 
         bool ok = false;
-        ftxui::Closure run = screen->WithRestoredIO(RunRzProcess(dest_dir, &ok, error));
+        ftxui::Closure run =
+            screen->WithRestoredIO(ThenLetTerminalSettle(RunRzProcess(dest_dir, &ok, error)));
         run();
         // FTXUI took the terminal back, turning movement reports on again.
         RequestMouseMovementReportsOff();
