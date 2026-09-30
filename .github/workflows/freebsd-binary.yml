@@ -1,7 +1,8 @@
 # Builds the FreeBSD 15 binaries (amd64 and arm64) in FreeBSD VMs on a
 # Linux runner, and runs the tests there. Called two ways:
 #
-# - by release.yml for a tag, attaching them to that release's page;
+# - by release.yml for a tag, once for each architecture (see `arch`),
+#   attaching them to that release's page;
 # - by hand (Actions > FreeBSD binaries > Run workflow), which builds the
 #   chosen branch and keeps the result as a workflow artifact. It isn't
 #   part of build.yml because the arm64 VM is emulated and slow.
@@ -17,7 +18,16 @@ on:
         description: Release tag to build and attach to; blank builds this commit and keeps the result as an artifact.
         type: string
         default: ""
+      arch:
+        description: amd64 or arm64 to build just that one; blank builds both.
+        type: string
+        default: ""
   workflow_dispatch:
+    inputs:
+      arch:
+        description: amd64 or arm64 to build just that one; blank builds both.
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -27,11 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: amd64
-            vm_arch: x86_64
-          - arch: arm64
-            vm_arch: aarch64
+        include: ${{ fromJSON(inputs.arch == 'amd64' && '[{"arch":"amd64","vm_arch":"x86_64"}]' || inputs.arch == 'arm64' && '[{"arch":"arm64","vm_arch":"aarch64"}]' || '[{"arch":"amd64","vm_arch":"x86_64"},{"arch":"arm64","vm_arch":"aarch64"}]') }}
     name: freebsd-${{ matrix.arch }}
     runs-on: ubuntu-24.04
     # arm64 runs under emulation.

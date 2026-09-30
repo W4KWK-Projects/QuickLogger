@@ -3,10 +3,12 @@
 # arm64 -- see linux-binary.yml) and Windows (x64 -- see windows-binary.yml)
 # binaries for a tagged release and attaches
 # them to that release's GitHub page, creating the page as a draft if it
-# doesn't exist yet. The draft is published only once every build has
-# succeeded, so nobody -- and not the hosted server, which installs the
-# FreeBSD one by itself from the latest release (see deploy/freebsd) -- sees
-# a release with downloads missing. Runs on every pushed tag starting with "v" (e.g. v1.1.0); it can also
+# doesn't exist yet. The draft is published once every build but FreeBSD
+# arm64 has succeeded, so nobody -- and not the hosted server, which installs
+# the FreeBSD one by itself from the latest release (see deploy/freebsd) --
+# sees a release with those downloads missing. FreeBSD arm64, built under
+# emulation, takes the better part of an hour; it's attached whenever it's
+# done, and an arm64 server's updater waits for it. Runs on every pushed tag starting with "v" (e.g. v1.1.0); it can also
 # be run by hand for a tag that already exists (Actions > Release binaries >
 # Run workflow), which replaces the binary on that release.
 name: Release binaries
@@ -84,6 +86,16 @@ jobs:
     uses: ./.github/workflows/freebsd-binary.yml
     with:
       tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      arch: amd64
+
+  # Not waited for by publish (see the top of this file): attached to the
+  # release, draft or published, whenever it's done.
+  freebsd-arm64:
+    needs: macos
+    uses: ./.github/workflows/freebsd-binary.yml
+    with:
+      tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      arch: arm64
 
   # After the macOS job, which creates the (draft) release page.
   linux:
