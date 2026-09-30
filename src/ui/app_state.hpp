@@ -1213,6 +1213,14 @@ namespace ql
     // Otherwise sets AppState::form_error and returns false.
     bool CheckNetZip(AppState* state, const std::string& zip);
 
+    // The name of a recurring net other than `except_net_id` whose name is
+    // the same as `name` (NetNamesAreTheSame), read fresh from the
+    // database so a net someone else just made counts; empty if there's
+    // none. No two recurring nets may share a name. Ad hoc nets don't
+    // count, and may share names freely.
+    std::string ExistingNetNamed(AppState* state, const std::string& name,
+                                 std::int64_t except_net_id = 0);
+
     // Reloads AppState::saved_station_suggestions/_labels from
     // AppState::saved_station.callsign, same three-tier priority as
     // RefreshCallsignSuggestions plus a ULS tier: tier 1 (known to this net),

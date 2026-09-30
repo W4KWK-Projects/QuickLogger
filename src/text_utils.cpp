@@ -313,6 +313,34 @@ namespace ql
         return joined;
     }
 
+    // `name` uppercased, without leading or trailing spaces and with each
+    // run of spaces inside it made one.
+    static std::string NetNameKey(const std::string& name)
+    {
+        std::string key;
+        bool pending_space = false;
+        for (char c : name)
+        {
+            if (std::isspace(static_cast<unsigned char>(c)))
+            {
+                pending_space = !key.empty();
+                continue;
+            }
+            if (pending_space)
+            {
+                key += ' ';
+                pending_space = false;
+            }
+            key += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        }
+        return key;
+    }
+
+    bool NetNamesAreTheSame(const std::string& a, const std::string& b)
+    {
+        return NetNameKey(a) == NetNameKey(b);
+    }
+
     bool NetNamesLookAlike(const std::string& a, const std::string& b, bool alike_if_unsure)
     {
         std::vector<std::string> words_a = NameWords(a);

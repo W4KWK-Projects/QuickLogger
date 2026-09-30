@@ -2021,6 +2021,63 @@ namespace ql
         CHECK_EQ(f.state.page, kPageNetList);
     }
 
+    QL_TEST(NoTwoRecurringNetsShareAName)
+    {
+        Fixture f;
+        AddTestNet(f.db(), "TAG Skywarn");
+        std::int64_t ares = AddTestNet(f.db(), "Hamilton County ARES");
+        RefreshNets(&f.state);
+
+        // A new net: refused, whatever the capitals and spaces.
+        ResetCreateNetForm(&f.state);
+        f.state.new_net_name = " tag  SKYWARN ";
+        CreateNetSubmitHandler create(&f.state);
+        create();
+        CHECK(f.state.form_error.find("\"TAG Skywarn\"") != std::string::npos);
+        CHECK_EQ(f.db()->GetAllNets().size(), std::size_t{2});
+
+        // Renaming another net to it: refused.
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(ares));
+        f.state.edit_net_name = "TAG Skywarn";
+        CHECK(!SaveEditNetForm(&f.state));
+        CHECK_EQ(f.db()->GetNetById(ares)->name, std::string("Hamilton County ARES"));
+
+        // Ad hoc nets don't count, and a net that already shared its name
+        // (from before the rule) can still be saved unrenamed.
+        Net ad_hoc;
+        ad_hoc.name = "Tailgate Net";
+        ad_hoc.is_ad_hoc = true;
+        f.db()->CreateNet(ad_hoc);
+        f.db()->CreateNet(ad_hoc);
+        std::int64_t older_twin = AddTestNet(f.db(), "Hamilton County ARES");
+        RefreshNets(&f.state);
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(older_twin));
+        f.state.edit_net_comments = "Backup on 147.000";
+        CHECK(SaveEditNetForm(&f.state));
+    }
+
+    QL_TEST(ImportingANetFileNamedLikeOneHereIsRefused)
+    {
+        Fixture f;
+        {
+            Database other(f.dir().File("other.db"));
+            std::int64_t net_id = AddTestNet(&other, "TAG SKYWARN");
+            std::string error;
+            REQUIRE(WriteNetSliceFile(ImportsDir(f.state.db_path) + "/tag.qlnet",
+                                      GatherNetSlice(&other, net_id), &error));
+        }
+        AddTestNet(f.db(), "TAG Skywarn");
+        RefreshNets(&f.state);
+        RefreshImportNetFiles(&f.state);
+        REQUIRE(f.state.import_net_files.size() == 1);
+
+        // Not asked about: refused outright, nothing imported.
+        ImportSelectedNetSlice(&f.state);
+        CHECK(!f.state.show_confirm_prompt);
+        CHECK(f.state.form_error.find("\"TAG Skywarn\"") != std::string::npos);
+        CHECK_EQ(f.db()->GetAllNets().size(), std::size_t{1});
+    }
+
     QL_TEST(ImportingANetFileLikeANetAlreadyHereAsksFirst)
     {
         Fixture f;

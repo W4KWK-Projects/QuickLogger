@@ -49,6 +49,7 @@ On first run you're taken straight to Settings, since a callsign and home ZIP ar
 A recurring net is one you run again and again: a weekly Skywarn net, a club's Tuesday net. Its sessions and check-ins build up its history, and the stations that check in are remembered for autocomplete.
 
 - **Create:** **F2** on Recurring Nets. Only the name is required; Mode, Frequency, ZIP Code (5 digits) and Recurrence ("Tuesdays 8pm ET") are optional. A net's ZIP centers nearby-station autocomplete on where the net meets.
+- **Names are unique:** no two recurring nets can have the same name, counting "Skywarn", "SKYWARN" and " Skywarn " as one name, whether you create a net, rename one or import one. Ad hoc nets can reuse names freely.
 - **Partial Matching** (US or Canada) decides which licensed-station data autocomplete matches anywhere in a callsign, rather than only at its start; see [Callsign autocomplete](#callsign-autocomplete).
 - **Frequency** is in MHz (146.940, 7.235) and must be in a US or Canadian amateur band. Only digits and a decimal point can be typed there.
 - **Offset** is a repeater's offset in MHz with its sign, the way radios, CHIRP and RepeaterBook show it: **-0.6** or **+0.6** on 2 m, **+5** or **-5** on 70 cm, **-1.6** on 1.25 m. A bare "+" or "-" isn't accepted (the standard offset isn't the same everywhere on 6 m and 70 cm and up), nor is kHz: typing -600 tells you to type -0.6. With a frequency, the frequency plus the offset has to be in an amateur band too.
@@ -190,7 +191,7 @@ Exports are written to the `exports/` folder next to QuickLogger's database; imp
 | A net's saved stations | F7 on Edit Net | `NetName_saved_stations.txt` |
 | A whole net, to share | F8 on Recurring Nets | `NetName.qlnet`: the net, its saved stations and its full history |
 
-**Importing a net:** put the `.qlnet` file in `imports/` (or receive it with **F3**, below), press **F9** on Recurring Nets, highlight the file and press **F2**. It's added as a new net marked *imported*, so it can't overwrite one of yours. If you already have a net with the same or a similar name, QuickLogger asks first, in case it's one you already have: **F2/Enter** imports it as a new net anyway, **Esc** cancels.
+**Importing a net:** put the `.qlnet` file in `imports/` (or receive it with **F3**, below), press **F9** on Recurring Nets, highlight the file and press **F2**. It's added as a new net marked *imported*, so it can't overwrite one of yours. If you already have a net with the same name, it can't be imported as a new net; rename yours first (**F7**) if you want both. If you have one with a similar name, QuickLogger asks first, in case it's one you already have: **F2/Enter** imports it as a new net anyway, **Esc** cancels.
 
 **At your own computer:** after an export, QuickLogger offers to show you the file: **F2/Enter** opens the `exports/` folder in Finder, File Explorer or your Linux/FreeBSD desktop's file manager, with the new files selected (a session export makes two) where the file manager supports it; **Esc** closes the window. Without a desktop (a text-only console), it just says where the file was saved.
 

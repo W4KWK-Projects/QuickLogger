@@ -45,6 +45,15 @@ namespace ql
         CHECK_EQ(ToUpperAscii("lo\xC3\xADza"), std::string("LO\xC3\xADZA"));
     }
 
+    QL_TEST(NetNamesAreTheSameIgnoringCapitalsAndSpaces)
+    {
+        CHECK(NetNamesAreTheSame("Skywarn", "SKYWARN"));
+        CHECK(NetNamesAreTheSame(" Skywarn ", "skywarn"));
+        CHECK(NetNamesAreTheSame("TAG  Skywarn", "tag skywarn"));
+        CHECK(!NetNamesAreTheSame("TAG Skywarn", "TAGSkywarn"));
+        CHECK(!NetNamesAreTheSame("Hamilton Co. ARES", "Hamilton County ARES"));
+    }
+
     QL_TEST(NetNamesLookAlikeIsGenerous)
     {
         // The same net, written differently.

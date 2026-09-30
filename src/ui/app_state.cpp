@@ -1210,6 +1210,19 @@ namespace ql
         return true;
     }
 
+    std::string ExistingNetNamed(AppState* state, const std::string& name,
+                                 std::int64_t except_net_id)
+    {
+        for (const Net& net : state->db->GetAllNets())
+        {
+            if (!net.is_ad_hoc && net.id != except_net_id && NetNamesAreTheSame(net.name, name))
+            {
+                return net.name;
+            }
+        }
+        return "";
+    }
+
     void ResetCreateNetForm(AppState* state)
     {
         state->new_net_name.clear();
@@ -2993,6 +3006,17 @@ namespace ql
             return;
         }
 
+        // No two recurring nets may share a name.
+        std::string taken = ExistingNetNamed(state, slice->net.name);
+        if (!taken.empty())
+        {
+            state->status_message.clear();
+            state->form_error = "You already have a net named \"" + taken +
+                                "\", so this file can't be imported as a new net. To import "
+                                "it anyway, rename yours first (F7 on Recurring Nets).";
+            return;
+        }
+
         // Probably a net that's already here (imported before, or set up
         // by hand): ask before adding a second one.
         if (!names_checked)
@@ -3007,11 +3031,9 @@ namespace ql
             }
             if (!alike.empty())
             {
-                std::string first_line =
-                    alike.size() == 1 && ToUpperAscii(alike[0]) == ToUpperAscii(slice->net.name)
-                        ? "You already have a net named \"" + alike[0] + "\"."
-                        : "This file's net, \"" + slice->net.name + "\", looks like " +
-                              QuotedList(alike) + ", which you already have.";
+                std::string first_line = "This file's net, \"" + slice->net.name +
+                                         "\", looks like " + QuotedList(alike) +
+                                         ", which you already have.";
                 ShowConfirmPrompt(
                     state, ConfirmPrompt::kImportLookAlikeNet, "Import As a New Net?",
                     {first_line, "Importing adds it as a separate net, next to the existing " +
@@ -3034,9 +3056,8 @@ namespace ql
         }
         RefreshNets(state);
         state->form_error.clear();
-        state->status_message = "Imported \"" + slice->net.name +
-                                "\". It's listed with today's date as \"imported\", so you can "
-                                "tell it apart from a net of the same name.";
+        state->status_message =
+            "Imported \"" + slice->net.name + "\". It's listed with today's date as \"imported\".";
         state->page = kPageNetList;
     }
 
@@ -3410,6 +3431,18 @@ namespace ql
             !CheckNetZip(state, state->edit_net_location))
         {
             return false;
+        }
+        // Only a rename is checked, so a net that already shared its name
+        // (from before this rule) can still be saved as it is.
+        std::optional<Net> before = state->db->GetNetById(state->edit_net_id);
+        if (!before.has_value() || !NetNamesAreTheSame(before->name, state->edit_net_name))
+        {
+            std::string taken = ExistingNetNamed(state, state->edit_net_name, state->edit_net_id);
+            if (!taken.empty())
+            {
+                state->form_error = "You already have a net named \"" + taken + "\".";
+                return false;
+            }
         }
 
         Net net;

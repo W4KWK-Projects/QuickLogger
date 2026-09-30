@@ -111,6 +111,12 @@ namespace ql
             state_->form_error = "Net name is required.";
             return;
         }
+        std::string taken = ExistingNetNamed(state_, state_->new_net_name);
+        if (!taken.empty())
+        {
+            state_->form_error = "You already have a net named \"" + taken + "\".";
+            return;
+        }
         if (!CheckNetRadio(state_, state_->new_net_frequency, state_->new_net_offset,
                            &state_->new_net_tone) ||
             !CheckNetZip(state_, state_->new_net_location))

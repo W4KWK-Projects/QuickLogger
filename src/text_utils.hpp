@@ -48,4 +48,10 @@ namespace ql
     // would raise one.
     bool NetNamesLookAlike(const std::string& a, const std::string& b, bool alike_if_unsure = true);
 
+    // True if two net names are the same once capitals and spaces are set
+    // aside: "Skywarn", "SKYWARN" and " Skywarn " are one name, as are
+    // "TAG  Skywarn" and "TAG Skywarn". No two recurring nets may share a
+    // name in this sense (see ExistingNetNamed in app_state.hpp).
+    bool NetNamesAreTheSame(const std::string& a, const std::string& b);
+
 }  // namespace ql
