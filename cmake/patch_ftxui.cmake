@@ -7,25 +7,58 @@
 #
 # Each change is a plain text replacement anchored on a single line, so it
 # works on checkouts with either line ending. Running it again on a patched
-# checkout does nothing. If any anchor isn't found exactly once (a newer
-# FTXUI), the build stops here rather than going on without the hook.
+# checkout does nothing; a checkout with an earlier version of the patch is
+# restored with git and patched afresh. If any anchor isn't found exactly
+# once (a newer FTXUI), the build stops here rather than going on without
+# the hook.
+#
+# Version 2 (QuickLogger 1.7.8): with a writer set, a frame is flushed
+# without FTXUI's trailing NUL byte (a flush marker for Emscripten only), and
+# a frame with no changes writes nothing at all. Over SSH each of those
+# 1-byte writes was a packet of its own: 17 or so per move through a list,
+# while FTXUI's Menu animates its highlight.
 
 if(NOT FTXUI_SOURCE_DIR)
     message(FATAL_ERROR "patch_ftxui.cmake: FTXUI_SOURCE_DIR is not set")
 endif()
 
 set(marker "QuickLogger frame-writer patch")
+# Bumped whenever the patch changes; CMakeLists.txt passes it too, so a
+# build directory patched with an earlier version runs this again.
+set(version_marker "QuickLogger frame-writer patch, version 2")
+if(DEFINED PATCH_VERSION AND NOT PATCH_VERSION EQUAL 2)
+    message(FATAL_ERROR "patch_ftxui.cmake: CMakeLists.txt asks for patch version "
+                        "${PATCH_VERSION}, but this script is version 2")
+endif()
 set(header "${FTXUI_SOURCE_DIR}/include/ftxui/component/screen_interactive.hpp")
 set(source "${FTXUI_SOURCE_DIR}/src/ftxui/component/screen_interactive.cpp")
 
 file(READ "${header}" header_text)
 file(READ "${source}" source_text)
 
+string(FIND "${source_text}" "${version_marker}" source_version)
+if(NOT source_version EQUAL -1)
+    message(STATUS "FTXUI already has the ${version_marker}")
+    return()
+endif()
+
+# An earlier version of the patch: put the two files back as FTXUI has them.
 string(FIND "${header_text}" "${marker}" header_marker)
 string(FIND "${source_text}" "${marker}" source_marker)
-if(NOT header_marker EQUAL -1 AND NOT source_marker EQUAL -1)
-    message(STATUS "FTXUI already has the ${marker}")
-    return()
+if(NOT header_marker EQUAL -1 OR NOT source_marker EQUAL -1)
+    execute_process(
+        COMMAND git checkout -- include/ftxui/component/screen_interactive.hpp
+                src/ftxui/component/screen_interactive.cpp
+        WORKING_DIRECTORY "${FTXUI_SOURCE_DIR}"
+        RESULT_VARIABLE restore_result)
+    if(NOT restore_result EQUAL 0)
+        message(FATAL_ERROR "patch_ftxui.cmake: ${FTXUI_SOURCE_DIR} has an earlier "
+                            "${marker} and couldn't be restored with git. Delete the "
+                            "build directory's _deps folder and configure again.")
+    endif()
+    file(READ "${header}" header_text)
+    file(READ "${source}" source_text)
+    message(STATUS "Removed an earlier ${marker} from FTXUI")
 endif()
 
 # Replaces the one occurrence of `anchor` in the variable named `text_var`.
@@ -88,14 +121,20 @@ replace_once(source_text
 
 replace_once(source_text
 "  std::cout << ToString() << set_cursor_position;"
-"  if (frame_writer_) {  // ${marker}
-    std::cout << frame_writer_(*this, resized || frame_writer_full_);
+"  if (frame_writer_) {  // ${version_marker}
+    const std::string frame = frame_writer_(*this, resized || frame_writer_full_);
     frame_writer_full_ = false;
+    // Flushed without Flush()'s NUL, and not at all when nothing changed.
+    if (!frame.empty()) {
+      std::cout << frame << std::flush;
+    }
     // The writer left the cursor where it wants it; don't move it back.
     reset_cursor_position = \"\";
-  } else {
-    std::cout << ToString() << set_cursor_position;
-  }"
+    Clear();
+    frame_valid_ = true;
+    return;
+  }
+  std::cout << ToString() << set_cursor_position;"
 "${source}")
 
 replace_once(source_text

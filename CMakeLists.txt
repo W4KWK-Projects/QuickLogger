@@ -54,7 +54,9 @@ FetchContent_Declare(
     ftxui
     GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI
     GIT_TAG        v5.0.0
-    PATCH_COMMAND  ${CMAKE_COMMAND} -DFTXUI_SOURCE_DIR=<SOURCE_DIR>
+    # PATCH_VERSION matches the script's version marker: changing it makes
+    # existing build directories patch again.
+    PATCH_COMMAND  ${CMAKE_COMMAND} -DFTXUI_SOURCE_DIR=<SOURCE_DIR> -DPATCH_VERSION=2
                    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch_ftxui.cmake
 )
 FetchContent_MakeAvailable(ftxui)
