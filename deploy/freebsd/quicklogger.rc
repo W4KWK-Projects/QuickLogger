@@ -36,7 +36,11 @@ quicklogger_env="PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/b
 pidfile="/var/run/${name}/${name}.pid"
 procname="/usr/sbin/daemon"
 command="/usr/sbin/daemon"
-command_args="-r -R 5 -P ${pidfile} -o /var/log/quicklogger.log -t ${name} /usr/local/bin/QuickLogger --headless --ssh-port=${quicklogger_port}"
+# -f: daemon and QuickLogger start with stdin/stdout/stderr on /dev/null
+# (-o still sends QuickLogger's output to the log), so nothing holds the
+# terminal of whoever ran `service quicklogger start` -- an ssh that ran it
+# would otherwise wait for every QuickLogger process to exit.
+command_args="-f -r -R 5 -P ${pidfile} -o /var/log/quicklogger.log -t ${name} /usr/local/bin/QuickLogger --headless --ssh-port=${quicklogger_port}"
 
 start_precmd="${name}_prestart"
 stop_cmd="${name}_stop"
