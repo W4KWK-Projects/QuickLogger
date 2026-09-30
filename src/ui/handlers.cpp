@@ -1634,6 +1634,17 @@ namespace ql
 
     bool SafeAppEventDispatcher::Dispatch(const ftxui::Event& event)
     {
+        // A status message has been seen by the time the operator presses
+        // another key, so it goes then; a handler that sets a new one below
+        // still shows it. Not on a redraw request, mouse movement or cursor
+        // report, none of which the operator did, nor on the key answering
+        // the ZMODEM/Show Folder pop-up, which opens with the export's
+        // "Saved to" message behind it.
+        if (event != ftxui::Event::Custom && !event.is_mouse() && !event.is_cursor_reporting() &&
+            !state_->show_zmodem_confirm_modal)
+        {
+            state_->status_message.clear();
+        }
         try
         {
             AppKeyHandler key_handler(state_);
