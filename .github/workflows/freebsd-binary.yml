@@ -53,11 +53,11 @@ jobs:
           release: "15.0"
           arch: ${{ matrix.vm_arch }}
           usesh: true
-          prepare: pkg install -y cmake git sqlite3 curl libssh
+          prepare: pkg install -y cmake git sqlite3 curl libssh lrzsz
           run: |
             cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
             cmake --build build -j 2
-            ctest --test-dir build --output-on-failure
+            QL_EXPECT_LRZSZ=1 ctest --test-dir build --output-on-failure
             ./build/QuickLogger --version
             file build/QuickLogger
 

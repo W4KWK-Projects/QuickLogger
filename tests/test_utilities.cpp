@@ -2,6 +2,7 @@
 // file handling.
 
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -15,6 +16,7 @@
 #include "../src/settings.hpp"
 #include "../src/text_utils.hpp"
 #include "../src/version.hpp"
+#include "../src/zmodem_send.hpp"
 #include "test_framework.hpp"
 #include "test_helpers.hpp"
 
@@ -674,5 +676,24 @@ namespace ql
         CHECK_EQ(names[1], std::string("b.qlnet"));
         CHECK(ListFilesWithExtension(dir.File("missing"), ".qlnet").empty());
     }
+
+    // ---- ZMODEM ------------------------------------------------------------
+
+#if !defined(_WIN32)
+    // CI installs lrzsz and sets QL_EXPECT_LRZSZ=1, so this checks that
+    // QuickLogger finds its programs under whatever names and in whatever
+    // folder each platform's package puts them (FreeBSD's are lsz and lrz).
+    // Elsewhere, where lrzsz may not be installed, there's nothing to check.
+    QL_TEST(ZmodemProgramsAreFoundWhereLrzszIsInstalled)
+    {
+        const char* expected = std::getenv("QL_EXPECT_LRZSZ");
+        if (expected == nullptr || std::string(expected) != "1")
+        {
+            return;
+        }
+        CHECK(ZmodemSendAvailable());
+        CHECK(ZmodemReceiveAvailable());
+    }
+#endif
 
 }  // namespace ql

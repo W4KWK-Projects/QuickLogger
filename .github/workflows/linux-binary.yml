@@ -43,7 +43,7 @@ jobs:
       - name: Install packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev
+          sudo apt-get install -y build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev lrzsz
 
       - name: Build
         run: |
@@ -51,6 +51,8 @@ jobs:
           cmake --build build -j
 
       - name: Test
+        env:
+          QL_EXPECT_LRZSZ: "1"
         run: ctest --test-dir build --output-on-failure
 
       - name: Package

@@ -45,9 +45,10 @@ jobs:
             exit 1
           fi
 
-      # SQLite, libcurl and zlib come with macOS.
+      # SQLite, libcurl and zlib come with macOS. lrzsz is only for the
+      # ZMODEM test.
       - name: Install dependencies
-        run: brew install libssh
+        run: brew install libssh lrzsz
 
       # Built to run on macOS 13 and later, not just the runner's version.
       - name: Configure
@@ -57,6 +58,8 @@ jobs:
         run: cmake --build build -j 3
 
       - name: Test
+        env:
+          QL_EXPECT_LRZSZ: "1"
         run: ctest --test-dir build --output-on-failure
 
       - name: Package

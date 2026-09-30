@@ -24,12 +24,14 @@ jobs:
       - name: Install packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev
+          sudo apt-get install -y build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev lrzsz
       - name: Build
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j
       - name: Test
+        env:
+          QL_EXPECT_LRZSZ: "1"
         run: ctest --test-dir build --output-on-failure
 
   oldest-cmake:
@@ -39,7 +41,7 @@ jobs:
       - name: Install packages and CMake 3.16
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev
+          sudo apt-get install -y build-essential git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev lrzsz
           curl -sSL https://github.com/Kitware/CMake/releases/download/v3.16.9/cmake-3.16.9-Linux-x86_64.tar.gz | tar xz -C "$HOME"
           echo "$HOME/cmake-3.16.9-Linux-x86_64/bin" >> "$GITHUB_PATH"
       - name: Build
@@ -48,6 +50,8 @@ jobs:
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j
       - name: Test
+        env:
+          QL_EXPECT_LRZSZ: "1"
         run: cd build && ctest --output-on-failure
 
   distro:
@@ -58,13 +62,13 @@ jobs:
         include:
           - name: debian-13
             image: debian:trixie
-            install: apt-get update && apt-get install -y build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev
+            install: apt-get update && apt-get install -y build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev lrzsz
           - name: fedora
             image: fedora:latest
-            install: dnf install -y gcc-c++ cmake git sqlite-devel libcurl-devel zlib-devel libssh-devel
+            install: dnf install -y gcc-c++ cmake git sqlite-devel libcurl-devel zlib-devel libssh-devel lrzsz
           - name: alpine-musl
             image: alpine:latest
-            install: apk add --no-cache build-base cmake git sqlite-dev curl-dev zlib-dev libssh-dev linux-headers
+            install: apk add --no-cache build-base cmake git sqlite-dev curl-dev zlib-dev libssh-dev linux-headers lrzsz
     name: ${{ matrix.name }}
     container: ${{ matrix.image }}
     steps:
@@ -76,6 +80,8 @@ jobs:
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j
       - name: Test
+        env:
+          QL_EXPECT_LRZSZ: "1"
         run: ctest --test-dir build --output-on-failure
 
   # The Linux release binaries, built and checked on other distributions,
