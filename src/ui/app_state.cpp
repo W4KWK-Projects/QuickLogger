@@ -456,7 +456,13 @@ namespace ql
         {
             return "(ULS, nearby)";
         }
-        return "(ULS, ~" + std::to_string(static_cast<int>(distance_miles)) + " mi)";
+        // Kept to the Source column's 13 characters (see MatchColumns).
+        int miles = static_cast<int>(distance_miles);
+        if (miles >= 1000)
+        {
+            return "(ULS, 999+mi)";
+        }
+        return "(ULS, ~" + std::to_string(miles) + (miles >= 100 ? "mi)" : " mi)");
     }
 
     // -- Recurring Nets --
@@ -3217,6 +3223,69 @@ namespace ql
                                           std::size_t max_suggestions,
                                           std::vector<Station>* suggestions,
                                           std::vector<std::string>* sources);
+    static bool LooksCanadian(const std::string& typed);
+
+    // Once the matches for `typed` are listed, makes the one marked ">" the
+    // one meant -- it's what's taken however the operator leaves the
+    // callsign field (see ApplySelectedCallsignSuggestion). If `typed` is
+    // itself one of the matches, it's marked. If it's a known or licensed
+    // call sign that didn't make the list (a station beyond the Nearby
+    // Radius, say), it's added at the bottom, with where it came from, for
+    // the operator to move down to; the ">" stays on the best match.
+    static void MarkTypedCallsignMatch(AppState* state, const std::string& typed,
+                                       std::size_t max_suggestions,
+                                       std::vector<Station>* suggestions,
+                                       std::vector<std::string>* sources, int* selected)
+    {
+        if (suggestions->empty())
+        {
+            return;
+        }
+        std::string callsign = NormalizeCallsign(typed);
+        for (std::size_t i = 0; i < suggestions->size(); ++i)
+        {
+            if ((*suggestions)[i].callsign == callsign)
+            {
+                *selected = static_cast<int>(i);
+                return;
+            }
+        }
+
+        std::string source;
+        std::optional<Station> known = state->db->FindStationByCallsign(callsign);
+        if (known.has_value())
+        {
+            source = KnownStationSource(false);
+        }
+        else
+        {
+            known = state->db->FindLicensedStationByCallsign(callsign);
+            if (!known.has_value())
+            {
+                return;
+            }
+            source = LooksCanadian(callsign) ? kIsedSource : "(ULS)";
+            std::optional<ZipCentroid> origin =
+                state->nearby_zips_origin.empty()
+                    ? std::nullopt
+                    : state->db->FindZipCentroid(state->nearby_zips_origin);
+            std::optional<ZipCentroid> station_zip =
+                known->zip.size() >= 5 ? state->db->FindZipCentroid(known->zip.substr(0, 5))
+                                       : std::nullopt;
+            if (!LooksCanadian(callsign) && origin.has_value() && station_zip.has_value())
+            {
+                source = UlsSource(
+                    DistanceMiles(origin->lat, origin->lon, station_zip->lat, station_zip->lon));
+            }
+        }
+        if (suggestions->size() >= max_suggestions)
+        {
+            suggestions->pop_back();
+            sources->pop_back();
+        }
+        suggestions->push_back(*known);
+        sources->push_back(source);
+    }
 
     void RefreshCallsignSuggestions(AppState* state)
     {
@@ -3265,6 +3334,10 @@ namespace ql
                                   state->active_net_partial_match_canada, kMaxSuggestions,
                                   &state->modal_callsign_suggestions,
                                   &state->modal_callsign_suggestion_sources);
+        MarkTypedCallsignMatch(state, state->modal_station.callsign, kMaxSuggestions,
+                               &state->modal_callsign_suggestions,
+                               &state->modal_callsign_suggestion_sources,
+                               &state->selected_suggestion_index);
         state->modal_callsign_suggestion_labels =
             FormatMatches(state->modal_callsign_suggestions,
                           state->modal_callsign_suggestion_sources, state->list_width);
@@ -3754,6 +3827,10 @@ namespace ql
                                   state->edit_net_partial_match_index == 1, kMaxSuggestions,
                                   &state->saved_station_suggestions,
                                   &state->saved_station_suggestion_sources);
+        MarkTypedCallsignMatch(state, state->saved_station.callsign, kMaxSuggestions,
+                               &state->saved_station_suggestions,
+                               &state->saved_station_suggestion_sources,
+                               &state->selected_saved_station_suggestion_index);
         state->saved_station_suggestion_labels =
             FormatMatches(state->saved_station_suggestions, state->saved_station_suggestion_sources,
                           state->list_width);
@@ -3766,30 +3843,7 @@ namespace ql
             FillSavedStationFromKnownStation(state);
             return;
         }
-        // The callsign typed in full is the one meant, even if it's listed
-        // further down or isn't among the matches at all (a station
-        // further away than the Nearby Radius). Otherwise, the match
-        // marked ">".
-        std::string typed = NormalizeCallsign(state->saved_station.callsign);
-        bool typed_is_listed = false;
-        for (std::size_t i = 0; i < state->saved_station_suggestions.size(); ++i)
-        {
-            if (state->saved_station_suggestions[i].callsign == typed)
-            {
-                state->selected_saved_station_suggestion_index = static_cast<int>(i);
-                typed_is_listed = true;
-                break;
-            }
-        }
-        if (!typed_is_listed && state->selected_saved_station_suggestion_index == 0 &&
-            FillSavedStationFromKnownStation(state))
-        {
-            state->saved_station_suggestions.clear();
-            state->saved_station_suggestion_labels.clear();
-            state->saved_station_suggestion_sources.clear();
-            return;
-        }
-
+        // The match marked ">" (see MarkTypedCallsignMatch).
         state->saved_station =
             state->saved_station_suggestions[state->selected_saved_station_suggestion_index];
         // Fill County in now, so it shows in the form as soon as the station

@@ -477,13 +477,15 @@ namespace ql
 
         if (state_->show_saved_station_modal)
         {
-            bool leaving_callsign = event == ftxui::Event::Tab || event == ftxui::Event::TabReverse;
+            bool leaving_callsign = event == ftxui::Event::Tab ||
+                                    event == ftxui::Event::TabReverse ||
+                                    event == ftxui::Event::F2 || event == ftxui::Event::F3;
             if (leaving_callsign && state_->saved_station_callsign_input &&
                 state_->saved_station_callsign_input->Focused())
             {
-                // What's known about the callsign typed, whether or not it
-                // was among the matches (see FillSavedStationFromKnownStation).
-                FillSavedStationFromKnownStation(state_);
+                // The match marked ">", as in the New Check-In window; with
+                // no matches, what's known about the callsign typed.
+                ApplySelectedSavedStationSuggestion(state_);
             }
             if (MoveSuggestionHighlight(event, state_->saved_station_callsign_input,
                                         state_->saved_station_suggestions.size(),
@@ -844,32 +846,11 @@ namespace ql
 
     void CallsignLookupHandler::operator()() const
     {
-        // If suggestions are showing, Enter on the callsign field accepts the
-        // one marked ">". Only fall back to a bare exact-match lookup when
-        // there's nothing to pick from.
+        // If matches are showing, Enter on the callsign field takes the one
+        // marked ">" (see MarkTypedCallsignMatch). Only fall back to a bare
+        // exact-match lookup when there's nothing to pick from.
         if (!state_->modal_callsign_suggestions.empty())
         {
-            // The callsign typed in full is the one meant, even if it's
-            // listed further down or isn't among the matches at all (a
-            // station further away than the Nearby Radius). Otherwise, the
-            // match marked ">".
-            std::string typed = NormalizeCallsign(state_->modal_station.callsign);
-            for (std::size_t i = 0; i < state_->modal_callsign_suggestions.size(); ++i)
-            {
-                if (state_->modal_callsign_suggestions[i].callsign == typed)
-                {
-                    state_->selected_suggestion_index = static_cast<int>(i);
-                    ApplySelectedCallsignSuggestion(state_);
-                    return;
-                }
-            }
-            if (state_->selected_suggestion_index == 0 && FillCheckInFromKnownStation(state_))
-            {
-                state_->modal_callsign_suggestions.clear();
-                state_->modal_callsign_suggestion_labels.clear();
-                state_->modal_callsign_suggestion_sources.clear();
-                return;
-            }
             ApplySelectedCallsignSuggestion(state_);
             return;
         }
@@ -1028,14 +1009,24 @@ namespace ql
         }
 
         bool leaving_callsign = event == ftxui::Event::Tab || event == ftxui::Event::TabReverse ||
+                                event == ftxui::Event::F2 || event == ftxui::Event::F3 ||
                                 event == ftxui::Event::F4 || event == ftxui::Event::F5 ||
                                 event == ftxui::Event::F6;
         if (state_->show_new_station_modal && leaving_callsign && state_->modal_callsign_input &&
             state_->modal_callsign_input->Focused())
         {
-            // What's known about the callsign typed, whether or not it was
-            // among the matches (see FillCheckInFromKnownStation).
-            FillCheckInFromKnownStation(state_);
+            // However the callsign field is left -- to another field or
+            // straight to logging -- the match marked ">" is the one taken,
+            // just as the screen shows it. With no matches, what's known
+            // about the callsign typed (see FillCheckInFromKnownStation).
+            if (!state_->modal_callsign_suggestions.empty())
+            {
+                ApplySelectedCallsignSuggestion(state_);
+            }
+            else
+            {
+                FillCheckInFromKnownStation(state_);
+            }
         }
 
         if (state_->show_new_station_modal &&
@@ -1073,6 +1064,22 @@ namespace ql
             (event == ftxui::Event::F4 || event == ftxui::Event::F5 || event == ftxui::Event::F6))
         {
             bool is_new = state_->show_new_station_modal;
+            // Remarks and Comment open with the cursor at the end of what's
+            // there, ready to add to it.
+            if (event == ftxui::Event::F4)
+            {
+                int* cursor =
+                    is_new ? &state_->modal_remarks_cursor : &state_->edit_checkin_remarks_cursor;
+                *cursor = static_cast<int>(
+                    (is_new ? state_->modal_remarks : state_->edit_checkin_remarks).size());
+            }
+            else if (event == ftxui::Event::F5)
+            {
+                int* cursor =
+                    is_new ? &state_->modal_comment_cursor : &state_->edit_checkin_comment_cursor;
+                *cursor = static_cast<int>(
+                    (is_new ? state_->modal_comment : state_->edit_checkin_comment).size());
+            }
             ftxui::Component target =
                 event == ftxui::Event::F4
                     ? (is_new ? state_->modal_remarks_input : state_->edit_checkin_remarks_input)

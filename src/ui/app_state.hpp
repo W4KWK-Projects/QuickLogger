@@ -430,6 +430,13 @@ namespace ql
         ftxui::Component edit_checkin_remarks_input;
         ftxui::Component edit_checkin_comment_input;
         ftxui::Component edit_checkin_role_input;
+        // Where the cursor sits in each of those Remarks and Comment fields.
+        // F4/F5 put it at the end, so what's typed adds to a prefilled
+        // default remark rather than landing in front of it.
+        int modal_remarks_cursor = 0;
+        int modal_comment_cursor = 0;
+        int edit_checkin_remarks_cursor = 0;
+        int edit_checkin_comment_cursor = 0;
         // Callsign autocomplete suggestions, refreshed live as the operator
         // types (see RefreshCallsignSuggestions). Tier 1 (stations known to
         // this specific net, via real check-ins or SaveNetStation) is listed
@@ -1075,9 +1082,12 @@ namespace ql
     // Copies the highlighted entry of AppState::modal_callsign_suggestions
     // (AppState::selected_suggestion_index) into AppState::modal_station, pulls
     // its default remarks the same way CallsignLookupHandler does, and clears
-    // the suggestion list. Called by CallsignLookupHandler (Enter on the
-    // callsign field while suggestions are showing). Does nothing if there
-    // are no suggestions.
+    // the suggestion list. Called whenever the callsign field is left while
+    // suggestions are showing -- Enter, Tab, F2-F6 (see
+    // ActiveNetKeyHandler) -- so the match marked ">" is always the one
+    // taken. If the callsign typed is one of the matches, it's the one
+    // marked (RefreshCallsignSuggestions). Does nothing if there are no
+    // suggestions.
     void ApplySelectedCallsignSuggestion(AppState* state);
 
     // Loads AppState::edit_net_* fields from `net` and its saved stations,
@@ -1215,12 +1225,11 @@ namespace ql
     // suggestions if the callsign field is empty.
     void RefreshSavedStationSuggestions(AppState* state);
 
-    // Enter on the Saved Station window's callsign: copies the highlighted
-    // entry of AppState::saved_station_suggestions into
-    // AppState::saved_station and clears the suggestion list. A callsign
-    // typed in full is taken even if it's further down the list or not in
-    // it at all (FillSavedStationFromKnownStation), unless the highlight
-    // was moved; with no suggestions, it's looked up the same way.
+    // Leaving the Saved Station window's callsign (Enter, Tab, F2/F3):
+    // copies the highlighted entry of AppState::saved_station_suggestions
+    // into AppState::saved_station and clears the suggestion list, the same
+    // as ApplySelectedCallsignSuggestion. With no suggestions, what's known
+    // about the callsign typed (FillSavedStationFromKnownStation).
     void ApplySelectedSavedStationSuggestion(AppState* state);
 
     // Fills in `station->county` if it's currently blank -- a no-op

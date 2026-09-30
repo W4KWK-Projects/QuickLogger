@@ -1282,10 +1282,14 @@ namespace ql
 
         ftxui::Component input_signal_report =
             ftxui::Input(&state->modal_signal_report, "Signal Report", SingleLineInputOption());
+        ftxui::InputOption remarks_option = SingleLineInputOption();
+        remarks_option.cursor_position = &state->modal_remarks_cursor;
         ftxui::Component input_remarks =
-            ftxui::Input(&state->modal_remarks, "Remarks", SingleLineInputOption());
+            ftxui::Input(&state->modal_remarks, "Remarks", remarks_option);
+        ftxui::InputOption comment_option = SingleLineInputOption();
+        comment_option.cursor_position = &state->modal_comment_cursor;
         ftxui::Component input_comment =
-            ftxui::Input(&state->modal_comment, "Comment", SingleLineInputOption());
+            ftxui::Input(&state->modal_comment, "Comment", comment_option);
         // A Menu (not Radiobox) so arrow keys change the choice immediately --
         // no separate "confirm with Space/Enter" step, and no internal hover
         // cursor left dangling from a previous check-in. A Radiobox retains
@@ -1320,10 +1324,14 @@ namespace ql
             BuildStationFieldInputs(&state->edit_checkin_station, ftxui::Component());
         ftxui::Component edit_input_signal_report = ftxui::Input(
             &state->edit_checkin_signal_report, "Signal Report", SingleLineInputOption());
+        ftxui::InputOption edit_remarks_option = SingleLineInputOption();
+        edit_remarks_option.cursor_position = &state->edit_checkin_remarks_cursor;
         ftxui::Component edit_input_remarks =
-            ftxui::Input(&state->edit_checkin_remarks, "Remarks", SingleLineInputOption());
+            ftxui::Input(&state->edit_checkin_remarks, "Remarks", edit_remarks_option);
+        ftxui::InputOption edit_comment_option = SingleLineInputOption();
+        edit_comment_option.cursor_position = &state->edit_checkin_comment_cursor;
         ftxui::Component edit_input_comment =
-            ftxui::Input(&state->edit_checkin_comment, "Comment", SingleLineInputOption());
+            ftxui::Input(&state->edit_checkin_comment, "Comment", edit_comment_option);
         ftxui::MenuOption edit_role_choice_menu_option;
         edit_role_choice_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component edit_role_choice_menu =

@@ -1295,6 +1295,32 @@ namespace ql
         CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("K4AAA"));
     }
 
+    QL_TEST(ThePartlyTypedCallOfAMarkedMatchIsNotTaken)
+    {
+        Fixture f;
+        LoadZipData(f.db());
+        // KE4R is a real, nearby licensee; KE4RP is saved for this net, so
+        // it's the top match for "KE4R" and marked -- the match is taken,
+        // not the licensee whose call was partly typed.
+        f.db()->BulkUpsertUlsStations({MakeStation("KE4R", "NEARBY, KAY", "37402")}, 0, 1, 1);
+        std::int64_t net_id = f.StartNet("Skywarn");
+        f.db()->SaveNetStation(net_id, MakeStation("KE4RP", "Pete"), "", 1);
+
+        ClearModalFields(&f.state);
+        f.state.modal_station.callsign = "KE4R";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 2);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("KE4RP"));
+        CHECK_EQ(f.state.modal_callsign_suggestions[1].callsign, std::string("KE4R"));
+        // The exact call is listed, so it's the one marked: the screen shows
+        // which will be taken.
+        CHECK_EQ(f.state.selected_suggestion_index, 1);
+        f.state.selected_suggestion_index = 0;
+        ApplySelectedCallsignSuggestion(&f.state);
+        CHECK_EQ(f.state.modal_station.callsign, std::string("KE4RP"));
+        CHECK_EQ(f.state.modal_station.name, std::string("Pete"));
+    }
+
     QL_TEST(AStationNotAmongTheMatchesIsStillFilledIn)
     {
         Fixture f;
@@ -1307,17 +1333,29 @@ namespace ql
                                       0, 3, 1);
         f.StartNet("Skywarn");
 
-        // Enter takes the callsign typed in full over the match marked ">".
+        // The callsign typed in full is listed below the matches, with its
+        // distance, but the match marked ">" is still the one Enter takes.
         ClearModalFields(&f.state);
         f.state.modal_station.callsign = "K4NAS";
         RefreshCallsignSuggestions(&f.state);
-        REQUIRE(f.state.modal_callsign_suggestions.size() == 1);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 2);
         CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("AK4NAS"));
+        CHECK_EQ(f.state.modal_callsign_suggestions[1].callsign, std::string("K4NAS"));
+        CHECK(f.state.modal_callsign_suggestion_sources[1].find("mi)") != std::string::npos);
+        CHECK_EQ(f.state.selected_suggestion_index, 0);
         CallsignLookupHandler enter(&f.state);
+        enter();
+        CHECK_EQ(f.state.modal_station.callsign, std::string("AK4NAS"));
+        CHECK(f.state.modal_callsign_suggestions.empty());
+
+        // Moved down to it, it's the one taken.
+        ClearModalFields(&f.state);
+        f.state.modal_station.callsign = "K4NAS";
+        RefreshCallsignSuggestions(&f.state);
+        f.state.selected_suggestion_index = 1;
         enter();
         CHECK_EQ(f.state.modal_station.callsign, std::string("K4NAS"));
         CHECK_EQ(f.state.modal_station.name, std::string("NASHVILLE, NAN"));
-        CHECK(f.state.modal_callsign_suggestions.empty());
 
         // Logged without picking anything or pressing Enter: the FCC details
         // are used all the same.
@@ -1355,11 +1393,19 @@ namespace ql
         std::int64_t net_id = AddTestNet(f.db(), "Skywarn");
         OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
 
-        // Enter takes the callsign typed in full over the match marked ">".
+        // As in the New Check-In window: listed below, and taken only once
+        // it's marked.
         f.state.saved_station.callsign = "K4NAS";
         RefreshSavedStationSuggestions(&f.state);
-        REQUIRE(f.state.saved_station_suggestions.size() == 1);
+        REQUIRE(f.state.saved_station_suggestions.size() == 2);
         CHECK_EQ(f.state.saved_station_suggestions[0].callsign, std::string("AK4NAS"));
+        CHECK_EQ(f.state.saved_station_suggestions[1].callsign, std::string("K4NAS"));
+        ApplySelectedSavedStationSuggestion(&f.state);
+        CHECK_EQ(f.state.saved_station.callsign, std::string("AK4NAS"));
+        f.state.saved_station = Station();
+        f.state.saved_station.callsign = "K4NAS";
+        RefreshSavedStationSuggestions(&f.state);
+        f.state.selected_saved_station_suggestion_index = 1;
         ApplySelectedSavedStationSuggestion(&f.state);
         CHECK_EQ(f.state.saved_station.callsign, std::string("K4NAS"));
         CHECK_EQ(f.state.saved_station.name, std::string("NASHVILLE, NAN"));
