@@ -282,6 +282,12 @@ namespace ql
             ::close(state->pty_master_fd);
 
             ::login_tty(state->pty_slave_fd);
+            // The listener ignores SIGCHLD (see SshAcceptLoop), and that's
+            // inherited. The session waits for the programs it runs (sz and
+            // rz for ZMODEM) and needs their exit status; with SIGCHLD
+            // ignored they're reaped before it can, so it waited out its
+            // whole timeout and reported "timed out" after every transfer.
+            std::signal(SIGCHLD, SIG_DFL);
             std::string username = state->username;
             RunInteractiveSession(PerUserSettingsPath(username), /*is_console_session=*/false,
                                   username);
