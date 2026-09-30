@@ -245,10 +245,10 @@ namespace ql
         }
 
         return ftxui::hbox({
-                   ftxui::text("QuickLogger ") | ftxui::bold | ftxui::color(kColorLabel),
+                   ftxui::text("QuickLogger ") | ftxui::color(kColorData),
                    ftxui::text(version) | ftxui::color(kColorLabel),
                    ftxui::text("— ") | ftxui::color(kColorHeading),
-                   ftxui::text(title + " ") | ftxui::bold | ftxui::color(kColorHeading),
+                   ftxui::text(title + " ") | ftxui::color(kColorHeading),
                    ftxui::filler(),
                    status.empty() ? ftxui::text("")
                                   : ftxui::text(status + status_gap) | ftxui::color(kColorData),
