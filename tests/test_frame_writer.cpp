@@ -1,5 +1,6 @@
 // Sending only the changed parts of each frame (see FrameWriter).
 
+#include <cctype>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -400,6 +401,102 @@ namespace ql
         writer.Write(screen, true);
         screen.PixelAt(0, 2).character = "X";
         CHECK_EQ(writer.Write(screen, false), std::string("\x1B[3;1HX"));
+    }
+
+    // Every cursor movement in `output`: true if each is either a full
+    // "ESC[row;colH" or a step right along the row ("ESC[nC"), the only
+    // two forms known to work in every terminal QuickLogger has met. A
+    // row-only "ESC[nH" (Termius misread it as row 1; 1.7.10), a bare
+    // "ESC[H", or any other movement fails, naming it in `bad`.
+    static bool OnlySafeCursorMoves(const std::string& output, std::string* bad)
+    {
+        std::size_t i = 0;
+        while ((i = output.find("\x1B[", i)) != std::string::npos)
+        {
+            std::size_t start = i;
+            i += 2;
+            std::size_t params_end = i;
+            while (params_end < output.size() &&
+                   (std::isdigit(static_cast<unsigned char>(output[params_end])) != 0 ||
+                    output[params_end] == ';' || output[params_end] == '?' ||
+                    output[params_end] == ' '))
+            {
+                ++params_end;
+            }
+            if (params_end >= output.size())
+            {
+                break;
+            }
+            char final = output[params_end];
+            std::string params = output.substr(i, params_end - i);
+            i = params_end + 1;
+            bool movement =
+                std::string("ABCDEFGHIJKLMNPSTXZ@`abdef").find(final) != std::string::npos &&
+                final != 'J' && final != 'K';
+            if (!movement)
+            {
+                continue;  // Colors (m), cursor shape (q), clearing (J), modes (h/l).
+            }
+            bool safe = false;
+            if (final == 'H')
+            {
+                std::string::size_type semicolon = params.find(';');
+                safe = semicolon != std::string::npos && semicolon > 0 &&
+                       semicolon + 1 < params.size() &&
+                       params.find(';', semicolon + 1) == std::string::npos;
+            }
+            else if (final == 'C')
+            {
+                safe = !params.empty() && params.find(';') == std::string::npos;
+            }
+            if (!safe)
+            {
+                *bad = output.substr(start + 1, params_end - start);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    QL_TEST(FrameWriterNeverSendsARowOnlyCursorMove)
+    {
+        FrameWriter writer;
+        TestRandom random;
+        std::string bad;
+        ftxui::Screen screen = MakeScreen(40, 12);
+        // Full repaints and changes, with lines that start at the left
+        // edge (where the row-only form was used), a resize, and a
+        // visible cursor at column 1.
+        for (int frame = 0; frame < 60; ++frame)
+        {
+            if (frame == 30)
+            {
+                screen = MakeScreen(52, 15);
+            }
+            for (int change = 0; change < 6; ++change)
+            {
+                int y = random.Next(screen.dimy());
+                int x = change % 2 == 0 ? 0 : random.Next(screen.dimx());
+                RandomizeCell(&screen, &random, x, y);
+            }
+            ftxui::Screen::Cursor cursor;
+            cursor.shape =
+                frame % 3 == 0 ? ftxui::Screen::Cursor::Block : ftxui::Screen::Cursor::Hidden;
+            cursor.x = 0;
+            cursor.y = random.Next(screen.dimy());
+            screen.SetCursor(cursor);
+            std::string output = writer.Write(screen, frame % 10 == 0);
+            if (!OnlySafeCursorMoves(output, &bad))
+            {
+                CHECK_EQ(bad, std::string("a row-and-column move"));
+                return;
+            }
+        }
+        // And the check itself catches the old form.
+        CHECK(!OnlySafeCursorMoves("\x1B[3HX", &bad));
+        CHECK(!OnlySafeCursorMoves("\x1B[HX", &bad));
+        CHECK(!OnlySafeCursorMoves("\x1B[2AX", &bad));
+        CHECK(OnlySafeCursorMoves("\x1B[3;1HX\x1B[4CY\x1B[0m\x1B[?25l\x1B[2 q", &bad));
     }
 
     QL_TEST(FrameWriterRepaintsWhenAskedAndOnResize)
