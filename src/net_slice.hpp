@@ -112,4 +112,111 @@ namespace ql
     std::int64_t ApplySessionSlice(Database* db, const NetSlice& slice, std::int64_t net_id,
                                    std::string* error);
 
+    // ---- Merging a .qlnet into a net that's already here -------------------
+    //
+    // For a net exported from here, logged somewhere else for a while (on a
+    // laptop during an outage, say) and sent back: what the file has that
+    // the net here doesn't is added, and nothing here is changed except
+    // where the operator chooses to replace a session.
+
+    // How one of the file's sessions compares with the net here.
+    enum class MergeSessionKind
+    {
+        kNew,          // Not here: added.
+        kAlreadyHere,  // Here with the same check-ins and notes: left alone.
+        kDiffers,      // Here, but its check-ins or notes differ: kept,
+                       // unless MergeSession::replace.
+    };
+
+    struct MergeSession
+    {
+        std::size_t file_index = 0;  // Into NetSlice::instances.
+        MergeSessionKind kind = MergeSessionKind::kNew;
+        // The session here it matched (kAlreadyHere, kDiffers), and whether
+        // it's still open here. An open session here is never replaced:
+        // it's kAlreadyHere whatever its check-ins.
+        std::int64_t local_id = 0;
+        bool local_open = false;
+        int file_check_ins = 0;
+        int local_check_ins = 0;
+        // Still open in the file; it's added closed (and renumbered).
+        bool file_open = false;
+        // kDiffers: what differs (either or both).
+        bool check_ins_differ = false;
+        bool notes_differ = false;
+        // When the check-ins differ: the callsigns whose check-in differs
+        // (remarks, signal report...), those only in the file, and those
+        // only here, each sorted.
+        std::vector<std::string> callsigns_changed;
+        std::vector<std::string> callsigns_only_in_file;
+        std::vector<std::string> callsigns_only_here;
+        // kDiffers only: replace the session here with the file's.
+        bool replace = false;
+    };
+
+    // One of a station's details, filled in both here and in the file, but
+    // differently (case aside): e.g. a member ID of SP-41 here, SP-42 there.
+    struct StationDetailDifference
+    {
+        const char* field = "";  // As shown: "member ID", "city"...
+        int field_index = 0;     // Which detail (see kDetailFields in net_slice.cpp).
+        std::string here;
+        std::string file;
+    };
+
+    // A station known both here and in the file whose details differ.
+    // Kept as it is here unless `replace`, which takes the file's values
+    // for the differing details. (Details blank on one side never count:
+    // a blank here is just filled in.)
+    struct MergeStationConflict
+    {
+        const Station* file_station = nullptr;  // Into the slice.
+        std::vector<StationDetailDifference> differences;
+        bool replace = false;
+    };
+
+    struct NetMergePlan
+    {
+        std::int64_t target_net_id = 0;
+        std::vector<MergeSession> sessions;  // One per session in the file, in its order.
+        int new_saved_stations = 0;          // The file's saved stations not saved here yet.
+        int known_saved_stations = 0;        // Those already saved here.
+        // Stations in the file and here whose details differ, by callsign.
+        std::vector<MergeStationConflict> station_conflicts;
+    };
+
+    // The same session, logged twice: their times overlap. Each session's
+    // time is from its start to when it was closed; for one still open (or
+    // closed without a recorded time), starts within 30 minutes of each
+    // other. Without a start time on either, the same date and the same
+    // check-ins (see SameCheckIns).
+    bool SameSession(const NetInstance& a, const std::vector<CheckIn>& a_check_ins,
+                     const NetInstance& b, const std::vector<CheckIn>& b_check_ins);
+
+    // The same callsigns, signal reports, remarks, comments and roles, in
+    // any order (numbers and times aside).
+    bool SameCheckIns(const std::vector<CheckIn>& a, const std::vector<CheckIn>& b);
+
+    // Compares `slice` with net `target_net_id` here, changing nothing.
+    // Each session here is matched with at most one of the file's.
+    NetMergePlan PlanNetMerge(Database* db, const NetSlice& slice, std::int64_t target_net_id);
+
+    struct NetMergeResult
+    {
+        int sessions_added = 0;
+        int sessions_replaced = 0;
+        int saved_stations_added = 0;
+        int stations_replaced = 0;
+    };
+
+    // Carries out `plan` (from PlanNetMerge on the same slice), all of it in
+    // one transaction: the file's saved stations not saved here are added
+    // with their remarks (those already here keep theirs); every station in
+    // the file fills in only details missing here; kNew sessions are added,
+    // and kDiffers ones marked `replace` replace the session here; the
+    // station_conflicts marked `replace` take the file's details. A session
+    // open in the file is added closed, at its last check-in, and
+    // renumbered. The net's own settings aren't touched.
+    NetMergeResult ApplyNetMerge(Database* db, const NetSlice& slice, const NetMergePlan& plan);
+
 }  // namespace ql

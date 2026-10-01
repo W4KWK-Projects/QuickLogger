@@ -1,6 +1,7 @@
 // The app's behavior below the screen: logging, editing and deleting
 // check-ins, numbered picks, autocomplete, county fill-in, import/export.
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <optional>
@@ -10,8 +11,12 @@
 #include "../src/date_utils.hpp"
 #include "../src/db/database.hpp"
 #include "../src/file_export.hpp"
+#include "../src/mode_rules.hpp"
 #include "../src/net_slice.hpp"
 #include "../src/show_folder.hpp"
+#include "../src/update_check.hpp"
+#include "../src/ui/mouse.hpp"
+#include "../src/zmodem_send.hpp"
 #include "../src/ui/app_state.hpp"
 #include "../src/ui/handlers.hpp"
 #include "test_framework.hpp"
@@ -330,6 +335,118 @@ namespace ql
         CHECK(f.state.show_edit_checkin_modal);
     }
 
+    QL_TEST(SessionNotesAreEditedWithF12AndSavedWithF2)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        f.state.page = kPageActiveNet;
+        AppKeyHandler keys(&f.state);
+        CHECK(keys(ftxui::Event::F12));
+        CHECK(f.state.show_session_notes_modal);
+        CHECK(!f.state.session_notes_read_only);
+        CHECK(f.state.session_notes_text.empty());
+
+        // Esc leaves the notes as they were: none.
+        f.state.session_notes_text = "Not kept";
+        CHECK(keys(ftxui::Event::Escape));
+        CHECK(!f.state.show_session_notes_modal);
+        CHECK(f.db()->GetNetInstanceById(f.state.active_instance.id)->notes.empty());
+
+        // F2 saves them, without trailing blank lines; other F-keys do
+        // nothing behind the window.
+        CHECK(keys(ftxui::Event::F12));
+        f.state.session_notes_text = "Tornado touched down.\nMany check-ins.\n\n";
+        CHECK(keys(ftxui::Event::F4));
+        CHECK(!f.state.show_confirm_prompt);
+        CHECK(keys(ftxui::Event::F2));
+        CHECK(!f.state.show_session_notes_modal);
+        CHECK(!f.state.show_new_station_modal);
+        CHECK_EQ(f.db()->GetNetInstanceById(f.state.active_instance.id)->notes,
+                 std::string("Tornado touched down.\nMany check-ins."));
+        CHECK_EQ(f.state.status_message, std::string("Session notes saved."));
+
+        // Opening again shows them, with the cursor at the end.
+        CHECK(keys(ftxui::Event::F12));
+        CHECK_EQ(f.state.session_notes_text, std::string("Tornado touched down.\nMany check-ins."));
+        CHECK_EQ(f.state.session_notes_cursor, static_cast<int>(f.state.session_notes_text.size()));
+        CloseSessionNotes(&f.state);
+
+        // And from History, after the session closes.
+        CloseActiveNet(&f.state);
+        RefreshNetHistory(&f.state);
+        f.state.page = kPageNetHistory;
+        CHECK(keys(ftxui::Event::F12));
+        CHECK(f.state.show_session_notes_modal);
+        CHECK_EQ(f.state.session_notes_text, std::string("Tornado touched down.\nMany check-ins."));
+        f.state.session_notes_text = "Edited later.";
+        SaveSessionNotes(&f.state);
+        CHECK_EQ(f.db()->GetNetInstanceById(f.state.history_instances[0].id)->notes,
+                 std::string("Edited later."));
+    }
+
+    QL_TEST(EditAndDeleteUseTheSameKeysAsTheActiveNet)
+    {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("Skywarn");
+        // History: F5 deletes a check-in, as on the active net; F4 a session.
+        RefreshNetHistory(&f.state);
+        f.state.page = kPageNetHistory;
+        NetHistoryKeyHandler history_keys(&f.state);
+        CHECK(history_keys(ftxui::Event::F5));
+        CHECK(f.state.row_pick_action == RowPickAction::kDeleteHistoryCheckIn);
+        CancelRowPick(&f.state);
+        CHECK(history_keys(ftxui::Event::F4));
+        CHECK(f.state.row_pick_action == RowPickAction::kDeleteNetInstance);
+        CancelRowPick(&f.state);
+
+        // Edit Net: F3 edits a saved station, as F3 edits a check-in; F9
+        // no longer does.
+        f.db()->SaveNetStation(net_id, MakeStation("K4AAA"), "", 1);
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
+        f.state.page = kPageEditNet;
+        EditNetKeyHandler edit_keys(&f.state);
+        CHECK(!edit_keys(ftxui::Event::F9));
+        CHECK(f.state.row_pick_action == RowPickAction::kNone);
+        CHECK(edit_keys(ftxui::Event::F3));
+        CHECK(f.state.row_pick_action == RowPickAction::kEditSavedStation);
+    }
+
+    QL_TEST(ClickingTheUpdateNoticeSaysWhereTheNewVersionIs)
+    {
+        Fixture f;
+        // Never a desktop console, so no browser opens during the tests.
+        f.state.is_console_session = false;
+        AppKeyHandler keys(&f.state);
+        // Nothing found: nothing happens.
+        SetAvailableUpdate("");
+        CHECK(keys(OpenUpdatePageEvent()));
+        CHECK(f.state.status_message.empty());
+        // Found, but not at a desktop console here (an SSH session): the
+        // link, on whatever page.
+        SetAvailableUpdate("9.9.9");
+        f.state.page = kPageNetHistory;
+        CHECK(keys(OpenUpdatePageEvent()));
+        CHECK_EQ(f.state.status_message,
+                 "QuickLogger 9.9.9 is out: " + std::string(kReleasesPageUrl));
+        SetAvailableUpdate("");
+    }
+
+    QL_TEST(AViewersSessionNotesAreReadOnly)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        f.db()->SetNetInstanceNotes(f.state.active_instance.id, "Theirs.");
+        f.state.viewing_only = true;
+        OpenActiveSessionNotes(&f.state);
+        CHECK(f.state.session_notes_read_only);
+        CHECK_EQ(f.state.session_notes_text, std::string("Theirs."));
+        f.state.session_notes_text = "Changed";
+        SaveSessionNotes(&f.state);
+        CHECK(!f.state.show_session_notes_modal);
+        CHECK_EQ(f.db()->GetNetInstanceById(f.state.active_instance.id)->notes,
+                 std::string("Theirs."));
+    }
+
     QL_TEST(AnOpenSessionCantBeDeletedFromHistory)
     {
         Fixture f;
@@ -537,7 +654,8 @@ namespace ql
         RefreshNetHistory(&f.state);
         CHECK_EQ(f.state.history_instance_labels[0].substr(end_column, 8),
                  FormatLocalTimeOfDay(ended));
-        CHECK_EQ(header.find("Net Control") - header.find("End"), std::size_t{9});
+        // End is 9 wide (a time and a space), then the one-space gap.
+        CHECK_EQ(header.find("Net Control") - header.find("End"), std::size_t{10});
     }
 
     QL_TEST(ExportedLogIncludesTheEndTime)
@@ -1149,8 +1267,13 @@ namespace ql
         RefreshNets(&f.state);
         REQUIRE(f.state.net_names.size() == 3);
         CHECK_EQ(f.state.net_names[0], std::string("Old"));
-        CHECK(f.state.net_names[1].find("Skywarn  created " + FormatLocalDate(1790000000)) == 0);
-        CHECK(f.state.net_names[2].find("Skywarn  imported " + FormatLocalDate(1790100000)) == 0);
+        // The names get a 30-column Net column (see RefreshNets), then the
+        // Frequency column (blank here) and the two-space gaps.
+        std::string gap(30 - 7 + 2 + 10 + 2, ' ');
+        CHECK(f.state.net_names[1].find("Skywarn" + gap + "created " +
+                                        FormatLocalDate(1790000000)) == 0);
+        CHECK(f.state.net_names[2].find("Skywarn" + gap + "imported " +
+                                        FormatLocalDate(1790100000)) == 0);
     }
 
     // ---- Autocomplete --------------------------------------------------------------
@@ -1566,6 +1689,43 @@ namespace ql
         CHECK(ad_hoc->partial_match_canada);
     }
 
+    QL_TEST(ANetsModeIsPickedFromTheList)
+    {
+        Fixture f;
+        // FM unless another is picked.
+        ResetCreateNetForm(&f.state);
+        CHECK_EQ(f.state.new_net_mode_index, 0);
+        f.state.new_net_name = "Fusion Net";
+        f.state.new_net_mode_index = NetModeIndex("Fusion");
+        CreateNetSubmitHandler create(&f.state);
+        create();
+        REQUIRE(f.state.nets.size() == 1);
+        CHECK_EQ(f.state.nets[0].mode, std::string("Fusion"));
+        CHECK_EQ(f.state.new_net_mode_index, 0);
+
+        // A net with no mode (an old free-text one that wasn't recognized)
+        // opens on FM, saying so, and saves whatever is picked.
+        Net net = f.state.nets[0];
+        net.mode = "";
+        f.db()->UpdateNet(net);
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net.id));
+        CHECK(f.state.edit_net_mode_was_blank);
+        CHECK_EQ(f.state.edit_net_mode_index, 0);
+        f.state.edit_net_mode_index = NetModeIndex("CW");
+        CHECK(SaveEditNetForm(&f.state));
+        CHECK_EQ(f.db()->GetNetById(net.id)->mode, std::string("CW"));
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net.id));
+        CHECK(!f.state.edit_net_mode_was_blank);
+        CHECK_EQ(f.state.edit_net_mode_index, NetModeIndex("CW"));
+
+        // Ad hoc nets too.
+        f.state.operator_callsign = "W4KWK";
+        f.state.new_net_name = "Tailgate";
+        f.state.new_net_mode_index = NetModeIndex("SSB");
+        StartAdHocNet(&f.state);
+        CHECK_EQ(f.db()->GetNetById(f.state.start_net.id)->mode, std::string("SSB"));
+    }
+
     QL_TEST(AutocompleteShowsAsManyAsTheScreenHasRoomFor)
     {
         Fixture f;
@@ -1787,16 +1947,17 @@ namespace ql
 
         // History sessions.
         std::snprintf(expected, sizeof(expected),
-                      "  %-10.10s %-8.8s %-8.8s %-12.12s %-12.12s %-12.12s %s", "Date", "Start",
+                      "  %-11.11s %-9.9s %-9.9s %-12.12s %-13.13s %-9.9s %s", "Date", "Start",
                       "End", "Net Control", "Alternate NC", "Logger", "Status");
         CHECK_EQ(NetInstanceListHeader(80, false), std::string(expected));
-        std::snprintf(expected, sizeof(expected), "  %-10.10s %-8.8s %-8.8s %-24.24s %-12.12s %s",
+        std::snprintf(expected, sizeof(expected), "  %-11.11s %-9.9s %-9.9s %-24.24s %-12.12s %s",
                       "Date", "Start", "End", "Net", "Net Control", "Status");
         CHECK_EQ(NetInstanceListHeader(80, true), std::string(expected));
 
-        // Saved stations and autocomplete matches.
-        std::snprintf(expected, sizeof(expected), "  %-10.10s %-20.20s %s", "Callsign", "Name",
-                      "Member ID");
+        // Saved stations (since 1.8.0, a wider Name and City, State at 80
+        // too, using the width) and autocomplete matches.
+        std::snprintf(expected, sizeof(expected), "  %-10.10s %-24.24s %-10.10s %s", "Callsign",
+                      "Name", "Member ID", "City, State");
         CHECK_EQ(SavedStationListHeader(80), std::string(expected));
         std::snprintf(expected, sizeof(expected), "  %-10.10s %-20.20s %s", "Callsign", "Name",
                       "Source");
@@ -1808,10 +1969,13 @@ namespace ql
                       "(this net)");
         CHECK_EQ(f.state.modal_callsign_suggestion_labels[0], std::string(expected));
 
-        // The net list: the name padded to the longest, then when it was made.
+        // The net list: the name padded to 30 columns (or 4 past the
+        // longest name), the frequency (none here), then whether a session
+        // is open.
         RefreshNets(&f.state);
         REQUIRE(f.state.net_names.size() == 1);
-        CHECK_EQ(f.state.net_names[0], std::string("Skywarn  session open"));
+        CHECK_EQ(f.state.net_names[0],
+                 "Skywarn" + std::string(30 - 7 + 2 + 10 + 2, ' ') + "session open");
     }
 
     QL_TEST(AWiderTerminalShowsMoreOfEveryList)
@@ -1827,7 +1991,10 @@ namespace ql
                                "mobile", 1);
         RefreshNets(&f.state);
         OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
-        CHECK(f.state.net_names[0].find("146.940") == std::string::npos);
+        // At 80 the net list has the frequency (since 1.8.0) but not the
+        // mode or recurrence.
+        CHECK(f.state.net_names[0].find("146.940") != std::string::npos);
+        CHECK(f.state.net_names[0].find("Tuesdays 8pm") == std::string::npos);
         CHECK(f.state.edit_net_saved_station_labels[0].find("mobile") == std::string::npos);
 
         UpdateListWidths(&f.state, 130);
@@ -1841,7 +2008,7 @@ namespace ql
         // Narrower than 80 lays out as at 80.
         UpdateListWidths(&f.state, 60);
         CHECK_EQ(f.state.list_width, 80);
-        CHECK(f.state.net_names[0].find("146.940") == std::string::npos);
+        CHECK(f.state.net_names[0].find("Tuesdays 8pm") == std::string::npos);
     }
 
     QL_TEST(ExportedLogsHaveEveryColumnWhateverTheTerminal)
@@ -1938,7 +2105,8 @@ namespace ql
             if (f.state.show_zmodem_confirm_modal)
             {
                 CHECK(f.state.zmodem_action == ZmodemAction::kShowFolder);
-                CHECK_EQ(f.state.zmodem_send_paths.size(), std::size_t{2});
+                // The log, .qlsession and .adi, not zipped.
+                CHECK_EQ(f.state.zmodem_send_paths.size(), std::size_t{3});
                 CancelZmodemAction(&f.state);
                 CHECK(!f.state.show_zmodem_confirm_modal);
                 CHECK(f.state.status_message.find("Saved to") == 0);
@@ -1967,6 +2135,25 @@ namespace ql
         std::string mine = f.dir().File("exports/ssh-users/wes");
         CHECK_EQ(ListFilesWithExtension(mine, ".txt").size(), std::size_t{1});
         CHECK_EQ(ListFilesWithExtension(mine, ".qlsession").size(), std::size_t{1});
+        CHECK_EQ(ListFilesWithExtension(mine, ".adi").size(), std::size_t{1});
+        // Zipped too, when ZMODEM can send it: just the .zip is sent.
+        std::size_t zips = ListFilesWithExtension(mine, ".zip").size();
+        CHECK_EQ(zips, std::size_t{ZmodemSendAvailable() && !NoZmodemOnThisSystem() ? 1U : 0U});
+        if (zips == 1)
+        {
+            REQUIRE(f.state.zmodem_send_paths.size() == 1);
+            CHECK(f.state.zmodem_send_paths[0].find(".zip") != std::string::npos);
+            // Once ZMODEM is done with it (here, skipped), the .zip goes;
+            // the files in it stay, and the message names them.
+            CancelZmodemAction(&f.state);
+            CHECK(ListFilesWithExtension(mine, ".zip").empty());
+            CHECK_EQ(ListFilesWithExtension(mine, ".adi").size(), std::size_t{1});
+            CHECK(f.state.status_message.find(".qlsession") != std::string::npos);
+            CHECK(f.state.status_message.find(".zip") == std::string::npos);
+            CHECK(f.state.zmodem_zip_contents.empty());
+            zips = 0;
+        }
+        f.state.show_zmodem_confirm_modal = false;
         CHECK(ListFilesWithExtension(f.dir().File("exports"), ".txt").empty());
 
         // Only their own received files are offered for import.
@@ -1984,8 +2171,9 @@ namespace ql
         f.state.ssh_username.clear();
         ExportNetLog(&f.state, "Skywarn", f.state.active_instance, f.state.active_check_ins);
         CHECK_EQ(RemoveOldSshUserFiles(f.state.db_path, kSshUserFileMaxAgeSeconds), 0);
-        // Wes's log and .qlsession, and both users' received files.
-        CHECK_EQ(RemoveOldSshUserFiles(f.state.db_path, -60), 4);
+        // Wes's log, .qlsession, .adi (and .zip), and both users' received
+        // files.
+        CHECK_EQ(RemoveOldSshUserFiles(f.state.db_path, -60), static_cast<int>(5 + zips));
         CHECK(!std::filesystem::exists(mine));
         CHECK_EQ(ListFilesWithExtension(f.dir().File("exports"), ".txt").size(), std::size_t{1});
         CHECK_EQ(ListFilesWithExtension(f.dir().File("imports"), ".qlnet").size(), std::size_t{1});
@@ -2056,7 +2244,7 @@ namespace ql
         CHECK(SaveEditNetForm(&f.state));
     }
 
-    QL_TEST(ImportingANetFileNamedLikeOneHereIsRefused)
+    QL_TEST(ANetFileNamedLikeOneHereCanOnlyBeMerged)
     {
         Fixture f;
         {
@@ -2071,10 +2259,14 @@ namespace ql
         RefreshImportNetFiles(&f.state);
         REQUIRE(f.state.import_net_files.size() == 1);
 
-        // Not asked about: refused outright, nothing imported.
+        // Never as a new net ("TAG SKYWARN" is the same name): only merged,
+        // into the net with that name.
         ImportSelectedNetSlice(&f.state);
-        CHECK(!f.state.show_confirm_prompt);
-        CHECK(f.state.form_error.find("\"TAG Skywarn\"") != std::string::npos);
+        CHECK(f.state.merge_stage == MergeStage::kChooseNet);
+        CHECK(f.state.merge_name_taken);
+        REQUIRE(f.state.merge_candidates.size() == 1);
+        CHECK_EQ(f.state.merge_candidates[0].name, std::string("TAG Skywarn"));
+        ImportSelectedNetSliceAnyway(&f.state);
         CHECK_EQ(f.db()->GetAllNets().size(), std::size_t{1});
     }
 
@@ -2094,25 +2286,371 @@ namespace ql
         RefreshImportNetFiles(&f.state);
         REQUIRE(f.state.import_net_files.size() == 1);
 
-        // Asked first, naming only the net that looks like it; Esc imports
+        // Asked first, offering only the net that looks like it; Esc imports
         // nothing.
         ImportSelectedNetSlice(&f.state);
-        CHECK(f.state.show_confirm_prompt);
-        CHECK(f.state.confirm_prompt == ConfirmPrompt::kImportLookAlikeNet);
-        REQUIRE(!f.state.confirm_prompt_lines.empty());
-        CHECK(f.state.confirm_prompt_lines[0].find("\"Hamilton Co. ARES Net\"") !=
-              std::string::npos);
-        CHECK(f.state.confirm_prompt_lines[0].find("TAG") == std::string::npos);
-        CancelConfirmPrompt(&f.state);
+        CHECK(f.state.merge_stage == MergeStage::kChooseNet);
+        CHECK(f.state.show_merge_modal);
+        CHECK(!f.state.merge_name_taken);
+        REQUIRE(f.state.merge_candidates.size() == 1);
+        CHECK_EQ(f.state.merge_candidates[0].name, std::string("Hamilton Co. ARES Net"));
+        AppKeyHandler keys(&f.state);
+        f.state.page = kPageImportNet;
+        CHECK(keys(ftxui::Event::Escape));
+        CHECK(f.state.merge_stage == MergeStage::kNone);
         CHECK_EQ(f.state.nets.size(), std::size_t{2});
 
         // Imported as a new net anyway.
         ImportSelectedNetSlice(&f.state);
-        REQUIRE(f.state.show_confirm_prompt);
-        ImportSelectedNetSliceAnyway(&f.state);
-        CHECK(!f.state.show_confirm_prompt);
+        CHECK(keys(ftxui::Event::F2));
+        CHECK(f.state.merge_stage == MergeStage::kNone);
         CHECK_EQ(f.state.nets.size(), std::size_t{3});
         CHECK_EQ(f.state.page, kPageNetList);
+    }
+
+    QL_TEST(ANetFileCanBeMergedIntoTheNetItCameFrom)
+    {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("TAG Skywarn");
+        f.Log("K4AAA");
+        CloseActiveNet(&f.state);
+        // The same net, logged elsewhere: its session, plus one more.
+        std::string file = ImportsDir(f.state.db_path) + "/skywarn.qlnet";
+        {
+            std::string error;
+            NetSlice slice = GatherNetSlice(f.db(), net_id);
+            Database other(f.dir().File("other.db"));
+            std::int64_t other_net = ApplyNetSlice(&other, slice, 0);
+            std::int64_t later =
+                AddTestInstance(&other, other_net, "2026-10-01", 1000 + 8 * 24 * 3600, "W4KWK");
+            AddTestCheckIn(&other, later, "K4ZZZ", 1);
+            REQUIRE(WriteNetSliceFile(file, GatherNetSlice(&other, other_net), &error));
+        }
+        RefreshNets(&f.state);
+        RefreshImportNetFiles(&f.state);
+        f.state.page = kPageImportNet;
+        AppKeyHandler keys(&f.state);
+
+        // The same name: it can only be merged.
+        ImportSelectedNetSlice(&f.state);
+        REQUIRE(f.state.merge_stage == MergeStage::kChooseNet);
+        CHECK(f.state.merge_name_taken);
+        CHECK(keys(ftxui::Event::F2));  // Import New isn't offered.
+        CHECK(f.state.merge_stage == MergeStage::kChooseNet);
+        CHECK_EQ(f.state.nets.size(), std::size_t{1});
+
+        // F3: the summary. Esc goes back to choosing.
+        CHECK(keys(ftxui::Event::F3));
+        REQUIRE(f.state.merge_stage == MergeStage::kSummary);
+        CHECK_EQ(f.state.merge_target_name, std::string("TAG Skywarn"));
+        CHECK(f.state.merge_conflicts.empty());
+        CHECK(keys(ftxui::Event::Escape));
+        CHECK(f.state.merge_stage == MergeStage::kChooseNet);
+        CHECK(keys(ftxui::Event::F3));
+
+        // F2 merges: one session added, nothing else changed.
+        CHECK(keys(ftxui::Event::F2));
+        CHECK(f.state.merge_stage == MergeStage::kNone);
+        CHECK_EQ(f.state.page, kPageNetList);
+        CHECK_EQ(f.state.nets.size(), std::size_t{1});
+        CHECK_EQ(f.db()->GetNetInstancesForNet(net_id).size(), std::size_t{2});
+        CHECK(f.state.status_message.find("Merged into TAG Skywarn: 1 session") == 0);
+    }
+
+    // ---- Two operators sharing one weekly net, syncing by .qlnet --------------
+
+    // Tuesday 2026-09-01, 8 PM Eastern, and a week.
+    static constexpr std::int64_t kFirstTuesday = 1788307200;
+    static constexpr std::int64_t kWeek = 7 * 24 * 60 * 60;
+
+    // Logs week `week` (0 = 2026-09-01) of net `net_id`: 8 PM to 8:45 PM,
+    // closed, with `operator_callsign` first and then `stations`.
+    static void LogTuesday(Database* db, std::int64_t net_id, int week,
+                           const std::string& operator_callsign,
+                           const std::vector<std::string>& stations)
+    {
+        static const char* const kDates[] = {"2026-09-01", "2026-09-08", "2026-09-15",
+                                             "2026-09-22", "2026-09-29", "2026-10-06"};
+        std::int64_t start = kFirstTuesday + week * kWeek;
+        std::int64_t session = AddTestInstance(db, net_id, kDates[week], start, operator_callsign);
+        AddTestCheckIn(db, session, operator_callsign, 1);
+        for (std::size_t i = 0; i < stations.size(); ++i)
+        {
+            AddTestCheckIn(db, session, stations[i], static_cast<int>(i) + 2);
+        }
+        db->CloseNetInstance(session, start + 45 * 60);
+    }
+
+    // Exports `from`'s net `net_id` to `to`'s imports folder, then imports it
+    // there through the Import page the way the operator would: the same
+    // name, so the Import or Merge window offers only Merge (F3), then the
+    // summary, then F2. Leaves `to` on the summary's result; returns the
+    // plan the summary showed.
+    static NetMergePlan SyncNet(Database* from, std::int64_t net_id, Fixture* to,
+                                bool replace_stations = false)
+    {
+        std::string error;
+        std::string file = ImportsDir(to->state.db_path) + "/Tuesday_Night_Net.qlnet";
+        REQUIRE(WriteNetSliceFile(file, GatherNetSlice(from, net_id), &error));
+        RefreshNets(&to->state);
+        RefreshImportNetFiles(&to->state);
+        to->state.selected_import_file_index = 0;
+        to->state.page = kPageImportNet;
+        AppKeyHandler keys(&to->state);
+
+        ImportSelectedNetSlice(&to->state);
+        REQUIRE(to->state.merge_stage == MergeStage::kChooseNet);
+        CHECK(to->state.merge_name_taken);  // The very same name: merge only.
+        REQUIRE(to->state.merge_candidates.size() == 1);
+        CHECK_EQ(to->state.merge_candidates[0].name, std::string("Tuesday Night Net"));
+        CHECK(keys(ftxui::Event::F3));
+        REQUIRE(to->state.merge_stage == MergeStage::kSummary);
+        // To replace a station's details: Down to its row (after any
+        // sessions that differ), then Right.
+        if (replace_stations)
+        {
+            int sessions = static_cast<int>(to->state.merge_conflicts.size());
+            for (std::size_t i = 0; i < to->state.merge_plan.station_conflicts.size(); ++i)
+            {
+                while (to->state.selected_merge_conflict < sessions + static_cast<int>(i))
+                {
+                    CHECK(keys(ftxui::Event::ArrowDown));
+                }
+                CHECK(keys(ftxui::Event::ArrowRight));
+            }
+        }
+        // A copy without the pointers into the file, which goes with the
+        // merge: what the summary showed, for the test to check.
+        NetMergePlan plan = to->state.merge_plan;
+        for (MergeStationConflict& conflict : plan.station_conflicts)
+        {
+            conflict.file_station = nullptr;
+        }
+        CHECK(keys(ftxui::Event::F2));
+        CHECK(to->state.merge_stage == MergeStage::kNone);
+        std::filesystem::remove(file);
+        return plan;
+    }
+
+    static int Count(const NetMergePlan& plan, MergeSessionKind kind)
+    {
+        int count = 0;
+        for (const MergeSession& session : plan.sessions)
+        {
+            count += session.kind == kind ? 1 : 0;
+        }
+        return count;
+    }
+
+    // The net's sessions as "date:check-ins" and its saved stations as
+    // "callsign:member id:remarks", sorted, for comparing two machines.
+    static std::vector<std::string> Sessions(Database* db, std::int64_t net_id)
+    {
+        std::vector<std::string> sessions;
+        for (const NetInstance& session : db->GetNetInstancesForNet(net_id))
+        {
+            sessions.push_back(session.instance_date + ":" +
+                               std::to_string(db->GetCheckInsForNetInstance(session.id).size()));
+        }
+        std::sort(sessions.begin(), sessions.end());
+        return sessions;
+    }
+
+    static std::vector<std::string> SavedStations(Database* db, std::int64_t net_id)
+    {
+        std::vector<std::string> saved;
+        for (const Station& station : db->GetSavedStationsForNet(net_id))
+        {
+            saved.push_back(station.callsign + ":" + station.member_id + ":" +
+                            db->GetSavedNetStationRemarks(net_id, station.callsign));
+        }
+        std::sort(saved.begin(), saved.end());
+        return saved;
+    }
+
+    // K4BTH, a station both operators saved: not at all, with a member ID
+    // on B's machine only, or with different member IDs on each.
+    enum class SharedStation
+    {
+        kNone,
+        kMemberIdOnBOnly,
+        kDifferentMemberIds,
+    };
+
+    // Two operators share the Tuesday net from the same start (one exported
+    // it, the other imported it), alternate weeks logging it, and each saves
+    // stations of their own, and perhaps K4BTH (see SharedStation).
+    struct AlternatingWeeks
+    {
+        Fixture a;
+        Fixture b;
+        std::int64_t a_net = 0;
+        std::int64_t b_net = 0;
+
+        explicit AlternatingWeeks(SharedStation shared)
+        {
+            Net net;
+            net.name = "Tuesday Night Net";
+            net.mode = "FM";
+            net.default_frequency = "146.940";
+            a_net = a.db()->CreateNet(net);
+            a.db()->SaveNetStation(a_net, MakeStation("K4OLD", "Olive Old"), "regular", 1);
+            LogTuesday(a.db(), a_net, 0, "W4KWK", {"K4OLD"});
+            std::string error;
+            b_net = ApplyNetSlice(b.db(), GatherNetSlice(a.db(), a_net), 1);
+
+            // Weeks 1, 3, 5 on B's machine; 2, 4 on A's.
+            LogTuesday(b.db(), b_net, 1, "N4BBB", {"K4OLD", "K4BEE"});
+            LogTuesday(a.db(), a_net, 2, "W4KWK", {"K4OLD", "K4AAY"});
+            LogTuesday(b.db(), b_net, 3, "N4BBB", {"K4BEE"});
+            LogTuesday(a.db(), a_net, 4, "W4KWK", {"K4AAY", "K4OLD"});
+            LogTuesday(b.db(), b_net, 5, "N4BBB", {"K4OLD"});
+            // Saved stations each picked up along the way.
+            a.db()->SaveNetStation(a_net, MakeStation("K4AAY", "Amy Aye"), "mobile", 2);
+            a.db()->SaveNetStation(a_net, MakeStation("K4AAZ", "Al Zed"), "", 2);
+            b.db()->SaveNetStation(b_net, MakeStation("K4BEE", "Bea Bee"), "base", 2);
+            if (shared != SharedStation::kNone)
+            {
+                Station on_a = MakeStation("K4BTH", "Beth Both");
+                if (shared == SharedStation::kDifferentMemberIds)
+                {
+                    on_a.member_id = "SP-41";
+                }
+                a.db()->SaveNetStation(a_net, on_a, "on A", 2);
+                Station on_b = MakeStation("K4BTH", "Beth Both");
+                on_b.member_id = "SP-42";
+                b.db()->SaveNetStation(b_net, on_b, "on B", 2);
+            }
+        }
+    };
+
+    QL_TEST(OperatorsAlternatingWeeksSyncWithNothingInConflict)
+    {
+        AlternatingWeeks net(SharedStation::kNone);
+
+        // B sends theirs to A: B's three weeks are new, the shared first
+        // week is already there, nothing differs; B's one saved station is
+        // new, and the one they share is known.
+        NetMergePlan to_a = SyncNet(net.b.db(), net.b_net, &net.a);
+        CHECK_EQ(to_a.sessions.size(), std::size_t{4});
+        CHECK_EQ(Count(to_a, MergeSessionKind::kNew), 3);
+        CHECK_EQ(Count(to_a, MergeSessionKind::kAlreadyHere), 1);
+        CHECK_EQ(Count(to_a, MergeSessionKind::kDiffers), 0);
+        CHECK(to_a.station_conflicts.empty());
+        CHECK_EQ(to_a.new_saved_stations, 1);
+        CHECK_EQ(to_a.known_saved_stations, 1);
+        CHECK(net.a.state.status_message.find("3 sessions and 1 saved station added") !=
+              std::string::npos);
+
+        // A sends everything back: A's two weeks are new to B.
+        NetMergePlan to_b = SyncNet(net.a.db(), net.a_net, &net.b);
+        CHECK_EQ(Count(to_b, MergeSessionKind::kNew), 2);
+        CHECK_EQ(Count(to_b, MergeSessionKind::kAlreadyHere), 4);
+        CHECK_EQ(Count(to_b, MergeSessionKind::kDiffers), 0);
+        CHECK_EQ(to_b.new_saved_stations, 2);
+
+        // Both machines now have the same six Tuesdays and saved stations.
+        std::vector<std::string> sessions = Sessions(net.a.db(), net.a_net);
+        CHECK_EQ(sessions.size(), std::size_t{6});
+        CHECK(sessions == Sessions(net.b.db(), net.b_net));
+        CHECK(SavedStations(net.a.db(), net.a_net) == SavedStations(net.b.db(), net.b_net));
+        CHECK_EQ(SavedStations(net.a.db(), net.a_net).size(), std::size_t{4});
+        // Each session's check-ins came with it.
+        CHECK_EQ(sessions[1], std::string("2026-09-08:3"));
+
+        // Syncing again finds nothing to do, either way.
+        NetMergePlan again = SyncNet(net.b.db(), net.b_net, &net.a);
+        CHECK_EQ(Count(again, MergeSessionKind::kNew), 0);
+        CHECK_EQ(Count(again, MergeSessionKind::kDiffers), 0);
+        CHECK_EQ(again.new_saved_stations, 0);
+        CHECK_EQ(Sessions(net.a.db(), net.a_net).size(), std::size_t{6});
+    }
+
+    QL_TEST(OperatorsAlternatingWeeksFillInEachOthersMissingMemberId)
+    {
+        AlternatingWeeks net(SharedStation::kMemberIdOnBOnly);
+
+        // K4BTH is saved on both machines: known, not new, and not a
+        // session conflict (saved stations are never asked about).
+        NetMergePlan to_a = SyncNet(net.b.db(), net.b_net, &net.a);
+        CHECK_EQ(Count(to_a, MergeSessionKind::kNew), 3);
+        CHECK_EQ(Count(to_a, MergeSessionKind::kDiffers), 0);
+        CHECK_EQ(to_a.new_saved_stations, 1);
+        CHECK_EQ(to_a.known_saved_stations, 2);
+        // A blank on one side isn't a conflict: it's just filled in.
+        CHECK(to_a.station_conflicts.empty());
+        // A's copy gains the member ID it lacked, and keeps its own remarks.
+        std::optional<Station> on_a = net.a.db()->FindStationByCallsign("K4BTH");
+        REQUIRE(on_a.has_value());
+        CHECK_EQ(on_a->member_id, std::string("SP-42"));
+        CHECK_EQ(on_a->name, std::string("Beth Both"));
+        CHECK_EQ(net.a.db()->GetSavedNetStationRemarks(net.a_net, "K4BTH"), std::string("on A"));
+
+        // Back to B: B keeps its member ID (a blank on A never erases it)
+        // and its own remarks.
+        SyncNet(net.a.db(), net.a_net, &net.b);
+        std::optional<Station> on_b = net.b.db()->FindStationByCallsign("K4BTH");
+        REQUIRE(on_b.has_value());
+        CHECK_EQ(on_b->member_id, std::string("SP-42"));
+        CHECK_EQ(net.b.db()->GetSavedNetStationRemarks(net.b_net, "K4BTH"), std::string("on B"));
+
+        // Everything else matches; only each machine's own remarks for
+        // K4BTH differ, by design.
+        CHECK(Sessions(net.a.db(), net.a_net) == Sessions(net.b.db(), net.b_net));
+        std::vector<std::string> a_saved = SavedStations(net.a.db(), net.a_net);
+        std::vector<std::string> b_saved = SavedStations(net.b.db(), net.b_net);
+        REQUIRE(a_saved.size() == 5);
+        REQUIRE(b_saved.size() == 5);
+        for (std::size_t i = 0; i < a_saved.size(); ++i)
+        {
+            if (a_saved[i].rfind("K4BTH", 0) == 0)
+            {
+                CHECK_EQ(a_saved[i], std::string("K4BTH:SP-42:on A"));
+                CHECK_EQ(b_saved[i], std::string("K4BTH:SP-42:on B"));
+            }
+            else
+            {
+                CHECK_EQ(a_saved[i], b_saved[i]);
+            }
+        }
+    }
+
+    QL_TEST(OperatorsWithDifferentMemberIdsChooseWhichToKeep)
+    {
+        AlternatingWeeks net(SharedStation::kDifferentMemberIds);
+
+        // B sends to A: K4BTH's member ID is listed as differing, the
+        // sessions still merge cleanly, and Keep (the default) keeps A's.
+        NetMergePlan kept = SyncNet(net.b.db(), net.b_net, &net.a);
+        CHECK_EQ(Count(kept, MergeSessionKind::kNew), 3);
+        CHECK_EQ(Count(kept, MergeSessionKind::kDiffers), 0);
+        REQUIRE(kept.station_conflicts.size() == 1);
+        const MergeStationConflict& conflict = kept.station_conflicts[0];
+        REQUIRE(conflict.differences.size() == 1);
+        CHECK_EQ(std::string(conflict.differences[0].field), std::string("member ID"));
+        CHECK_EQ(conflict.differences[0].here, std::string("SP-41"));
+        CHECK_EQ(conflict.differences[0].file, std::string("SP-42"));
+        CHECK(!conflict.replace);
+        CHECK_EQ(net.a.db()->FindStationByCallsign("K4BTH")->member_id, std::string("SP-41"));
+
+        // Sent again, A chooses Replace: K4BTH takes B's member ID, keeping
+        // A's remarks; nothing else changes.
+        NetMergePlan replaced = SyncNet(net.b.db(), net.b_net, &net.a, true);
+        REQUIRE(replaced.station_conflicts.size() == 1);
+        CHECK(replaced.station_conflicts[0].replace);
+        CHECK_EQ(Count(replaced, MergeSessionKind::kNew), 0);
+        std::optional<Station> on_a = net.a.db()->FindStationByCallsign("K4BTH");
+        REQUIRE(on_a.has_value());
+        CHECK_EQ(on_a->member_id, std::string("SP-42"));
+        CHECK_EQ(on_a->name, std::string("Beth Both"));
+        CHECK_EQ(net.a.db()->GetSavedNetStationRemarks(net.a_net, "K4BTH"), std::string("on A"));
+        CHECK(net.a.state.status_message.find("1 station's details taken from the file") !=
+              std::string::npos);
+
+        // Now they agree: syncing back to B finds no station conflict.
+        NetMergePlan to_b = SyncNet(net.a.db(), net.a_net, &net.b);
+        CHECK(to_b.station_conflicts.empty());
+        CHECK(Sessions(net.a.db(), net.a_net) == Sessions(net.b.db(), net.b_net));
     }
 
     QL_TEST(ExportingASessionAlsoWritesItsSessionFile)

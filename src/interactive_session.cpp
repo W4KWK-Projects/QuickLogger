@@ -22,6 +22,8 @@
 #include "db/database.hpp"
 #include "settings.hpp"
 #include "uls_import.hpp"
+#include "update_check.hpp"
+#include "version.hpp"
 #include "ui/app_state.hpp"
 #include "ui/chrome.hpp"
 #include "ui/frame_writer.hpp"
@@ -343,6 +345,103 @@ namespace ql
         std::thread thread_;
     };
 
+    // At the console, checks GitHub for a newer release (see
+    // update_check.hpp): shortly after starting, then every
+    // kUpdateCheckInterval, sooner again after a failure. Never while
+    // Settings' Update Check is off. A redraw shows what it finds.
+    class UpdateChecker
+    {
+    public:
+        explicit UpdateChecker(ftxui::ScreenInteractive* screen)
+            : screen_(screen), thread_(&UpdateChecker::Run, this)
+        {
+        }
+
+        ~UpdateChecker()
+        {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                stop_ = true;
+            }
+            wake_.notify_all();
+            thread_.join();
+        }
+
+        UpdateChecker(const UpdateChecker&) = delete;
+        UpdateChecker& operator=(const UpdateChecker&) = delete;
+
+    private:
+        static constexpr std::chrono::seconds kFirstCheckDelay{20};
+        static constexpr std::chrono::hours kUpdateCheckInterval{6};
+        static constexpr std::chrono::hours kRetryAfterFailure{1};
+        // While the check is off, how often to see whether it's been
+        // turned on.
+        static constexpr std::chrono::minutes kOffPoll{1};
+
+        // Waits `how_long`; false if it's time to stop.
+        bool Wait(std::chrono::system_clock::duration how_long)
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            wake_.wait_for(lock, how_long, StopRequested(this));
+            return !stop_;
+        }
+
+        class StopRequested
+        {
+        public:
+            explicit StopRequested(const UpdateChecker* checker) : checker_(checker) {}
+            bool operator()() const
+            {
+                return checker_->stop_;
+            }
+
+        private:
+            const UpdateChecker* checker_;
+        };
+
+        void Run()
+        {
+            if (!Wait(kFirstCheckDelay))
+            {
+                return;
+            }
+            while (true)
+            {
+                std::chrono::system_clock::duration next = kOffPoll;
+                if (UpdateCheckEnabled())
+                {
+                    std::string version;
+                    std::string error;
+                    if (FetchLatestReleaseVersion(kLatestReleaseUrl, &version, &error))
+                    {
+                        std::string found =
+                            IsNewerVersion(version, QuickLoggerVersion()) ? version : "";
+                        if (found != AvailableUpdate())
+                        {
+                            SetAvailableUpdate(found);
+                            screen_->PostEvent(ftxui::Event::Custom);
+                        }
+                        next = kUpdateCheckInterval;
+                    }
+                    else
+                    {
+                        next = kRetryAfterFailure;
+                    }
+                }
+                if (!Wait(next))
+                {
+                    return;
+                }
+            }
+        }
+
+        ftxui::ScreenInteractive* screen_;
+        std::mutex mutex_;
+        std::condition_variable wake_;
+        bool stop_ = false;
+        std::thread thread_;
+    };
+
     void RunInteractiveSession(const std::string& settings_path, bool is_console_session,
                                const std::string& ssh_username)
     {
@@ -382,6 +481,8 @@ namespace ql
             state.settings.callsign = state.ssh_username;
         }
         ql::SetUse24HourClock(state.settings.use_24_hour_clock);
+        // Only the console checks for updates: an SSH user can't install one.
+        ql::SetUpdateCheckEnabled(is_console_session && state.settings.check_for_updates);
 
         // First launch (or an upgrade from before the ZIP code became required):
         // force the operator through Settings before anything else. Mirrors
@@ -446,6 +547,11 @@ namespace ql
         // Declared after `screen` so it is stopped and joined before `screen`
         // is destroyed.
         ScreenTicker screen_ticker(&screen, &state, state.db_path);
+        std::unique_ptr<UpdateChecker> update_checker;
+        if (is_console_session)
+        {
+            update_checker = std::make_unique<UpdateChecker>(&screen);
+        }
 
         screen.Loop(ui);
         // An SSH session's process ends with _exit, which doesn't flush.

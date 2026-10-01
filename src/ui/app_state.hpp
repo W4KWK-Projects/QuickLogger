@@ -9,7 +9,9 @@
 #include <ftxui/component/screen_interactive.hpp>
 
 #include "../db/database.hpp"
+#include "../mode_rules.hpp"
 #include "../models.hpp"
+#include "../net_slice.hpp"
 #include "../settings.hpp"
 #include "list_columns.hpp"
 
@@ -98,8 +100,16 @@ namespace ql
         // Importing a session logged under a net name nothing like the
         // History it's going into (see NetNamesLookAlike).
         kImportOtherNet,
-        // Importing a .qlnet whose name looks like a net already here.
-        kImportLookAlikeNet,
+    };
+
+    // Importing a .qlnet that looks like a net already here (see
+    // OpenNetMergeChoice): first which net, and whether to import it as a
+    // new one instead; then what merging into that net would do.
+    enum class MergeStage
+    {
+        kNone,
+        kChooseNet,
+        kSummary,
     };
 
     // The on-screen lists a RowPickAction picks from.
@@ -176,6 +186,26 @@ namespace ql
         bool show_zmodem_confirm_modal = false;
         ZmodemAction zmodem_action = ZmodemAction::kSend;
         std::vector<std::string> zmodem_send_paths;
+        // When zmodem_send_paths is a session export's .zip: the files in
+        // it, which stay in exports/. The .zip is only for the transfer, so
+        // it's removed once ZMODEM is done with it (sent, failed or
+        // skipped); F7 makes a fresh one.
+        std::vector<std::string> zmodem_zip_contents;
+
+        // The Session Notes window (F12, on the active net and in History):
+        // which session's notes, the working copy being edited (saved to the
+        // session only by F2), and the cursor in it (a byte offset; see
+        // NotesEditor). Read-only for a Viewer and a view-only user.
+        // `session_notes_width`/`_height` are the editing area's size, set
+        // as the window is drawn.
+        bool show_session_notes_modal = false;
+        std::int64_t session_notes_instance_id = 0;
+        std::string session_notes_title;
+        std::string session_notes_text;
+        int session_notes_cursor = 0;
+        bool session_notes_read_only = false;
+        int session_notes_width = 60;
+        int session_notes_height = 10;
 
         // Edit Net page: confirmation before Database::DeleteNetCompletely
         // (F8 there) -- this permanently erases the net's whole history
@@ -251,6 +281,25 @@ namespace ql
         std::int64_t import_session_net_id = 0;
         std::string import_session_net_name;
 
+        // The Import or Merge window over the import page (see MergeStage):
+        // the file's net, the nets here it looks like (labels kept in step),
+        // which is highlighted, and whether one has the very same name, so
+        // it can't be imported as a new net at all. Then, for the chosen
+        // net, the plan (see PlanNetMerge), the plan's sessions that differ
+        // here (indexes into merge_plan.sessions) and which is highlighted.
+        // show_merge_modal is merge_stage != kNone, for LayeredModal.
+        MergeStage merge_stage = MergeStage::kNone;
+        bool show_merge_modal = false;
+        NetSlice merge_slice;
+        bool merge_name_taken = false;
+        std::vector<Net> merge_candidates;
+        std::vector<std::string> merge_candidate_labels;
+        int selected_merge_candidate = 0;
+        std::string merge_target_name;
+        NetMergePlan merge_plan;
+        std::vector<std::size_t> merge_conflicts;
+        int selected_merge_conflict = 0;
+
         // Manage Users page (console-only -- see kPageManageUsers and
         // AppState::is_console_session), refreshed by RefreshUsers:
         // `manage_users` is every key (a row of the users table per key),
@@ -296,6 +345,11 @@ namespace ql
         std::vector<std::string> settings_time_format_labels{"12-hour (3:42 PM)",
                                                              "24-hour (15:42)"};
         int settings_time_format_index = 0;
+        // The Settings page's Update Check choice (0 = on, 1 = off), shown
+        // only at the console; copied into settings_form.check_for_updates
+        // on save.
+        std::vector<std::string> settings_update_check_labels{"On", "Off"};
+        int settings_update_check_index = 0;
         // The Settings page's Nearby Radius field, in miles (digits only);
         // copied into settings_form.nearby_radius_miles on save.
         std::string settings_radius_text;
@@ -322,7 +376,10 @@ namespace ql
         // callsign window has room for (see MaxCallsignMatches).
         int screen_height = 24;
         std::vector<std::vector<std::string>> net_cells;
+        // The net list's Net column: its usual width, and the narrowest it
+        // goes to keep Recurrence on a middling terminal (see NetListLayout).
         int net_name_width = 0;
+        int net_name_min_width = 0;
         std::vector<std::vector<std::string>> active_check_in_cells;
         std::vector<std::vector<std::string>> history_instance_cells;
         std::vector<std::vector<std::string>> history_check_in_cells;
@@ -335,7 +392,9 @@ namespace ql
 
         // Create-net page: fields for a new recurring net.
         std::string new_net_name;
-        std::string new_net_mode;
+        // An index into mode_labels (FM to start with); also used by the Ad
+        // Hoc Net page.
+        int new_net_mode_index = 0;
         std::string new_net_frequency;
         std::string new_net_offset;
         std::string new_net_tone;
@@ -349,6 +408,8 @@ namespace ql
         // The Partial Matching toggle's choices, on New Recurring Net, Ad
         // Hoc Net and Edit Net: 0 is US, 1 is Canada.
         std::vector<std::string> partial_match_labels{"US", "Canada"};
+        // The Mode choice's entries, on the same three pages: NetModes().
+        std::vector<std::string> mode_labels = NetModes();
 
         // The net being started or resumed: set by StartSelectedNet, the Ad
         // Hoc page and the resume prompt, and read by the Select Role and
@@ -495,7 +556,11 @@ namespace ql
         // another logging program's history).
         std::int64_t edit_net_id = 0;
         std::string edit_net_name;
-        std::string edit_net_mode;
+        int edit_net_mode_index = 0;  // As new_net_mode_index.
+        // The net being edited has no mode (its old free-text one wasn't a
+        // recognized mode), so Mode shows FM until one is picked; the page
+        // says so.
+        bool edit_net_mode_was_blank = false;
         std::string edit_net_frequency;
         std::string edit_net_offset;
         std::string edit_net_tone;
@@ -884,11 +949,27 @@ namespace ql
     // net via ApplyNetSlice, refreshes AppState::nets, and returns to the
     // net list. Sets AppState::form_error instead (leaving the page open)
     // if there's nothing highlighted or the file can't be read.
-    // If nets already here look like the file's (NetNamesLookAlike), it
-    // asks first (ConfirmPrompt::kImportLookAlikeNet) instead of importing.
+    // If nets already here look like the file's (NetNamesLookAlike), or
+    // one has its very name, it opens the Import or Merge window instead
+    // (see MergeStage).
     void ImportSelectedNetSlice(AppState* state);
-    // F2/Enter on that question: imports it as a new net anyway.
+    // The Import or Merge window. F2/Enter: imports the file as a new net
+    // after all (not when a net here has its name).
     void ImportSelectedNetSliceAnyway(AppState* state);
+    // Up/Down: the net to merge into, or in the summary, the session that
+    // differs.
+    void MoveMergeHighlight(AppState* state, int delta);
+    // F3: what merging into the highlighted net would do (MergeStage::
+    // kSummary).
+    void ChooseMergeTarget(AppState* state);
+    // In the summary, Left/Right/Space/Enter: Keep or Replace the
+    // highlighted session that differs.
+    void ToggleMergeReplace(AppState* state);
+    // In the summary, F2: merges (ApplyNetMerge) and returns to the net
+    // list, saying what was added.
+    void ConfirmNetMerge(AppState* state);
+    // Esc: from the summary back to choosing; from choosing, closes it.
+    void BackOutOfNetMerge(AppState* state);
 
     // F3 on the import-net page: opens the ZMODEM confirmation modal with
     // zmodem_action = kReceive, so ConfirmZmodemAction runs
@@ -1167,6 +1248,20 @@ namespace ql
     // F1 on any page: the Help window, explaining every key the page has --
     // extra keys included, noting they need a wider terminal.
     void OpenHelp(AppState* state);
+    // A click on the top bar's update notice: opens the
+    // newer release's download page in the browser at a desktop console,
+    // and otherwise says where it is. Nothing if no newer one's been found.
+    void OpenUpdatePage(AppState* state);
+    // F12 on the active net: the session's notes, to read and (unless
+    // viewing, or a view-only user) edit.
+    void OpenActiveSessionNotes(AppState* state);
+    // F12 in History: the highlighted session's notes, open or closed.
+    void OpenHistorySessionNotes(AppState* state);
+    // The Session Notes window's F2: saves the notes to the session (after
+    // trimming trailing blank lines and spaces) and closes the window.
+    void SaveSessionNotes(AppState* state);
+    // Esc: closes the window, leaving the session's notes as they were.
+    void CloseSessionNotes(AppState* state);
     // Up/Down in an InfoWindow, and Esc.
     void MoveInfoSelection(AppState* state, int delta);
     void CloseInfoWindow(AppState* state);

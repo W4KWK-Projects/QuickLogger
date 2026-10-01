@@ -1,0 +1,9 @@
+# One run of quicklogger-update (see quicklogger-update.timer).
+[Unit]
+Description=Install the latest QuickLogger release if there is one
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/quicklogger-update

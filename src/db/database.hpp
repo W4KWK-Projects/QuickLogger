@@ -95,6 +95,9 @@ namespace ql
         // than leaving a field blank because they didn't retype known data.
         void UpdateStationFields(const Station& station, std::int64_t updated_at);
         std::optional<Station> FindStationByCallsign(const std::string& callsign);
+        // The stations here with any of `callsigns` (upper case), sorted by
+        // callsign: a few queries for the lot rather than one per callsign.
+        std::vector<Station> FindStationsByCallsigns(const std::vector<std::string>& callsigns);
         // Every station checked into net instance `instance_id`, sorted by
         // callsign: one query where looking each check-in's station up in
         // turn would be one per check-in.
@@ -159,6 +162,15 @@ namespace ql
         // picks a station that was saved (rather than genuinely checked in)
         // for this net.
         std::string GetSavedNetStationRemarks(std::int64_t net_id, const std::string& callsign);
+        // Adds `station` to the stations table, or for one already there,
+        // fills in only the fields it has blank: what's known here is never
+        // replaced. For merging a net from a file (see ApplyNetMerge).
+        void FillStationBlanks(const Station& station, std::int64_t updated_at);
+        // Saves `callsign` (already in stations) to `net_id` with
+        // `default_remarks`, unless it's saved there already, in which case
+        // nothing changes. True if it was added.
+        bool AddNetSavedStationIfMissing(std::int64_t net_id, const std::string& callsign,
+                                         const std::string& default_remarks);
 
         // Nets (recurring net definitions).
         std::int64_t CreateNet(const Net& net);
@@ -208,6 +220,8 @@ namespace ql
         // `role` isn't one of the three (in particular, kRoleNone).
         void SetNetInstanceRoleCallsign(std::int64_t instance_id, int role,
                                         const std::string& callsign);
+        // Replaces a session's notes (NetInstance::notes).
+        void SetNetInstanceNotes(std::int64_t instance_id, const std::string& notes);
         // Permanently removes one net instance (e.g. logged by mistake, or a
         // test/practice run someone wants gone from history) and all of its
         // check-ins -- check_ins.net_instance_id references net_instances(id)
@@ -218,12 +232,19 @@ namespace ql
 
         // Check-ins (one station's check-in during one NetInstance).
         std::int64_t AddCheckIn(const CheckIn& check_in);
+        // The same, into session `net_instance_id` whatever
+        // check_in.net_instance_id says: for copying a check-in from a file
+        // into a session here without copying the CheckIn first.
+        std::int64_t AddCheckIn(const CheckIn& check_in, std::int64_t net_instance_id);
         // Adds `check_in` as the next one in its session: one past the
         // highest sequence number so far (ignoring check_in.sequence_number).
         // The number is worked out inside the INSERT itself, so two people
         // logging the same session at the same moment can't both get it.
         std::int64_t AddCheckInAtNextSequence(const CheckIn& check_in);
         std::vector<CheckIn> GetCheckInsForNetInstance(std::int64_t net_instance_id);
+        // Every check-in to every session of `net_id`, in one query, by
+        // session then number (for comparing a whole net; see PlanNetMerge).
+        std::vector<CheckIn> GetCheckInsForNet(std::int64_t net_id);
 
         // Every check-in `callsign` made to net `net_id`, newest session
         // first, each with its session and the net's name.
@@ -418,6 +439,13 @@ namespace ql
         // (ExtractZipCode), or blank if it has none. Part of CreateSchema's
         // one-time upgrade.
         void NormalizeNetZips();
+        // Replaces each net's mode with NormalizeMode's reading of it. Part
+        // of CreateSchema's one-time upgrade.
+        void NormalizeNetModes();
+        // Moves anything in net_seed_stations, a table from before the
+        // repository's first commit, into net_saved_stations and drops it.
+        // Part of CreateSchema's one-time upgrade.
+        void DropOldSeedStations();
         // Moves each net's frequency that isn't an amateur frequency into
         // its comments (see MoveBadFrequencyToComments). Part of
         // CreateSchema's one-time upgrade.

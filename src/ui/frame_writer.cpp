@@ -1,5 +1,6 @@
 #include "frame_writer.hpp"
 
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -83,8 +84,12 @@ namespace ql
         if (from.foreground_color != to.foreground_color ||
             from.background_color != to.background_color)
         {
-            *out += "\x1B[" + to.foreground_color.Print(false) + "m";
-            *out += "\x1B[" + to.background_color.Print(true) + "m";
+            // Appended piece by piece: no temporary strings per change.
+            out->append("\x1B[");
+            out->append(to.foreground_color.Print(false));
+            out->append("m\x1B[");
+            out->append(to.background_color.Print(true));
+            out->push_back('m');
         }
     }
 
@@ -97,6 +102,15 @@ namespace ql
         std::string link;
     };
 
+    // `number` in decimal, appended to `out` straight from a buffer on the
+    // stack (no temporary string, as std::to_string would make).
+    static void AppendNumber(std::string* out, int number)
+    {
+        char digits[12];
+        std::to_chars_result result = std::to_chars(digits, digits + sizeof(digits), number);
+        out->append(digits, static_cast<std::size_t>(result.ptr - digits));
+    }
+
     static void MoveTo(std::string* out, Pen* pen, int x, int y)
     {
         if (pen->y == y && pen->x == x)
@@ -106,7 +120,7 @@ namespace ql
         out->append("\x1B[");
         if (pen->y == y && pen->x != kUnknownPosition && x > pen->x)
         {
-            out->append(std::to_string(x - pen->x));
+            AppendNumber(out, x - pen->x);
             out->push_back('C');
         }
         else
@@ -115,9 +129,9 @@ namespace ql
             // (column left to default) is standard, but Termius on iOS
             // misreads it, putting every line that starts at the left
             // edge on the top row.
-            out->append(std::to_string(y + 1));
+            AppendNumber(out, y + 1);
             out->push_back(';');
-            out->append(std::to_string(x + 1));
+            AppendNumber(out, x + 1);
             out->push_back('H');
         }
         pen->x = x;

@@ -1,0 +1,10 @@
+# Checks for a new QuickLogger release every 5 minutes.
+[Unit]
+Description=Check for a new QuickLogger release every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

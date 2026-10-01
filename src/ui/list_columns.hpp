@@ -35,6 +35,10 @@ namespace ql
         int grow_priority = 0;
         // Its fixed width in exported files (see ExportListLayout).
         int export_width = 0;
+        // Shown only together with the column after it: both are added at
+        // once, when there's room for both, or neither is (a repeater's
+        // Offset is no use without its PL tone).
+        bool add_with_next = false;
     };
 
     struct ListLayout
@@ -52,8 +56,10 @@ namespace ql
     // is what the same list gets on an 80-column terminal, starting from
     // `base_gap` spaces between columns (widened by one when there's room to
     // spare).
+    // `max_gap`, if given, lets the gaps keep widening past base_gap + 1, up
+    // to that, while there's room (a list with nothing more to show).
     ListLayout LayOutList(const std::vector<ListColumn>& columns, int available,
-                          int available_at_80, int base_gap);
+                          int available_at_80, int base_gap, int max_gap = 0);
 
     // For exported files: a fixed format, the same whatever the terminal or
     // the data, so a program can read the columns by position. Every column

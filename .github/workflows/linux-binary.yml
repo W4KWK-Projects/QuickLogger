@@ -61,6 +61,9 @@ jobs:
           name="QuickLogger-$version-linux-${{ matrix.arch }}"
           mkdir -p "dist/$name"
           cp build/QuickLogger README.md "dist/$name/"
+          # For servers set up with deploy/linux, whose updater installs
+          # these scripts too.
+          cp -R deploy/linux "dist/$name/deploy"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
           echo "NAME=$name" >> "$GITHUB_ENV"

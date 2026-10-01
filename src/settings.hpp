@@ -31,6 +31,10 @@ namespace ql
         // nearby_radius_miles=N; kDefaultNearbyRadiusMiles if absent, and
         // clamped to kMin/kMaxNearbyRadiusMiles when read.
         int nearby_radius_miles = kDefaultNearbyRadiusMiles;
+        // At the console: check GitHub now and then for a newer release,
+        // and say so in the top bar (see update_check.hpp). Stored as
+        // update_check=on/off; on if absent.
+        bool check_for_updates = true;
     };
 
     // Reads settings from `path`. Returns a default (empty) AppSettings if the

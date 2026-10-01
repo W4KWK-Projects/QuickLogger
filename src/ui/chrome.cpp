@@ -12,6 +12,7 @@
 
 #include "../date_utils.hpp"
 #include "../uls_import.hpp"
+#include "../update_check.hpp"
 #include "../version.hpp"
 #include "list_columns.hpp"
 #include "mouse.hpp"
@@ -178,6 +179,56 @@ namespace ql
         return text;
     }
 
+    // The newer release found, read at most once a second, not on every
+    // frame: it changes every few hours at most, and a read takes a lock
+    // and a copy.
+    static const std::string& CachedUpdate(std::int64_t now)
+    {
+        static std::int64_t read_at = -1;
+        static std::string version;
+        if (now != read_at)
+        {
+            read_at = now;
+            version = AvailableUpdate();
+        }
+        return version;
+    }
+
+    const std::string& AvailableUpdateForDisplay()
+    {
+        return CachedUpdate(static_cast<std::int64_t>(std::time(nullptr)));
+    }
+
+    // The update notice's text ("v1.8.0 available"), or "" if there's none;
+    // remade only when the version found changes.
+    // `*short_text` is the same notice shortened ("New v1.8.0"), for when
+    // the full one would cut the page title.
+    static const std::string& UpdateNoticeText(std::int64_t now, const std::string** short_text)
+    {
+        static std::string shown_version;
+        static std::string text;
+        static std::string short_form;
+        const std::string& version = CachedUpdate(now);
+        if (version != shown_version)
+        {
+            shown_version = version;
+            text.clear();
+            short_form.clear();
+            if (!version.empty())
+            {
+                text.reserve(version.size() + 11);
+                text.push_back('v');
+                text.append(version);
+                text.append(" available");
+                short_form.reserve(version.size() + 5);
+                short_form.append("New v");
+                short_form.append(version);
+            }
+        }
+        *short_text = &short_form;
+        return text;
+    }
+
     // The clock's text, "03:42 PM " or "15:42 ": remade only when the minute
     // (or the 12/24-hour setting) changes, not on every frame.
     static const std::string& ClockText(std::int64_t now)
@@ -220,6 +271,9 @@ namespace ql
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
         bool is_problem = false;
         const std::string& notice = StationDataNoticeText(&is_problem, now);
+        // A newer release, found at the console (see update_check.hpp).
+        const std::string* update_short = nullptr;
+        const std::string* update = &UpdateNoticeText(now, &update_short);
         // Local time, to the minute. ScreenTicker (interactive_session.cpp)
         // is what makes a redraw happen when the minute changes.
         const std::string& clock = ClockText(now);
@@ -233,10 +287,17 @@ namespace ql
         static const std::string status_gap = "   ";
         int left = 12 + static_cast<int>(version.size()) + 2;
         int right = (notice.empty() ? 0 : TextWidth(notice) + 3) +
+                    (update->empty() ? 0 : TextWidth(*update) + 3) +
                     (status.empty() ? 0 : TextWidth(status) + static_cast<int>(status_gap.size())) +
                     static_cast<int>(help_key.size() + help_label.size() + clock.size());
         // A trailing space after the title, and a wider gap before a status.
         int room = FrameTerminalSize().dimx - left - right - (status.empty() ? 1 : 3);
+        // The update notice in short, rather than cut the title.
+        if (!update->empty() && room < TextWidth(page_title))
+        {
+            room += TextWidth(*update) - TextWidth(*update_short);
+            update = update_short;
+        }
         std::string title = page_title;
         if (room < TextWidth(title))
         {
@@ -252,6 +313,7 @@ namespace ql
                    ftxui::filler(),
                    status.empty() ? ftxui::text("")
                                   : ftxui::text(status + status_gap) | ftxui::color(kColorData),
+                   NoticeBadge(*update, false) | ClickTargetEvent(OpenUpdatePageEvent()),
                    NoticeBadge(notice, is_problem),
                    ftxui::hbox({
                        ftxui::text(help_key) | ftxui::bgcolor(ftxui::Color::YellowLight) |

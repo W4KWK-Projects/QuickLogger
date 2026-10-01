@@ -43,6 +43,13 @@ namespace ql
     // two). Names that aren't a single key ("Up/Down", "0-9") aren't
     // clickable, and the element is left as it is.
     ftxui::Decorator ClickTarget(const std::string& key);
+    // Likewise, but a click sends `event` itself (e.g. the top bar's
+    // update notice; see OpenUpdatePageEvent).
+    ftxui::Decorator ClickTargetEvent(const ftxui::Event& event);
+
+    // What a click on the top bar's "vX.Y.Z available" notice sends: open
+    // the download page (OpenUpdatePage), whatever page is showing.
+    const ftxui::Event& OpenUpdatePageEvent();
 
     // If `mouse` is a left click on a clickable key in the topmost layer
     // drawn last frame, sets `*key` to that key's event and returns true.

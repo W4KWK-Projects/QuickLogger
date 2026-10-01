@@ -19,6 +19,8 @@
 #include "chrome.hpp"
 #include "handlers.hpp"
 #include "mouse.hpp"
+#include "notes_editor.hpp"
+#include "../update_check.hpp"
 
 namespace ql
 {
@@ -161,6 +163,17 @@ namespace ql
         option.focused_entry = index;
         return std::make_shared<IgnoreTab>(
             ftxui::Menu(&state->partial_match_labels, index, option));
+    }
+
+    // A net's Mode choice (one of NetModes()), bound to `index` (an index
+    // into AppState::mode_labels). Left/Right change it.
+    static ftxui::Component ModeToggle(AppState* state, int* index)
+    {
+        ftxui::MenuOption option = ftxui::MenuOption::Toggle();
+        option.entries_option.transform = ToggleEntryTransform;
+        option.elements_infix = ToggleGap;
+        option.focused_entry = index;
+        return std::make_shared<IgnoreTab>(ftxui::Menu(&state->mode_labels, index, option));
     }
 
     static ftxui::Element PartialMatchRow(const std::string& label, const ftxui::Component& toggle)
@@ -440,6 +453,61 @@ namespace ql
         return ftxui::Renderer(root, ZmodemConfirmModalRenderer(state));
     }
 
+    // The Session Notes window (F12): as wide as the screen allows up to 100
+    // columns, and tall enough for a good paragraph, the notes scrolling
+    // within it.
+    class SessionNotesModalRenderer
+    {
+    public:
+        SessionNotesModalRenderer(AppState* state, ftxui::Component editor)
+            : state_(state), editor_(std::move(editor))
+        {
+        }
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Dimensions terminal = FrameTerminalSize();
+            int width = std::max(20, std::min(terminal.dimx - 4, 100));
+            // Its border, heading, two separators, the hint and the keys.
+            int height = std::max(3, std::min(terminal.dimy - 10, 16));
+            state_->session_notes_width = width - 2;
+            state_->session_notes_height = height;
+
+            bool read_only = state_->session_notes_read_only;
+            ftxui::Element notes = read_only && state_->session_notes_text.empty()
+                                       ? HintText("No notes for this session.")
+                                       : editor_->Render();
+            return ftxui::vbox({
+                       Heading(state_->session_notes_title),
+                       DialogSeparator(),
+                       notes | ftxui::yframe | ftxui::vscroll_indicator |
+                           ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height),
+                       DialogSeparator(),
+                       HintText(read_only ? "Up/Down scroll."
+                                          : "Enter starts a new line. Not in the text log."),
+                       KeyHintRow(read_only
+                                      ? std::vector<KeyHint>{{"Esc", "Close"}}
+                                      : std::vector<KeyHint>{{"F2", "Save"}, {"Esc", "Cancel"}}),
+                   }) |
+                   ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder) |
+                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
+        }
+
+    private:
+        AppState* state_;
+        ftxui::Component editor_;
+    };
+
+    static ftxui::Component BuildSessionNotesModal(AppState* state)
+    {
+        ftxui::Component editor = std::make_shared<NotesEditor>(
+            &state->session_notes_text, &state->session_notes_cursor,
+            &state->session_notes_read_only, &state->session_notes_width,
+            &state->session_notes_height);
+        ftxui::Component root = ftxui::Container::Vertical({editor});
+        return ftxui::Renderer(root, SessionNotesModalRenderer(state, editor));
+    }
+
     // ---- Picking a row by number (see RowPickAction) ------------------------
 
     static bool IsPicking(const AppState* state, PickList list)
@@ -640,10 +708,6 @@ namespace ql
             else if (state_->confirm_prompt == ConfirmPrompt::kImportOtherNet)
             {
                 rows.push_back(KeyHintRow({{"F2/Enter", "Import Anyway"}, {"Esc", "Cancel"}}));
-            }
-            else if (state_->confirm_prompt == ConfirmPrompt::kImportLookAlikeNet)
-            {
-                rows.push_back(KeyHintRow({{"F2/Enter", "Import New"}, {"Esc", "Cancel"}}));
             }
             else
             {
@@ -847,8 +911,7 @@ namespace ql
     {
         ftxui::Component input_name =
             ftxui::Input(&state->new_net_name, "e.g. Weekly Skywarn Net", SingleLineInputOption());
-        ftxui::Component input_mode =
-            ftxui::Input(&state->new_net_mode, "e.g. FM, SSB, Digital", SingleLineInputOption());
+        ftxui::Component input_mode = ModeToggle(state, &state->new_net_mode_index);
         ftxui::Component input_frequency =
             ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
                          FrequencyInputOption(&state->new_net_frequency));
@@ -1096,7 +1159,8 @@ namespace ql
                                             {{"F6", "Stn History"},
                                              {"F8", "Regulars"},
                                              {"F9", "Stn Card"},
-                                             {"F10", "Summary"}},
+                                             {"F10", "Summary"},
+                                             {"F12", "Notes"}},
                                             1);
             }
             else
@@ -1111,7 +1175,8 @@ namespace ql
                                             {{"F6", "Stn History"},
                                              {"F8", "Regulars"},
                                              {"F9", "Stn Card"},
-                                             {"F10", "Summary"}},
+                                             {"F10", "Summary"},
+                                             {"F12", "Notes"}},
                                             1);
             }
             // The check-in count, in the top bar.
@@ -1375,9 +1440,12 @@ namespace ql
             LayeredModal(main_view, modal_view, &state->show_new_station_modal);
         ftxui::Component with_edit_checkin_modal =
             LayeredModal(with_new_station_modal, edit_modal_view, &state->show_edit_checkin_modal);
+        ftxui::Component with_notes_modal =
+            LayeredModal(with_edit_checkin_modal, BuildSessionNotesModal(state),
+                         &state->show_session_notes_modal);
         return WithConfirmPrompt(
             state, WithRowDeleteConfirm(
-                       state, LayeredModal(with_edit_checkin_modal, BuildZmodemConfirmModal(state),
+                       state, LayeredModal(with_notes_modal, BuildZmodemConfirmModal(state),
                                            &state->show_zmodem_confirm_modal)));
     }
 
@@ -1388,17 +1456,36 @@ namespace ql
     public:
         SettingsRenderer(AppState* state, ftxui::Component input_callsign,
                          ftxui::Component input_location, ftxui::Component input_radius,
-                         ftxui::Component time_format_toggle)
+                         ftxui::Component time_format_toggle, ftxui::Component update_check_toggle)
             : state_(state),
               input_callsign_(std::move(input_callsign)),
               input_location_(std::move(input_location)),
               input_radius_(std::move(input_radius)),
-              time_format_toggle_(std::move(time_format_toggle))
+              time_format_toggle_(std::move(time_format_toggle)),
+              update_check_toggle_(std::move(update_check_toggle))
         {
         }
 
         ftxui::Element operator()() const
         {
+            // At the console: Update Check, and the newer version if one's
+            // been found.
+            ftxui::Element update_check_row = ftxui::text("");
+            ftxui::Element update_hint = ftxui::text("");
+            if (state_->is_console_session)
+            {
+                update_check_row =
+                    ftxui::hbox({FieldLabel("Update Check:  "), update_check_toggle_->Render()});
+                const std::string& available = AvailableUpdateForDisplay();
+                update_hint = HintParagraph(
+                    available.empty()
+                        ? "Update Check looks for a new release on GitHub every 6 hours, and "
+                          "says so in the top bar. It downloads nothing."
+                        : "QuickLogger " + available +
+                              " is out. Click the notice in the top bar to open its download "
+                              "page: " +
+                              std::string(kReleasesPageUrl));
+            }
             ftxui::Element content = ftxui::vbox({
                 state_->callsign_editable
                     ? ftxui::hbox({FieldLabel("My Callsign*:  "), input_callsign_->Render()})
@@ -1411,6 +1498,7 @@ namespace ql
                              input_radius_->Render() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 4),
                              ftxui::text("miles")}),
                 ftxui::hbox({FieldLabel("Time Format:   "), time_format_toggle_->Render()}),
+                update_check_row,
                 HintText("* Required"),
                 Separator(),
                 HintParagraph("My ZIP Code is a plain 5-digit US ZIP code (digits only), used "
@@ -1422,6 +1510,7 @@ namespace ql
                 HintParagraph("Time Format (Left/Right to change) sets how every time is shown "
                               "and exported. Times are shown in the time zone of the computer "
                               "QuickLogger runs on."),
+                update_hint,
                 Separator(),
                 Heading("Station data (shared by everyone, kept up to date automatically):"),
                 ftxui::paragraph(DescribeStationDataStatus(
@@ -1451,6 +1540,7 @@ namespace ql
         ftxui::Component input_location_;
         ftxui::Component input_radius_;
         ftxui::Component time_format_toggle_;
+        ftxui::Component update_check_toggle_;
     };
 
     ftxui::Component BuildSettingsPage(AppState* state)
@@ -1479,15 +1569,28 @@ namespace ql
             ftxui::Menu(&state->settings_time_format_labels, &state->settings_time_format_index,
                         time_format_option));
 
+        // Only at the console: an SSH user can't update the server.
+        ftxui::MenuOption update_check_option = ftxui::MenuOption::Toggle();
+        update_check_option.entries_option.transform = ToggleEntryTransform;
+        update_check_option.elements_infix = ToggleGap;
+        update_check_option.focused_entry = &state->settings_update_check_index;
+        ftxui::Component update_check_toggle =
+            ftxui::Maybe(std::make_shared<IgnoreTab>(
+                             ftxui::Menu(&state->settings_update_check_labels,
+                                         &state->settings_update_check_index, update_check_option)),
+                         &state->is_console_session);
+
         ftxui::Component root = ftxui::Container::Vertical({
             input_callsign,
             input_location,
             input_radius,
             time_format_toggle,
+            update_check_toggle,
         });
 
-        return ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_location,
-                                                      input_radius, time_format_toggle));
+        return ftxui::Renderer(root,
+                               SettingsRenderer(state, input_callsign, input_location, input_radius,
+                                                time_format_toggle, update_check_toggle));
     }
 
     // ---- Ad hoc net page ---------------------------------------------------
@@ -1599,8 +1702,7 @@ namespace ql
     {
         ftxui::Component input_name =
             ftxui::Input(&state->new_net_name, "e.g. Tailgate Net", SingleLineInputOption());
-        ftxui::Component input_mode =
-            ftxui::Input(&state->new_net_mode, "e.g. FM, SSB, Digital", SingleLineInputOption());
+        ftxui::Component input_mode = ModeToggle(state, &state->new_net_mode_index);
         ftxui::Component input_frequency =
             ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
                          FrequencyInputOption(&state->new_net_frequency));
@@ -1740,9 +1842,10 @@ namespace ql
             }
             if (!state_->view_only_user)
             {
-                extras.push_back({"F5", "Del Session"});
+                extras.push_back({"F4", "Del Session"});
             }
             extras.push_back({"F9", "Find Station"});
+            extras.push_back({"F12", "Notes"});
             if (state_->view_only_user)
             {
                 return PageChrome("History: " + net_name, content,
@@ -1752,7 +1855,7 @@ namespace ql
             return PageChrome(
                 "History: " + net_name, content,
                 InKeyOrder(AddExtraKeysThatFit(
-                    {{"F4", "Del Check-In"}, {"F6", "Import"}, {"F7", "Export"}, {"Esc", "Back"}},
+                    {{"F5", "Del Check-In"}, {"F6", "Import"}, {"F7", "Export"}, {"Esc", "Back"}},
                     extras, 1)));
         }
 
@@ -1796,8 +1899,11 @@ namespace ql
         ftxui::Component root = ftxui::Container::Vertical({instance_menu, checkin_menu});
         ftxui::Component main_view =
             ftxui::Renderer(root, NetHistoryRenderer(state, instance_menu, checkin_menu));
-        return WithRowDeleteConfirm(state, LayeredModal(main_view, BuildZmodemConfirmModal(state),
-                                                        &state->show_zmodem_confirm_modal));
+        ftxui::Component with_notes_modal = LayeredModal(main_view, BuildSessionNotesModal(state),
+                                                         &state->show_session_notes_modal);
+        return WithRowDeleteConfirm(state,
+                                    LayeredModal(with_notes_modal, BuildZmodemConfirmModal(state),
+                                                 &state->show_zmodem_confirm_modal));
     }
 
     // ---- Edit net page ---------------------------------------------------
@@ -1874,12 +1980,20 @@ namespace ql
                                    state_->selected_saved_station_index, saved_station_menu_) |
                           ftxui::yframe | ftxui::vscroll_indicator;
 
-            ftxui::Elements rows;
+            // Name and Mode across the whole width, as Mode's choices don't
+            // fit in half of it; the rest in two columns when there's room.
+            ftxui::Elements rows{
+                ftxui::hbox({FieldLabel("Name:             "), input_name_->Render()}),
+                ftxui::hbox({FieldLabel("Mode:             "), input_mode_->Render()}),
+            };
+            if (state_->edit_net_mode_was_blank)
+            {
+                rows.push_back(
+                    HintText("                  The old mode wasn't one of these. Pick one."));
+            }
             AppendFormFields(
                 state_,
                 {
-                    ftxui::hbox({FieldLabel("Name:             "), input_name_->Render()}),
-                    ftxui::hbox({FieldLabel("Mode:             "), input_mode_->Render()}),
                     ftxui::hbox({FieldLabel("Frequency:        "), input_frequency_->Render()}),
                     ftxui::hbox({FieldLabel("Offset:           "), input_offset_->Render()}),
                     ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
@@ -1921,11 +2035,11 @@ namespace ql
                               AddExtraKeysThatFit(
                                   {
                                       {"F2", "Save & Close"},
+                                      {"F3", "Edit Station"},
                                       {"F4", "Remove"},
                                       {"F6", "Add Station"},
                                       {"F7", "Export"},
                                       {"F8", "Del Net"},
-                                      {"F9", "Edit Station"},
                                       {"Esc", "Cancel"},
                                   },
                                   // This bar takes a while to fit on one
@@ -1998,8 +2112,7 @@ namespace ql
     {
         ftxui::Component input_name =
             ftxui::Input(&state->edit_net_name, "e.g. Weekly Skywarn Net", SingleLineInputOption());
-        ftxui::Component input_mode =
-            ftxui::Input(&state->edit_net_mode, "e.g. FM, SSB, Digital", SingleLineInputOption());
+        ftxui::Component input_mode = ModeToggle(state, &state->edit_net_mode_index);
         ftxui::Component input_frequency =
             ftxui::Input(&state->edit_net_frequency, "MHz, e.g. 146.940",
                          FrequencyInputOption(&state->edit_net_frequency));
@@ -2131,6 +2244,338 @@ namespace ql
         ftxui::Component file_menu_;
     };
 
+    // The Import or Merge window (see MergeStage): first the nets here that
+    // the file's looks like, then what merging into the chosen one would do.
+    class NetMergeModalRenderer
+    {
+    public:
+        explicit NetMergeModalRenderer(AppState* state) : state_(state) {}
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Elements rows =
+                state_->merge_stage == MergeStage::kSummary ? SummaryRows() : ChoiceRows();
+            int width = WindowWidth();
+            return ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) |
+                   ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder);
+        }
+
+    private:
+        // Wider on a wide terminal, so more of each difference shows.
+        static int WindowWidth()
+        {
+            return std::max(40, std::min(FrameTerminalSize().dimx - 4, 100));
+        }
+
+        // A list in the window, the highlighted row marked and kept in view.
+        // "Keep" or "Replace", always its full width: a long row is cut at
+        // its end, never here.
+        static ftxui::Element ReplaceLabel(bool replace)
+        {
+            return ftxui::text(replace ? "Replace" : "Keep") |
+                   ftxui::color(replace ? ftxui::Color(kColorDanger) : ftxui::Color(kColorData)) |
+                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 7);
+        }
+
+        // `lists`: how many lists share the window's room. `line_count`:
+        // the lines in all of `lines`, when an entry has more than one.
+        ftxui::Element List(const std::vector<ftxui::Element>& lines, int selected, int lists = 1,
+                            int line_count = -1) const
+        {
+            ftxui::Elements rows;
+            for (std::size_t i = 0; i < lines.size(); ++i)
+            {
+                bool marked = static_cast<int>(i) == selected;
+                ftxui::Element row = ftxui::hbox({ftxui::text(marked ? "> " : "  "), lines[i]});
+                rows.push_back(marked ? row | ftxui::inverted | ftxui::focus : row);
+            }
+            // The window's other rows: 13 around one list, and about 4 more
+            // (a heading and a frame) for each further one.
+            int room = std::max(2, (FrameTerminalSize().dimy - 13 - 4 * (lists - 1)) / lists);
+            int height =
+                std::min(line_count >= 0 ? line_count : static_cast<int>(lines.size()), room);
+            return DialogFramed(ftxui::vbox(std::move(rows)) | ftxui::yframe |
+                                ftxui::vscroll_indicator |
+                                ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height));
+        }
+
+        ftxui::Elements ChoiceRows() const
+        {
+            const std::string& name = state_->merge_slice.net.name;
+            ftxui::Elements rows;
+            rows.push_back(Heading("Import or Merge?"));
+            rows.push_back(DialogSeparator());
+            rows.push_back(
+                ftxui::paragraph(state_->merge_name_taken
+                                     ? "You already have a net named \"" + name +
+                                           "\", so this file can't be added as a new net."
+                                     : "This file's net, \"" + name +
+                                           "\", looks like one you already have.") |
+                ftxui::bold | ftxui::color(kColorLabel));
+            rows.push_back(
+                ftxui::paragraph("Merge adds the file's sessions and saved stations that the "
+                                 "highlighted net doesn't have yet, and shows what it will do "
+                                 "first.") |
+                ftxui::color(kColorHint));
+            std::vector<ftxui::Element> lines;
+            for (const std::string& label : state_->merge_candidate_labels)
+            {
+                lines.push_back(ftxui::text(label) | ftxui::color(kColorListRow));
+            }
+            rows.push_back(List(lines, state_->selected_merge_candidate));
+            rows.push_back(DialogSeparator());
+            if (state_->merge_name_taken)
+            {
+                rows.push_back(KeyHintRow({{"F3", "Merge"}, {"Esc", "Cancel"}}));
+            }
+            else
+            {
+                rows.push_back(
+                    KeyHintRow({{"F2/Enter", "Import New"}, {"F3", "Merge"}, {"Esc", "Cancel"}}));
+            }
+            return rows;
+        }
+
+        ftxui::Elements SummaryRows() const
+        {
+            const NetMergePlan& plan = state_->merge_plan;
+            const NetSlice& slice = state_->merge_slice;
+            int added = 0;
+            int here = 0;
+            int open_added = 0;
+            for (const MergeSession& session : plan.sessions)
+            {
+                if (session.kind == MergeSessionKind::kNew)
+                {
+                    ++added;
+                    open_added += session.file_open ? 1 : 0;
+                }
+                here += session.kind == MergeSessionKind::kAlreadyHere ? 1 : 0;
+            }
+            int total = static_cast<int>(plan.sessions.size());
+
+            ftxui::Elements rows;
+            rows.push_back(Heading("Merge into " + state_->merge_target_name + "?"));
+            rows.push_back(DialogSeparator());
+            rows.push_back(ftxui::paragraph(
+                               "Adds " + std::to_string(added) + " of the file's " +
+                               Plural(total, "session", "sessions") + " and " +
+                               Plural(plan.new_saved_stations, "saved station", "saved stations") +
+                               ".") |
+                           ftxui::bold | ftxui::color(kColorLabel));
+            // A line each: the sessions already here, and the stations.
+            std::string sessions_line;
+            if (here > 0)
+            {
+                sessions_line = Plural(here, "session is", "sessions are") + " here already";
+            }
+            if (open_added > 0)
+            {
+                sessions_line.append(sessions_line.empty() ? "" : "; ");
+                sessions_line.append(std::to_string(open_added));
+                sessions_line.append(open_added == 1 ? " still open in the file comes in closed"
+                                                     : " still open in the file come in closed");
+            }
+            if (!sessions_line.empty())
+            {
+                sessions_line.push_back('.');
+                rows.push_back(ftxui::paragraph(sessions_line) | ftxui::color(kColorHint));
+            }
+            rows.push_back(
+                ftxui::paragraph("Local stations keep their details and remarks; blanks are filled "
+                                 "in.") |
+                ftxui::color(kColorHint));
+
+            int list_count = (state_->merge_conflicts.empty() ? 0 : 1) +
+                             (plan.station_conflicts.empty() ? 0 : 1);
+            if (!state_->merge_conflicts.empty())
+            {
+                rows.push_back(
+                    ftxui::paragraph(state_->merge_conflicts.size() == 1
+                                         ? "1 session differs. Keep yours, or Replace it with "
+                                           "the file's:"
+                                         : std::to_string(state_->merge_conflicts.size()) +
+                                               " sessions differ. Keep yours, or Replace them "
+                                               "with the file's:") |
+                    ftxui::color(kColorLabel));
+                std::vector<ftxui::Element> lines;
+                // A row's room: the window less its border, the list's
+                // frame and the "> " marker.
+                int row_room = WindowWidth() - 6;
+                int line_count = 0;
+                lines.reserve(state_->merge_conflicts.size());
+                for (std::size_t i = 0; i < state_->merge_conflicts.size(); ++i)
+                {
+                    const MergeSession& session = plan.sessions[state_->merge_conflicts[i]];
+                    const NetInstance& file = slice.instances[session.file_index];
+                    std::string when = file.instance_date;
+                    if (file.started_at > 0)
+                    {
+                        when += "  " + FormatLocalTimeOfDay(file.started_at);
+                    }
+                    std::string what = WhatDiffers(session);
+                    // The highlighted session, if what differs doesn't fit
+                    // beside it, says so in full on a line of its own.
+                    bool highlighted = static_cast<int>(i) == state_->selected_merge_conflict;
+                    int row_width = 7 + 2 + static_cast<int>(when.size()) + 3 + TextWidth(what);
+                    if (highlighted && row_width > row_room)
+                    {
+                        lines.push_back(ftxui::vbox({
+                            ftxui::hbox({
+                                ReplaceLabel(session.replace),
+                                ftxui::text("  " + when) | ftxui::color(kColorListRow),
+                            }),
+                            ftxui::hbox({
+                                ftxui::text("         "),
+                                ftxui::paragraph(what) | ftxui::color(kColorListRow) | ftxui::flex,
+                            }),
+                        }));
+                        // The paragraph's lines, at the room it has.
+                        int text_room = std::max(1, row_room - 9);
+                        line_count += 1 + (TextWidth(what) + text_room - 1) / text_room;
+                        continue;
+                    }
+                    lines.push_back(ftxui::hbox({
+                        ReplaceLabel(session.replace),
+                        ftxui::text("  " + when + "   " + what) | ftxui::color(kColorListRow),
+                    }));
+                    ++line_count;
+                }
+                rows.push_back(
+                    List(lines, state_->selected_merge_conflict, list_count, line_count));
+            }
+            // Then the stations whose details differ; one highlight moves
+            // through both lists.
+            if (!plan.station_conflicts.empty())
+            {
+                rows.push_back(
+                    ftxui::paragraph(plan.station_conflicts.size() == 1
+                                         ? "1 station differs. Keep yours, or Replace it with the "
+                                           "file's:"
+                                         : std::to_string(plan.station_conflicts.size()) +
+                                               " stations differ. Keep yours, or Replace them with "
+                                               "the file's:") |
+                    ftxui::color(kColorLabel));
+                // Each station: Keep/Replace and its callsign, then a line
+                // for each detail that differs.
+                std::vector<ftxui::Element> lines;
+                lines.reserve(plan.station_conflicts.size());
+                int line_count = 0;
+                for (const MergeStationConflict& conflict : plan.station_conflicts)
+                {
+                    ftxui::Elements station_lines;
+                    station_lines.reserve(conflict.differences.size() + 1);
+                    station_lines.push_back(ftxui::hbox({
+                        ReplaceLabel(conflict.replace),
+                        ftxui::text("  " + conflict.file_station->callsign) |
+                            ftxui::color(kColorListRow),
+                    }));
+                    for (const StationDetailDifference& difference : conflict.differences)
+                    {
+                        station_lines.push_back(ftxui::text("         " +
+                                                            std::string(difference.field) + ": " +
+                                                            difference.here + " here, " +
+                                                            difference.file + " in file") |
+                                                ftxui::color(kColorListRow));
+                    }
+                    line_count += static_cast<int>(station_lines.size());
+                    lines.push_back(ftxui::vbox(std::move(station_lines)));
+                }
+                rows.push_back(List(lines,
+                                    state_->selected_merge_conflict -
+                                        static_cast<int>(state_->merge_conflicts.size()),
+                                    list_count, line_count));
+            }
+            rows.push_back(DialogSeparator());
+            bool anything = added > 0 || plan.new_saved_stations > 0 ||
+                            !state_->merge_conflicts.empty() || plan.known_saved_stations > 0 ||
+                            !plan.station_conflicts.empty();
+            if (anything)
+            {
+                rows.push_back(HintText("A merge can't be undone."));
+                // With something to choose, how to choose it, here with the
+                // other keys rather than in each list's heading.
+                if (list_count > 0)
+                {
+                    rows.push_back(KeyHintRow({{"F2", "Merge"},
+                                               {"Up/Down", "Choose"},
+                                               {"Left/Right", "Keep/Replace"},
+                                               {"Esc", "Back"}}));
+                }
+                else
+                {
+                    rows.push_back(KeyHintRow({{"F2", "Merge"}, {"Esc", "Back"}}));
+                }
+            }
+            else
+            {
+                rows.push_back(HintText("Nothing to merge: this net has everything in the file."));
+                rows.push_back(KeyHintRow({{"Esc", "Back"}}));
+            }
+            return rows;
+        }
+
+        // `callsigns` joined with ", ", the first three and how many more.
+        static void AppendCallsigns(const std::vector<std::string>& callsigns, std::string* text)
+        {
+            std::size_t shown = std::min<std::size_t>(callsigns.size(), 3);
+            for (std::size_t i = 0; i < shown; ++i)
+            {
+                text->append(i == 0 ? "" : ", ");
+                text->append(callsigns[i]);
+            }
+            if (callsigns.size() > shown)
+            {
+                text->append(" +");
+                text->append(std::to_string(callsigns.size() - shown));
+            }
+        }
+
+        // What differs in a session: "check-ins: K4AAA differs; K4ZZZ only
+        // in file; notes differ".
+        static std::string WhatDiffers(const MergeSession& session)
+        {
+            std::string text;
+            if (session.check_ins_differ)
+            {
+                text.append("check-ins: ");
+                bool first = true;
+                if (!session.callsigns_changed.empty())
+                {
+                    AppendCallsigns(session.callsigns_changed, &text);
+                    text.append(session.callsigns_changed.size() == 1 ? " differs" : " differ");
+                    first = false;
+                }
+                if (!session.callsigns_only_in_file.empty())
+                {
+                    text.append(first ? "" : "; ");
+                    AppendCallsigns(session.callsigns_only_in_file, &text);
+                    text.append(" only in file");
+                    first = false;
+                }
+                if (!session.callsigns_only_here.empty())
+                {
+                    text.append(first ? "" : "; ");
+                    AppendCallsigns(session.callsigns_only_here, &text);
+                    text.append(" only here");
+                }
+            }
+            if (session.notes_differ)
+            {
+                text.append(text.empty() ? "notes differ" : "; notes differ");
+            }
+            return text;
+        }
+
+        // "1 session", "3 sessions".
+        static std::string Plural(int count, const char* singular, const char* plural)
+        {
+            return std::to_string(count) + " " + (count == 1 ? singular : plural);
+        }
+
+        AppState* state_;
+    };
+
     ftxui::Component BuildImportNetPage(AppState* state)
     {
         ftxui::MenuOption file_menu_option;
@@ -2142,7 +2587,11 @@ namespace ql
 
         ftxui::Component root = ftxui::Container::Vertical({file_menu});
         ftxui::Component main_view = ftxui::Renderer(root, ImportNetRenderer(state, file_menu));
-        return WithConfirmPrompt(state, LayeredModal(main_view, BuildZmodemConfirmModal(state),
+        ftxui::Component merge_modal =
+            ftxui::Renderer(ftxui::Container::Vertical({}), NetMergeModalRenderer(state));
+        ftxui::Component with_merge =
+            LayeredModal(main_view, merge_modal, &state->show_merge_modal);
+        return WithConfirmPrompt(state, LayeredModal(with_merge, BuildZmodemConfirmModal(state),
                                                      &state->show_zmodem_confirm_modal));
     }
 

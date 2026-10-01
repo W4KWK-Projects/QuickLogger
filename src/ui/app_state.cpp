@@ -8,21 +8,27 @@
 #include <cstdio>
 #include <ctime>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <utility>
 
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
 
+#include "../adif_export.hpp"
 #include "../callsign_rules.hpp"
 #include "../date_utils.hpp"
 #include "../frequency_rules.hpp"
 #include "../file_export.hpp"
 #include "../geo_utils.hpp"
+#include "../mode_rules.hpp"
 #include "../net_slice.hpp"
 #include "../public_key.hpp"
 #include "../show_folder.hpp"
 #include "../text_utils.hpp"
+#include "../update_check.hpp"
+#include "../zip_write.hpp"
 #include "../zmodem_send.hpp"
 #include "list_columns.hpp"
 
@@ -65,12 +71,14 @@ namespace ql
     static constexpr int kMenuEntryIndicatorWidth = 2;
 
     // The room a full-width list's rows get: the terminal less the list's
-    // border and the Menu's gutter. Never less than at 80 columns.
+    // border, the Menu's gutter and the scroll bar every page list has
+    // inside its right edge (missing that last one cut a wide terminal's
+    // last column by a character). Never less than at 80 columns.
     static int ScreenListWidth(int terminal_width)
     {
-        return std::max(80, terminal_width) - 4;
+        return std::max(80, terminal_width) - 5;
     }
-    static constexpr int kScreenListWidthAt80 = 76;
+    static constexpr int kScreenListWidthAt80 = 75;
 
     // The same for the autocomplete matches, which sit inside a window.
     int CheckInWindowWidth(int terminal_width)
@@ -79,12 +87,12 @@ namespace ql
     }
 
     // The match list inside that window: less its border, the list's own
-    // border and the "> " gutter.
+    // border, the "> " gutter and the scroll bar (see ScreenListWidth).
     static int MatchListWidth(int terminal_width)
     {
-        return CheckInWindowWidth(terminal_width) - 6;
+        return CheckInWindowWidth(terminal_width) - 7;
     }
-    static constexpr int kMatchListWidthAt80 = 64;
+    static constexpr int kMatchListWidthAt80 = 63;
 
     std::size_t MaxCallsignMatches(const AppState* state)
     {
@@ -187,6 +195,21 @@ namespace ql
         return columns;
     }
 
+    // `columns` with the Time column a column wider (see
+    // ScreenCheckInColumns).
+    static std::vector<ListColumn> RoomyTimeColumns(std::vector<ListColumn> columns)
+    {
+        for (ListColumn& column : columns)
+        {
+            if (column.heading == "Time")
+            {
+                column.width = 9;
+                column.max_width = 9;
+            }
+        }
+        return columns;
+    }
+
     // Orders stations by callsign, for looking one up in a sorted list.
     static bool StationCallsignBefore(const Station& station, const std::string& callsign)
     {
@@ -231,10 +254,22 @@ namespace ql
         return rows;
     }
 
+    // From this terminal width, Time is a column wider than its text, so
+    // the times stand clear of the callsigns.
+    static constexpr int kRoomyCheckInTimeWidth = 100;
+
+    // The check-in columns on screen: CheckInColumns, but with Time 9 wide
+    // from kRoomyCheckInTimeWidth columns.
+    static const std::vector<ListColumn>& ScreenCheckInColumns(int terminal_width)
+    {
+        static const std::vector<ListColumn> roomy = RoomyTimeColumns(CheckInColumns());
+        return terminal_width >= kRoomyCheckInTimeWidth ? roomy : CheckInColumns();
+    }
+
     static ListLayout CheckInLayout(int terminal_width)
     {
-        return LayOutList(CheckInColumns(), ScreenListWidth(terminal_width), kScreenListWidthAt80,
-                          1);
+        return LayOutList(ScreenCheckInColumns(terminal_width), ScreenListWidth(terminal_width),
+                          kScreenListWidthAt80, 1);
     }
 
     std::vector<std::string> FormatCheckInList(const std::vector<std::vector<std::string>>& cells,
@@ -248,8 +283,8 @@ namespace ql
         static HeadingCache cache;
         if (HeadingNeedsBuilding(&cache, terminal_width, 0))
         {
-            cache.text =
-                MenuGutter() + FormatListHeading(CheckInColumns(), CheckInLayout(terminal_width));
+            cache.text = MenuGutter() + FormatListHeading(ScreenCheckInColumns(terminal_width),
+                                                          CheckInLayout(terminal_width));
         }
         return cache.text;
     }
@@ -258,19 +293,30 @@ namespace ql
 
     static const std::vector<ListColumn>& NetInstanceColumns(bool ad_hoc)
     {
+        // Each column leaves a space after its heading, so headings never
+        // run together where the gap is one space ("Alternate NC" filled
+        // its column at 80 and ran into "Logger"); the role columns fit a
+        // callsign with a portable suffix. Date, Start and End are a column
+        // wider than their text, so at 80 columns (one-space gaps) each is
+        // followed by two spaces; see NetInstanceLayout for Date once the
+        // gaps widen.
         // A recurring net's own history; its name is in the page title.
+        // Started by (who opened the session) and Notes (whether it has
+        // Session Notes, F12) come on wide terminals, after Check-ins.
         static const std::vector<ListColumn> recurring = {
-            {"Date", 10, 10, 0, 0},        {"Start", 8, 8, 0, 0},          {"End", 8, 8, 0, 0},
-            {"Net Control", 12, 12, 0, 0}, {"Alternate NC", 12, 12, 0, 0}, {"Logger", 12, 12, 0, 0},
-            {"Check-ins", 9, 9, 1, 0},     {"Status", 6, 6, 0, 0},
+            {"Date", 11, 11, 0, 0},        {"Start", 9, 9, 0, 0},          {"End", 9, 9, 0, 0},
+            {"Net Control", 12, 12, 0, 0}, {"Alternate NC", 13, 13, 0, 0}, {"Logger", 9, 9, 0, 0},
+            {"Started by", 11, 11, 2, 0},  {"Check-ins", 10, 10, 1, 0},    {"Notes", 6, 6, 3, 0},
+            {"Status", 6, 6, 0, 0},
         };
         // Every ad hoc net's sessions in one list: at 80 columns the net's
         // name takes the place of Alternate NC and Logger, which come back
         // when there's room.
         static const std::vector<ListColumn> every_ad_hoc = {
-            {"Date", 10, 10, 0, 0},   {"Start", 8, 8, 0, 0},         {"End", 8, 8, 0, 0},
-            {"Net", 24, 30, 0, 1},    {"Net Control", 12, 12, 0, 0}, {"Alternate NC", 12, 12, 3, 0},
-            {"Logger", 12, 12, 4, 0}, {"Check-ins", 9, 9, 1, 0},     {"Status", 6, 6, 0, 0},
+            {"Date", 11, 11, 0, 0}, {"Start", 9, 9, 0, 0},         {"End", 9, 9, 0, 0},
+            {"Net", 24, 30, 0, 1},  {"Net Control", 12, 12, 0, 0}, {"Alternate NC", 13, 13, 3, 0},
+            {"Logger", 9, 9, 4, 0}, {"Started by", 11, 11, 5, 0},  {"Check-ins", 10, 10, 1, 0},
+            {"Notes", 6, 6, 6, 0},  {"Status", 6, 6, 0, 0},
         };
         return ad_hoc ? every_ad_hoc : recurring;
     }
@@ -280,7 +326,7 @@ namespace ql
                                                      std::int64_t check_ins, bool ad_hoc)
     {
         std::vector<std::string> cells;
-        cells.reserve(ad_hoc ? 9 : 8);
+        cells.reserve(ad_hoc ? 11 : 10);
         cells.push_back(instance.instance_date);
         cells.push_back(FormatLocalTimeOfDay(instance.started_at));
         cells.push_back(FormatLocalTimeOfDay(instance.closed_at));
@@ -291,15 +337,26 @@ namespace ql
         cells.push_back(instance.net_control_callsign);
         cells.push_back(instance.alternate_net_control_callsign);
         cells.push_back(instance.logger_callsign);
+        cells.push_back(instance.created_by);
         cells.push_back(std::to_string(check_ins));
+        cells.emplace_back(instance.notes.empty() ? "" : "yes");
         cells.emplace_back(instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed");
         return cells;
     }
 
     static ListLayout NetInstanceLayout(int terminal_width, bool ad_hoc)
     {
-        return LayOutList(NetInstanceColumns(ad_hoc), ScreenListWidth(terminal_width),
-                          kScreenListWidthAt80, 1);
+        // Once everything is shown, the gaps keep widening, up to 4, so a
+        // wide terminal's row spreads out rather than bunching at the left.
+        ListLayout layout = LayOutList(NetInstanceColumns(ad_hoc), ScreenListWidth(terminal_width),
+                                       kScreenListWidthAt80, 1, 4);
+        // Date's extra column is only for one-space gaps; with wider ones
+        // it would sit further from Start than the other columns are apart.
+        if (layout.gap > 1)
+        {
+            layout.widths[0] = 10;
+        }
+        return layout;
     }
 
     const std::string& NetInstanceListHeader(int terminal_width, bool ad_hoc)
@@ -319,8 +376,11 @@ namespace ql
     static const std::vector<ListColumn>& SavedStationColumns()
     {
         static const std::vector<ListColumn> columns = {
-            {"Callsign", 10, 13, 0, 99, 13},       {"Name", 20, 24, 0, 7, 30},
-            {"Member ID", 10, 10, 0, 0, 10},       {"City, State", 16, 24, 2, 6, 30},
+            // At 80 columns: Name 24 wide and City, State shown, making use
+            // of the width (user, 2026-10-01) rather than leaving a third
+            // of it blank.
+            {"Callsign", 10, 13, 0, 99, 13},       {"Name", 24, 24, 0, 7, 30},
+            {"Member ID", 10, 10, 0, 0, 10},       {"City, State", 16, 24, 0, 6, 30},
             {"County", 14, 14, 3, 0, 20},          {"Grid", 6, 8, 4, 0, 8},
             {"Default Remarks", 15, 40, 5, 0, 40},
         };
@@ -569,32 +629,71 @@ namespace ql
     // Net-list names are padded to the longest (up to this) so the columns
     // after them line up.
     static constexpr int kMaxNetNameColumnWidth = 40;
+    static constexpr int kMinNetNameColumnWidth = 30;
+    // Columns kept clear after the longest name; and the fewest, when the
+    // name narrows to make room for more columns.
+    static constexpr int kNetNameBreathingRoom = 4;
+    static constexpr int kNetNameNarrowRoom = 2;
 
     // The when-created/imported column (and "session open") comes last, as
     // it always has.
-    static std::vector<ListColumn> NetListColumns(int name_width)
+    // The Recurrence column's index in NetListColumns, and its full width:
+    // a typical recurrence ("Wednesdays at 8pm ET") is about 20; more
+    // than 24 would take room Offset and PL can use.
+    static constexpr std::size_t kNetRecurrenceColumn = 5;
+    static constexpr int kNetRecurrenceFullWidth = 24;
+
+    // `name_width` widens toward `name_max_width` only after everything
+    // else has been added and widened.
+    static std::vector<ListColumn> NetListColumns(int name_width, int name_max_width)
     {
         return {
-            {"Net", name_width, name_width, 0, 0},
-            {"Mode", 6, 8, 1, 5},
-            {"Frequency", 10, 12, 2, 6},
-            {"Recurrence", 20, 30, 3, 4},
-            {"Notes", 12, 12, 0, 0},
+            {"Net", name_width, name_max_width, 0, 99},
+            {"Mode", 6, 8, 1, 6},
+            // Always shown: at 80 columns it fits beside the name and the
+            // notes, whose longest text ("imported 2026-09-30") is known.
+            {"Frequency", 10, 12, 0, 7},
+            // A repeater's offset and PL tone, beside the frequency: added
+            // together once Recurrence is at full width, before Mode and
+            // Frequency widen (from 117 columns).
+            {"Offset", 6, 6, 5, 0, 0, true},
+            {"PL", 5, 5, 5, 0},
+            {"Recurrence", 20, kNetRecurrenceFullWidth, 3, 4},
+            // As wide as its longest text, "imported 2026-09-30", so it's
+            // never cut (QuickLogger writes it; it's not typed in).
+            {"Notes", 19, 19, 0, 0},
         };
     }
 
+    // The Net column at its usual width, with columns dropped as the
+    // terminal narrows; or, from about 101 columns down to where Recurrence
+    // has to go anyway, a narrower name (net_name_min_width) so Recurrence
+    // keeps its room, the name getting back whatever is left over.
     static ListLayout NetListLayout(const AppState* state)
     {
-        return LayOutList(NetListColumns(state->net_name_width), ScreenListWidth(state->list_width),
-                          kScreenListWidthAt80, 2);
+        int available = ScreenListWidth(state->list_width);
+        ListLayout usual = LayOutList(NetListColumns(state->net_name_width, state->net_name_width),
+                                      available, kScreenListWidthAt80, 2);
+        // Recurrence at full width beside the usual name: nothing to gain.
+        if (usual.widths[kNetRecurrenceColumn] >= kNetRecurrenceFullWidth ||
+            state->net_name_min_width >= state->net_name_width)
+        {
+            return usual;
+        }
+        ListLayout narrow =
+            LayOutList(NetListColumns(state->net_name_min_width, state->net_name_width), available,
+                       kScreenListWidthAt80, 2);
+        return narrow.widths[kNetRecurrenceColumn] > 0 ? narrow : usual;
     }
 
     const std::string& NetListHeader(const AppState* state)
     {
         static HeadingCache cache;
-        if (HeadingNeedsBuilding(&cache, state->list_width, state->net_name_width))
+        if (HeadingNeedsBuilding(&cache, state->list_width,
+                                 state->net_name_width * 1000 + state->net_name_min_width))
         {
-            cache.text = MenuGutter() + FormatListHeading(NetListColumns(state->net_name_width),
+            cache.text = MenuGutter() + FormatListHeading(NetListColumns(state->net_name_width,
+                                                                         state->net_name_width),
                                                           NetListLayout(state));
         }
         return cache.text;
@@ -616,10 +715,12 @@ namespace ql
             when += when.empty() ? "session open" : ", session open";
         }
         std::vector<std::string> cells;
-        cells.reserve(5);
+        cells.reserve(7);
         cells.push_back(net.name);
         cells.push_back(net.mode);
         cells.push_back(net.default_frequency);
+        cells.push_back(net.repeater_offset);
+        cells.push_back(net.pl_tone);
         cells.push_back(net.recurrence_description);
         cells.push_back(std::move(when));
         return cells;
@@ -722,13 +823,18 @@ namespace ql
         state->open_net_ids = state->db->GetNetIdsWithOpenInstances();
         const std::vector<std::int64_t>& open_net_ids = state->open_net_ids;
 
-        // At least as wide as its heading.
-        int name_width = 3;
+        // The longest name, with room to breathe after it: at least
+        // kMinNetNameColumnWidth, and a few columns past the longest name.
+        int name_width = 0;
         for (const Net& net : state->nets)
         {
             name_width = std::max(name_width, TextWidth(net.name));
         }
-        state->net_name_width = std::min(name_width, kMaxNetNameColumnWidth);
+        state->net_name_width =
+            std::min(std::max(name_width + kNetNameBreathingRoom, kMinNetNameColumnWidth),
+                     kMaxNetNameColumnWidth);
+        state->net_name_min_width =
+            std::min(std::max(name_width + kNetNameNarrowRoom, 3), state->net_name_width);
 
         state->net_cells.clear();
         for (const Net& net : state->nets)
@@ -960,7 +1066,7 @@ namespace ql
 
         Net net;
         net.name = state->new_net_name;
-        net.mode = state->new_net_mode;
+        net.mode = NetModes()[static_cast<std::size_t>(state->new_net_mode_index)];
         net.default_frequency = state->new_net_frequency;
         net.repeater_offset = state->new_net_offset;
         net.pl_tone = state->new_net_tone;
@@ -1227,6 +1333,7 @@ namespace ql
     {
         state->settings_form = state->settings;
         state->settings_time_format_index = state->settings.use_24_hour_clock ? 1 : 0;
+        state->settings_update_check_index = state->settings.check_for_updates ? 0 : 1;
         state->settings_radius_text = std::to_string(state->settings.nearby_radius_miles);
     }
 
@@ -1266,10 +1373,12 @@ namespace ql
         }
 
         state->settings_form.use_24_hour_clock = state->settings_time_format_index == 1;
+        state->settings_form.check_for_updates = state->settings_update_check_index == 0;
         state->settings_form.nearby_radius_miles = radius;
         SaveSettings(state->settings_path, state->settings_form);
         state->settings = state->settings_form;
         SetUse24HourClock(state->settings.use_24_hour_clock);
+        SetUpdateCheckEnabled(state->is_console_session && state->settings.check_for_updates);
         state->form_error.clear();
         return true;
     }
@@ -1349,7 +1458,7 @@ namespace ql
     void ResetCreateNetForm(AppState* state)
     {
         state->new_net_name.clear();
-        state->new_net_mode.clear();
+        state->new_net_mode_index = 0;
         state->new_net_frequency.clear();
         state->new_net_offset.clear();
         state->new_net_tone.clear();
@@ -1923,6 +2032,7 @@ namespace ql
 
     void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths)
     {
+        state->zmodem_zip_contents.clear();
         // The files are already on this computer: nothing to send, but the
         // folder can be opened for the operator.
         if (IsLocalTerminal(state->is_console_session))
@@ -1993,6 +2103,32 @@ namespace ql
         }
     }
 
+    // A path's file name alone.
+    static std::string BaseFileName(const std::string& path)
+    {
+        std::string::size_type slash = path.find_last_of("/\\");
+        return slash == std::string::npos ? path : path.substr(slash + 1);
+    }
+
+    // Once ZMODEM is done with a session export's .zip, removes it and
+    // returns the files that stay (see AppState::zmodem_zip_contents);
+    // otherwise the files that were offered.
+    static std::vector<std::string> SavedAfterZmodem(AppState* state)
+    {
+        if (state->zmodem_zip_contents.empty())
+        {
+            return state->zmodem_send_paths;
+        }
+        std::error_code ignored;
+        for (const std::string& path : state->zmodem_send_paths)
+        {
+            std::filesystem::remove(path, ignored);
+        }
+        std::vector<std::string> saved = std::move(state->zmodem_zip_contents);
+        state->zmodem_zip_contents.clear();
+        return saved;
+    }
+
     void ConfirmZmodemAction(AppState* state)
     {
         state->show_zmodem_confirm_modal = false;
@@ -2009,15 +2145,21 @@ namespace ql
         }
         if (state->zmodem_action == ZmodemAction::kSend)
         {
-            if (SendFilesViaZmodem(state->screen, state->zmodem_send_paths, &error))
+            bool sent = SendFilesViaZmodem(state->screen, state->zmodem_send_paths, &error);
+            // What's left in exports/ to name: without the .zip, once it's
+            // removed.
+            std::vector<std::string> saved = SavedAfterZmodem(state);
+            if (sent)
             {
                 state->status_message =
-                    "Saved to " + ListPaths(state->zmodem_send_paths) + " and sent via ZMODEM.";
+                    state->zmodem_send_paths.size() == 1 && saved != state->zmodem_send_paths
+                        ? "Sent " + BaseFileName(state->zmodem_send_paths[0]) +
+                              " via ZMODEM; saved to " + ListPaths(saved) + "."
+                        : "Saved to " + ListPaths(saved) + " and sent via ZMODEM.";
             }
             else
             {
-                state->status_message =
-                    "Saved to " + ListPaths(state->zmodem_send_paths) + " (" + error + ")";
+                state->status_message = "Saved to " + ListPaths(saved) + " (" + error + ")";
             }
             return;
         }
@@ -2052,7 +2194,7 @@ namespace ql
         if (state->zmodem_action == ZmodemAction::kSend)
         {
             state->status_message =
-                "Saved to " + ListPaths(state->zmodem_send_paths) + " (ZMODEM skipped).";
+                "Saved to " + ListPaths(SavedAfterZmodem(state)) + " (ZMODEM skipped).";
         }
         else
         {
@@ -2983,6 +3125,77 @@ namespace ql
         state->status_message = "Removed \"" + username + "\".";
     }
 
+    // The operator's own callsign on `instance`: the one in the role they
+    // started it in.
+    static const std::string& OperatorCallsign(const NetInstance& instance)
+    {
+        if (instance.operator_role == kRoleAlternateNetControl)
+        {
+            return instance.alternate_net_control_callsign;
+        }
+        if (instance.operator_role == kRoleLogger)
+        {
+            return instance.logger_callsign;
+        }
+        return instance.net_control_callsign;
+    }
+
+    // Writes `instance`'s check-ins, all but the operator's own, to `path`
+    // as ADIF (see BuildAdif), from the exporting user's callsign.
+    static bool WriteSessionAdif(AppState* state, const NetInstance& instance,
+                                 const std::vector<CheckIn>& check_ins, const std::string& path,
+                                 std::string* error)
+    {
+        // The contacts point into `check_ins` and `stations`, which outlive
+        // BuildAdif.
+        std::vector<AdifContact> contacts;
+        std::vector<Station> stations;
+        Net net;
+        {
+            Database::ReadTransaction reads(state->db);
+            std::optional<Net> found = state->db->GetNetById(instance.net_id);
+            if (found.has_value())
+            {
+                net = std::move(*found);
+            }
+            const std::string& operator_callsign = OperatorCallsign(instance);
+            // The session's stations in one query, as CheckInCells does.
+            stations = state->db->GetStationsInNetInstance(instance.id);
+            contacts.reserve(check_ins.size());
+            for (const CheckIn& check_in : check_ins)
+            {
+                if (CallsignsEqual(check_in.callsign, operator_callsign))
+                {
+                    continue;
+                }
+                AdifContact& contact = contacts.emplace_back();
+                contact.check_in = &check_in;
+                std::vector<Station>::const_iterator found = std::lower_bound(
+                    stations.begin(), stations.end(), check_in.callsign, StationCallsignBefore);
+                if (found != stations.end() && found->callsign == check_in.callsign)
+                {
+                    contact.station = &*found;
+                }
+            }
+        }
+        const std::string& frequency =
+            instance.frequency.empty() ? net.default_frequency : instance.frequency;
+        std::string adif =
+            BuildAdif(contacts, net.mode, frequency, ToUpperAscii(state->settings.callsign),
+                      instance.instance_date, static_cast<std::int64_t>(std::time(nullptr)));
+        std::string temp_path = TemporaryPathFor(path);
+        {
+            std::ofstream out(temp_path, std::ios::binary | std::ios::trunc);
+            out.write(adif.data(), static_cast<std::streamsize>(adif.size()));
+            if (!out)
+            {
+                *error = "couldn't write the file";
+                return false;
+            }
+        }
+        return ReplaceWithFile(temp_path, path, error);
+    }
+
     void ExportNetLog(AppState* state, const std::string& net_name, const NetInstance& instance,
                       const std::vector<CheckIn>& check_ins)
     {
@@ -3029,7 +3242,37 @@ namespace ql
             state->form_error = "Saved " + log_path + ", but not " + session_path + ": " + error;
             return;
         }
-        OfferZmodemSendFiles(state, {log_path, session_path});
+        // And for a logging program (see BuildAdif).
+        std::string adif_path = stem + ".adi";
+        if (!WriteSessionAdif(state, instance, check_ins, adif_path, &error))
+        {
+            state->status_message.clear();
+            state->form_error = "Saved " + log_path + " and " + session_path + ", but not " +
+                                adif_path + ": " + error;
+            return;
+        }
+        std::vector<std::string> paths{log_path, session_path, adif_path};
+        // Sent over ZMODEM as one .zip, so there's one file to receive. With
+        // no ZMODEM (at the console, on Windows, or without sz), the files
+        // are all there is.
+        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() ||
+            !ZmodemSendAvailable())
+        {
+            OfferZmodemSendFiles(state, paths);
+            return;
+        }
+        std::string zip_path = stem + ".zip";
+        if (!WriteZipArchive(zip_path, paths, static_cast<std::int64_t>(std::time(nullptr)),
+                             &error))
+        {
+            state->status_message.clear();
+            state->form_error =
+                "Saved " + ListPaths(paths) + ", but not " + zip_path + ": " + error;
+            return;
+        }
+        OfferZmodemSendFiles(state, {zip_path});
+        state->zmodem_zip_contents = paths;
+        state->status_message = "Saved to " + ListPaths(paths) + ".";
     }
 
     void ExportSavedStations(AppState* state, const std::string& net_name,
@@ -3095,23 +3338,178 @@ namespace ql
 
     void ImportSelectedNetSliceAnyway(AppState* state)
     {
-        CancelConfirmPrompt(state);
+        if (state->merge_name_taken)
+        {
+            return;
+        }
+        state->merge_stage = MergeStage::kNone;
+        state->show_merge_modal = false;
         ImportNetSlice(state, true);
     }
 
-    // `names`, quoted and joined: "A", "B" and "C".
-    static std::string QuotedList(const std::vector<std::string>& names)
+    // Orders nets with `*name` (NetNamesAreTheSame) before the rest. Holds
+    // a pointer, as the sort may copy it many times; the name outlives it.
+    class SameNameFirst
     {
-        std::string list;
-        for (std::size_t i = 0; i < names.size(); ++i)
+    public:
+        explicit SameNameFirst(const std::string* name) : name_(name) {}
+        bool operator()(const Net& a, const Net& b) const
         {
-            if (i > 0)
-            {
-                list += i + 1 == names.size() ? " and " : ", ";
-            }
-            list += "\"" + names[i] + "\"";
+            return NetNamesAreTheSame(a.name, *name_) && !NetNamesAreTheSame(b.name, *name_);
         }
-        return list;
+
+    private:
+        const std::string* name_;
+    };
+
+    // Opens the Import or Merge window for `slice` (read from the
+    // highlighted file), offering the nets here in `alike`.
+    static void OpenNetMergeChoice(AppState* state, NetSlice slice, std::vector<Net> alike,
+                                   bool name_taken)
+    {
+        state->merge_slice = std::move(slice);
+        state->merge_candidates = std::move(alike);
+        state->merge_candidate_labels.clear();
+        // Its very name first: the likeliest one.
+        std::stable_sort(state->merge_candidates.begin(), state->merge_candidates.end(),
+                         SameNameFirst(&state->merge_slice.net.name));
+        for (const Net& net : state->merge_candidates)
+        {
+            std::size_t sessions = state->db->GetNetInstancesForNet(net.id).size();
+            state->merge_candidate_labels.push_back(net.name + "  (" + std::to_string(sessions) +
+                                                    (sessions == 1 ? " session" : " sessions") +
+                                                    ")");
+        }
+        state->selected_merge_candidate = 0;
+        state->merge_name_taken = name_taken;
+        state->merge_stage = MergeStage::kChooseNet;
+        state->show_merge_modal = true;
+        state->form_error.clear();
+        state->status_message.clear();
+    }
+
+    void MoveMergeHighlight(AppState* state, int delta)
+    {
+        bool summary = state->merge_stage == MergeStage::kSummary;
+        int* index = summary ? &state->selected_merge_conflict : &state->selected_merge_candidate;
+        // In the summary, the sessions that differ, then the stations.
+        int count = static_cast<int>(summary ? state->merge_conflicts.size() +
+                                                   state->merge_plan.station_conflicts.size()
+                                             : state->merge_candidates.size());
+        if (count > 0)
+        {
+            *index = std::clamp(*index + delta, 0, count - 1);
+        }
+    }
+
+    void ChooseMergeTarget(AppState* state)
+    {
+        if (state->merge_stage != MergeStage::kChooseNet || state->merge_candidates.empty())
+        {
+            return;
+        }
+        const Net& target =
+            state->merge_candidates[static_cast<std::size_t>(state->selected_merge_candidate)];
+        state->merge_target_name = target.name;
+        state->merge_plan = PlanNetMerge(state->db, state->merge_slice, target.id);
+        state->merge_conflicts.clear();
+        for (std::size_t i = 0; i < state->merge_plan.sessions.size(); ++i)
+        {
+            if (state->merge_plan.sessions[i].kind == MergeSessionKind::kDiffers)
+            {
+                state->merge_conflicts.push_back(i);
+            }
+        }
+        state->selected_merge_conflict = 0;
+        state->merge_stage = MergeStage::kSummary;
+    }
+
+    void ToggleMergeReplace(AppState* state)
+    {
+        if (state->merge_stage != MergeStage::kSummary)
+        {
+            return;
+        }
+        std::size_t index = static_cast<std::size_t>(state->selected_merge_conflict);
+        std::size_t sessions = state->merge_conflicts.size();
+        if (index < sessions)
+        {
+            MergeSession& session = state->merge_plan.sessions[state->merge_conflicts[index]];
+            session.replace = !session.replace;
+        }
+        else if (index - sessions < state->merge_plan.station_conflicts.size())
+        {
+            MergeStationConflict& station = state->merge_plan.station_conflicts[index - sessions];
+            station.replace = !station.replace;
+        }
+    }
+
+    // "3 sessions", "1 saved station".
+    static std::string Count(int count, const char* singular, const char* plural)
+    {
+        return std::to_string(count) + " " + (count == 1 ? singular : plural);
+    }
+
+    void ConfirmNetMerge(AppState* state)
+    {
+        if (state->merge_stage != MergeStage::kSummary || RefuseViewOnly(state, "import nets"))
+        {
+            return;
+        }
+        NetMergeResult result;
+        try
+        {
+            result = ApplyNetMerge(state->db, state->merge_slice, state->merge_plan);
+        }
+        catch (const std::exception& e)
+        {
+            BackOutOfNetMerge(state);
+            BackOutOfNetMerge(state);
+            state->status_message.clear();
+            state->form_error = std::string("Merge failed, so nothing was changed: ") + e.what();
+            return;
+        }
+        std::string message = "Merged into " + state->merge_target_name + ": ";
+        message.append(Count(result.sessions_added, "session", "sessions"));
+        message.append(" and ");
+        message.append(Count(result.saved_stations_added, "saved station", "saved stations"));
+        message.append(" added");
+        if (result.sessions_replaced > 0)
+        {
+            message.append(", ");
+            message.append(Count(result.sessions_replaced, "session", "sessions"));
+            message.append(" replaced");
+        }
+        if (result.stations_replaced > 0)
+        {
+            message.append(", ");
+            message.append(
+                Count(result.stations_replaced, "station's details", "stations' details"));
+            message.append(" taken from the file");
+        }
+        message.push_back('.');
+        // The plan points into the file's data: both go together.
+        state->merge_stage = MergeStage::kNone;
+        state->show_merge_modal = false;
+        state->merge_plan = NetMergePlan();
+        state->merge_slice = NetSlice();
+        RefreshNets(state);
+        state->form_error.clear();
+        state->status_message = std::move(message);
+        state->page = kPageNetList;
+    }
+
+    void BackOutOfNetMerge(AppState* state)
+    {
+        if (state->merge_stage == MergeStage::kSummary)
+        {
+            state->merge_stage = MergeStage::kChooseNet;
+            return;
+        }
+        state->merge_stage = MergeStage::kNone;
+        state->show_merge_modal = false;
+        state->merge_plan = NetMergePlan();
+        state->merge_slice = NetSlice();
     }
 
     static void ImportNetSlice(AppState* state, bool names_checked)
@@ -3138,39 +3536,25 @@ namespace ql
             return;
         }
 
-        // No two recurring nets may share a name.
-        std::string taken = ExistingNetNamed(state, slice->net.name);
-        if (!taken.empty())
+        // No two recurring nets may share a name, so one with the same name
+        // can only be merged into; and a net that only looks like it is
+        // probably the same one (imported before, or set up by hand), so
+        // the operator chooses: merge, or import it as a new net anyway.
+        bool taken = !ExistingNetNamed(state, slice->net.name).empty();
+        if (taken || !names_checked)
         {
-            state->status_message.clear();
-            state->form_error = "You already have a net named \"" + taken +
-                                "\", so this file can't be imported as a new net. To import "
-                                "it anyway, rename yours first (F7 on Recurring Nets).";
-            return;
-        }
-
-        // Probably a net that's already here (imported before, or set up
-        // by hand): ask before adding a second one.
-        if (!names_checked)
-        {
-            std::vector<std::string> alike;
+            std::vector<Net> alike;
             for (const Net& net : state->nets)
             {
-                if (NetNamesLookAlike(slice->net.name, net.name, false))
+                if (NetNamesAreTheSame(slice->net.name, net.name) ||
+                    NetNamesLookAlike(slice->net.name, net.name, false))
                 {
-                    alike.push_back(net.name);
+                    alike.push_back(net);
                 }
             }
             if (!alike.empty())
             {
-                std::string first_line = "This file's net, \"" + slice->net.name +
-                                         "\", looks like " + QuotedList(alike) +
-                                         ", which you already have.";
-                ShowConfirmPrompt(
-                    state, ConfirmPrompt::kImportLookAlikeNet, "Import As a New Net?",
-                    {first_line, "Importing adds it as a separate net, next to the existing " +
-                                     std::string(alike.size() == 1 ? "one" : "ones") +
-                                     ". Press Esc to cancel."});
+                OpenNetMergeChoice(state, std::move(*slice), std::move(alike), taken);
                 return;
             }
         }
@@ -3544,7 +3928,9 @@ namespace ql
         }
         state->edit_net_id = net.id;
         state->edit_net_name = net.name;
-        state->edit_net_mode = net.mode;
+        int mode_index = NetModeIndex(net.mode);
+        state->edit_net_mode_index = mode_index < 0 ? 0 : mode_index;
+        state->edit_net_mode_was_blank = mode_index < 0;
         state->edit_net_frequency = net.default_frequency;
         state->edit_net_offset = net.repeater_offset;
         state->edit_net_tone = net.pl_tone;
@@ -3593,7 +3979,7 @@ namespace ql
         Net net;
         net.id = state->edit_net_id;
         net.name = state->edit_net_name;
-        net.mode = state->edit_net_mode;
+        net.mode = NetModes()[static_cast<std::size_t>(state->edit_net_mode_index)];
         net.default_frequency = state->edit_net_frequency;
         net.repeater_offset = state->edit_net_offset;
         net.pl_tone = state->edit_net_tone;
@@ -4805,9 +5191,11 @@ namespace ql
                 case kPageNetHistory:
                     return {
                         {"Up/Down", "Choose a session; its check-ins show below.", false},
-                        {"F7", "Export the highlighted session's log (and .qlsession).", false},
+                        {"F7", "Export the highlighted session: log, .qlsession, ADIF (.adi).",
+                         false},
                         {"F8", "Statistics for this net.", true},
                         {"F9", "Find a station's check-ins to every net.", true},
+                        {"F12", "Read the highlighted session's notes.", true},
                         {"Esc", "Back.", false},
                     };
                 case kPageSettings:
@@ -4841,7 +5229,7 @@ namespace ql
                     {"F2", "Save the new net.", false},
                     {"Esc", "Cancel.", false},
                     {"Tab", "Move to the next field (Up/Down too).", false},
-                    {"Left/Right", "Change Partial Matching: US or Canada.", false},
+                    {"Left/Right", "Change the Mode, or Partial Matching: US or Canada.", false},
                 };
             case kPageSelectRole:
                 return {
@@ -4858,12 +5246,13 @@ namespace ql
                 if (state->viewing_only)
                 {
                     return {
-                        {"F7", "Export this session's log to a file.", false},
+                        {"F7", "Export this session: its log, .qlsession and ADIF (.adi).", false},
                         {"Esc", "Stop watching; back to the net list.", false},
                         {"F6", "A station's other check-ins to this net (by #).", true},
                         {"F8", "Regulars who haven't checked in yet.", true},
                         {"F9", "Everything known about a station (by #).", true},
                         {"F10", "This session so far: first-timers, recent average.", true},
+                        {"F12", "Read the session's notes.", true},
                         {"Up/Down", "Move the highlight.", false},
                     };
                 }
@@ -4872,11 +5261,12 @@ namespace ql
                     {"F3", "Edit a check-in, chosen by its #.", false},
                     {"F4", "Close this session; it moves to History.", false},
                     {"F5", "Delete a check-in, chosen by its #.", false},
-                    {"F7", "Export this session's log to a file.", false},
+                    {"F7", "Export this session: its log, .qlsession and ADIF (.adi).", false},
                     {"F6", "A station's other check-ins to this net (by #).", true},
                     {"F8", "Regulars who haven't checked in yet; Enter logs one.", true},
                     {"F9", "Everything known about a station (by #).", true},
                     {"F10", "This session so far: first-timers, recent average.", true},
+                    {"F12", "Session notes: what this session was about, at length.", true},
                     {"Up/Down", "Move the highlight; Enter edits that check-in.", false},
                 };
             case kPageSettings:
@@ -4889,7 +5279,11 @@ namespace ql
 #if defined(QUICKLOGGER_WITH_SSH)
                 lines.push_back({"F4", "Manage SSH users (console only).", false});
 #endif
-                lines.push_back({"Left/Right", "Change the time format.", false});
+                lines.push_back({"Left/Right",
+                                 state->is_console_session
+                                     ? "Change the time format or Update Check."
+                                     : "Change the time format.",
+                                 false});
                 return lines;
             }
             case kPageAdHocNet:
@@ -4898,30 +5292,31 @@ namespace ql
                     {"F3", "Resume an ad hoc session left open (by number).", false},
                     {"F6", "History of every ad hoc net.", false},
                     {"Esc", "Back to the net list.", false},
-                    {"Left/Right", "Change Partial Matching: US or Canada.", false},
+                    {"Left/Right", "Change the Mode, or Partial Matching: US or Canada.", false},
                 };
             case kPageNetHistory:
                 return {
                     {"Up/Down", "Choose a session; its check-ins show below.", false},
-                    {"F4", "Delete a check-in from that session (by #).", false},
+                    {"F5", "Delete a check-in from that session (by #).", false},
                     {"F6", "Import a session exported elsewhere (.qlsession).", false},
-                    {"F7", "Export the highlighted session's log (and .qlsession).", false},
-                    {"F5", "Delete a closed session (by number).", true},
+                    {"F7", "Export the highlighted session: log, .qlsession, ADIF (.adi).", false},
+                    {"F4", "Delete a closed session (by number).", true},
                     {"F8", "Statistics for this net.", true},
                     {"F9", "Find a station's check-ins to every net.", true},
+                    {"F12", "The highlighted session's notes, to read or edit.", true},
                     {"Esc", "Back.", false},
                 };
             case kPageEditNet:
                 return {
                     {"F2", "Save the net's details and return to the list.", false},
+                    {"F3", "Edit a saved station (by number, or Enter).", false},
                     {"F4", "Remove a saved station (by number).", false},
                     {"F6", "Add a saved station.", false},
                     {"F7", "Export this net's saved stations to a file.", false},
                     {"F8", "Delete this net and all its history.", false},
-                    {"F9", "Edit a saved station (by number, or Enter).", false},
                     {"F5", "Saved stations that haven't checked in lately.", true},
                     {"Esc", "Back without saving.", false},
-                    {"Left/Right", "Change Partial Matching: US or Canada.", false},
+                    {"Left/Right", "Change the Mode, or Partial Matching: US or Canada.", false},
                 };
             case kPageImportNet:
                 if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem())
@@ -4956,6 +5351,100 @@ namespace ql
             default:
                 return {};
         }
+    }
+
+    static void OpenSessionNotes(AppState* state, const NetInstance& instance,
+                                 const std::string& net_name, bool read_only)
+    {
+        // Fresh from the database: someone else in a shared session may
+        // have changed them.
+        std::optional<NetInstance> current = state->db->GetNetInstanceById(instance.id);
+        state->session_notes_instance_id = instance.id;
+        state->session_notes_title = "Session Notes: " + net_name + ", " + instance.instance_date;
+        state->session_notes_text = current.has_value() ? current->notes : instance.notes;
+        state->session_notes_cursor = static_cast<int>(state->session_notes_text.size());
+        state->session_notes_read_only = read_only;
+        state->show_session_notes_modal = true;
+    }
+
+    void OpenActiveSessionNotes(AppState* state)
+    {
+        OpenSessionNotes(state, state->active_instance, state->active_net_name,
+                         state->viewing_only || state->view_only_user);
+    }
+
+    void OpenHistorySessionNotes(AppState* state)
+    {
+        if (state->history_instances.empty())
+        {
+            return;
+        }
+        std::size_t index = static_cast<std::size_t>(
+            std::clamp(state->selected_history_index, 0,
+                       static_cast<int>(state->history_instances.size()) - 1));
+        const NetInstance& instance = state->history_instances[index];
+        std::optional<Net> net = state->db->GetNetById(instance.net_id);
+        OpenSessionNotes(state, instance, net.has_value() ? net->name : std::string(),
+                         state->view_only_user);
+    }
+
+    void SaveSessionNotes(AppState* state)
+    {
+        if (state->session_notes_read_only)
+        {
+            CloseSessionNotes(state);
+            return;
+        }
+        // The window's working copy isn't needed once saved: moved, not copied.
+        std::string notes = std::move(state->session_notes_text);
+        state->session_notes_text.clear();
+        notes.erase(notes.find_last_not_of(" \n\r\t") + 1);
+        state->db->SetNetInstanceNotes(state->session_notes_instance_id, notes);
+        if (state->active_instance.id == state->session_notes_instance_id)
+        {
+            state->active_instance.notes = notes;
+        }
+        for (NetInstance& instance : state->history_instances)
+        {
+            if (instance.id == state->session_notes_instance_id)
+            {
+                instance.notes = notes;
+            }
+        }
+        state->show_session_notes_modal = false;
+        state->form_error.clear();
+        state->status_message = "Session notes saved.";
+    }
+
+    void CloseSessionNotes(AppState* state)
+    {
+        state->show_session_notes_modal = false;
+    }
+
+    void OpenUpdatePage(AppState* state)
+    {
+        std::string version = AvailableUpdate();
+        if (version.empty())
+        {
+            return;
+        }
+        if (IsLocalTerminal(state->is_console_session) && CanShowInFileManager())
+        {
+            std::string error;
+            if (!OpenInBrowser(kReleasesPageUrl, &error))
+            {
+                state->status_message.clear();
+                state->form_error =
+                    "Couldn't open " + std::string(kReleasesPageUrl) + " (" + error + ").";
+                return;
+            }
+            state->form_error.clear();
+            state->status_message = "Opened QuickLogger " + version + "'s download page.";
+            return;
+        }
+        state->form_error.clear();
+        state->status_message =
+            "QuickLogger " + version + " is out: " + std::string(kReleasesPageUrl);
     }
 
     void OpenHelp(AppState* state)

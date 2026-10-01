@@ -41,6 +41,7 @@ On first run you're taken straight to Settings, since a callsign and home ZIP ar
 | My ZIP Code | Your home ZIP. Nearby-station autocomplete measures distance from it when a net has no ZIP of its own. |
 | Nearby Radius | How far, in miles, a licensed station can be from the net's ZIP (or your home ZIP) and still be suggested by autocomplete. 1 to 250; the default is 70, which is also used if you leave it blank. Raise it for a net that covers a wide area, or lower it in a crowded city to keep suggestions local. |
 | Time Format | 12-hour (3:42 PM, the default) or 24-hour (15:42), for every time shown or exported. **Left/Right** change it. |
+| Update Check | At the local console only: **On** (the default) or **Off**. While on, QuickLogger asks GitHub for its latest release shortly after it starts and every 6 hours after that, and when there's a newer one the top bar says so (*v1.8.0 available*) and Settings shows where to get it. Clicking that notice opens the download page in your web browser (on a computer with a desktop; elsewhere it shows the address). It only looks; it never downloads or installs anything. SSH users never see it, since they can't update the server; a server set up with `deploy/freebsd` or `deploy/linux` updates itself. |
 
 **F2** saves. Each SSH user has their own settings. Times are shown in the time zone of the computer QuickLogger runs on. At the local console only, **F3** refreshes the station data now and **F4** opens Manage Users (see the README's SSH section); Windows has no SSH server, so no Manage Users either.
 
@@ -48,7 +49,8 @@ On first run you're taken straight to Settings, since a callsign and home ZIP ar
 
 A recurring net is one you run again and again: a weekly Skywarn net, a club's Tuesday net. Its sessions and check-ins build up its history, and the stations that check in are remembered for autocomplete.
 
-- **Create:** **F2** on Recurring Nets. Only the name is required; Mode, Frequency, ZIP Code (5 digits) and Recurrence ("Tuesdays 8pm ET") are optional. A net's ZIP centers nearby-station autocomplete on where the net meets.
+- **Create:** **F2** on Recurring Nets. Only the name is required; Frequency, ZIP Code (5 digits) and Recurrence ("Tuesdays 8pm ET") are optional. A net's ZIP centers nearby-station autocomplete on where the net meets.
+- **Mode** is one of FM, SSB, AM, CW, D-STAR, DMR or Fusion, chosen with **Left/Right** (FM to start with). The same list is on the Ad Hoc Net page. It's what a session's ADIF export gives as its mode.
 - **Names are unique:** no two recurring nets can have the same name, counting "Skywarn", "SKYWARN" and " Skywarn " as one name, whether you create a net, rename one or import one. Ad hoc nets can reuse names freely.
 - **Partial Matching** (US or Canada) decides which licensed-station data autocomplete matches anywhere in a callsign, rather than only at its start; see [Callsign autocomplete](#callsign-autocomplete).
 - **Frequency** is in MHz (146.940, 7.235) and must be in a US or Canadian amateur band. Only digits and a decimal point can be typed there.
@@ -56,6 +58,7 @@ A recurring net is one you run again and again: a weekly Skywarn net, a club's T
 - **PL Tone** is a standard CTCSS tone, 67.0 to 254.1 (e.g. 100.0, 88.5). Typing 100 saves as 100.0. A DCS code or anything else goes in Comments.
 - Frequency, Offset and PL Tone can each be left blank, and the same rules apply to an ad hoc net. When the terminal is wide enough (about 90 to 100 columns, depending on your role and callsign), the line at the top of a session's page shows them too, e.g. *146.940 MHz  -0.6  PL 100.0*; at 80 columns there isn't room.
 - **Edit:** **F7**, then the net's number. **F2** saves and returns to the list. **Comments**, on the New Recurring Net and Edit Net pages, are for anything else about the net, such as a backup frequency or a DCS code. They're shown only on those two pages.
+- **Modes from older versions:** before 1.8.0, Mode was free text. When you upgrade, or import a net exported by an older version, a mode written another way becomes the one it means ("fm" is FM, "D-Star" is D-STAR, "YSF" and "C4FM" are Fusion, "USB" and "LSB" are SSB), and anything else ("Digital", "FM & DMR") is cleared. Edit Net then shows FM with a note saying the old mode wasn't one of these, until you pick one and save.
 - **Nets from older versions:** a frequency that isn't a plain amateur frequency (for example "146.940 -600 PL 100") is moved into the net's Comments as "Frequency: ..." when you upgrade, or when you import such a net, and any frequency with a decimal point found in it stays in Frequency.
 - **Delete:** **F8** on its Edit Net page. It asks first: this deletes every session and check-in of the net.
 - **Telling nets apart:** the list shows when each net was created, or when it was imported, and *session open* while one of its sessions hasn't been closed. The list keeps this current as others open and close sessions.
@@ -83,7 +86,9 @@ The window is as wide as your terminal allows (less a margin), so long remarks a
 
 **Details for any licensed station:** when no matches are showing and you log a callsign, or leave the Callsign field with **Tab** or F4/F5/F6, its details are filled in from what's known about it: a station known to one of your nets, or else the FCC data at any distance (Canada's ISED data for a Canadian callsign). While matches are showing, the one marked **>** is taken instead (see [Callsign autocomplete](#callsign-autocomplete)). Only blank fields are filled; anything you typed is kept. A mobile or portable callsign (`W4KWK/M`) gets the details of the station itself. A station can check in only once per session, counting a mobile or portable callsign (`W4KWK/M`, `VE3/W4KWK`) as the same station; logging it again says which # it already is.
 
-On the check-in list, **F3** edits and **F5** deletes a check-in by its number (see [Editing and deleting by number](#editing-and-deleting-by-number)); **Enter** edits the highlighted one. A check-in's callsign can't be changed; delete it and log it again instead. While the session is open, deleting leaves a gap in the numbers, so a station's number never changes under someone else logging the same session; when the session is closed, its check-ins are renumbered 1, 2, 3… in order. Deleting a check-in from a closed session (in History) renumbers the rest straight away. **F7** exports the log.
+On the check-in list, **F3** edits and **F5** deletes a check-in by its number (see [Editing and deleting by number](#editing-and-deleting-by-number)); **Enter** edits the highlighted one. A check-in's callsign can't be changed; delete it and log it again instead. While the session is open, deleting leaves a gap in the numbers, so a station's number never changes under someone else logging the same session; when the session is closed, its check-ins are renumbered 1, 2, 3… in order. Deleting a check-in from a closed session (in History) renumbers the rest straight away. **F7** exports the session (see [Exporting and importing](#exporting-and-importing)).
+
+**Session notes (F12)** are for what the session was about, at more length than a check-in's Remarks or Comment has room for: "Severe weather net stood up when a tornado touched down in Chattanooga. Took many check-ins from stations reporting damage to infrastructure." **F12** opens them, on a recurring or ad hoc net. Type as much as you like; lines wrap as you type, and **Enter** starts a new paragraph. **F2** saves them; **Esc** leaves them as they were, even if that's nothing. They stay editable after the session closes, with **F12** in History. They aren't in the text log, but a `.qlsession` or `.qlnet` export carries them. A Viewer or view-only user can read them but not change them. F12 appears on the key bar only when the terminal is wide enough, but always works.
 
 **F4** closes the session when the net is over. It asks first, since a closed session can't be reopened for logging; it moves to [History](#history).
 
@@ -96,7 +101,7 @@ Several operators can log the same session at once (over SSH), for example a Net
   - **F2/Enter Resume:** log check-ins in the same session, alongside the others.
   - **F4 View:** only watch it. You can't change anything.
   - **F3 Close & New:** close that session and start a new one. Don't use this to join someone else's net.
-- **Watching:** a **Viewer** (F4 above, or Viewer on the role page) sees the session as it's logged, and can export it and use the look-up keys (F6, F8, F9, F10), but can't log, edit, delete or close anything. **Esc** leaves, and the session carries on.
+- **Watching:** a **Viewer** (F4 above, or Viewer on the role page) sees the session as it's logged, and can export it, read its notes (F12) and use the look-up keys (F6, F8, F9, F10), but can't log, edit, delete or close anything. **Esc** leaves, and the session carries on.
 - **Staying in step:** check-ins anyone logs appear on everyone's screen within a few seconds.
 - **When someone closes it:** within a few seconds, everyone else on it, Viewers included, sees a **Net Closed** window saying when it was closed. It also names any callsign that was being typed but wasn't logged. **Enter** returns to the net list. The operator who closed it doesn't see this window.
 - **Dropped connections:** a session left open by a dropped connection or closed terminal is resumed the same way.
@@ -111,13 +116,14 @@ Several operators can log the same session at once (over SSH), for example a Net
 
 ## History
 
-**F6** on Recurring Nets shows the highlighted net's past sessions: when each started and ended, its roles, its number of check-ins (on a wide enough terminal) and whether it's still open. The bottom list shows the check-ins of the highlighted session.
+**F6** on Recurring Nets shows the highlighted net's past sessions: when each started and ended, its roles and whether it's still open, and on a wide enough terminal its number of check-ins, who started it (**Started by**, which can differ from Net Control) and whether it has session notes (**Notes**: *yes*; **F12** opens them). The bottom list shows the check-ins of the highlighted session.
 
 - **Up/Down** choose a session.
-- **F7** exports the highlighted session's log, and the session itself as a `.qlsession` file for importing elsewhere (see [Exporting and importing](#exporting-and-importing)).
+- **F7** exports the highlighted session: its log, a `.qlsession` file for importing elsewhere and an ADIF file (see [Exporting and importing](#exporting-and-importing)).
+- **F12** opens the highlighted session's notes, to read or edit (see [Running a net](#running-a-net)).
 - **F6** imports a session logged somewhere else (see below).
-- **F4** deletes one check-in from that session (by its #). If it held a role, the role is cleared too.
-- **F5** deletes a whole closed session (by number). An open session has to be resumed and closed first. At 80 columns it isn't on the key bar, but it always works.
+- **F5** deletes one check-in from that session (by its #), as on the session's own page. If it held a role, the role is cleared too.
+- **F4** deletes a whole closed session (by number). An open session has to be resumed and closed first. At 80 columns it isn't on the key bar, but it always works.
 
 **Importing a session** adds one session to this net's history, without touching the rest of it. It's for a session logged on another QuickLogger: during an outage, say, a net logged on a laptop instead of the server. On the computer where it was logged, **F7** on that session (on the net's page or in History) saves its `.qlsession` file. On this one, put the file in `imports/` (or receive it over SSH with **F3**), open this net's History, press **F6**, highlight the file and press **F2**. The session and its check-ins are added as they were logged: times, roles, remarks and comments, and each station's details, and its stations are saved to this net. It goes into the net whose History you're on, even if the net had another name where it was logged (the message after importing says so). If that name has nothing in common with this net's ("Hamilton County ARES" going into TAG Skywarn, say), QuickLogger asks first, in case you're on the wrong net's History: **F2/Enter** imports it anyway, **Esc** cancels. Small differences, such as "Co." for "County", a typo, a missing word or initials ("TAG" for Tennessee Alabama Georgia), don't ask. A session this net already has, with the same date and start time, is refused. On ad hoc History, an imported session becomes a new ad hoc net with its own name.
 
@@ -131,8 +137,8 @@ Edit and delete keys ask which row you mean: every row gets a number, you type i
 | Ad Hoc Net | F3 | Resume an open ad hoc session |
 | Active net | F3 / F5 | Edit / delete a check-in |
 | Active net | F6 / F9 | See a station's history / card |
-| Edit Net | F9 / F4 | Edit / remove a saved station |
-| History | F4 / F5 | Delete a check-in / a closed session |
+| Edit Net | F3 / F4 | Edit / remove a saved station |
+| History | F5 / F4 | Delete a check-in / a closed session |
 | Manage Users | F3 | Remove an SSH user and all their keys |
 | Manage Users | F4 | Edit a user: username, access and keys (then F3 removes a key) |
 
@@ -163,7 +169,7 @@ A net's saved stations are the ones it expects: they come first in its autocompl
 
 On **Edit Net** (**F7** on Recurring Nets), the net's details sit above its saved stations.
 
-- **F6** opens the Saved Station window for a new station, **F9** (by number) or **Enter** for an existing one. In the window, **F2** saves and clears it for the next station, **F3** saves and closes, **Esc** closes without saving.
+- **F6** opens the Saved Station window for a new station, **F3** (by number) or **Enter** for an existing one. In the window, **F2** saves and clears it for the next station, **F3** saves and closes, **Esc** closes without saving.
 - **F4** removes a station from the net (by number).
 - **F7** exports the list.
 
@@ -177,8 +183,10 @@ On **Edit Net** (**F7** on Recurring Nets), the net's details sit above its save
 | Active net | F8 | Regulars not yet heard: stations in at least half of the net's last 10 sessions (or of all of them, if fewer) who haven't checked in yet. **Enter** opens New Check-In with the highlighted one filled in. |
 | Active net | F9 | Everything known about a station (by #): address, license class, check-in totals, the nets it's saved to |
 | Active net | F10 | This session so far: check-ins, first-timers, and the recent average |
+| Active net | F12 | The session's notes, to read or edit (see [Running a net](#running-a-net)) |
 | History | F8 | The net's statistics: sessions, averages, busiest session, recent months, most frequent stations |
 | History | F9 | Find a station: its check-ins to every net |
+| History | F12 | The highlighted session's notes, to read or edit |
 | Edit Net | F5 | Saved stations that haven't checked in to this net for six months, or ever |
 
 ## Exporting and importing
@@ -187,15 +195,28 @@ Exports are written to the `exports/` folder next to QuickLogger's database; imp
 
 | What | Key | File |
 |---|---|---|
-| A session's log | F7 on the active net or History | `NetName_date_log.txt`, and `NetName_date.qlsession`: the session exactly, for **F6** in History on another QuickLogger |
+| A session | F7 on the active net or History | `NetName_date_log.txt`, the log; `NetName_date.qlsession`, the session exactly, for **F6** in History on another QuickLogger; and `NetName_date.adi`, the session's contacts in ADIF, for a logging program. Over SSH, ZMODEM sends them as one `NetName_date.zip`, removed afterwards |
 | A net's saved stations | F7 on Edit Net | `NetName_saved_stations.txt` |
 | A whole net, to share | F8 on Recurring Nets | `NetName.qlnet`: the net, its saved stations and its full history |
 
-**Importing a net:** put the `.qlnet` file in `imports/` (or receive it with **F3**, below), press **F9** on Recurring Nets, highlight the file and press **F2**. It's added as a new net marked *imported*, so it can't overwrite one of yours. If you already have a net with the same name, it can't be imported as a new net; rename yours first (**F7**) if you want both. If you have one with a similar name, QuickLogger asks first, in case it's one you already have: **F2/Enter** imports it as a new net anyway, **Esc** cancels.
+**Importing a net:** put the `.qlnet` file in `imports/` (or receive it with **F3**, below), press **F9** on Recurring Nets, highlight the file and press **F2**. It's added as a new net marked *imported*, so it can't overwrite one of yours. If you have a net with the same or a similar name, the **Import or Merge?** window lists them instead: **F2/Enter** imports the file as a new net anyway (not offered when a net has its very name, since no two nets may share one), **F3** merges it into the highlighted net, and **Esc** cancels.
 
-**At your own computer:** after an export, QuickLogger offers to show you the file: **F2/Enter** opens the `exports/` folder in Finder, File Explorer or your Linux/FreeBSD desktop's file manager, with the new files selected (a session export makes two) where the file manager supports it; **Esc** closes the window. Without a desktop (a text-only console), it just says where the file was saved.
+**Merging a net** is for a net that went somewhere else and came back: say you exported it to a laptop, logged on the laptop during an outage, and exported it again to bring back. Before anything changes, a summary says what the merge will do, and **F2** carries it out (**Esc** goes back):
 
-**Over SSH (ZMODEM):** after an export, QuickLogger offers to send the file to your terminal. Open your terminal's receive window, then press **Enter**; **Esc** skips it and the file stays in `exports/`. To upload a `.qlnet` or `.qlsession`, press **F3** on the Import page (F9 on Recurring Nets for a net, F6 in History for a session), then send the file from your terminal. A session's export sends both its log and its `.qlsession` in one transfer. This needs a terminal that supports ZMODEM (such as ZOC or SecureCRT) and `lrzsz` installed where QuickLogger runs, so there's no ZMODEM on Alpine Linux, which has no `lrzsz` package, or on Windows, which has no SSH server.
+- The file's sessions this net doesn't have are added, with their check-ins and notes. A session that was still open in the file comes in closed, as of its last check-in, and renumbered.
+- A session counts as one this net already has when their times overlap (from start to close), or, if either is still open, when they started within 30 minutes of each other. Without start times, it's the same date and the same check-ins.
+- A session that's here but differs (different check-ins or notes) is listed. **Left/Right** (or Enter) chooses, for each one, to **Keep** yours (the default) or **Replace** it with the file's. A session still open here is never replaced.
+- The file's saved stations that this net doesn't have are added, with their remarks. Stations already here keep their details and remarks; details missing here are filled in from the file without asking.
+- A station whose details are filled in both here and in the file, but differently (a member ID of SP-41 here and SP-42 in the file, say), is listed under the sessions, with each differing detail on its own line. Differences only in capitals ("KNOXVILLE" and "Knoxville") don't count. **Left/Right** chooses **Keep** (yours, the default) or **Replace**, which takes the file's value for just the details listed. **Up/Down** moves through both lists. Each net's remarks for a station always stay its own.
+- The net's own settings (name, frequency, notes, Partial Matching, ZIP) don't change.
+
+It all happens at once, or not at all if something goes wrong. It can't be undone, so look at the summary first. Merging the same file twice adds nothing the second time.
+
+**At your own computer:** after an export, QuickLogger offers to show you the file: **F2/Enter** opens the `exports/` folder in Finder, File Explorer or your Linux/FreeBSD desktop's file manager, with the new files selected (a session export makes three) where the file manager supports it; **Esc** closes the window. Without a desktop (a text-only console), it just says where the file was saved.
+
+**Over SSH (ZMODEM):** after an export, QuickLogger offers to send the file to your terminal. Open your terminal's receive window, then press **Enter**; **Esc** skips it and the file stays in `exports/`. To upload a `.qlnet` or `.qlsession`, press **F3** on the Import page (F9 on Recurring Nets for a net, F6 in History for a session), then send the file from your terminal. A session's export sends one `.zip` holding its log, `.qlsession` and `.adi`. The three files stay in `exports/`; the `.zip` is removed once the transfer is over (or skipped), and **F7** makes a fresh one. This needs a terminal that supports ZMODEM (such as ZOC or SecureCRT) and `lrzsz` installed where QuickLogger runs, so there's no ZMODEM on Alpine Linux, which has no `lrzsz` package, or on Windows, which has no SSH server.
+
+**ADIF (`.adi`):** one record per check-in, except your own #1, in ADIF 3.1 for importing into a logging program (Log4OM, N1MM, LoTW's TQSL and the like). Each has the station's call sign; the date and time it checked in, in UTC; the frequency (the session's, or the net's) and band; the mode (D-STAR, DMR and Fusion as DIGITALVOICE with their submode); your callsign from Settings as the station callsign; the signal report as RST received; and whatever is known of the station's name (first name first: the FCC's "Shults, Roger D" becomes "Roger D Shults"), city, state, county, grid square, remarks (as COMMENT) and comment (as NOTES). Anything blank is left out. ADIF is plain ASCII, so accents are dropped there ("José" becomes "Jose"); the log and `.qlsession` keep them.
 
 **File format:** exported logs and saved-station lists are plain text in a fixed format, the same whatever terminal they came from, so a program can read them by column position. A few header lines come first (the net's name and, for a log, its date, times, roles and status), then a blank line, a column-heading line and one line per check-in or station. Each column starts two spaces after the one before; longer values are cut to fit, and trailing spaces are dropped.
 

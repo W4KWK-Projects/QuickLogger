@@ -1,0 +1,28 @@
+# QuickLogger's SSH server, run headless as the unprivileged quicklogger
+# user from its data directory (the database, host key and per-user
+# settings all live there). Installed as
+# /etc/systemd/system/quicklogger.service by setup.sh.
+#
+# Stopping it ends every connection's process too (systemd stops the
+# whole control group), so an update never waits on someone connected.
+
+[Unit]
+Description=QuickLogger SSH server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=quicklogger
+Group=quicklogger
+WorkingDirectory=/var/lib/quicklogger
+ExecStart=/usr/local/bin/QuickLogger --headless --ssh-port=22
+# Port 22 without root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+PrivateTmp=yes
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

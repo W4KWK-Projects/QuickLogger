@@ -15,6 +15,8 @@ namespace ql
     // (with its arguments in the opposite order), and plain std::localtime
     // returns a pointer into a shared static buffer.
     std::tm LocalTime(std::time_t time_value);
+    // Likewise in UTC (gmtime_r/gmtime_s).
+    std::tm UtcTime(std::time_t time_value);
 
     // Whether times are shown on the 24-hour clock ("15:42") rather than the
     // 12-hour one ("03:42 PM", the default). Set from the operator's

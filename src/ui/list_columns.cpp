@@ -57,7 +57,7 @@ namespace ql
     }
 
     ListLayout LayOutList(const std::vector<ListColumn>& columns, int available,
-                          int available_at_80, int base_gap)
+                          int available_at_80, int base_gap, int max_gap)
     {
         ListLayout layout;
         layout.gap = base_gap;
@@ -82,16 +82,43 @@ namespace ql
             return layout;
         }
 
+        // Once a column doesn't fit, none after it in priority is added:
+        // a narrower terminal costs columns, never gains a later, smaller
+        // one in the space a dropped one left.
+        bool add_failed = false;
         for (const LayoutStep& step : steps)
         {
             int room = available - UsedWidth(layout);
             const ListColumn& column = columns[step.column];
+            if (step.add && add_failed)
+            {
+                continue;
+            }
             if (step.add)
             {
-                if (layout.widths[step.column] == 0 && room >= column.width + layout.gap)
+                int before = layout.widths[step.column];
+                // Already shown, or only ever shown with the column before
+                // it (which adds both).
+                if (layout.widths[step.column] != 0 ||
+                    (step.column > 0 && columns[step.column - 1].add_with_next))
+                {
+                    continue;
+                }
+                if (column.add_with_next && step.column + 1 < columns.size())
+                {
+                    const ListColumn& next = columns[step.column + 1];
+                    if (layout.widths[step.column + 1] == 0 &&
+                        room >= column.width + next.width + 2 * layout.gap)
+                    {
+                        layout.widths[step.column] = column.width;
+                        layout.widths[step.column + 1] = next.width;
+                    }
+                }
+                else if (room >= column.width + layout.gap)
                 {
                     layout.widths[step.column] = column.width;
                 }
+                add_failed = layout.widths[step.column] == before;
             }
             else if (layout.widths[step.column] > 0 && room > 0)
             {
@@ -106,8 +133,9 @@ namespace ql
         {
             shown += width > 0 ? 1 : 0;
         }
-        if (shown == columns.size() && shown > 1 &&
-            available - UsedWidth(layout) >= static_cast<int>(shown) - 1)
+        int widest_gap = std::max(max_gap, base_gap + 1);
+        while (shown == columns.size() && shown > 1 && layout.gap < widest_gap &&
+               available - UsedWidth(layout) >= static_cast<int>(shown) - 1)
         {
             ++layout.gap;
         }

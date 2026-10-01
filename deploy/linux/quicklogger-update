@@ -1,0 +1,128 @@
+#!/bin/sh
+#
+# Installs the latest QuickLogger release from GitHub, if it's newer than
+# the one running. Run by quicklogger-update.timer every 5 minutes (see
+# setup.sh), so a release is live within minutes of its Linux build.
+#
+# Waits for everyone to log out before restarting, since a restart ends
+# every SSH session. If someone stays connected, it installs anyway during
+# the quiet hour (FORCE_HOUR); sessions are dropped then, and an open net
+# session can be resumed after reconnecting. Pre-releases and drafts are
+# never installed: GitHub's "latest release" excludes them.
+#
+# The database is backed up before every install, since a new version may
+# upgrade it. To roll back: stop the service, restore the backup and
+# /usr/local/bin/QuickLogger.previous (see README.md).
+
+set -eu
+
+REPO="W4KWK-Projects/QuickLogger"
+BIN="/usr/local/bin/QuickLogger"
+DATA="/var/lib/quicklogger"
+WORK="/var/lib/quicklogger-update"
+FORCE_HOUR="04"
+KEEP_BACKUPS=5
+
+log()
+{
+    logger -t quicklogger-update "$*"
+}
+
+# The release files' name for this machine.
+case "$(uname -m)" in
+    x86_64 | amd64) arch=amd64 ;;
+    aarch64 | arm64) arch=arm64 ;;
+    *)
+        log "no QuickLogger build for $(uname -m)"
+        exit 1
+        ;;
+esac
+
+mkdir -p "$WORK" "$DATA/backups"
+
+release=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")
+tag=$(printf '%s' "$release" | jq -r .tag_name)
+version=${tag#v}
+installed=$("$BIN" --version 2>/dev/null | awk '{print $2}' || true)
+if [ -z "$version" ] || [ "$version" = "null" ] || [ "$version" = "$installed" ]; then
+    exit 0
+fi
+
+asset="QuickLogger-$version-linux-$arch.tar.gz"
+url=$(printf '%s' "$release" | jq -r --arg name "$asset" '.assets[] | select(.name == $name) | .browser_download_url')
+if [ -z "$url" ]; then
+    # The release is published before every build is attached.
+    exit 0
+fi
+
+# Download and check it once; later runs reuse it while waiting.
+if [ ! -x "$WORK/$version/QuickLogger" ]; then
+    rm -rf "${WORK:?}/${version:?}" "${WORK:?}/${asset:?}" "${WORK:?}/${asset:?}.sha256"
+    curl -fsSL -o "$WORK/$asset" "$url"
+    curl -fsSL -o "$WORK/$asset.sha256" "$url.sha256"
+    expected=$(awk '{print $1}' "$WORK/$asset.sha256")
+    actual=$(sha256sum "$WORK/$asset" | awk '{print $1}')
+    if [ "$expected" != "$actual" ]; then
+        log "$asset failed its checksum; not installing"
+        rm -f "$WORK/$asset" "$WORK/$asset.sha256"
+        exit 1
+    fi
+    mkdir -p "$WORK/$version"
+    tar -xzf "$WORK/$asset" -C "$WORK/$version" --strip-components 1
+    rm -f "$WORK/$asset" "$WORK/$asset.sha256"
+    if ! "$WORK/$version/QuickLogger" --version > /dev/null; then
+        log "$version doesn't run here (missing libraries?); not installing"
+        rm -rf "${WORK:?}/${version:?}"
+        exit 1
+    fi
+    log "downloaded $version"
+fi
+
+# Who's logged in: a connection's process has a child once its user has
+# logged in and their session started. Connections without one are still
+# logging in, or are the internet's port scanners, and don't count.
+connected=0
+for pid in $(ss -Htnp state established '( sport = :22 )' 2> /dev/null |
+    grep -o 'QuickLogger",pid=[0-9]*' | sed 's/.*pid=//' | sort -u); do
+    if pgrep -P "$pid" > /dev/null; then
+        connected=$((connected + 1))
+    fi
+done
+if [ "$connected" -gt 0 ] && [ "$(date +%H)" != "$FORCE_HOUR" ]; then
+    exit 0
+fi
+
+log "installing $version (was ${installed:-none}; $connected user(s) logged in)"
+# Stops every connection's process with it (see quicklogger.service).
+systemctl stop quicklogger || true
+
+if [ -f "$DATA/quicklogger.db" ]; then
+    backup="$DATA/backups/quicklogger-before-$version.db"
+    runuser -u quicklogger -- sqlite3 "$DATA/quicklogger.db" ".backup '$backup'"
+    gzip -f "$backup"
+    # All but the newest KEEP_BACKUPS.
+    find "$DATA/backups" -name 'quicklogger-before-*.db.gz' -printf '%T@ %p\n' | sort -rn |
+        tail -n +$((KEEP_BACKUPS + 1)) | cut -d' ' -f2- | xargs -r rm -f
+fi
+
+if [ -f "$BIN" ]; then
+    cp -p "$BIN" "$BIN.previous"
+fi
+install -m 755 "$WORK/$version/QuickLogger" "$BIN.new"
+mv -f "$BIN.new" "$BIN"
+# The release's own copies of these scripts, so they stay current too.
+# (Replaced by renaming, so this running script is unaffected.)
+if [ -d "$WORK/$version/deploy" ]; then
+    for script in quicklogger-update quicklogger-admin; do
+        install -m 755 "$WORK/$version/deploy/$script" "/usr/local/sbin/$script.new"
+        mv -f "/usr/local/sbin/$script.new" "/usr/local/sbin/$script"
+    done
+    for unit in quicklogger.service quicklogger-update.service quicklogger-update.timer; do
+        install -m 644 "$WORK/$version/deploy/$unit" "/etc/systemd/system/$unit"
+    done
+    systemctl daemon-reload
+fi
+rm -rf "${WORK:?}/${version:?}"
+
+systemctl start quicklogger
+log "running $version"

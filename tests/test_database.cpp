@@ -56,7 +56,7 @@ namespace ql
                                    table + "'"),
                      std::int64_t{1});
         }
-        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{11});
+        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{13});
         CHECK_EQ(CountRows(dir.File("q.db"),
                            "SELECT COUNT(*) FROM pragma_table_info('import_runs') WHERE name IN "
                            "('phase','percent','heartbeat_at','requested_at')"),
@@ -107,7 +107,9 @@ namespace ql
             CREATE TABLE import_runs (source TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'never_run',
                 started_at INTEGER NOT NULL DEFAULT 0, completed_at INTEGER NOT NULL DEFAULT 0,
                 records_imported INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '');
-            INSERT INTO nets (name) VALUES ('Old Net');
+            INSERT INTO nets (name, mode) VALUES ('Old Net', 'fm');
+            INSERT INTO nets (name, mode) VALUES ('Fusion Net', 'C4FM');
+            INSERT INTO nets (name, mode) VALUES ('Mystery Net', 'Digital');
             INSERT INTO net_instances (net_id, instance_date) VALUES (1, '2025-01-01');
             INSERT INTO stations (callsign, name, data_source) VALUES ('OLDULS', 'From ULS', 2);
             INSERT INTO stations (callsign, name) VALUES ('KEEPME', 'Manual');
@@ -115,9 +117,15 @@ namespace ql
         )sql");
 
         Database db(path);
-        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{11});
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{13});
         std::vector<Net> nets = db.GetAllNets();
-        REQUIRE(nets.size() == 1);
+        REQUIRE(nets.size() == 3);
+        // Sorted by name: Fusion Net, Mystery Net, Old Net. Known spellings
+        // of a mode are converted since 1.8.0; anything else is blanked.
+        CHECK_EQ(nets[0].mode, std::string("Fusion"));
+        CHECK_EQ(nets[1].mode, std::string(""));
+        CHECK_EQ(nets[2].mode, std::string("FM"));
+        nets.erase(nets.begin(), nets.begin() + 2);
         CHECK_EQ(nets[0].created_at, std::int64_t{0});  // Unknown, not guessed.
         CHECK_EQ(nets[0].imported_at, std::int64_t{0});
         CHECK(!nets[0].is_ad_hoc);  // Nothing is guessed to be ad hoc.
@@ -128,6 +136,7 @@ namespace ql
         REQUIRE(instances.size() == 1);
         CHECK_EQ(instances[0].started_at, std::int64_t{0});
         CHECK_EQ(instances[0].operator_role, kRoleNetControl);
+        CHECK_EQ(instances[0].notes, std::string(""));
         CHECK(db.FindStationByCallsign("KEEPME").has_value());
         // The old ULS row moved to its own table; the ZIP+4 was trimmed.
         CHECK(!db.FindStationByCallsign("OLDULS").has_value());
@@ -135,6 +144,41 @@ namespace ql
         std::optional<Station> k1csa = db.FindUlsStationByCallsign("K1CSA");
         REQUIRE(k1csa.has_value());
         CHECK_EQ(k1csa->zip, std::string("30752"));
+    }
+
+    QL_TEST(AnOldSeedStationsTableIsMergedAndDropped)
+    {
+        TempDir dir;
+        std::string path = dir.File("old.db");
+        {
+            Database db(path);
+            std::int64_t net_id = AddTestNet(&db, "Oldest Net");
+            db.SaveNetStation(net_id, MakeStation("K4AAA"), "Training", 1);
+            db.RecordManualCheckInStation(MakeStation("K4BBB"), 1);
+        }
+        // The table as the earliest builds left it: K4AAA is already a saved
+        // station there, K4BBB isn't.
+        RunSql(path, R"sql(
+            CREATE TABLE net_seed_stations (
+                net_id INTEGER NOT NULL REFERENCES nets(id),
+                callsign TEXT NOT NULL REFERENCES stations(callsign),
+                default_remarks TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (net_id, callsign));
+            INSERT INTO net_seed_stations VALUES (1, 'K4AAA', 'Old remark');
+            INSERT INTO net_seed_stations VALUES (1, 'K4BBB', 'Mobile');
+            PRAGMA user_version = 12;
+        )sql");
+
+        Database db(path);
+        CHECK_EQ(
+            CountRows(path, "SELECT COUNT(*) FROM sqlite_schema WHERE name='net_seed_stations'"),
+            std::int64_t{0});
+        // Today's remarks win; the one only in the old table is kept.
+        CHECK_EQ(db.GetSavedNetStationRemarks(1, "K4AAA"), std::string("Training"));
+        CHECK_EQ(db.GetSavedNetStationRemarks(1, "K4BBB"), std::string("Mobile"));
+        // And the net can now be deleted.
+        db.DeleteNetCompletely(1);
+        CHECK(!db.GetNetById(1).has_value());
     }
 
     QL_TEST(OldNetFrequenciesMoveToComments)

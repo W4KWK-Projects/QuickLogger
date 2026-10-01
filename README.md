@@ -48,6 +48,8 @@ On Windows under WSL, use a Debian or Ubuntu distribution, and keep QuickLogger 
 
 Check the download with `sha256sum -c QuickLogger-<version>-linux-amd64.tar.gz.sha256`.
 
+To run it on a Debian or Ubuntu server as an always-on SSH server that installs each new release by itself, see [deploy/linux](deploy/linux/README.md).
+
 ## Download (Windows)
 
 Releases have Windows binaries for 64-bit PCs (`QuickLogger-<version>-windows-x64.zip`) and 64-bit ARM, such as Windows in a VM on an Apple Silicon Mac or a Snapdragon laptop (`QuickLogger-<version>-windows-arm64.zip`). Each is a single `QuickLogger.exe` with nothing else to install. It's console only (see [Running on Windows](#running-on-windows)).
