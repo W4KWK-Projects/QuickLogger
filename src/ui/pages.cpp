@@ -935,7 +935,7 @@ namespace ql
                 RoleHint("Alternate Net Control", "backs up Net Control, ready to take over."),
                 RoleHint("Logger", "records check-ins while someone else runs the net."),
                 RoleHint("Viewer", "watches a session that's already open, changing nothing."),
-                HintParagraph("Except as a Viewer, you're logged as check-in #1, in your role."),
+                HintParagraph("Except as a Viewer, you're logged as check-in #1, with your role."),
                 ErrorLine(state_->form_error),
             });
 

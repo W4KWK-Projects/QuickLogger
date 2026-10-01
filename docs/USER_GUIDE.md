@@ -69,7 +69,7 @@ A recurring net is one you run again and again: a weekly Skywarn net, a club's T
 2. Choose your **role**: Net Control, Alternate Net Control or Logger. (**Viewer** is for watching a session that's already open; see [Sharing a session](#sharing-a-session).)
 
 If the net already has a session open, the list says *session open*, a line under the list says so when it's highlighted, and the key bar reads **F3/Enter Join** instead of Log Net. Press it anyway: you're asked what to do (see [Sharing a session](#sharing-a-session)).
-3. Confirm your callsign (it's filled in from Settings) and press **F2**. You're logged as check-in #1, in your role.
+3. Confirm your callsign (it's filled in from Settings) and press **F2**. You're logged as check-in #1, with your role.
 
 **F2** opens the **New Check-In** window. Type the callsign (see [autocomplete](#callsign-autocomplete)) and fill in whatever else you have:
 
