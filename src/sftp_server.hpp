@@ -21,7 +21,8 @@ namespace ql
     //
     // /imports is read-only for a view-only user. For everyone else it
     // takes new .qlnet and .qlsession files (IsAllowedImportName) of up to
-    // kSftpMaxUploadBytes, and they can remove those. An upload is written
+    // kSftpMaxUploadBytes each and kSftpMaxImportsBytes in all, and they
+    // can remove those. An upload is written
     // to a hidden temporary file and moved into place when it's closed, so
     // the Import page never lists half a file.
     //

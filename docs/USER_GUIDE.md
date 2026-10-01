@@ -222,7 +222,7 @@ To download an export: `scp -P 2222 you@server:/exports/Skywarn_2026-01-06.qlses
 
 To upload a net for **F9** on Recurring Nets (or a session for **F6** in History): `scp -P 2222 Skywarn.qlnet you@server:/imports/`
 
-Uploads must be `.qlnet` or `.qlsession` files of up to 25 MB. A view-only user can't upload. `sftp`'s `rm` removes your own uploads. `scp` needs OpenSSH 9.0 or newer (8.7 to 8.9 with `-s`); with an older one, use `sftp`.
+Uploads must be `.qlnet` or `.qlsession` files of up to 25 MB, and `/imports` holds up to 100 MB in all. A view-only user can't upload. `sftp`'s `rm` removes your own uploads. `scp` needs OpenSSH 9.0 or newer (8.7 to 8.9 with `-s`); with an older one, use `sftp`.
 
 **ADIF (`.adi`):** one record per check-in, except your own #1, in ADIF 3.1 for importing into a logging program (Log4OM, N1MM, LoTW's TQSL and the like). Each has the station's call sign; the date and time it checked in, in UTC; the frequency (the session's, or the net's) and band; the mode (D-STAR, DMR and Fusion as DIGITALVOICE with their submode); your callsign from Settings as the station callsign; the signal report as RST received; and whatever is known of the station's name (first name first: the FCC's "Shults, Roger D" becomes "Roger D Shults"), city, state, county, grid square, remarks (as COMMENT) and comment (as NOTES). Anything blank is left out. ADIF is plain ASCII, so accents are dropped there ("José" becomes "Jose"); the log and `.qlsession` keep them.
 

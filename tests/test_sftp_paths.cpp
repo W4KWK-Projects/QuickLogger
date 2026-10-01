@@ -1,9 +1,11 @@
 // The SFTP server's view of an SSH user's files (sftp_paths.hpp).
 
+#include <fstream>
 #include <string>
 
 #include "../src/sftp_paths.hpp"
 #include "test_framework.hpp"
+#include "test_helpers.hpp"
 
 namespace ql
 {
@@ -64,6 +66,33 @@ namespace ql
         CHECK(!IsAllowedImportName("Sky warn.qlnet"));
         CHECK(!IsAllowedImportName("_Skywarn.qlnet"));
         CHECK(!IsAllowedImportName("Sky\\warn.qlnet"));
+    }
+
+    static void WriteBytes(const std::string& path, std::size_t count)
+    {
+        std::ofstream file(path, std::ios::binary);
+        file << std::string(count, 'x');
+    }
+
+    QL_TEST(ImportsUsageCountsEveryFileButTheOneBeingReplaced)
+    {
+        TempDir dir;
+        CHECK_EQ(SftpImportsBytesUsed(dir.File("missing"), "Net.qlnet"), std::uint64_t(0));
+        WriteBytes(dir.File("Net.qlnet"), 100);
+        WriteBytes(dir.File("Other.qlsession"), 20);
+        // An upload in progress.
+        WriteBytes(dir.File(".Third.qlnet.tmp-1-2"), 3);
+        CHECK_EQ(SftpImportsBytesUsed(dir.path(), "New.qlnet"), std::uint64_t(123));
+        CHECK_EQ(SftpImportsBytesUsed(dir.path(), "Net.qlnet"), std::uint64_t(23));
+    }
+
+    QL_TEST(UploadsStopAtTheImportsTotal)
+    {
+        CHECK_EQ(SftpUploadLimit(0), kSftpMaxUploadBytes);
+        CHECK_EQ(SftpUploadLimit(kSftpMaxImportsBytes - kSftpMaxUploadBytes), kSftpMaxUploadBytes);
+        CHECK_EQ(SftpUploadLimit(kSftpMaxImportsBytes - 10), std::uint64_t(10));
+        CHECK_EQ(SftpUploadLimit(kSftpMaxImportsBytes), std::uint64_t(0));
+        CHECK_EQ(SftpUploadLimit(kSftpMaxImportsBytes + 1), std::uint64_t(0));
     }
 
     QL_TEST(SftpLongNamesLookLikeLsL)

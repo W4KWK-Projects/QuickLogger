@@ -275,7 +275,9 @@ namespace ql
     {
         (void)channel;
         ConnectionState* state = static_cast<ConnectionState*>(userdata);
-        if (state->pty_slave_fd < 0)
+        // One or the other per connection: a channel already given to SFTP
+        // gets no shell.
+        if (state->pty_slave_fd < 0 || state->sftp_requested)
         {
             return 1;
         }

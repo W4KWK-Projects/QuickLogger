@@ -35,6 +35,21 @@ namespace ql
     // The largest file an upload to /imports may grow to.
     constexpr std::uint64_t kSftpMaxUploadBytes = 25 * 1024 * 1024;
 
+    // The most a user's /imports may hold altogether.
+    constexpr std::uint64_t kSftpMaxImportsBytes = 100 * 1024 * 1024;
+
+    // The size of the files directly in `dir`, hidden ones included (an
+    // upload in progress counts), except `except_name`, which an upload is
+    // about to replace. 0 if `dir` doesn't exist yet.
+    std::uint64_t SftpImportsBytesUsed(const std::string& dir, std::string_view except_name);
+
+    // How large a new upload may grow when /imports already holds
+    // `used_bytes`: kSftpMaxUploadBytes, or less if that would take it
+    // over kSftpMaxImportsBytes. Two uploads at once can each have the
+    // whole of what's left, so the total can briefly run over by one
+    // file's worth; the next upload then gets nothing.
+    std::uint64_t SftpUploadLimit(std::uint64_t used_bytes);
+
     // Resolves `client_path` (absolute, or relative to "/"; "." and ".."
     // and repeated slashes allowed, as clients send them) into `out`.
     // Returns false for anything outside the tree above: another top-level

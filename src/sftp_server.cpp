@@ -58,9 +58,12 @@ namespace ql
         int fd = -1;
         bool writing = false;
         // An upload: where it's being written, where it goes once closed,
-        // and whether it went over kSftpMaxUploadBytes or failed to write.
+        // how large it may grow (SftpUploadLimit), and whether it went over
+        // that or failed to write.
         std::string temp_path;
         std::string final_path;
+        std::uint64_t limit = 0;
+        std::uint64_t size = 0;
         bool failed = false;
     };
 
@@ -429,9 +432,20 @@ namespace ql
                 sftp_reply_status(message, SSH_FX_FILE_ALREADY_EXISTS, "Already exists");
                 return;
             }
-            if (exists && (flags & SSH_FXF_TRUNC) == 0)
+            // An upload always starts from nothing, in its own temporary
+            // file, so leaving out TRUNC changes nothing: OpenSSH's scp and
+            // sftp do, and trim the file with a setstat at the end instead.
+            // Only a resume (APPEND here, or a write past the end, see
+            // Write) can't be done.
+            if ((flags & SSH_FXF_APPEND) != 0)
             {
                 sftp_reply_status(message, SSH_FX_OP_UNSUPPORTED, "Can't resume an upload");
+                return;
+            }
+            std::uint64_t limit = SftpUploadLimit(SftpImportsBytesUsed(imports_dir_, path.name));
+            if (limit == 0)
+            {
+                sftp_reply_status(message, SSH_FX_FAILURE, "/imports is full (100 MB)");
                 return;
             }
             if (!EnsureDirectory(imports_dir_))
@@ -453,6 +467,7 @@ namespace ql
             handle->writing = true;
             handle->temp_path = std::move(temp_path);
             handle->final_path = std::move(final_path);
+            handle->limit = limit;
             ReplyHandle(message, std::move(handle));
         }
 
@@ -503,10 +518,18 @@ namespace ql
             }
             const char* data = static_cast<const char*>(ssh_string_data(message->data));
             std::size_t length = ssh_string_len(message->data);
-            if (message->offset > kSftpMaxUploadBytes || length > kSftpMaxUploadBytes - message->offset)
+            if (message->offset > handle->limit || length > handle->limit - message->offset)
             {
                 handle->failed = true;
-                sftp_reply_status(message, SSH_FX_FAILURE, "Over the 25 MB limit");
+                sftp_reply_status(
+                    message, SSH_FX_FAILURE,
+                    handle->limit < kSftpMaxUploadBytes ? "/imports is full (100 MB)" : "Over the 25 MB limit");
+                return;
+            }
+            if (message->offset > handle->size)
+            {
+                handle->failed = true;
+                sftp_reply_status(message, SSH_FX_OP_UNSUPPORTED, "Can't resume an upload");
                 return;
             }
             std::size_t written = 0;
@@ -526,6 +549,7 @@ namespace ql
                 }
                 written += static_cast<std::size_t>(count);
             }
+            handle->size = std::max(handle->size, message->offset + length);
             sftp_reply_status(message, SSH_FX_OK, nullptr);
         }
 

@@ -1,7 +1,10 @@
 #include "sftp_paths.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <ctime>
+#include <filesystem>
+#include <system_error>
 #include <vector>
 
 #include "date_utils.hpp"
@@ -102,6 +105,34 @@ namespace ql
         }
         std::string text(name.data(), name.size());
         return name[0] != '.' && SanitizeFilenameComponent(text) == text;
+    }
+
+    std::uint64_t SftpImportsBytesUsed(const std::string& dir, std::string_view except_name)
+    {
+        std::uint64_t used = 0;
+        std::error_code error;
+        for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(dir, error))
+        {
+            if (!entry.is_regular_file(error) || entry.path().filename().string() == except_name)
+            {
+                continue;
+            }
+            std::uintmax_t size = entry.file_size(error);
+            if (!error)
+            {
+                used += static_cast<std::uint64_t>(size);
+            }
+        }
+        return used;
+    }
+
+    std::uint64_t SftpUploadLimit(std::uint64_t used_bytes)
+    {
+        if (used_bytes >= kSftpMaxImportsBytes)
+        {
+            return 0;
+        }
+        return std::min(kSftpMaxUploadBytes, kSftpMaxImportsBytes - used_bytes);
     }
 
     std::string SftpLongName(std::string_view name, std::uint32_t permissions, std::uint64_t size, std::int64_t mtime,
