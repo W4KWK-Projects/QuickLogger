@@ -33,18 +33,17 @@ namespace ql
     static bool SameStyle(const ftxui::Pixel& a, const ftxui::Pixel& b)
     {
         return a.bold == b.bold && a.dim == b.dim && a.underlined == b.underlined &&
-               a.underlined_double == b.underlined_double && a.blink == b.blink &&
-               a.inverted == b.inverted && a.strikethrough == b.strikethrough &&
-               a.foreground_color == b.foreground_color && a.background_color == b.background_color;
+               a.underlined_double == b.underlined_double && a.blink == b.blink && a.inverted == b.inverted &&
+               a.strikethrough == b.strikethrough && a.foreground_color == b.foreground_color &&
+               a.background_color == b.background_color;
     }
 
     // The escape sequences that change the terminal's style from `from` to
     // `to` -- the same ones FTXUI's Screen::ToString uses. Links are passed
     // separately, since a Pixel's hyperlink id only means something within
     // its own frame.
-    static void AppendStyleChange(std::string* out, const ftxui::Pixel& from,
-                                  const std::string& from_link, const ftxui::Pixel& to,
-                                  const std::string& to_link)
+    static void AppendStyleChange(std::string* out, const ftxui::Pixel& from, const std::string& from_link,
+                                  const ftxui::Pixel& to, const std::string& to_link)
     {
         if (from_link != to_link)
         {
@@ -81,8 +80,7 @@ namespace ql
         {
             *out += to.strikethrough ? "\x1B[9m" : "\x1B[29m";
         }
-        if (from.foreground_color != to.foreground_color ||
-            from.background_color != to.background_color)
+        if (from.foreground_color != to.foreground_color || from.background_color != to.background_color)
         {
             // Appended piece by piece: no temporary strings per change.
             out->append("\x1B[");
@@ -180,8 +178,7 @@ namespace ql
             out += "\x1B[0m\x1B]8;;\x1B\\\x1B[2J";
             width_ = width;
             height_ = height;
-            cells_.assign(static_cast<std::size_t>(height),
-                          std::vector<ftxui::Pixel>(static_cast<std::size_t>(width)));
+            cells_.assign(static_cast<std::size_t>(height), std::vector<ftxui::Pixel>(static_cast<std::size_t>(width)));
             links_.assign(1, std::string());
         }
         else if (refresh)
@@ -199,8 +196,7 @@ namespace ql
             {
                 const ftxui::Pixel& now = screen.PixelAt(x, y);
                 const ftxui::Pixel& was = row[static_cast<std::size_t>(x)];
-                const bool changed = (refresh && !full) || now.character != was.character ||
-                                     !SameStyle(now, was) ||
+                const bool changed = (refresh && !full) || now.character != was.character || !SameStyle(now, was) ||
                                      screen.Hyperlink(now.hyperlink) != links_[was.hyperlink];
                 dirty[static_cast<std::size_t>(x)] = changed;
                 any_dirty = any_dirty || changed;

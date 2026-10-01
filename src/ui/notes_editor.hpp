@@ -36,8 +36,7 @@ namespace ql
     class NotesEditor : public ftxui::ComponentBase
     {
     public:
-        NotesEditor(std::string* text, int* cursor, const bool* read_only, const int* width,
-                    const int* height);
+        NotesEditor(std::string* text, int* cursor, const bool* read_only, const int* width, const int* height);
 
         ftxui::Element Render() override;
         bool OnEvent(ftxui::Event event) override;

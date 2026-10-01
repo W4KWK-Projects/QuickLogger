@@ -180,17 +180,10 @@ namespace ql
     static const std::vector<ListColumn>& CheckInColumns()
     {
         static const std::vector<ListColumn> columns = {
-            {"#", 3, 3, 0, 0, 4},
-            {"Time", 8, 8, 2, 0, 8},
-            {"Callsign", 10, 13, 0, 99, 13},
-            {"Name", 20, 24, 0, 1, 30},
-            {"Member ID", 10, 10, 0, 0, 10},
-            {"City, State", 16, 24, 3, 4, 30},
-            {"County", 14, 14, 0, 0, 20},
-            {"Role", 6, 6, 0, 0, 6},
-            {"Signal", 6, 6, 5, 0, 6},
-            {"Remarks", 7, 30, 0, 7, 40},
-            {"Comment", 8, 40, 6, 0, 60},
+            {"#", 3, 3, 0, 0, 4},         {"Time", 8, 8, 2, 0, 8},         {"Callsign", 10, 13, 0, 99, 13},
+            {"Name", 20, 24, 0, 1, 30},   {"Member ID", 10, 10, 0, 0, 10}, {"City, State", 16, 24, 3, 4, 30},
+            {"County", 14, 14, 0, 0, 20}, {"Role", 6, 6, 0, 0, 6},         {"Signal", 6, 6, 5, 0, 6},
+            {"Remarks", 7, 30, 0, 7, 40}, {"Comment", 8, 40, 6, 0, 60},
         };
         return columns;
     }
@@ -216,8 +209,7 @@ namespace ql
         return station.callsign < callsign;
     }
 
-    std::vector<std::vector<std::string>> CheckInCells(Database* db,
-                                                       const std::vector<CheckIn>& check_ins)
+    std::vector<std::vector<std::string>> CheckInCells(Database* db, const std::vector<CheckIn>& check_ins)
     {
         std::vector<std::vector<std::string>> rows;
         if (check_ins.empty())
@@ -231,11 +223,10 @@ namespace ql
         static const Station kUnknownStation;
         for (const CheckIn& check_in : check_ins)
         {
-            std::vector<Station>::const_iterator found = std::lower_bound(
-                stations.begin(), stations.end(), check_in.callsign, StationCallsignBefore);
-            const Station& station = found != stations.end() && found->callsign == check_in.callsign
-                                         ? *found
-                                         : kUnknownStation;
+            std::vector<Station>::const_iterator found =
+                std::lower_bound(stations.begin(), stations.end(), check_in.callsign, StationCallsignBefore);
+            const Station& station =
+                found != stations.end() && found->callsign == check_in.callsign ? *found : kUnknownStation;
             // Built in place: a braced list would copy every string twice.
             std::vector<std::string>& row = rows.emplace_back();
             row.reserve(11);
@@ -268,12 +259,11 @@ namespace ql
 
     static ListLayout CheckInLayout(int terminal_width)
     {
-        return LayOutList(ScreenCheckInColumns(terminal_width), ScreenListWidth(terminal_width),
-                          kScreenListWidthAt80, 1);
+        return LayOutList(ScreenCheckInColumns(terminal_width), ScreenListWidth(terminal_width), kScreenListWidthAt80,
+                          1);
     }
 
-    std::vector<std::string> FormatCheckInList(const std::vector<std::vector<std::string>>& cells,
-                                               int terminal_width)
+    std::vector<std::string> FormatCheckInList(const std::vector<std::vector<std::string>>& cells, int terminal_width)
     {
         return FormatRows(cells, CheckInLayout(terminal_width));
     }
@@ -283,8 +273,8 @@ namespace ql
         static HeadingCache cache;
         if (HeadingNeedsBuilding(&cache, terminal_width, 0))
         {
-            cache.text = MenuGutter() + FormatListHeading(ScreenCheckInColumns(terminal_width),
-                                                          CheckInLayout(terminal_width));
+            cache.text =
+                MenuGutter() + FormatListHeading(ScreenCheckInColumns(terminal_width), CheckInLayout(terminal_width));
         }
         return cache.text;
     }
@@ -321,8 +311,7 @@ namespace ql
         return ad_hoc ? every_ad_hoc : recurring;
     }
 
-    static std::vector<std::string> NetInstanceCells(const NetInstance& instance,
-                                                     const std::string& net_name,
+    static std::vector<std::string> NetInstanceCells(const NetInstance& instance, const std::string& net_name,
                                                      std::int64_t check_ins, bool ad_hoc)
     {
         std::vector<std::string> cells;
@@ -348,8 +337,8 @@ namespace ql
     {
         // Once everything is shown, the gaps keep widening, up to 4, so a
         // wide terminal's row spreads out rather than bunching at the left.
-        ListLayout layout = LayOutList(NetInstanceColumns(ad_hoc), ScreenListWidth(terminal_width),
-                                       kScreenListWidthAt80, 1, 4);
+        ListLayout layout =
+            LayOutList(NetInstanceColumns(ad_hoc), ScreenListWidth(terminal_width), kScreenListWidthAt80, 1, 4);
         // Date's extra column is only for one-space gaps; with wider ones
         // it would sit further from Start than the other columns are apart.
         if (layout.gap > 1)
@@ -365,8 +354,7 @@ namespace ql
         if (HeadingNeedsBuilding(&cache, terminal_width, ad_hoc ? 1 : 0))
         {
             cache.text =
-                MenuGutter() + FormatListHeading(NetInstanceColumns(ad_hoc),
-                                                 NetInstanceLayout(terminal_width, ad_hoc));
+                MenuGutter() + FormatListHeading(NetInstanceColumns(ad_hoc), NetInstanceLayout(terminal_width, ad_hoc));
         }
         return cache.text;
     }
@@ -379,16 +367,14 @@ namespace ql
             // At 80 columns: Name 24 wide and City, State shown, making use
             // of the width (user, 2026-10-01) rather than leaving a third
             // of it blank.
-            {"Callsign", 10, 13, 0, 99, 13},       {"Name", 24, 24, 0, 7, 30},
-            {"Member ID", 10, 10, 0, 0, 10},       {"City, State", 16, 24, 0, 6, 30},
-            {"County", 14, 14, 3, 0, 20},          {"Grid", 6, 8, 4, 0, 8},
+            {"Callsign", 10, 13, 0, 99, 13},       {"Name", 24, 24, 0, 7, 30},   {"Member ID", 10, 10, 0, 0, 10},
+            {"City, State", 16, 24, 0, 6, 30},     {"County", 14, 14, 3, 0, 20}, {"Grid", 6, 8, 4, 0, 8},
             {"Default Remarks", 15, 40, 5, 0, 40},
         };
         return columns;
     }
 
-    static std::vector<std::string> SavedStationCells(const Station& station,
-                                                      const std::string& default_remarks)
+    static std::vector<std::string> SavedStationCells(const Station& station, const std::string& default_remarks)
     {
         std::vector<std::string> cells;
         cells.reserve(7);
@@ -404,8 +390,7 @@ namespace ql
 
     static ListLayout SavedStationLayout(int terminal_width)
     {
-        return LayOutList(SavedStationColumns(), ScreenListWidth(terminal_width),
-                          kScreenListWidthAt80, 1);
+        return LayOutList(SavedStationColumns(), ScreenListWidth(terminal_width), kScreenListWidthAt80, 1);
     }
 
     const std::string& SavedStationListHeader(int terminal_width)
@@ -413,8 +398,7 @@ namespace ql
         static HeadingCache cache;
         if (HeadingNeedsBuilding(&cache, terminal_width, 0))
         {
-            cache.text = MenuGutter() + FormatListHeading(SavedStationColumns(),
-                                                          SavedStationLayout(terminal_width));
+            cache.text = MenuGutter() + FormatListHeading(SavedStationColumns(), SavedStationLayout(terminal_width));
         }
         return cache.text;
     }
@@ -440,8 +424,7 @@ namespace ql
 
     // `username`'s row, from their keys in `keys`: their access, how many
     // keys they have, and their latest login with any of them.
-    static std::vector<std::string> UserCells(const std::string& username,
-                                              const std::vector<User>& keys)
+    static std::vector<std::string> UserCells(const std::string& username, const std::vector<User>& keys)
     {
         bool view_only = false;
         int count = 0;
@@ -475,8 +458,7 @@ namespace ql
         static HeadingCache cache;
         if (HeadingNeedsBuilding(&cache, terminal_width, 0))
         {
-            cache.text =
-                MenuGutter() + FormatListHeading(UserColumns(), UserLayout(terminal_width));
+            cache.text = MenuGutter() + FormatListHeading(UserColumns(), UserLayout(terminal_width));
         }
         return cache.text;
     }
@@ -516,8 +498,7 @@ namespace ql
 
     static ListLayout UserKeyLayout(int terminal_width)
     {
-        return LayOutList(UserKeyColumns(), UserKeyListWidth(terminal_width), UserKeyListWidth(80),
-                          1);
+        return LayOutList(UserKeyColumns(), UserKeyListWidth(terminal_width), UserKeyListWidth(80), 1);
     }
 
     const std::string& UserKeyListHeader(int terminal_width)
@@ -525,8 +506,7 @@ namespace ql
         static HeadingCache cache;
         if (HeadingNeedsBuilding(&cache, terminal_width, 0))
         {
-            cache.text =
-                MenuGutter() + FormatListHeading(UserKeyColumns(), UserKeyLayout(terminal_width));
+            cache.text = MenuGutter() + FormatListHeading(UserKeyColumns(), UserKeyLayout(terminal_width));
         }
         return cache.text;
     }
@@ -575,15 +555,13 @@ namespace ql
         static HeadingCache cache;
         if (HeadingNeedsBuilding(&cache, terminal_width, 0))
         {
-            cache.text =
-                MenuGutter() + FormatListHeading(MatchColumns(), MatchLayout(terminal_width));
+            cache.text = MenuGutter() + FormatListHeading(MatchColumns(), MatchLayout(terminal_width));
         }
         return cache.text;
     }
 
     static std::vector<std::string> FormatMatches(const std::vector<Station>& stations,
-                                                  const std::vector<std::string>& sources,
-                                                  int terminal_width)
+                                                  const std::vector<std::string>& sources, int terminal_width)
     {
         ListLayout layout = MatchLayout(terminal_width);
         std::vector<std::string> lines;
@@ -591,8 +569,7 @@ namespace ql
         {
             const Station& station = stations[i];
             lines.push_back(FormatListRow(
-                {station.callsign, station.name, CityAndState(station), station.county, sources[i]},
-                layout));
+                {station.callsign, station.name, CityAndState(station), station.county, sources[i]}, layout));
         }
         return lines;
     }
@@ -672,28 +649,25 @@ namespace ql
     static ListLayout NetListLayout(const AppState* state)
     {
         int available = ScreenListWidth(state->list_width);
-        ListLayout usual = LayOutList(NetListColumns(state->net_name_width, state->net_name_width),
-                                      available, kScreenListWidthAt80, 2);
+        ListLayout usual = LayOutList(NetListColumns(state->net_name_width, state->net_name_width), available,
+                                      kScreenListWidthAt80, 2);
         // Recurrence at full width beside the usual name: nothing to gain.
         if (usual.widths[kNetRecurrenceColumn] >= kNetRecurrenceFullWidth ||
             state->net_name_min_width >= state->net_name_width)
         {
             return usual;
         }
-        ListLayout narrow =
-            LayOutList(NetListColumns(state->net_name_min_width, state->net_name_width), available,
-                       kScreenListWidthAt80, 2);
+        ListLayout narrow = LayOutList(NetListColumns(state->net_name_min_width, state->net_name_width), available,
+                                       kScreenListWidthAt80, 2);
         return narrow.widths[kNetRecurrenceColumn] > 0 ? narrow : usual;
     }
 
     const std::string& NetListHeader(const AppState* state)
     {
         static HeadingCache cache;
-        if (HeadingNeedsBuilding(&cache, state->list_width,
-                                 state->net_name_width * 1000 + state->net_name_min_width))
+        if (HeadingNeedsBuilding(&cache, state->list_width, state->net_name_width * 1000 + state->net_name_min_width))
         {
-            cache.text = MenuGutter() + FormatListHeading(NetListColumns(state->net_name_width,
-                                                                         state->net_name_width),
+            cache.text = MenuGutter() + FormatListHeading(NetListColumns(state->net_name_width, state->net_name_width),
                                                           NetListLayout(state));
         }
         return cache.text;
@@ -744,25 +718,18 @@ namespace ql
     static void RelayOutLists(AppState* state)
     {
         state->net_names = FormatNetList(state);
-        state->active_display_rows =
-            FormatCheckInList(state->active_check_in_cells, state->list_width);
-        state->history_check_in_labels =
-            FormatCheckInList(state->history_check_in_cells, state->list_width);
+        state->active_display_rows = FormatCheckInList(state->active_check_in_cells, state->list_width);
+        state->history_check_in_labels = FormatCheckInList(state->history_check_in_cells, state->list_width);
         state->history_instance_labels =
-            FormatRows(state->history_instance_cells,
-                       NetInstanceLayout(state->list_width, state->history_ad_hoc));
+            FormatRows(state->history_instance_cells, NetInstanceLayout(state->list_width, state->history_ad_hoc));
         state->edit_net_saved_station_labels =
             FormatRows(state->saved_station_cells, SavedStationLayout(state->list_width));
-        state->manage_users_labels =
-            FormatRows(state->manage_users_cells, UserLayout(state->list_width));
-        state->user_keys_labels =
-            FormatRows(state->user_keys_cells, UserKeyLayout(state->list_width));
-        state->modal_callsign_suggestion_labels =
-            FormatMatches(state->modal_callsign_suggestions,
-                          state->modal_callsign_suggestion_sources, state->list_width);
+        state->manage_users_labels = FormatRows(state->manage_users_cells, UserLayout(state->list_width));
+        state->user_keys_labels = FormatRows(state->user_keys_cells, UserKeyLayout(state->list_width));
+        state->modal_callsign_suggestion_labels = FormatMatches(
+            state->modal_callsign_suggestions, state->modal_callsign_suggestion_sources, state->list_width);
         state->saved_station_suggestion_labels =
-            FormatMatches(state->saved_station_suggestions, state->saved_station_suggestion_sources,
-                          state->list_width);
+            FormatMatches(state->saved_station_suggestions, state->saved_station_suggestion_sources, state->list_width);
         FormatInfoTable(state);
     }
 
@@ -781,8 +748,8 @@ namespace ql
     // already present (by callsign), so tier 2 never duplicates a tier 1 hit.
     // Moves candidates in (they're not used again) and stops once
     // `suggestions` holds `max_suggestions`.
-    static void AppendNewSuggestions(std::vector<Station>* suggestions,
-                                     std::vector<Station>* candidates, std::size_t max_suggestions)
+    static void AppendNewSuggestions(std::vector<Station>* suggestions, std::vector<Station>* candidates,
+                                     std::size_t max_suggestions)
     {
         for (Station& candidate : *candidates)
         {
@@ -831,16 +798,13 @@ namespace ql
             name_width = std::max(name_width, TextWidth(net.name));
         }
         state->net_name_width =
-            std::min(std::max(name_width + kNetNameBreathingRoom, kMinNetNameColumnWidth),
-                     kMaxNetNameColumnWidth);
-        state->net_name_min_width =
-            std::min(std::max(name_width + kNetNameNarrowRoom, 3), state->net_name_width);
+            std::min(std::max(name_width + kNetNameBreathingRoom, kMinNetNameColumnWidth), kMaxNetNameColumnWidth);
+        state->net_name_min_width = std::min(std::max(name_width + kNetNameNarrowRoom, 3), state->net_name_width);
 
         state->net_cells.clear();
         for (const Net& net : state->nets)
         {
-            bool has_open_session =
-                std::find(open_net_ids.begin(), open_net_ids.end(), net.id) != open_net_ids.end();
+            bool has_open_session = std::find(open_net_ids.begin(), open_net_ids.end(), net.id) != open_net_ids.end();
             state->net_cells.push_back(NetListCells(net, has_open_session));
         }
         state->net_names = FormatNetList(state);
@@ -857,8 +821,7 @@ namespace ql
         {
             return;
         }
-        std::optional<std::int64_t> net_id =
-            state->db->GetNetLastStartedBy(state->settings.callsign);
+        std::optional<std::int64_t> net_id = state->db->GetNetLastStartedBy(state->settings.callsign);
         if (!net_id.has_value())
         {
             return;
@@ -875,14 +838,12 @@ namespace ql
 
     bool SelectedNetHasOpenSession(const AppState* state)
     {
-        if (state->selected_net_index < 0 ||
-            state->selected_net_index >= static_cast<int>(state->nets.size()))
+        if (state->selected_net_index < 0 || state->selected_net_index >= static_cast<int>(state->nets.size()))
         {
             return false;
         }
         std::int64_t net_id = state->nets[static_cast<std::size_t>(state->selected_net_index)].id;
-        return std::find(state->open_net_ids.begin(), state->open_net_ids.end(), net_id) !=
-               state->open_net_ids.end();
+        return std::find(state->open_net_ids.begin(), state->open_net_ids.end(), net_id) != state->open_net_ids.end();
     }
 
     // "2026-09-24 03:42 PM", or just the date if no start time was recorded.
@@ -948,13 +909,12 @@ namespace ql
             return;
         }
         std::size_t check_ins = state->db->GetCheckInsForNetInstance(session.id).size();
-        ShowConfirmPrompt(
-            state, ConfirmPrompt::kResumeNet, "Session Still Open",
-            {state->start_net.name + " has a session that's still open: started " +
-                 DescribeSessionStart(session) + ", " + CountCheckIns(check_ins) + ".",
-             "Resume it to keep logging -- if someone else is logging it right now, you'll "
-             "both be adding to the same log. Or close it and start a new session, or just "
-             "view it without changing anything."});
+        ShowConfirmPrompt(state, ConfirmPrompt::kResumeNet, "Session Still Open",
+                          {state->start_net.name + " has a session that's still open: started " +
+                               DescribeSessionStart(session) + ", " + CountCheckIns(check_ins) + ".",
+                           "Resume it to keep logging -- if someone else is logging it right now, you'll "
+                           "both be adding to the same log. Or close it and start a new session, or just "
+                           "view it without changing anything."});
     }
 
     bool RefuseViewOnly(AppState* state, const std::string& what)
@@ -982,8 +942,8 @@ namespace ql
     {
         if (state->nets.empty())
         {
-            state->form_error = state->view_only_user ? "There are no recurring nets yet."
-                                                      : "Create a recurring net first.";
+            state->form_error =
+                state->view_only_user ? "There are no recurring nets yet." : "Create a recurring net first.";
             return;
         }
         state->start_net = state->nets[state->selected_net_index];
@@ -1014,11 +974,9 @@ namespace ql
     }
 
     // "Tailgate Net  started 2026-09-24 06:10 PM, 3 check-ins".
-    static std::string FormatOpenAdHocSession(const Net& net, const NetInstance& session,
-                                              std::size_t check_ins)
+    static std::string FormatOpenAdHocSession(const Net& net, const NetInstance& session, std::size_t check_ins)
     {
-        return net.name + "  started " + DescribeSessionStart(session) + ", " +
-               CountCheckIns(check_ins);
+        return net.name + "  started " + DescribeSessionStart(session) + ", " + CountCheckIns(check_ins);
     }
 
     void RefreshOpenAdHocSessions(AppState* state)
@@ -1039,8 +997,7 @@ namespace ql
             state->open_ad_hoc_labels.push_back(
                 FormatOpenAdHocSession(net.has_value() ? *net : Net(), session, check_ins));
         }
-        if (state->selected_open_ad_hoc_index >=
-            static_cast<int>(state->open_ad_hoc_sessions.size()))
+        if (state->selected_open_ad_hoc_index >= static_cast<int>(state->open_ad_hoc_sessions.size()))
         {
             state->selected_open_ad_hoc_index = 0;
         }
@@ -1057,8 +1014,7 @@ namespace ql
             state->form_error = "Net name is required.";
             return;
         }
-        if (!CheckNetRadio(state, state->new_net_frequency, state->new_net_offset,
-                           &state->new_net_tone) ||
+        if (!CheckNetRadio(state, state->new_net_frequency, state->new_net_offset, &state->new_net_tone) ||
             !CheckNetZip(state, state->new_net_location))
         {
             return;
@@ -1088,8 +1044,7 @@ namespace ql
     static void JoinOpenSession(AppState* state, bool viewing)
     {
         CancelConfirmPrompt(state);
-        std::optional<NetInstance> session =
-            state->db->GetNetInstanceById(state->resume_instance.id);
+        std::optional<NetInstance> session = state->db->GetNetInstanceById(state->resume_instance.id);
         if (!session.has_value() || session->status != NetInstanceStatus::kOpen)
         {
             RefreshNets(state);
@@ -1129,9 +1084,8 @@ namespace ql
         state->selected_check_in_index = 0;
         ClearModalFields(state);
         RefreshActiveCheckIns(state);
-        state->status_message = viewing
-                                    ? "Watching the " + DescribeSessionStart(*session) + " session."
-                                    : "Resumed the " + DescribeSessionStart(*session) + " session.";
+        state->status_message = viewing ? "Watching the " + DescribeSessionStart(*session) + " session."
+                                        : "Resumed the " + DescribeSessionStart(*session) + " session.";
         state->page = kPageActiveNet;
     }
 
@@ -1157,8 +1111,8 @@ namespace ql
                 return;
             }
         }
-        state->form_error = "No session of " + state->start_net.name +
-                            " is open to watch. Choose another role to start one.";
+        state->form_error =
+            "No session of " + state->start_net.name + " is open to watch. Choose another role to start one.";
     }
 
     void StopViewing(AppState* state)
@@ -1181,8 +1135,7 @@ namespace ql
         // later. Its last check-in is the best record of when it ended (or
         // its start, if nothing was logged).
         std::int64_t ended_at = state->resume_instance.started_at;
-        for (const CheckIn& check_in :
-             state->db->GetCheckInsForNetInstance(state->resume_instance.id))
+        for (const CheckIn& check_in : state->db->GetCheckInsForNetInstance(state->resume_instance.id))
         {
             ended_at = std::max(ended_at, check_in.checked_in_at);
         }
@@ -1209,12 +1162,11 @@ namespace ql
             return;
         }
         std::string name = state->active_net_name.empty() ? "this net" : state->active_net_name;
-        ShowConfirmPrompt(
-            state, ConfirmPrompt::kCloseNet, "Close Net",
-            {"Close " + name + " (" + CountCheckIns(state->active_check_ins.size()) + ")?",
-             std::string("It moves to History (") + HistoryKeyDescription(state) +
-                 "), where you can still view and export it. A closed session can't be "
-                 "reopened for logging."});
+        ShowConfirmPrompt(state, ConfirmPrompt::kCloseNet, "Close Net",
+                          {"Close " + name + " (" + CountCheckIns(state->active_check_ins.size()) + ")?",
+                           std::string("It moves to History (") + HistoryKeyDescription(state) +
+                               "), where you can still view and export it. A closed session can't be "
+                               "reopened for logging."});
     }
 
     // Leaves the active net for the net list, closing any dialog on it.
@@ -1240,10 +1192,9 @@ namespace ql
             return;
         }
         std::string closed_name = state->active_net_name;
-        bool closed_here = state->db->CloseNetInstance(
-            state->active_instance.id, static_cast<std::int64_t>(std::time(nullptr)));
-        std::size_t check_ins =
-            state->db->GetCheckInsForNetInstance(state->active_instance.id).size();
+        bool closed_here =
+            state->db->CloseNetInstance(state->active_instance.id, static_cast<std::int64_t>(std::time(nullptr)));
+        std::size_t check_ins = state->db->GetCheckInsForNetInstance(state->active_instance.id).size();
         std::string history = HistoryKeyDescription(state);
         if (!closed_here)
         {
@@ -1254,14 +1205,13 @@ namespace ql
         }
         LeaveActiveNet(state);
         state->form_error.clear();
-        state->status_message = "Closed " + closed_name + " (" + CountCheckIns(check_ins) +
-                                "). It's in History (" + history + ").";
+        state->status_message =
+            "Closed " + closed_name + " (" + CountCheckIns(check_ins) + "). It's in History (" + history + ").";
     }
 
     bool EnsureActiveSessionOpen(AppState* state, const std::string& unlogged_callsign)
     {
-        std::optional<NetInstance> session =
-            state->db->GetNetInstanceById(state->active_instance.id);
+        std::optional<NetInstance> session = state->db->GetNetInstanceById(state->active_instance.id);
         if (session.has_value() && session->status == NetInstanceStatus::kOpen)
         {
             return true;
@@ -1272,8 +1222,7 @@ namespace ql
 
     void ShowSessionClosedPrompt(AppState* state, const std::string& unlogged_callsign)
     {
-        std::optional<NetInstance> session =
-            state->db->GetNetInstanceById(state->active_instance.id);
+        std::optional<NetInstance> session = state->db->GetNetInstanceById(state->active_instance.id);
         std::string unlogged = unlogged_callsign;
         if (unlogged.empty() && state->show_new_station_modal)
         {
@@ -1304,8 +1253,8 @@ namespace ql
         if (session.has_value())
         {
             std::string ended = DescribeSessionEnd(*session);
-            lines.push_back("Another user has closed this net" +
-                            (ended.empty() ? std::string() : " at " + ended) + ".");
+            lines.push_back("Another user has closed this net" + (ended.empty() ? std::string() : " at " + ended) +
+                            ".");
         }
         else
         {
@@ -1316,8 +1265,8 @@ namespace ql
             lines.push_back(unlogged + " was not logged.");
         }
         lines.push_back("You will be returned to the Recurring Nets list when you press Enter.");
-        ShowConfirmPrompt(state, ConfirmPrompt::kSessionClosed,
-                          session.has_value() ? "Net Closed" : "Session Deleted", lines);
+        ShowConfirmPrompt(state, ConfirmPrompt::kSessionClosed, session.has_value() ? "Net Closed" : "Session Deleted",
+                          lines);
     }
 
     void LeaveClosedSession(AppState* state)
@@ -1362,13 +1311,12 @@ namespace ql
         int radius = kDefaultNearbyRadiusMiles;
         if (!state->settings_radius_text.empty())
         {
-            radius =
-                state->settings_radius_text.size() > 3 ? 0 : std::stoi(state->settings_radius_text);
+            radius = state->settings_radius_text.size() > 3 ? 0 : std::stoi(state->settings_radius_text);
         }
         if (radius < kMinNearbyRadiusMiles || radius > kMaxNearbyRadiusMiles)
         {
-            state->form_error = "Nearby Radius must be " + std::to_string(kMinNearbyRadiusMiles) +
-                                " to " + std::to_string(kMaxNearbyRadiusMiles) + " miles.";
+            state->form_error = "Nearby Radius must be " + std::to_string(kMinNearbyRadiusMiles) + " to " +
+                                std::to_string(kMaxNearbyRadiusMiles) + " miles.";
             return false;
         }
 
@@ -1411,8 +1359,7 @@ namespace ql
         return text;
     }
 
-    bool CheckNetRadio(AppState* state, const std::string& frequency, const std::string& offset,
-                       std::string* tone)
+    bool CheckNetRadio(AppState* state, const std::string& frequency, const std::string& offset, std::string* tone)
     {
         std::string problem = FrequencyProblem(frequency);
         if (problem.empty())
@@ -1442,8 +1389,7 @@ namespace ql
         return true;
     }
 
-    std::string ExistingNetNamed(AppState* state, const std::string& name,
-                                 std::int64_t except_net_id)
+    std::string ExistingNetNamed(AppState* state, const std::string& name, std::int64_t except_net_id)
     {
         for (const Net& net : state->db->GetAllNets())
         {
@@ -1484,8 +1430,7 @@ namespace ql
         Database::ReadTransaction reads(state->db);
         state->active_check_ins = state->db->GetCheckInsForNetInstance(state->active_instance.id);
         state->active_check_in_cells = CheckInCells(state->db, state->active_check_ins);
-        state->active_display_rows =
-            FormatCheckInList(state->active_check_in_cells, state->list_width);
+        state->active_display_rows = FormatCheckInList(state->active_check_in_cells, state->list_width);
 
         if (state->selected_check_in_index >= static_cast<int>(state->active_check_ins.size()))
         {
@@ -1505,8 +1450,8 @@ namespace ql
     void RefreshActiveCheckInsFromOthers(AppState* state, std::int64_t instance_id)
     {
         if (state->page != kPageActiveNet || state->active_instance.id != instance_id ||
-            state->row_pick_action != RowPickAction::kNone ||
-            state->show_row_delete_confirm_modal || state->show_edit_checkin_modal)
+            state->row_pick_action != RowPickAction::kNone || state->show_row_delete_confirm_modal ||
+            state->show_edit_checkin_modal)
         {
             return;
         }
@@ -1533,8 +1478,7 @@ namespace ql
         }
         else
         {
-            std::optional<Station> uls =
-                state->db->FindLicensedStationByCallsign(state->operator_callsign);
+            std::optional<Station> uls = state->db->FindLicensedStationByCallsign(state->operator_callsign);
             if (uls.has_value())
             {
                 operator_station = *uls;
@@ -1550,10 +1494,9 @@ namespace ql
         // net (SearchNetStationsByCallsignSubstring also matches on real
         // check-in history), never in the edit-net page's saved-station
         // list or its export, which both query net_saved_stations only.
-        std::string existing_remarks = state->db->GetSavedNetStationRemarks(
-            state->active_instance.net_id, operator_station.callsign);
-        state->db->SaveNetStation(state->active_instance.net_id, operator_station, existing_remarks,
-                                  now);
+        std::string existing_remarks =
+            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, operator_station.callsign);
+        state->db->SaveNetStation(state->active_instance.net_id, operator_station, existing_remarks, now);
 
         CheckIn check_in;
         check_in.net_instance_id = state->active_instance.id;
@@ -1581,10 +1524,8 @@ namespace ql
         const CheckIn& selected = state->active_check_ins[state->selected_check_in_index];
         if (selected.designated_role != kRoleNone)
         {
-            state->db->SetNetInstanceRoleCallsign(state->active_instance.id,
-                                                  selected.designated_role, "");
-            std::optional<NetInstance> refreshed =
-                state->db->GetNetInstanceById(state->active_instance.id);
+            state->db->SetNetInstanceRoleCallsign(state->active_instance.id, selected.designated_role, "");
+            std::optional<NetInstance> refreshed = state->db->GetNetInstanceById(state->active_instance.id);
             if (refreshed.has_value())
             {
                 state->active_instance = *refreshed;
@@ -1653,8 +1594,8 @@ namespace ql
         return choice < roles.size() ? roles[choice] : kRoleNone;
     }
 
-    void ApplyCheckInRoleDesignation(AppState* state, std::int64_t check_in_id, int old_role,
-                                     int new_role, const std::string& callsign)
+    void ApplyCheckInRoleDesignation(AppState* state, std::int64_t check_in_id, int old_role, int new_role,
+                                     const std::string& callsign)
     {
         if (old_role == new_role || state->view_only_user)
         {
@@ -1674,13 +1615,11 @@ namespace ql
             // Only one check-in per instance can hold a given role -- handing
             // it to this one silently takes it away from whichever check-in
             // held it before.
-            state->db->ClearCheckInRoleForInstance(state->active_instance.id, new_role,
-                                                   check_in_id);
+            state->db->ClearCheckInRoleForInstance(state->active_instance.id, new_role, check_in_id);
             state->db->SetNetInstanceRoleCallsign(state->active_instance.id, new_role, callsign);
         }
 
-        std::optional<NetInstance> refreshed =
-            state->db->GetNetInstanceById(state->active_instance.id);
+        std::optional<NetInstance> refreshed = state->db->GetNetInstanceById(state->active_instance.id);
         if (refreshed.has_value())
         {
             state->active_instance = *refreshed;
@@ -1762,9 +1701,9 @@ namespace ql
         {
             return false;
         }
-        FillIfBlank(&state->modal_remarks, state->db->GetSavedNetStationRemarks(
-                                               state->active_instance.net_id,
-                                               NormalizeCallsign(state->modal_station.callsign)));
+        FillIfBlank(&state->modal_remarks,
+                    state->db->GetSavedNetStationRemarks(state->active_instance.net_id,
+                                                         NormalizeCallsign(state->modal_station.callsign)));
         return true;
     }
 
@@ -1774,9 +1713,9 @@ namespace ql
         {
             return false;
         }
-        FillIfBlank(&state->saved_station_remarks,
-                    state->db->GetSavedNetStationRemarks(
-                        state->edit_net_id, NormalizeCallsign(state->saved_station.callsign)));
+        FillIfBlank(
+            &state->saved_station_remarks,
+            state->db->GetSavedNetStationRemarks(state->edit_net_id, NormalizeCallsign(state->saved_station.callsign)));
         return true;
     }
 
@@ -1805,15 +1744,13 @@ namespace ql
         // Once per session, counting W4KWK/M as W4KWK. Read fresh: someone
         // else sharing the session may have logged it.
         std::string base = BaseCallsign(state->modal_station.callsign);
-        for (const CheckIn& existing :
-             state->db->GetCheckInsForNetInstance(state->active_instance.id))
+        for (const CheckIn& existing : state->db->GetCheckInsForNetInstance(state->active_instance.id))
         {
             if (BaseCallsign(existing.callsign) == base)
             {
                 state->form_error =
                     state->modal_station.callsign + " is already in this session's log, as " +
-                    (existing.callsign == state->modal_station.callsign ? std::string()
-                                                                        : existing.callsign + " ") +
+                    (existing.callsign == state->modal_station.callsign ? std::string() : existing.callsign + " ") +
                     "#" + std::to_string(existing.sequence_number) + ".";
                 return false;
             }
@@ -1826,8 +1763,7 @@ namespace ql
         // same reasoning as LogOperatorCheckIn above -- and this check-in's
         // own remarks become the saved station's new default remarks,
         // prefilled next time it's picked via autocomplete for this net.
-        state->db->SaveNetStation(state->active_instance.net_id, state->modal_station,
-                                  state->modal_remarks, now);
+        state->db->SaveNetStation(state->active_instance.net_id, state->modal_station, state->modal_remarks, now);
 
         CheckIn check_in;
         check_in.net_instance_id = state->active_instance.id;
@@ -1844,8 +1780,7 @@ namespace ql
 
         if (check_in.designated_role != kRoleNone)
         {
-            ApplyCheckInRoleDesignation(state, check_in.id, kRoleNone, check_in.designated_role,
-                                        check_in.callsign);
+            ApplyCheckInRoleDesignation(state, check_in.id, kRoleNone, check_in.designated_role, check_in.callsign);
         }
 
         RefreshActiveCheckIns(state);
@@ -1868,8 +1803,7 @@ namespace ql
         state->edit_checkin_remarks = check_in.remarks;
         state->edit_checkin_comment = check_in.comment;
         state->edit_checkin_role_choice_labels = RoleChoiceLabels(state);
-        state->edit_checkin_role_choice_index =
-            RoleChoiceIndexFromRole(state, check_in.designated_role);
+        state->edit_checkin_role_choice_index = RoleChoiceIndexFromRole(state, check_in.designated_role);
 
         state->form_error.clear();
         state->show_edit_checkin_modal = true;
@@ -1930,20 +1864,18 @@ namespace ql
             {
                 return;
             }
-            state->history_instances =
-                state->db->GetNetInstancesForNet(state->nets[state->selected_net_index].id);
+            state->history_instances = state->db->GetNetInstancesForNet(state->nets[state->selected_net_index].id);
         }
         for (const NetInstance& instance : state->history_instances)
         {
             std::int64_t check_ins = 0;
             std::int64_t newest_id = 0;
             state->db->GetCheckInSummary(instance.id, &check_ins, &newest_id);
-            state->history_instance_cells.push_back(NetInstanceCells(
-                instance, names[instance.net_id], check_ins, state->history_ad_hoc));
+            state->history_instance_cells.push_back(
+                NetInstanceCells(instance, names[instance.net_id], check_ins, state->history_ad_hoc));
         }
         state->history_instance_labels =
-            FormatRows(state->history_instance_cells,
-                       NetInstanceLayout(state->list_width, state->history_ad_hoc));
+            FormatRows(state->history_instance_cells, NetInstanceLayout(state->list_width, state->history_ad_hoc));
 
         if (state->selected_history_index >= static_cast<int>(state->history_instances.size()))
         {
@@ -1970,8 +1902,7 @@ namespace ql
         const NetInstance& selected = state->history_instances[state->selected_history_index];
         state->history_check_ins = state->db->GetCheckInsForNetInstance(selected.id);
         state->history_check_in_cells = CheckInCells(state->db, state->history_check_ins);
-        state->history_check_in_labels =
-            FormatCheckInList(state->history_check_in_cells, state->list_width);
+        state->history_check_in_labels = FormatCheckInList(state->history_check_in_cells, state->list_width);
     }
 
     void DeleteSelectedNetInstance(AppState* state)
@@ -2055,8 +1986,7 @@ namespace ql
         }
         if (!ZmodemSendAvailable())
         {
-            state->status_message =
-                "Saved to " + ListPaths(paths) + " (install 'sz'/lrzsz for ZMODEM download).";
+            state->status_message = "Saved to " + ListPaths(paths) + " (install 'sz'/lrzsz for ZMODEM download).";
             return;
         }
 
@@ -2075,8 +2005,7 @@ namespace ql
 
     // Writes an export's lines to `path`; on failure, says why in
     // form_error and returns false.
-    static bool WriteExportLines(AppState* state, const std::string& path,
-                                 std::vector<std::string> lines)
+    static bool WriteExportLines(AppState* state, const std::string& path, std::vector<std::string> lines)
     {
         // Rows whose last columns are empty would otherwise end in padding.
         for (std::string& line : lines)
@@ -2094,8 +2023,7 @@ namespace ql
         return true;
     }
 
-    static void ExportLinesToFile(AppState* state, const std::string& path,
-                                  std::vector<std::string> lines)
+    static void ExportLinesToFile(AppState* state, const std::string& path, std::vector<std::string> lines)
     {
         if (WriteExportLines(state, path, std::move(lines)))
         {
@@ -2138,8 +2066,7 @@ namespace ql
         {
             if (!ShowInFileManager(state->zmodem_send_paths, &error))
             {
-                state->status_message =
-                    "Saved to " + ListPaths(state->zmodem_send_paths) + " (" + error + ").";
+                state->status_message = "Saved to " + ListPaths(state->zmodem_send_paths) + " (" + error + ").";
             }
             return;
         }
@@ -2151,11 +2078,10 @@ namespace ql
             std::vector<std::string> saved = SavedAfterZmodem(state);
             if (sent)
             {
-                state->status_message =
-                    state->zmodem_send_paths.size() == 1 && saved != state->zmodem_send_paths
-                        ? "Sent " + BaseFileName(state->zmodem_send_paths[0]) +
-                              " via ZMODEM; saved to " + ListPaths(saved) + "."
-                        : "Saved to " + ListPaths(saved) + " and sent via ZMODEM.";
+                state->status_message = state->zmodem_send_paths.size() == 1 && saved != state->zmodem_send_paths
+                                            ? "Sent " + BaseFileName(state->zmodem_send_paths[0]) +
+                                                  " via ZMODEM; saved to " + ListPaths(saved) + "."
+                                            : "Saved to " + ListPaths(saved) + " and sent via ZMODEM.";
             }
             else
             {
@@ -2170,8 +2096,7 @@ namespace ql
         {
             return;
         }
-        if (ReceiveFileViaZmodem(state->screen,
-                                 SessionImportsDir(state->db_path, state->ssh_username), &error))
+        if (ReceiveFileViaZmodem(state->screen, SessionImportsDir(state->db_path, state->ssh_username), &error))
         {
             RefreshImportNetFiles(state);
             state->form_error.clear();
@@ -2193,8 +2118,7 @@ namespace ql
         }
         if (state->zmodem_action == ZmodemAction::kSend)
         {
-            state->status_message =
-                "Saved to " + ListPaths(SavedAfterZmodem(state)) + " (ZMODEM skipped).";
+            state->status_message = "Saved to " + ListPaths(SavedAfterZmodem(state)) + " (ZMODEM skipped).";
         }
         else
         {
@@ -2418,8 +2342,7 @@ namespace ql
             state->status_message.clear();
             std::string verb = RowPickVerb(action);
             verb[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(verb[0])));
-            state->form_error =
-                std::string("There's no ") + PickListNoun(list) + " to " + verb + ".";
+            state->form_error = std::string("There's no ") + PickListNoun(list) + " to " + verb + ".";
             return;
         }
 
@@ -2505,8 +2428,7 @@ namespace ql
     {
         PickList list = RowPickListFor(state->row_pick_action);
         int* selection = PickListSelection(state, list);
-        if (selection == nullptr || index < 0 ||
-            index >= static_cast<int>(PickListSize(state, list)))
+        if (selection == nullptr || index < 0 || index >= static_cast<int>(PickListSize(state, list)))
         {
             return;
         }
@@ -2555,16 +2477,14 @@ namespace ql
             case RowPickAction::kDeleteCheckIn:
             {
                 const CheckIn& check_in = state->active_check_ins[index];
-                std::optional<Station> station =
-                    state->db->FindStationByCallsign(check_in.callsign);
+                std::optional<Station> station = state->db->FindStationByCallsign(check_in.callsign);
                 std::string who = check_in.callsign;
                 if (station.has_value() && !station->name.empty())
                 {
                     who += " (" + station->name + ")";
                 }
                 state->row_delete_title = "Delete Check-In";
-                state->row_delete_lines.emplace_back("Delete check-in #" +
-                                                     std::to_string(check_in.sequence_number) +
+                state->row_delete_lines.emplace_back("Delete check-in #" + std::to_string(check_in.sequence_number) +
                                                      ": " + who + "?");
                 state->row_delete_lines.emplace_back("It's removed from this net's log.");
                 break;
@@ -2573,10 +2493,9 @@ namespace ql
             {
                 const Station& station = state->edit_net_saved_stations[index];
                 state->row_delete_title = "Remove Saved Station";
-                state->row_delete_lines.emplace_back(
-                    "Remove " + station.callsign +
-                    (station.name.empty() ? "" : " (" + station.name + ")") +
-                    " from this net's saved stations?");
+                state->row_delete_lines.emplace_back("Remove " + station.callsign +
+                                                     (station.name.empty() ? "" : " (" + station.name + ")") +
+                                                     " from this net's saved stations?");
                 if (state->db->IsStationUsedOutsideNet(station.callsign, state->edit_net_id))
                 {
                     state->row_delete_lines.emplace_back(
@@ -2594,25 +2513,21 @@ namespace ql
             case RowPickAction::kDeleteHistoryCheckIn:
             {
                 const CheckIn& check_in = state->history_check_ins[index];
-                std::optional<Station> station =
-                    state->db->FindStationByCallsign(check_in.callsign);
+                std::optional<Station> station = state->db->FindStationByCallsign(check_in.callsign);
                 std::string who = check_in.callsign;
                 if (station.has_value() && !station->name.empty())
                 {
                     who += " (" + station->name + ")";
                 }
                 std::string when;
-                if (state->selected_history_index <
-                    static_cast<int>(state->history_instances.size()))
+                if (state->selected_history_index < static_cast<int>(state->history_instances.size()))
                 {
-                    when = " from the " +
-                           state->history_instances[state->selected_history_index].instance_date +
+                    when = " from the " + state->history_instances[state->selected_history_index].instance_date +
                            " session";
                 }
                 state->row_delete_title = "Delete Check-In";
-                state->row_delete_lines.push_back("Delete check-in #" +
-                                                  std::to_string(check_in.sequence_number) + ": " +
-                                                  who + when + "?");
+                state->row_delete_lines.push_back("Delete check-in #" + std::to_string(check_in.sequence_number) +
+                                                  ": " + who + when + "?");
                 state->row_delete_lines.emplace_back("It's removed from that net's log.");
                 break;
             }
@@ -2621,19 +2536,17 @@ namespace ql
                 const NetInstance& instance = state->history_instances[index];
                 if (instance.status == NetInstanceStatus::kOpen)
                 {
-                    state->form_error =
-                        std::string("That session is still open. Resume it (F3 on the ") +
-                        (state->history_ad_hoc ? "Ad Hoc Net page" : "net list") +
-                        "), close it with F4, then delete it.";
+                    state->form_error = std::string("That session is still open. Resume it (F3 on the ") +
+                                        (state->history_ad_hoc ? "Ad Hoc Net page" : "net list") +
+                                        "), close it with F4, then delete it.";
                     return;
                 }
                 std::size_t check_ins = state->db->GetCheckInsForNetInstance(instance.id).size();
                 std::string ended = DescribeSessionEnd(instance);
                 state->row_delete_title = "Delete Net Session";
-                state->row_delete_lines.emplace_back(
-                    "Delete the " + DescribeSessionStart(instance) + " session (" +
-                    (ended.empty() ? "" : "ended " + ended + ", ") + CountCheckIns(check_ins) +
-                    ")?");
+                state->row_delete_lines.emplace_back("Delete the " + DescribeSessionStart(instance) + " session (" +
+                                                     (ended.empty() ? "" : "ended " + ended + ", ") +
+                                                     CountCheckIns(check_ins) + ")?");
                 state->row_delete_lines.emplace_back("Its whole log is deleted.");
                 break;
             }
@@ -2644,8 +2557,7 @@ namespace ql
                 state->row_delete_title = "Remove SSH User";
                 state->row_delete_lines.emplace_back(
                     "Remove " + username +
-                    (keys == 1 ? " and their key?"
-                               : " and all " + std::to_string(keys) + " of their keys?"));
+                    (keys == 1 ? " and their key?" : " and all " + std::to_string(keys) + " of their keys?"));
                 state->row_delete_lines.emplace_back("They won't be able to log in over SSH.");
                 break;
             }
@@ -2655,18 +2567,16 @@ namespace ql
                 if (state->user_keys.size() == 1)
                 {
                     state->row_delete_title = "Remove SSH User";
-                    state->row_delete_lines.emplace_back("Remove " + key.username +
-                                                         "'s only key? That removes " +
+                    state->row_delete_lines.emplace_back("Remove " + key.username + "'s only key? That removes " +
                                                          key.username + " too.");
                     state->row_delete_lines.emplace_back("They won't be able to log in over SSH.");
                 }
                 else
                 {
                     state->row_delete_title = "Remove SSH Key";
-                    state->row_delete_lines.emplace_back("Remove " + key.username + "'s key " +
-                                                         DescribeUserKey(key) + "?");
-                    state->row_delete_lines.emplace_back(
-                        "They can still log in with their other keys.");
+                    state->row_delete_lines.emplace_back("Remove " + key.username + "'s key " + DescribeUserKey(key) +
+                                                         "?");
+                    state->row_delete_lines.emplace_back("They can still log in with their other keys.");
                 }
                 break;
             }
@@ -2719,8 +2629,8 @@ namespace ql
             }
             if (index < 0)
             {
-                state->form_error = "There's no " + std::string(PickListNoun(list)) + " #" +
-                                    state->row_pick_digits + ".";
+                state->form_error =
+                    "There's no " + std::string(PickListNoun(list)) + " #" + state->row_pick_digits + ".";
                 state->row_pick_digits.clear();
                 return;
             }
@@ -2733,8 +2643,7 @@ namespace ql
 
         CancelRowPick(state);
         state->form_error.clear();
-        if (RowPickChangesSomething(action) &&
-            RefuseViewOnly(state, "change anything but their own settings"))
+        if (RowPickChangesSomething(action) && RefuseViewOnly(state, "change anything but their own settings"))
         {
             return;
         }
@@ -2803,8 +2712,7 @@ namespace ql
         state->row_delete_index = -1;
 
         int* selection = PickListSelection(state, RowPickListFor(action));
-        if (selection == nullptr || index < 0 ||
-            index >= static_cast<int>(PickListSize(state, RowPickListFor(action))))
+        if (selection == nullptr || index < 0 || index >= static_cast<int>(PickListSize(state, RowPickListFor(action))))
         {
             return;
         }
@@ -2862,8 +2770,7 @@ namespace ql
         {
             state->user_keys_cells.push_back(UserKeyCells(key));
         }
-        state->user_keys_labels =
-            FormatRows(state->user_keys_cells, UserKeyLayout(state->list_width));
+        state->user_keys_labels = FormatRows(state->user_keys_cells, UserKeyLayout(state->list_width));
         if (state->selected_user_key_index >= static_cast<int>(state->user_keys.size()))
         {
             state->selected_user_key_index = 0;
@@ -2878,15 +2785,13 @@ namespace ql
         for (const User& user : state->manage_users)
         {
             // ListUsers returns each user's keys together.
-            if (state->manage_user_names.empty() ||
-                state->manage_user_names.back() != user.username)
+            if (state->manage_user_names.empty() || state->manage_user_names.back() != user.username)
             {
                 state->manage_user_names.push_back(user.username);
                 state->manage_users_cells.push_back(UserCells(user.username, state->manage_users));
             }
         }
-        state->manage_users_labels =
-            FormatRows(state->manage_users_cells, UserLayout(state->list_width));
+        state->manage_users_labels = FormatRows(state->manage_users_cells, UserLayout(state->list_width));
         if (state->selected_user_index >= static_cast<int>(state->manage_user_names.size()))
         {
             state->selected_user_index = 0;
@@ -2906,8 +2811,7 @@ namespace ql
         state->selected_user_index = index;
         state->user_keys_username = state->manage_user_names[index];
         state->rename_username = state->user_keys_username;
-        state->edit_user_access_index =
-            state->db->IsUserViewOnly(state->user_keys_username) ? 1 : 0;
+        state->edit_user_access_index = state->db->IsUserViewOnly(state->user_keys_username) ? 1 : 0;
         state->selected_user_key_index = 0;
         state->new_key_text.clear();
         state->form_error.clear();
@@ -2980,13 +2884,12 @@ namespace ql
         std::string access = view_only ? "view-only" : "a full user";
         if (renaming && access_changed)
         {
-            state->status_message = "Renamed " + old_username + " to " + new_username + ", now " +
-                                    access + ", from their next login.";
+            state->status_message =
+                "Renamed " + old_username + " to " + new_username + ", now " + access + ", from their next login.";
         }
         else if (renaming)
         {
-            state->status_message =
-                "Renamed " + old_username + " to " + new_username + ", from their next login.";
+            state->status_message = "Renamed " + old_username + " to " + new_username + ", from their next login.";
         }
         else if (access_changed)
         {
@@ -3020,8 +2923,8 @@ namespace ql
         state->new_key_text.clear();
         RefreshUsers(state);
         state->form_error.clear();
-        state->status_message = added ? "Added a key for \"" + key.username + "\"."
-                                      : "\"" + key.username + "\" already has that key.";
+        state->status_message =
+            added ? "Added a key for \"" + key.username + "\"." : "\"" + key.username + "\" already has that key.";
     }
 
     void RemoveSelectedUserKey(AppState* state)
@@ -3039,9 +2942,8 @@ namespace ql
         }
         RefreshUsers(state);
         state->form_error.clear();
-        state->status_message =
-            last_key ? "Removed \"" + key.username + "\" with their last key."
-                     : "Removed a key of \"" + key.username + "\" (" + DescribeUserKey(key) + ").";
+        state->status_message = last_key ? "Removed \"" + key.username + "\" with their last key."
+                                         : "Removed a key of \"" + key.username + "\" (" + DescribeUserKey(key) + ").";
     }
 
     bool UsernameIsCallsign(const std::string& username)
@@ -3065,11 +2967,10 @@ namespace ql
         if (!UsernameIsCallsign(state->new_user_username))
         {
             state->status_message.clear();
-            state->form_error =
-                state->new_user_username.find('/') != std::string::npos
-                    ? "A username is the user's call sign alone, without /M, /P or the like."
-                    : "A username is the user's call sign: " + state->new_user_username +
-                          " isn't a valid US or Canadian call sign.";
+            state->form_error = state->new_user_username.find('/') != std::string::npos
+                                    ? "A username is the user's call sign alone, without /M, /P or the like."
+                                    : "A username is the user's call sign: " + state->new_user_username +
+                                          " isn't a valid US or Canadian call sign.";
             return;
         }
         std::string public_key;
@@ -3095,16 +2996,14 @@ namespace ql
         RefreshUsers(state);
         state->form_error.clear();
         // Another key keeps the username's access, whatever the form said.
-        std::string access =
-            state->db->IsUserViewOnly(user.username) ? " (view-only)" : " (full access)";
+        std::string access = state->db->IsUserViewOnly(user.username) ? " (view-only)" : " (full access)";
         if (!added)
         {
             state->status_message = "\"" + user.username + "\" already has that key.";
         }
         else if (had_keys)
         {
-            state->status_message =
-                "Added another key for \"" + user.username + "\"" + access + ".";
+            state->status_message = "Added another key for \"" + user.username + "\"" + access + ".";
         }
         else
         {
@@ -3142,9 +3041,8 @@ namespace ql
 
     // Writes `instance`'s check-ins, all but the operator's own, to `path`
     // as ADIF (see BuildAdif), from the exporting user's callsign.
-    static bool WriteSessionAdif(AppState* state, const NetInstance& instance,
-                                 const std::vector<CheckIn>& check_ins, const std::string& path,
-                                 std::string* error)
+    static bool WriteSessionAdif(AppState* state, const NetInstance& instance, const std::vector<CheckIn>& check_ins,
+                                 const std::string& path, std::string* error)
     {
         // The contacts point into `check_ins` and `stations`, which outlive
         // BuildAdif.
@@ -3170,19 +3068,17 @@ namespace ql
                 }
                 AdifContact& contact = contacts.emplace_back();
                 contact.check_in = &check_in;
-                std::vector<Station>::const_iterator found = std::lower_bound(
-                    stations.begin(), stations.end(), check_in.callsign, StationCallsignBefore);
+                std::vector<Station>::const_iterator found =
+                    std::lower_bound(stations.begin(), stations.end(), check_in.callsign, StationCallsignBefore);
                 if (found != stations.end() && found->callsign == check_in.callsign)
                 {
                     contact.station = &*found;
                 }
             }
         }
-        const std::string& frequency =
-            instance.frequency.empty() ? net.default_frequency : instance.frequency;
-        std::string adif =
-            BuildAdif(contacts, net.mode, frequency, ToUpperAscii(state->settings.callsign),
-                      instance.instance_date, static_cast<std::int64_t>(std::time(nullptr)));
+        const std::string& frequency = instance.frequency.empty() ? net.default_frequency : instance.frequency;
+        std::string adif = BuildAdif(contacts, net.mode, frequency, ToUpperAscii(state->settings.callsign),
+                                     instance.instance_date, static_cast<std::int64_t>(std::time(nullptr)));
         std::string temp_path = TemporaryPathFor(path);
         {
             std::ofstream out(temp_path, std::ios::binary | std::ios::trunc);
@@ -3213,8 +3109,7 @@ namespace ql
         lines.push_back("Net Control: " + instance.net_control_callsign);
         lines.push_back("Alternate NC: " + instance.alternate_net_control_callsign);
         lines.push_back("Logger: " + instance.logger_callsign);
-        lines.push_back(std::string("Status: ") +
-                        (instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed"));
+        lines.push_back(std::string("Status: ") + (instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed"));
         lines.emplace_back("");
         // A fixed format: every column, each at its set export width,
         // whatever the terminal or the data (see ExportListLayout).
@@ -3247,27 +3142,23 @@ namespace ql
         if (!WriteSessionAdif(state, instance, check_ins, adif_path, &error))
         {
             state->status_message.clear();
-            state->form_error = "Saved " + log_path + " and " + session_path + ", but not " +
-                                adif_path + ": " + error;
+            state->form_error = "Saved " + log_path + " and " + session_path + ", but not " + adif_path + ": " + error;
             return;
         }
         std::vector<std::string> paths{log_path, session_path, adif_path};
         // Sent over ZMODEM as one .zip, so there's one file to receive. With
         // no ZMODEM (at the console, on Windows, or without sz), the files
         // are all there is.
-        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() ||
-            !ZmodemSendAvailable())
+        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || !ZmodemSendAvailable())
         {
             OfferZmodemSendFiles(state, paths);
             return;
         }
         std::string zip_path = stem + ".zip";
-        if (!WriteZipArchive(zip_path, paths, static_cast<std::int64_t>(std::time(nullptr)),
-                             &error))
+        if (!WriteZipArchive(zip_path, paths, static_cast<std::int64_t>(std::time(nullptr)), &error))
         {
             state->status_message.clear();
-            state->form_error =
-                "Saved " + ListPaths(paths) + ", but not " + zip_path + ": " + error;
+            state->form_error = "Saved " + ListPaths(paths) + ", but not " + zip_path + ": " + error;
             return;
         }
         OfferZmodemSendFiles(state, {zip_path});
@@ -3275,8 +3166,7 @@ namespace ql
         state->status_message = "Saved to " + ListPaths(paths) + ".";
     }
 
-    void ExportSavedStations(AppState* state, const std::string& net_name,
-                             const std::vector<Station>& saved_stations)
+    void ExportSavedStations(AppState* state, const std::string& net_name, const std::vector<Station>& saved_stations)
     {
         Database::ReadTransaction reads(state->db);
         std::vector<std::string> lines;
@@ -3287,8 +3177,8 @@ namespace ql
         std::vector<std::vector<std::string>> cells;
         for (const Station& station : saved_stations)
         {
-            cells.push_back(SavedStationCells(station, state->db->GetSavedNetStationRemarks(
-                                                           state->edit_net_id, station.callsign)));
+            cells.push_back(
+                SavedStationCells(station, state->db->GetSavedNetStationRemarks(state->edit_net_id, station.callsign)));
         }
         ListLayout layout = ExportListLayout(SavedStationColumns(), 1);
         lines.push_back(FormatListHeading(SavedStationColumns(), layout));
@@ -3320,9 +3210,8 @@ namespace ql
 
     void RefreshImportNetFiles(AppState* state)
     {
-        state->import_net_files =
-            ListFilesWithExtension(SessionImportsDir(state->db_path, state->ssh_username),
-                                   state->import_session ? ".qlsession" : ".qlnet");
+        state->import_net_files = ListFilesWithExtension(SessionImportsDir(state->db_path, state->ssh_username),
+                                                         state->import_session ? ".qlsession" : ".qlnet");
         if (state->selected_import_file_index >= static_cast<int>(state->import_net_files.size()))
         {
             state->selected_import_file_index = 0;
@@ -3364,8 +3253,7 @@ namespace ql
 
     // Opens the Import or Merge window for `slice` (read from the
     // highlighted file), offering the nets here in `alike`.
-    static void OpenNetMergeChoice(AppState* state, NetSlice slice, std::vector<Net> alike,
-                                   bool name_taken)
+    static void OpenNetMergeChoice(AppState* state, NetSlice slice, std::vector<Net> alike, bool name_taken)
     {
         state->merge_slice = std::move(slice);
         state->merge_candidates = std::move(alike);
@@ -3377,8 +3265,7 @@ namespace ql
         {
             std::size_t sessions = state->db->GetNetInstancesForNet(net.id).size();
             state->merge_candidate_labels.push_back(net.name + "  (" + std::to_string(sessions) +
-                                                    (sessions == 1 ? " session" : " sessions") +
-                                                    ")");
+                                                    (sessions == 1 ? " session" : " sessions") + ")");
         }
         state->selected_merge_candidate = 0;
         state->merge_name_taken = name_taken;
@@ -3393,9 +3280,9 @@ namespace ql
         bool summary = state->merge_stage == MergeStage::kSummary;
         int* index = summary ? &state->selected_merge_conflict : &state->selected_merge_candidate;
         // In the summary, the sessions that differ, then the stations.
-        int count = static_cast<int>(summary ? state->merge_conflicts.size() +
-                                                   state->merge_plan.station_conflicts.size()
-                                             : state->merge_candidates.size());
+        int count =
+            static_cast<int>(summary ? state->merge_conflicts.size() + state->merge_plan.station_conflicts.size()
+                                     : state->merge_candidates.size());
         if (count > 0)
         {
             *index = std::clamp(*index + delta, 0, count - 1);
@@ -3408,8 +3295,7 @@ namespace ql
         {
             return;
         }
-        const Net& target =
-            state->merge_candidates[static_cast<std::size_t>(state->selected_merge_candidate)];
+        const Net& target = state->merge_candidates[static_cast<std::size_t>(state->selected_merge_candidate)];
         state->merge_target_name = target.name;
         state->merge_plan = PlanNetMerge(state->db, state->merge_slice, target.id);
         state->merge_conflicts.clear();
@@ -3483,8 +3369,7 @@ namespace ql
         if (result.stations_replaced > 0)
         {
             message.append(", ");
-            message.append(
-                Count(result.stations_replaced, "station's details", "stations' details"));
+            message.append(Count(result.stations_replaced, "station's details", "stations' details"));
             message.append(" taken from the file");
         }
         message.push_back('.');
@@ -3572,8 +3457,7 @@ namespace ql
         }
         RefreshNets(state);
         state->form_error.clear();
-        state->status_message =
-            "Imported \"" + slice->net.name + "\". It's listed with today's date as \"imported\".";
+        state->status_message = "Imported \"" + slice->net.name + "\". It's listed with today's date as \"imported\".";
         state->page = kPageNetList;
     }
 
@@ -3660,11 +3544,11 @@ namespace ql
         if (!name_checked && !state->import_session_ad_hoc &&
             !NetNamesLookAlike(slice->net.name, state->import_session_net_name))
         {
-            ShowConfirmPrompt(state, ConfirmPrompt::kImportOtherNet, "Import Into This Net?",
-                              {"This session was logged as \"" + slice->net.name + "\", not " +
-                                   state->import_session_net_name + ".",
-                               "If it belongs to another net, press Esc and import it from "
-                               "that net's History instead."});
+            ShowConfirmPrompt(
+                state, ConfirmPrompt::kImportOtherNet, "Import Into This Net?",
+                {"This session was logged as \"" + slice->net.name + "\", not " + state->import_session_net_name + ".",
+                 "If it belongs to another net, press Esc and import it from "
+                 "that net's History instead."});
             return;
         }
 
@@ -3686,12 +3570,11 @@ namespace ql
                 {
                     std::optional<Net> existing_net = state->db->GetNetById(existing.net_id);
                     if (existing_net.has_value() && existing_net->name == slice->net.name &&
-                        existing.instance_date == session.instance_date &&
-                        existing.started_at == session.started_at)
+                        existing.instance_date == session.instance_date && existing.started_at == session.started_at)
                     {
                         state->status_message.clear();
-                        state->form_error = "The ad hoc net " + slice->net.name +
-                                            " already has that session, so nothing was imported.";
+                        state->form_error =
+                            "The ad hoc net " + slice->net.name + " already has that session, so nothing was imported.";
                         return;
                     }
                 }
@@ -3761,14 +3644,11 @@ namespace ql
         state->show_zmodem_confirm_modal = true;
     }
 
-    static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed,
-                                           const std::string& net_zip, bool partial,
-                                           std::size_t max_suggestions,
-                                           std::vector<Station>* suggestions,
+    static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed, const std::string& net_zip,
+                                           bool partial, std::size_t max_suggestions, std::vector<Station>* suggestions,
                                            std::vector<std::string>* sources);
     static void AppendCanadianSuggestions(AppState* state, const std::string& typed, bool partial,
-                                          std::size_t max_suggestions,
-                                          std::vector<Station>* suggestions,
+                                          std::size_t max_suggestions, std::vector<Station>* suggestions,
                                           std::vector<std::string>* sources);
     static bool LooksCanadian(const std::string& typed);
 
@@ -3779,10 +3659,9 @@ namespace ql
     // call sign that didn't make the list (a station beyond the Nearby
     // Radius, say), it's added at the bottom, with where it came from, for
     // the operator to move down to; the ">" stays on the best match.
-    static void MarkTypedCallsignMatch(AppState* state, const std::string& typed,
-                                       std::size_t max_suggestions,
-                                       std::vector<Station>* suggestions,
-                                       std::vector<std::string>* sources, int* selected)
+    static void MarkTypedCallsignMatch(AppState* state, const std::string& typed, std::size_t max_suggestions,
+                                       std::vector<Station>* suggestions, std::vector<std::string>* sources,
+                                       int* selected)
     {
         if (suggestions->empty())
         {
@@ -3812,17 +3691,14 @@ namespace ql
                 return;
             }
             source = LooksCanadian(callsign) ? kIsedSource : "(ULS)";
-            std::optional<ZipCentroid> origin =
-                state->nearby_zips_origin.empty()
-                    ? std::nullopt
-                    : state->db->FindZipCentroid(state->nearby_zips_origin);
+            std::optional<ZipCentroid> origin = state->nearby_zips_origin.empty()
+                                                    ? std::nullopt
+                                                    : state->db->FindZipCentroid(state->nearby_zips_origin);
             std::optional<ZipCentroid> station_zip =
-                known->zip.size() >= 5 ? state->db->FindZipCentroid(known->zip.substr(0, 5))
-                                       : std::nullopt;
+                known->zip.size() >= 5 ? state->db->FindZipCentroid(known->zip.substr(0, 5)) : std::nullopt;
             if (!LooksCanadian(callsign) && origin.has_value() && station_zip.has_value())
             {
-                source = UlsSource(
-                    DistanceMiles(origin->lat, origin->lon, station_zip->lat, station_zip->lon));
+                source = UlsSource(DistanceMiles(origin->lat, origin->lon, station_zip->lat, station_zip->lon));
             }
         }
         if (suggestions->size() >= max_suggestions)
@@ -3879,20 +3755,16 @@ namespace ql
         // Tier 3: licensed stations near the net, from the FCC data.
         AppendNearbyUlsSuggestions(state, state->modal_station.callsign, state->active_net_zip,
                                    !state->active_net_partial_match_canada, kMaxSuggestions,
-                                   &state->modal_callsign_suggestions,
-                                   &state->modal_callsign_suggestion_sources);
+                                   &state->modal_callsign_suggestions, &state->modal_callsign_suggestion_sources);
         // Tier 4: Canadian call signs, from ISED's data.
-        AppendCanadianSuggestions(state, state->modal_station.callsign,
-                                  state->active_net_partial_match_canada, kMaxSuggestions,
-                                  &state->modal_callsign_suggestions,
+        AppendCanadianSuggestions(state, state->modal_station.callsign, state->active_net_partial_match_canada,
+                                  kMaxSuggestions, &state->modal_callsign_suggestions,
                                   &state->modal_callsign_suggestion_sources);
         MarkTypedCallsignMatch(state, state->modal_station.callsign, kMaxSuggestions,
-                               &state->modal_callsign_suggestions,
-                               &state->modal_callsign_suggestion_sources,
+                               &state->modal_callsign_suggestions, &state->modal_callsign_suggestion_sources,
                                &state->selected_suggestion_index);
-        state->modal_callsign_suggestion_labels =
-            FormatMatches(state->modal_callsign_suggestions,
-                          state->modal_callsign_suggestion_sources, state->list_width);
+        state->modal_callsign_suggestion_labels = FormatMatches(
+            state->modal_callsign_suggestions, state->modal_callsign_suggestion_sources, state->list_width);
     }
 
     void ApplySelectedCallsignSuggestion(AppState* state)
@@ -3908,8 +3780,8 @@ namespace ql
         BackfillCountyFromZip(state, &state->modal_station);
         BackfillGridFromZip(state, &state->modal_station);
 
-        std::string default_remarks = state->db->GetSavedNetStationRemarks(
-            state->active_instance.net_id, state->modal_station.callsign);
+        std::string default_remarks =
+            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, state->modal_station.callsign);
         if (!default_remarks.empty())
         {
             state->modal_remarks = std::move(default_remarks);
@@ -3957,8 +3829,7 @@ namespace ql
             state->form_error = "Net name is required.";
             return false;
         }
-        if (!CheckNetRadio(state, state->edit_net_frequency, state->edit_net_offset,
-                           &state->edit_net_tone) ||
+        if (!CheckNetRadio(state, state->edit_net_frequency, state->edit_net_offset, &state->edit_net_tone) ||
             !CheckNetZip(state, state->edit_net_location))
         {
             return false;
@@ -4005,15 +3876,13 @@ namespace ql
         state->saved_station_cells.clear();
         for (const Station& station : state->edit_net_saved_stations)
         {
-            state->saved_station_cells.push_back(SavedStationCells(
-                station,
-                state->db->GetSavedNetStationRemarks(state->edit_net_id, station.callsign)));
+            state->saved_station_cells.push_back(
+                SavedStationCells(station, state->db->GetSavedNetStationRemarks(state->edit_net_id, station.callsign)));
         }
         state->edit_net_saved_station_labels =
             FormatRows(state->saved_station_cells, SavedStationLayout(state->list_width));
 
-        if (state->selected_saved_station_index >=
-            static_cast<int>(state->edit_net_saved_stations.size()))
+        if (state->selected_saved_station_index >= static_cast<int>(state->edit_net_saved_stations.size()))
         {
             state->selected_saved_station_index = 0;
         }
@@ -4056,13 +3925,12 @@ namespace ql
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
         if (already_saved)
         {
-            state->db->UpdateSavedNetStation(state->edit_net_id, state->saved_station,
-                                             state->saved_station_remarks, now);
+            state->db->UpdateSavedNetStation(state->edit_net_id, state->saved_station, state->saved_station_remarks,
+                                             now);
         }
         else
         {
-            state->db->SaveNetStation(state->edit_net_id, state->saved_station,
-                                      state->saved_station_remarks, now);
+            state->db->SaveNetStation(state->edit_net_id, state->saved_station, state->saved_station_remarks, now);
         }
 
         state->status_message = "Saved " + state->saved_station.callsign + ".";
@@ -4089,8 +3957,7 @@ namespace ql
     {
         CloseSavedStationForm(state);
         state->saved_station = saved;
-        state->saved_station_remarks =
-            state->db->GetSavedNetStationRemarks(state->edit_net_id, saved.callsign);
+        state->saved_station_remarks = state->db->GetSavedNetStationRemarks(state->edit_net_id, saved.callsign);
         state->show_saved_station_modal = true;
         if (state->saved_station_callsign_input)
         {
@@ -4136,8 +4003,7 @@ namespace ql
             return;
         }
 
-        std::string callsign =
-            state->edit_net_saved_stations[state->selected_saved_station_index].callsign;
+        std::string callsign = state->edit_net_saved_stations[state->selected_saved_station_index].callsign;
         state->db->RemoveSavedNetStation(state->edit_net_id, callsign);
         state->form_error.clear();
         state->status_message = state->db->FindStationByCallsign(callsign).has_value()
@@ -4164,9 +4030,8 @@ namespace ql
         const CheckIn& check_in = state->history_check_ins[state->selected_history_check_in_index];
         if (check_in.designated_role != kRoleNone)
         {
-            state->db->SetNetInstanceRoleCallsign(
-                state->history_instances[state->selected_history_index].id,
-                check_in.designated_role, "");
+            state->db->SetNetInstanceRoleCallsign(state->history_instances[state->selected_history_index].id,
+                                                  check_in.designated_role, "");
         }
         state->db->DeleteCheckIn(check_in.id);
         state->form_error.clear();
@@ -4209,12 +4074,10 @@ namespace ql
         double lat_degrees = radius / 69.0;
         double cos_lat = std::cos(origin->lat * 3.14159265358979323846 / 180.0);
         double lon_degrees = cos_lat > 0.01 ? radius / (69.0 * cos_lat) : 180.0;
-        std::vector<ZipCentroid> candidates =
-            state->db->GetZipCentroidsInBox(origin->lat - lat_degrees, origin->lat + lat_degrees,
-                                            origin->lon - lon_degrees, origin->lon + lon_degrees);
+        std::vector<ZipCentroid> candidates = state->db->GetZipCentroidsInBox(
+            origin->lat - lat_degrees, origin->lat + lat_degrees, origin->lon - lon_degrees, origin->lon + lon_degrees);
         state->nearby_zips = NearbyZips(origin->lat, origin->lon, radius, candidates);
-        state->nearby_zip3_prefixes =
-            NearbyZip3Prefixes(origin->lat, origin->lon, radius, candidates);
+        state->nearby_zip3_prefixes = NearbyZip3Prefixes(origin->lat, origin->lon, radius, candidates);
     }
 
     // How long AppState::nearby_uls_callsigns is trusted before it's
@@ -4237,8 +4100,7 @@ namespace ql
     // at its start unless `anywhere`). Checked in place on the fixed,
     // zero-padded 8 bytes: this runs for every nearby licensee on every
     // keystroke, so no strlen, string or string_view is made per candidate.
-    static bool NearbyCallsignMatches(const NearbyUlsCallsign& candidate, const std::string& upper,
-                                      bool anywhere)
+    static bool NearbyCallsignMatches(const NearbyUlsCallsign& candidate, const std::string& upper, bool anywhere)
     {
         constexpr std::size_t kField = sizeof(candidate.callsign);
         std::size_t length = upper.size();
@@ -4256,8 +4118,7 @@ namespace ql
             {
                 return false;
             }
-            if (callsign[start] == first &&
-                std::memcmp(callsign + start, upper.data(), length) == 0)
+            if (callsign[start] == first && std::memcmp(callsign + start, upper.data(), length) == 0)
             {
                 return true;
             }
@@ -4265,10 +4126,8 @@ namespace ql
         return false;
     }
 
-    static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed,
-                                           const std::string& net_zip, bool partial,
-                                           std::size_t max_suggestions,
-                                           std::vector<Station>* suggestions,
+    static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed, const std::string& net_zip,
+                                           bool partial, std::size_t max_suggestions, std::vector<Station>* suggestions,
                                            std::vector<std::string>* sources)
     {
         if (suggestions->size() >= max_suggestions)
@@ -4317,8 +4176,7 @@ namespace ql
                 continue;
             }
             // Gone if the station data was refreshed since the list loaded.
-            std::optional<Station> station =
-                state->db->FindUlsStationByCallsign(candidate.callsign);
+            std::optional<Station> station = state->db->FindUlsStationByCallsign(candidate.callsign);
             if (!station.has_value())
             {
                 continue;
@@ -4346,20 +4204,17 @@ namespace ql
     // Canadian (LooksCanadian). Skips callsigns already in `suggestions`;
     // stops at `max_suggestions`.
     static void AppendCanadianSuggestions(AppState* state, const std::string& typed, bool partial,
-                                          std::size_t max_suggestions,
-                                          std::vector<Station>* suggestions,
+                                          std::size_t max_suggestions, std::vector<Station>* suggestions,
                                           std::vector<std::string>* sources)
     {
         std::string normalized = NormalizeCallsign(typed);
-        if (suggestions->size() >= max_suggestions || normalized.empty() ||
-            (!partial && !LooksCanadian(typed)))
+        if (suggestions->size() >= max_suggestions || normalized.empty() || (!partial && !LooksCanadian(typed)))
         {
             return;
         }
         int limit = static_cast<int>(max_suggestions);
-        std::vector<Station> matches =
-            partial ? state->db->SearchIsedStationsByCallsignSubstring(normalized, limit)
-                    : state->db->SearchIsedStationsByCallsignPrefix(normalized, limit);
+        std::vector<Station> matches = partial ? state->db->SearchIsedStationsByCallsignSubstring(normalized, limit)
+                                               : state->db->SearchIsedStationsByCallsignPrefix(normalized, limit);
         for (const Station& match : matches)
         {
             if (suggestions->size() >= max_suggestions)
@@ -4423,20 +4278,16 @@ namespace ql
         // Tier 3: nearby ULS-imported stations.
         AppendNearbyUlsSuggestions(state, state->saved_station.callsign, state->edit_net_location,
                                    state->edit_net_partial_match_index == 0, kMaxSuggestions,
-                                   &state->saved_station_suggestions,
-                                   &state->saved_station_suggestion_sources);
+                                   &state->saved_station_suggestions, &state->saved_station_suggestion_sources);
         // And Canadian call signs, from ISED's data.
-        AppendCanadianSuggestions(state, state->saved_station.callsign,
-                                  state->edit_net_partial_match_index == 1, kMaxSuggestions,
-                                  &state->saved_station_suggestions,
+        AppendCanadianSuggestions(state, state->saved_station.callsign, state->edit_net_partial_match_index == 1,
+                                  kMaxSuggestions, &state->saved_station_suggestions,
                                   &state->saved_station_suggestion_sources);
-        MarkTypedCallsignMatch(state, state->saved_station.callsign, kMaxSuggestions,
-                               &state->saved_station_suggestions,
+        MarkTypedCallsignMatch(state, state->saved_station.callsign, kMaxSuggestions, &state->saved_station_suggestions,
                                &state->saved_station_suggestion_sources,
                                &state->selected_saved_station_suggestion_index);
         state->saved_station_suggestion_labels =
-            FormatMatches(state->saved_station_suggestions, state->saved_station_suggestion_sources,
-                          state->list_width);
+            FormatMatches(state->saved_station_suggestions, state->saved_station_suggestion_sources, state->list_width);
     }
 
     void ApplySelectedSavedStationSuggestion(AppState* state)
@@ -4447,8 +4298,7 @@ namespace ql
             return;
         }
         // The match marked ">" (see MarkTypedCallsignMatch).
-        state->saved_station =
-            state->saved_station_suggestions[state->selected_saved_station_suggestion_index];
+        state->saved_station = state->saved_station_suggestions[state->selected_saved_station_suggestion_index];
         // Fill County in now, so it shows in the form as soon as the station
         // is picked rather than only once it's saved. (ULS records never
         // carry a county, so a ULS suggestion always needs this.)
@@ -4475,8 +4325,7 @@ namespace ql
 
         if (!station->city.empty())
         {
-            std::string county =
-                state->db->FindZipPlaceCounty(zip5, NormalizePlaceName(station->city));
+            std::string county = state->db->FindZipPlaceCounty(zip5, NormalizePlaceName(station->city));
             if (!county.empty())
             {
                 station->county = county;
@@ -4543,8 +4392,7 @@ namespace ql
                 }
                 needed = std::max(needed, width);
             }
-            columns[column].max_width =
-                std::max(columns[column].width, std::min(columns[column].max_width, needed));
+            columns[column].max_width = std::max(columns[column].width, std::min(columns[column].max_width, needed));
         }
         if (!columns.empty())
         {
@@ -4668,8 +4516,7 @@ namespace ql
     static std::vector<NetInstance> OtherSessions(AppState* state)
     {
         std::vector<NetInstance> sessions;
-        for (const NetInstance& session :
-             state->db->GetNetInstancesForNet(state->active_instance.net_id))
+        for (const NetInstance& session : state->db->GetNetInstancesForNet(state->active_instance.net_id))
         {
             if (session.id != state->active_instance.id)
             {
@@ -4696,11 +4543,10 @@ namespace ql
             }
             sessions_in.push_back(record.instance.id);
             first_date = record.instance.instance_date;
-            rows.push_back(
-                {record.instance.instance_date, FormatLocalTimeOfDay(record.instance.started_at),
-                 std::to_string(record.check_in.sequence_number),
-                 RoleAbbreviation(record.check_in.designated_role), record.check_in.signal_report,
-                 record.check_in.remarks, record.check_in.comment});
+            rows.push_back({record.instance.instance_date, FormatLocalTimeOfDay(record.instance.started_at),
+                            std::to_string(record.check_in.sequence_number),
+                            RoleAbbreviation(record.check_in.designated_role), record.check_in.signal_report,
+                            record.check_in.remarks, record.check_in.comment});
         }
 
         std::vector<std::string> summary;
@@ -4723,18 +4569,16 @@ namespace ql
             for (std::size_t i = 0; i < sessions.size() && recent < 20; ++i)
             {
                 ++recent;
-                if (std::find(sessions_in.begin(), sessions_in.end(), sessions[i].id) !=
-                    sessions_in.end())
+                if (std::find(sessions_in.begin(), sessions_in.end(), sessions[i].id) != sessions_in.end())
                 {
                     ++recent_in;
                 }
             }
             summary.push_back("Checked in to " + OutOf(recent_in, recent) +
-                              " of this net's most recent other sessions; " +
-                              std::to_string(rows.size()) + " in all since " + first_date + ".");
+                              " of this net's most recent other sessions; " + std::to_string(rows.size()) +
+                              " in all since " + first_date + ".");
         }
-        ShowInfoWindow(state, InfoWindow::kStationHistory, "Station History: " + check_in.callsign,
-                       std::move(summary),
+        ShowInfoWindow(state, InfoWindow::kStationHistory, "Station History: " + check_in.callsign, std::move(summary),
                        {{"Date", 10, 10, 0, 0},
                         {"Start", 8, 8, 0, 0},
                         {"#", 3, 3, 0, 0},
@@ -4762,8 +4606,7 @@ namespace ql
             std::vector<std::string> in_session;
             for (const CheckIn& check_in : state->db->GetCheckInsForNetInstance(session.id))
             {
-                if (std::find(in_session.begin(), in_session.end(), check_in.callsign) !=
-                    in_session.end())
+                if (std::find(in_session.begin(), in_session.end(), check_in.callsign) != in_session.end())
                 {
                     continue;  // Counted once per session.
                 }
@@ -4818,8 +4661,7 @@ namespace ql
             std::optional<Station> found = state->db->FindStationByCallsign(callsigns[index]);
             Station station = found.has_value() ? *found : Station();
             station.callsign = callsigns[index];
-            rows.push_back(
-                {station.callsign, station.name, OutOf(counts[index], total), last_seen[index]});
+            rows.push_back({station.callsign, station.name, OutOf(counts[index], total), last_seen[index]});
             state->info_stations.push_back(station);
         }
 
@@ -4830,8 +4672,8 @@ namespace ql
         }
         else if (rows.empty())
         {
-            summary.push_back("Every station that checked in to at least half of the last " +
-                              std::to_string(total) + " sessions has checked in.");
+            summary.push_back("Every station that checked in to at least half of the last " + std::to_string(total) +
+                              " sessions has checked in.");
         }
         else
         {
@@ -4840,12 +4682,10 @@ namespace ql
                               "one in.");
         }
         std::vector<Station> stations = std::move(state->info_stations);
-        ShowInfoWindow(state, InfoWindow::kRegulars, "Regulars Not Yet Heard", std::move(summary),
-                       {{"Callsign", 10, 10, 0, 0},
-                        {"Name", 24, 30, 0, 1},
-                        {"Sessions", 8, 8, 0, 0},
-                        {"Last Seen", 10, 10, 0, 0}},
-                       std::move(rows));
+        ShowInfoWindow(
+            state, InfoWindow::kRegulars, "Regulars Not Yet Heard", std::move(summary),
+            {{"Callsign", 10, 10, 0, 0}, {"Name", 24, 30, 0, 1}, {"Sessions", 8, 8, 0, 0}, {"Last Seen", 10, 10, 0, 0}},
+            std::move(rows));
         state->info_stations = std::move(stations);
     }
 
@@ -4857,8 +4697,7 @@ namespace ql
             return;
         }
         // Moved out: closing the window clears the list anyway.
-        Station station =
-            std::move(state->info_stations[static_cast<std::size_t>(state->info_selected)]);
+        Station station = std::move(state->info_stations[static_cast<std::size_t>(state->info_selected)]);
         CloseInfoWindow(state);
         if (!EnsureActiveSessionOpen(state, ""))
         {
@@ -4867,8 +4706,8 @@ namespace ql
         ClearModalFields(state);
         state->modal_station = std::move(station);
         BackfillCountyFromZip(state, &state->modal_station);
-        state->modal_remarks = state->db->GetSavedNetStationRemarks(state->active_instance.net_id,
-                                                                    state->modal_station.callsign);
+        state->modal_remarks =
+            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, state->modal_station.callsign);
         state->show_new_station_modal = true;
         if (state->modal_callsign_input)
         {
@@ -4882,8 +4721,7 @@ namespace ql
         Database::ReadTransaction reads(state->db);
         std::optional<Station> known = state->db->FindStationByCallsign(callsign);
         std::optional<Station> licensed = state->db->FindLicensedStationByCallsign(callsign);
-        Station station =
-            known.has_value() ? *known : (licensed.has_value() ? *licensed : Station());
+        Station station = known.has_value() ? *known : (licensed.has_value() ? *licensed : Station());
         StationActivity activity = state->db->GetStationActivity(callsign);
 
         std::vector<std::string> summary;
@@ -4894,15 +4732,13 @@ namespace ql
             place += (place.empty() ? "" : " ") + station.zip;
         }
         summary.push_back("Name:           " + station.name);
-        summary.push_back("Address:        " + address +
-                          (address.empty() || place.empty() ? "" : ", ") + place);
+        summary.push_back("Address:        " + address + (address.empty() || place.empty() ? "" : ", ") + place);
         summary.push_back("County:         " + station.county);
         summary.push_back("Grid Square:    " + station.grid_square);
         summary.push_back("Member ID:      " + station.member_id);
-        summary.push_back("License Class:  " +
-                          (licensed.has_value() && !licensed->license_class.empty()
-                               ? licensed->license_class
-                               : std::string("(not in the FCC or ISED data)")));
+        summary.push_back("License Class:  " + (licensed.has_value() && !licensed->license_class.empty()
+                                                    ? licensed->license_class
+                                                    : std::string("(not in the FCC or ISED data)")));
         if (activity.check_ins == 0)
         {
             summary.emplace_back("Check-ins:      none yet");
@@ -4910,8 +4746,8 @@ namespace ql
         else
         {
             summary.push_back("Check-ins:      " + std::to_string(activity.check_ins) + " (first " +
-                              FormatLocalDate(activity.first_at) + ", latest " +
-                              FormatLocalDate(activity.last_at) + ")");
+                              FormatLocalDate(activity.first_at) + ", latest " + FormatLocalDate(activity.last_at) +
+                              ")");
         }
         std::string nets;
         for (const std::string& net : activity.saved_to_nets)
@@ -4919,8 +4755,7 @@ namespace ql
             nets += (nets.empty() ? "" : ", ") + net;
         }
         summary.push_back("Saved to:       " + (nets.empty() ? std::string("no nets") : nets));
-        ShowInfoWindow(state, InfoWindow::kStationCard, "Station: " + callsign, std::move(summary),
-                       {}, {});
+        ShowInfoWindow(state, InfoWindow::kStationCard, "Station: " + callsign, std::move(summary), {}, {});
     }
 
     void OpenSessionSummary(AppState* state)
@@ -4931,8 +4766,8 @@ namespace ql
         for (const CheckIn& check_in : state->active_check_ins)
         {
             bool first_time = true;
-            for (const StationCheckInRecord& record : state->db->GetStationCheckInsForNet(
-                     state->active_instance.net_id, check_in.callsign))
+            for (const StationCheckInRecord& record :
+                 state->db->GetStationCheckInsForNet(state->active_instance.net_id, check_in.callsign))
             {
                 first_time = first_time && record.instance.id == state->active_instance.id;
             }
@@ -4944,11 +4779,10 @@ namespace ql
         }
 
         std::vector<std::string> summary;
-        summary.push_back(
-            CountCheckIns(state->active_check_ins.size()) + " so far" +
-            (state->active_instance.started_at > 0
-                 ? " (started " + FormatLocalTimeOfDay(state->active_instance.started_at) + ")."
-                 : std::string(".")));
+        summary.push_back(CountCheckIns(state->active_check_ins.size()) + " so far" +
+                          (state->active_instance.started_at > 0
+                               ? " (started " + FormatLocalTimeOfDay(state->active_instance.started_at) + ")."
+                               : std::string(".")));
         std::vector<NetInstance> sessions = OtherSessions(state);
         if (sessions.size() > 10)
         {
@@ -4969,31 +4803,27 @@ namespace ql
             char average[32];
             std::snprintf(average, sizeof(average), "%.1f",
                           static_cast<double>(sum) / static_cast<double>(sessions.size()));
-            summary.push_back("The last " + std::to_string(sessions.size()) +
-                              " sessions averaged " + average + " check-ins (most " +
-                              std::to_string(most) + ").");
+            summary.push_back("The last " + std::to_string(sessions.size()) + " sessions averaged " + average +
+                              " check-ins (most " + std::to_string(most) + ").");
         }
         summary.push_back(rows.empty() ? "No first-timers yet."
-                                       : std::to_string(rows.size()) +
-                                             " checking in to this net for the first time:");
+                                       : std::to_string(rows.size()) + " checking in to this net for the first time:");
         // Decided before the call: `rows` is moved into it, and the order the
         // arguments are evaluated in isn't fixed.
         bool no_first_timers = rows.empty();
-        ShowInfoWindow(state, InfoWindow::kSessionSummary,
-                       "Session Summary: " + state->active_net_name, std::move(summary),
-                       no_first_timers ? std::vector<ListColumn>()
-                                       : std::vector<ListColumn>({{"#", 3, 3, 0, 0},
-                                                                  {"Callsign", 10, 10, 0, 0},
-                                                                  {"Name", 30, 30, 0, 0}}),
-                       std::move(rows));
+        ShowInfoWindow(
+            state, InfoWindow::kSessionSummary, "Session Summary: " + state->active_net_name, std::move(summary),
+            no_first_timers
+                ? std::vector<ListColumn>()
+                : std::vector<ListColumn>({{"#", 3, 3, 0, 0}, {"Callsign", 10, 10, 0, 0}, {"Name", 30, 30, 0, 0}}),
+            std::move(rows));
     }
 
     void OpenNetStatistics(AppState* state)
     {
         // Its reads share one snapshot and one lock.
         Database::ReadTransaction reads(state->db);
-        if (state->history_ad_hoc ||
-            state->selected_net_index >= static_cast<int>(state->nets.size()))
+        if (state->history_ad_hoc || state->selected_net_index >= static_cast<int>(state->nets.size()))
         {
             return;
         }
@@ -5004,8 +4834,8 @@ namespace ql
         if (sessions.empty())
         {
             summary.emplace_back("No sessions yet.");
-            ShowInfoWindow(state, InfoWindow::kNetStatistics, "Net Statistics: " + net.name,
-                           std::move(summary), {}, {});
+            ShowInfoWindow(state, InfoWindow::kNetStatistics, "Net Statistics: " + net.name, std::move(summary), {},
+                           {});
             return;
         }
         std::int64_t sum = 0;
@@ -5039,18 +4869,15 @@ namespace ql
         char average[32];
         std::snprintf(average, sizeof(average), "%.1f",
                       static_cast<double>(sum) / static_cast<double>(sessions.size()));
-        summary.push_back(std::to_string(sessions.size()) + " sessions, " +
-                          sessions.back().instance_date + " to " + sessions.front().instance_date +
-                          "; " + std::to_string(sum) + " check-ins in all.");
-        summary.push_back(std::string("Average ") + average + " check-ins a session; most " +
-                          std::to_string(most) + ", on " + most_date + ".");
+        summary.push_back(std::to_string(sessions.size()) + " sessions, " + sessions.back().instance_date + " to " +
+                          sessions.front().instance_date + "; " + std::to_string(sum) + " check-ins in all.");
+        summary.push_back(std::string("Average ") + average + " check-ins a session; most " + std::to_string(most) +
+                          ", on " + most_date + ".");
         std::string by_month = "Recent months:";
         for (std::size_t i = 0; i < months.size() && i < 6; ++i)
         {
-            by_month += (i == 0 ? " " : "; ") + months[i] + " " +
-                        std::to_string(month_sessions[i]) +
-                        (month_sessions[i] == 1 ? " session/" : " sessions/") +
-                        std::to_string(month_check_ins[i]);
+            by_month += (i == 0 ? " " : "; ") + months[i] + " " + std::to_string(month_sessions[i]) +
+                        (month_sessions[i] == 1 ? " session/" : " sessions/") + std::to_string(month_check_ins[i]);
         }
         summary.push_back(by_month + " check-ins.");
         summary.emplace_back("Most frequent stations:");
@@ -5058,16 +4885,13 @@ namespace ql
         std::vector<std::vector<std::string>> rows;
         for (const CallsignTally& tally : state->db->GetTopCallsignsForNet(net.id, 15))
         {
-            rows.push_back({tally.callsign, StationName(state->db, tally.callsign),
-                            std::to_string(tally.count), tally.last_date});
+            rows.push_back(
+                {tally.callsign, StationName(state->db, tally.callsign), std::to_string(tally.count), tally.last_date});
         }
-        ShowInfoWindow(state, InfoWindow::kNetStatistics, "Net Statistics: " + net.name,
-                       std::move(summary),
-                       {{"Callsign", 10, 10, 0, 0},
-                        {"Name", 24, 30, 0, 1},
-                        {"Check-ins", 9, 9, 0, 0},
-                        {"Last", 10, 10, 0, 0}},
-                       std::move(rows));
+        ShowInfoWindow(
+            state, InfoWindow::kNetStatistics, "Net Statistics: " + net.name, std::move(summary),
+            {{"Callsign", 10, 10, 0, 0}, {"Name", 24, 30, 0, 1}, {"Check-ins", 9, 9, 0, 0}, {"Last", 10, 10, 0, 0}},
+            std::move(rows));
     }
 
     // How many check-ins the station search shows at most.
@@ -5093,20 +4917,18 @@ namespace ql
             state->db->FindCheckInsByCallsign(state->info_query, kStationSearchLimit);
         for (const StationCheckInRecord& record : records)
         {
-            state->info_cells.push_back(
-                {record.instance.instance_date, record.net_name, record.check_in.callsign,
-                 StationName(state->db, record.check_in.callsign),
-                 RoleAbbreviation(record.check_in.designated_role), record.check_in.remarks});
+            state->info_cells.push_back({record.instance.instance_date, record.net_name, record.check_in.callsign,
+                                         StationName(state->db, record.check_in.callsign),
+                                         RoleAbbreviation(record.check_in.designated_role), record.check_in.remarks});
             // Ad hoc nets aren't on the Recurring Nets list, so say which
             // these are (see the Ad Hoc page for them).
             state->info_cell_tags.push_back(record.net_is_ad_hoc ? " (ad hoc)" : "");
         }
         state->info_tag_column = 1;
-        state->info_summary.push_back(
-            records.empty() ? std::string("No check-ins found.")
-            : records.size() >= static_cast<std::size_t>(kStationSearchLimit)
-                ? "The newest " + std::to_string(kStationSearchLimit) + " check-ins found:"
-                : std::to_string(records.size()) + " check-ins found:");
+        state->info_summary.push_back(records.empty() ? std::string("No check-ins found.")
+                                      : records.size() >= static_cast<std::size_t>(kStationSearchLimit)
+                                          ? "The newest " + std::to_string(kStationSearchLimit) + " check-ins found:"
+                                          : std::to_string(records.size()) + " check-ins found:");
         FormatInfoTable(state);
     }
 
@@ -5128,8 +4950,7 @@ namespace ql
     {
         // Its reads share one snapshot and one lock.
         Database::ReadTransaction reads(state->db);
-        std::string cutoff =
-            FormatLocalDate(static_cast<std::int64_t>(std::time(nullptr)) - 182 * 24 * 3600);
+        std::string cutoff = FormatLocalDate(static_cast<std::int64_t>(std::time(nullptr)) - 182 * 24 * 3600);
         std::vector<CallsignTally> tallies = state->db->GetSavedStationActivity(state->edit_net_id);
         std::vector<std::vector<std::string>> rows;
         for (const CallsignTally& tally : tallies)
@@ -5139,20 +4960,16 @@ namespace ql
                 continue;
             }
             rows.push_back({tally.callsign, StationName(state->db, tally.callsign),
-                            tally.last_date.empty() ? "never" : tally.last_date,
-                            std::to_string(tally.count)});
+                            tally.last_date.empty() ? "never" : tally.last_date, std::to_string(tally.count)});
         }
         std::vector<std::string> summary;
         summary.push_back(OutOf(static_cast<int>(rows.size()), static_cast<int>(tallies.size())) +
                           " saved stations haven't checked in to this net since " + cutoff +
                           ". To remove one, close this window and use F4.");
-        ShowInfoWindow(state, InfoWindow::kQuietStations, "Quiet Saved Stations",
-                       std::move(summary),
-                       {{"Callsign", 10, 10, 0, 0},
-                        {"Name", 24, 30, 0, 1},
-                        {"Last", 10, 10, 0, 0},
-                        {"Check-ins", 9, 9, 0, 0}},
-                       std::move(rows));
+        ShowInfoWindow(
+            state, InfoWindow::kQuietStations, "Quiet Saved Stations", std::move(summary),
+            {{"Callsign", 10, 10, 0, 0}, {"Name", 24, 30, 0, 1}, {"Last", 10, 10, 0, 0}, {"Check-ins", 9, 9, 0, 0}},
+            std::move(rows));
     }
 
     // One line of the Help window: a key and what it does; `extra` marks a
@@ -5191,8 +5008,7 @@ namespace ql
                 case kPageNetHistory:
                     return {
                         {"Up/Down", "Choose a session; its check-ins show below.", false},
-                        {"F7", "Export the highlighted session: log, .qlsession, ADIF (.adi).",
-                         false},
+                        {"F7", "Export the highlighted session: log, .qlsession, ADIF (.adi).", false},
                         {"F8", "Statistics for this net.", true},
                         {"F9", "Find a station's check-ins to every net.", true},
                         {"F12", "Read the highlighted session's notes.", true},
@@ -5213,8 +5029,7 @@ namespace ql
             case kPageNetList:
                 return {
                     {"F2", "Create a new recurring net.", false},
-                    {"F3/Enter", "Log the highlighted net, or join or view its open session.",
-                     false},
+                    {"F3/Enter", "Log the highlighted net, or join or view its open session.", false},
                     {"F4", "Settings: your callsign, home ZIP and time format.", false},
                     {"F5", "Ad hoc nets: log one, resume one, or see their history.", false},
                     {"F6", "History of the highlighted net: view, export, delete.", false},
@@ -5279,11 +5094,10 @@ namespace ql
 #if defined(QUICKLOGGER_WITH_SSH)
                 lines.push_back({"F4", "Manage SSH users (console only).", false});
 #endif
-                lines.push_back({"Left/Right",
-                                 state->is_console_session
-                                     ? "Change the time format or Update Check."
-                                     : "Change the time format.",
-                                 false});
+                lines.push_back(
+                    {"Left/Right",
+                     state->is_console_session ? "Change the time format or Update Check." : "Change the time format.",
+                     false});
                 return lines;
             }
             case kPageAdHocNet:
@@ -5353,8 +5167,8 @@ namespace ql
         }
     }
 
-    static void OpenSessionNotes(AppState* state, const NetInstance& instance,
-                                 const std::string& net_name, bool read_only)
+    static void OpenSessionNotes(AppState* state, const NetInstance& instance, const std::string& net_name,
+                                 bool read_only)
     {
         // Fresh from the database: someone else in a shared session may
         // have changed them.
@@ -5380,12 +5194,10 @@ namespace ql
             return;
         }
         std::size_t index = static_cast<std::size_t>(
-            std::clamp(state->selected_history_index, 0,
-                       static_cast<int>(state->history_instances.size()) - 1));
+            std::clamp(state->selected_history_index, 0, static_cast<int>(state->history_instances.size()) - 1));
         const NetInstance& instance = state->history_instances[index];
         std::optional<Net> net = state->db->GetNetById(instance.net_id);
-        OpenSessionNotes(state, instance, net.has_value() ? net->name : std::string(),
-                         state->view_only_user);
+        OpenSessionNotes(state, instance, net.has_value() ? net->name : std::string(), state->view_only_user);
     }
 
     void SaveSessionNotes(AppState* state)
@@ -5434,8 +5246,7 @@ namespace ql
             if (!OpenInBrowser(kReleasesPageUrl, &error))
             {
                 state->status_message.clear();
-                state->form_error =
-                    "Couldn't open " + std::string(kReleasesPageUrl) + " (" + error + ").";
+                state->form_error = "Couldn't open " + std::string(kReleasesPageUrl) + " (" + error + ").";
                 return;
             }
             state->form_error.clear();
@@ -5443,8 +5254,7 @@ namespace ql
             return;
         }
         state->form_error.clear();
-        state->status_message =
-            "QuickLogger " + version + " is out: " + std::string(kReleasesPageUrl);
+        state->status_message = "QuickLogger " + version + " is out: " + std::string(kReleasesPageUrl);
     }
 
     void OpenHelp(AppState* state)

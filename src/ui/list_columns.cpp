@@ -56,8 +56,8 @@ namespace ql
         return last;
     }
 
-    ListLayout LayOutList(const std::vector<ListColumn>& columns, int available,
-                          int available_at_80, int base_gap, int max_gap)
+    ListLayout LayOutList(const std::vector<ListColumn>& columns, int available, int available_at_80, int base_gap,
+                          int max_gap)
     {
         ListLayout layout;
         layout.gap = base_gap;
@@ -99,16 +99,14 @@ namespace ql
                 int before = layout.widths[step.column];
                 // Already shown, or only ever shown with the column before
                 // it (which adds both).
-                if (layout.widths[step.column] != 0 ||
-                    (step.column > 0 && columns[step.column - 1].add_with_next))
+                if (layout.widths[step.column] != 0 || (step.column > 0 && columns[step.column - 1].add_with_next))
                 {
                     continue;
                 }
                 if (column.add_with_next && step.column + 1 < columns.size())
                 {
                     const ListColumn& next = columns[step.column + 1];
-                    if (layout.widths[step.column + 1] == 0 &&
-                        room >= column.width + next.width + 2 * layout.gap)
+                    if (layout.widths[step.column + 1] == 0 && room >= column.width + next.width + 2 * layout.gap)
                     {
                         layout.widths[step.column] = column.width;
                         layout.widths[step.column + 1] = next.width;

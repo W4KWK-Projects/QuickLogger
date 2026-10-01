@@ -69,12 +69,12 @@ namespace ql
     std::string FileUrl(const std::string& path);
 
     // Convenience builders for database rows.
-    Station MakeStation(const std::string& callsign, const std::string& name = "",
-                        const std::string& zip = "", const std::string& city = "");
+    Station MakeStation(const std::string& callsign, const std::string& name = "", const std::string& zip = "",
+                        const std::string& city = "");
     std::int64_t AddTestNet(Database* db, const std::string& name);
-    std::int64_t AddTestInstance(Database* db, std::int64_t net_id, const std::string& date,
-                                 std::int64_t started_at, const std::string& operator_callsign);
-    std::int64_t AddTestCheckIn(Database* db, std::int64_t instance_id, const std::string& callsign,
-                                int sequence, int designated_role = kRoleNone);
+    std::int64_t AddTestInstance(Database* db, std::int64_t net_id, const std::string& date, std::int64_t started_at,
+                                 const std::string& operator_callsign);
+    std::int64_t AddTestCheckIn(Database* db, std::int64_t instance_id, const std::string& callsign, int sequence,
+                                int designated_role = kRoleNone);
 
 }  // namespace ql

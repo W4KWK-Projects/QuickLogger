@@ -77,8 +77,7 @@ namespace ql
                              "e \xC5\x81\xC3\xB3"
                              "d\xC5\xBA"),
                  std::string("Strasse Lodz"));
-        CHECK_EQ(FoldToAscii("It\xE2\x80\x99s \xE2\x80\x9Cok\xE2\x80\x9D"),
-                 std::string("It's \"ok\""));
+        CHECK_EQ(FoldToAscii("It\xE2\x80\x99s \xE2\x80\x9Cok\xE2\x80\x9D"), std::string("It's \"ok\""));
         CHECK_EQ(FoldToAscii("snow \xE2\x9D\x84"), std::string("snow "));
 
         CHECK_EQ(FirstNameFirst("Shults, Roger D"), std::string("Roger D Shults"));
@@ -106,18 +105,13 @@ namespace ql
         AdifContact contact;
         contact.check_in = &check_in;
         contact.station = &station;
-        std::string adif =
-            BuildAdif({contact}, "DMR", "443.500", "W4KWK", "2026-09-21", 1790000000);
+        std::string adif = BuildAdif({contact}, "DMR", "443.500", "W4KWK", "2026-09-21", 1790000000);
         CHECK(adif.find("<ADIF_VER:5>3.1.4 ") != std::string::npos);
         CHECK(adif.find("<EOH>") != std::string::npos);
-        CHECK(adif.find("<CALL:5>K4ABC <QSO_DATE:8>20260921 <TIME_ON:6>141320 ") !=
-              std::string::npos);
-        CHECK(adif.find("<FREQ:7>443.500 <BAND:4>70cm <MODE:12>DIGITALVOICE <SUBMODE:3>DMR ") !=
-              std::string::npos);
-        CHECK(adif.find("<STATION_CALLSIGN:5>W4KWK <RST_RCVD:2>59 <NAME:11>Rene Dupont ") !=
-              std::string::npos);
-        CHECK(adif.find("<CNTY:11>TN,Hamilton <GRIDSQUARE:4>EM75 <COMMENT:6>Mobile <EOR>") !=
-              std::string::npos);
+        CHECK(adif.find("<CALL:5>K4ABC <QSO_DATE:8>20260921 <TIME_ON:6>141320 ") != std::string::npos);
+        CHECK(adif.find("<FREQ:7>443.500 <BAND:4>70cm <MODE:12>DIGITALVOICE <SUBMODE:3>DMR ") != std::string::npos);
+        CHECK(adif.find("<STATION_CALLSIGN:5>W4KWK <RST_RCVD:2>59 <NAME:11>Rene Dupont ") != std::string::npos);
+        CHECK(adif.find("<CNTY:11>TN,Hamilton <GRIDSQUARE:4>EM75 <COMMENT:6>Mobile <EOR>") != std::string::npos);
         CHECK(adif.find("NOTES") == std::string::npos);  // Empty fields are left out.
 
         // No mode, no frequency and no check-in time: those fields are left
@@ -133,8 +127,7 @@ namespace ql
 
     QL_TEST(TheLatestReleasesVersionIsReadFromGitHubsReply)
     {
-        CHECK_EQ(ReleaseVersionFromJson(
-                     "{\"url\": \"x\", \"tag_name\": \"v1.8.0\", \"name\": \"QuickLogger 1.8.0\"}"),
+        CHECK_EQ(ReleaseVersionFromJson("{\"url\": \"x\", \"tag_name\": \"v1.8.0\", \"name\": \"QuickLogger 1.8.0\"}"),
                  std::string("1.8.0"));
         CHECK_EQ(ReleaseVersionFromJson("{\"tag_name\":\"1.7.10\"}"), std::string("1.7.10"));
         CHECK_EQ(ReleaseVersionFromJson("{\"message\": \"Not Found\"}"), std::string(""));
@@ -457,12 +450,10 @@ namespace ql
         CHECK_EQ(ed.comment, std::string("test@quicklogger"));
         PublicKeyDescription rsa = DescribePublicKey(kRsaKey);
         CHECK_EQ(rsa.type, std::string("RSA"));
-        CHECK_EQ(rsa.fingerprint,
-                 std::string("SHA256:+A3eCzoJ5Tzphu/8vW+qS23AobtDrXKaK1e7HYdIsUs"));
+        CHECK_EQ(rsa.fingerprint, std::string("SHA256:+A3eCzoJ5Tzphu/8vW+qS23AobtDrXKaK1e7HYdIsUs"));
         PublicKeyDescription ecdsa = DescribePublicKey(kEcdsaKey);
         CHECK_EQ(ecdsa.type, std::string("ECDSA"));
-        CHECK_EQ(ecdsa.fingerprint,
-                 std::string("SHA256:19j6mG1JJyDgu5DJDnVUXpAVtv9x7pNW6gkRARUmDVk"));
+        CHECK_EQ(ecdsa.fingerprint, std::string("SHA256:19j6mG1JJyDgu5DJDnVUXpAVtv9x7pNW6gkRARUmDVk"));
         CHECK_EQ(ecdsa.comment, std::string("ec@test"));
 
         std::string bare(kEd25519Key);
@@ -483,10 +474,9 @@ namespace ql
     QL_TEST(BadPublicKeysAreExplained)
     {
         CHECK(KeyError("").find("Paste the user's public key") != std::string::npos);
-        CHECK(KeyError("-----BEGIN OPENSSH PRIVATE KEY----- b3BlbnNzaC1rZXktdjE=")
-                  .find("private key") != std::string::npos);
-        CHECK(KeyError("---- BEGIN SSH2 PUBLIC KEY ---- AAAAB3Nza").find("ssh-keygen -i") !=
+        CHECK(KeyError("-----BEGIN OPENSSH PRIVATE KEY----- b3BlbnNzaC1rZXktdjE=").find("private key") !=
               std::string::npos);
+        CHECK(KeyError("---- BEGIN SSH2 PUBLIC KEY ---- AAAAB3Nza").find("ssh-keygen -i") != std::string::npos);
 
         std::string ed(kEd25519Key);
         std::string data = ed.substr(ed.find(' ') + 1);
@@ -496,12 +486,10 @@ namespace ql
 
         // Cut short while copying (still a whole number of base64 groups).
         std::string key_data = data.substr(0, data.find(' '));
-        CHECK(KeyError("ssh-ed25519 " + key_data.substr(0, key_data.size() - 4)).find("cut off") !=
-              std::string::npos);
+        CHECK(KeyError("ssh-ed25519 " + key_data.substr(0, key_data.size() - 4)).find("cut off") != std::string::npos);
         // Cut mid-group, and a stray character.
         CHECK(KeyError("ssh-ed25519 " + key_data.substr(0, key_data.size() - 3)) != "(accepted)");
-        CHECK(KeyError("ssh-ed25519 " + key_data.substr(0, 10) + "!" + key_data.substr(11)) !=
-              "(accepted)");
+        CHECK(KeyError("ssh-ed25519 " + key_data.substr(0, 10) + "!" + key_data.substr(11)) != "(accepted)");
         // Real key data under the wrong type name.
         CHECK(KeyError("ssh-rsa " + key_data).find("isn't valid") != std::string::npos);
         // Every error shows what a key should look like.
@@ -569,10 +557,8 @@ namespace ql
 
     QL_TEST(NearbyZipsAreWithinRangeAndNearestFirst)
     {
-        std::vector<ZipCentroid> centroids = {{"30752", 34.87, -85.51},
-                                              {"37415", 35.10, -85.28},
-                                              {"90210", 34.09, -118.40},
-                                              {"37402", 35.05, -85.31}};
+        std::vector<ZipCentroid> centroids = {
+            {"30752", 34.87, -85.51}, {"37415", 35.10, -85.28}, {"90210", 34.09, -118.40}, {"37402", 35.05, -85.31}};
         std::vector<NearbyZip> nearby = NearbyZips(35.10, -85.28, 70.0, centroids);
         REQUIRE(nearby.size() == 3);
         CHECK_EQ(nearby[0].zip, std::string("37415"));
@@ -589,13 +575,13 @@ namespace ql
 
     QL_TEST(AmateurFrequenciesAreInUsOrCanadianBands)
     {
-        for (const char* good : {"146.940", "145.39", "7.235", "3.940", "14.3", "28", "50.125",
-                                 "223.400", "446.000", "1296.1", "5.3305", "0.1375", "10368"})
+        for (const char* good : {"146.940", "145.39", "7.235", "3.940", "14.3", "28", "50.125", "223.400", "446.000",
+                                 "1296.1", "5.3305", "0.1375", "10368"})
         {
             CHECK(IsAmateurFrequency(good));
         }
-        for (const char* bad : {"", "162.550", "27.185", "7.301", "148.001", "600", "146.9400001",
-                                "146..9", ".5", "146.940 MHz", "abc"})
+        for (const char* bad :
+             {"", "162.550", "27.185", "7.301", "148.001", "600", "146.9400001", "146..9", ".5", "146.940 MHz", "abc"})
         {
             CHECK(!IsAmateurFrequency(bad));
         }
@@ -610,8 +596,7 @@ namespace ql
     {
         CHECK(FrequencyProblem("").empty());
         CHECK(FrequencyProblem("146.940").empty());
-        CHECK(FrequencyProblem("162.550").find("isn't in a US or Canadian amateur band") !=
-              std::string::npos);
+        CHECK(FrequencyProblem("162.550").find("isn't in a US or Canadian amateur band") != std::string::npos);
         CHECK(FrequencyProblem("146.9.4").find("in MHz") != std::string::npos);
     }
 
@@ -632,8 +617,7 @@ namespace ql
         // Where the repeater listens must be amateur too.
         CHECK(OffsetProblem("-0.6", "146.940").empty());
         CHECK(OffsetProblem("+5", "444.100").empty());
-        CHECK(OffsetProblem("+0.6", "147.900").find("outside the amateur bands") !=
-              std::string::npos);
+        CHECK(OffsetProblem("+0.6", "147.900").find("outside the amateur bands") != std::string::npos);
         CHECK(OffsetProblem("-0.6", "144.300").find("144.300 MHz -0.6") != std::string::npos);
     }
 

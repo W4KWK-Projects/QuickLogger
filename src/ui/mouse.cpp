@@ -51,8 +51,8 @@ namespace ql
             ftxui::Event::F9, ftxui::Event::F10, ftxui::Event::F11, ftxui::Event::F12,
         };
         // "F" and one or two digits, 1 to 12.
-        if ((key.size() == 2 || key.size() == 3) && key[0] == 'F' && key[1] >= '1' &&
-            key[1] <= '9' && (key.size() == 2 || (key[1] == '1' && key[2] >= '0' && key[2] <= '2')))
+        if ((key.size() == 2 || key.size() == 3) && key[0] == 'F' && key[1] >= '1' && key[1] <= '9' &&
+            (key.size() == 2 || (key[1] == '1' && key[2] >= '0' && key[2] <= '2')))
         {
             int number = key.size() == 2 ? key[1] - '0' : 10 + (key[2] - '0');
             *event = kFunctionKeys[number - 1];
@@ -194,8 +194,7 @@ namespace ql
         return ftxui::Modal(std::move(main), ftxui::Make<ClickLayer>(std::move(modal)), show);
     }
 
-    DoubleClickToEnter::DoubleClickToEnter(ftxui::Component list, ftxui::ScreenInteractive* screen)
-        : screen_(screen)
+    DoubleClickToEnter::DoubleClickToEnter(ftxui::Component list, ftxui::ScreenInteractive* screen) : screen_(screen)
     {
         Add(std::move(list));
     }

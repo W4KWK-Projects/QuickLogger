@@ -28,8 +28,8 @@ namespace ql
 
     bool IsLocalTerminal(bool is_console_session)
     {
-        return is_console_session && !EnvironmentHas("SSH_CONNECTION") &&
-               !EnvironmentHas("SSH_CLIENT") && !EnvironmentHas("SSH_TTY");
+        return is_console_session && !EnvironmentHas("SSH_CONNECTION") && !EnvironmentHas("SSH_CLIENT") &&
+               !EnvironmentHas("SSH_TTY");
     }
 
     bool CanShowInFileManager()
@@ -46,8 +46,7 @@ namespace ql
     static std::filesystem::path AbsolutePath(const std::string& path)
     {
         std::error_code ignored;
-        std::filesystem::path absolute =
-            std::filesystem::absolute(std::filesystem::u8path(path), ignored);
+        std::filesystem::path absolute = std::filesystem::absolute(std::filesystem::u8path(path), ignored);
         return absolute.empty() ? std::filesystem::u8path(path) : absolute.lexically_normal();
     }
 
@@ -90,8 +89,7 @@ namespace ql
         HRESULT result = E_FAIL;
         if (!children.empty())
         {
-            result = SHOpenFolderAndSelectItems(folder_item, static_cast<UINT>(children.size()),
-                                                children.data(), 0);
+            result = SHOpenFolderAndSelectItems(folder_item, static_cast<UINT>(children.size()), children.data(), 0);
         }
         for (PIDLIST_ABSOLUTE item : file_items)
         {
@@ -129,8 +127,7 @@ namespace ql
         STARTUPINFOW startup = {};
         startup.cb = sizeof(startup);
         PROCESS_INFORMATION process = {};
-        if (!CreateProcessW(nullptr, &command[0], nullptr, nullptr, FALSE, 0, nullptr, nullptr,
-                            &startup, &process))
+        if (!CreateProcessW(nullptr, &command[0], nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process))
         {
             *error = "couldn't start File Explorer";
             return false;
@@ -147,8 +144,7 @@ namespace ql
             *error = "not a web address";
             return false;
         }
-        HINSTANCE result =
-            ShellExecuteW(nullptr, L"open", Widen(url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        HINSTANCE result = ShellExecuteW(nullptr, L"open", Widen(url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         if (reinterpret_cast<INT_PTR>(result) <= 32)
         {
             *error = "couldn't start the web browser";
@@ -169,9 +165,8 @@ namespace ql
         for (char c : path)
         {
             unsigned char byte = static_cast<unsigned char>(c);
-            bool plain = (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') ||
-                         (byte >= '0' && byte <= '9') || byte == '-' || byte == '_' ||
-                         byte == '.' || byte == '~' || byte == '/';
+            bool plain = (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') || (byte >= '0' && byte <= '9') ||
+                         byte == '-' || byte == '_' || byte == '.' || byte == '~' || byte == '/';
             if (plain)
             {
                 uri += c;

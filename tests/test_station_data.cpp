@@ -20,9 +20,8 @@ namespace ql
         return static_cast<std::int64_t>(std::time(nullptr));
     }
 
-    static ImportRunStatus MakeStatus(const std::string& source, const std::string& status,
-                                      std::int64_t started_at, std::int64_t completed_at,
-                                      std::int64_t records)
+    static ImportRunStatus MakeStatus(const std::string& source, const std::string& status, std::int64_t started_at,
+                                      std::int64_t completed_at, std::int64_t records)
     {
         ImportRunStatus run;
         run.source = source;
@@ -75,11 +74,9 @@ namespace ql
         Database db(dir.File("q.db"));
         std::int64_t now = Now();
         MarkAllLoaded(&db, now);
-        db.UpsertImportRunStatus(
-            MakeStatus(kUlsDataset, "complete", 0, now - kUlsStalenessThresholdSeconds + 60, 100));
+        db.UpsertImportRunStatus(MakeStatus(kUlsDataset, "complete", 0, now - kUlsStalenessThresholdSeconds + 60, 100));
         CHECK(!PlanDataRefresh(&db, now).uls);
-        db.UpsertImportRunStatus(
-            MakeStatus(kUlsDataset, "complete", 0, now - kUlsStalenessThresholdSeconds - 60, 100));
+        db.UpsertImportRunStatus(MakeStatus(kUlsDataset, "complete", 0, now - kUlsStalenessThresholdSeconds - 60, 100));
         DataRefreshPlan plan = PlanDataRefresh(&db, now);
         CHECK(plan.uls);
         CHECK(!plan.zip_centroids);
@@ -94,8 +91,7 @@ namespace ql
         MarkAllLoaded(&db, now);
         db.UpsertImportRunStatus(MakeStatus(kUlsDataset, "failed", now - 60, 0, 0));
         CHECK(!PlanDataRefresh(&db, now).uls);
-        db.UpsertImportRunStatus(
-            MakeStatus(kUlsDataset, "failed", now - kFailedLoadRetrySeconds - 1, 0, 0));
+        db.UpsertImportRunStatus(MakeStatus(kUlsDataset, "failed", now - kFailedLoadRetrySeconds - 1, 0, 0));
         CHECK(PlanDataRefresh(&db, now).uls);
     }
 
@@ -150,30 +146,22 @@ namespace ql
         return line;
     }
 
-    static std::string EnRow(const std::string& id, const std::string& name,
-                             const std::string& city, const std::string& state,
-                             const std::string& zip)
+    static std::string EnRow(const std::string& id, const std::string& name, const std::string& city,
+                             const std::string& state, const std::string& zip)
     {
-        return Row('|', 30,
-                   {{0, "EN"},
-                    {1, id},
-                    {7, name},
-                    {15, "1 Main St"},
-                    {16, city},
-                    {17, state},
-                    {18, zip}}) +
+        return Row('|', 30, {{0, "EN"}, {1, id}, {7, name}, {15, "1 Main St"}, {16, city}, {17, state}, {18, zip}}) +
                "\r\n";
     }
 
     // 2020 ZIP-county and ZIP-town relationship rows share a layout.
-    static std::string RelRow(const std::string& zip, const std::string& geoid,
-                              const std::string& name, const std::string& land)
+    static std::string RelRow(const std::string& zip, const std::string& geoid, const std::string& name,
+                              const std::string& land)
     {
         return Row('|', 18, {{1, zip}, {9, geoid}, {10, name}, {16, land}}) + "\n";
     }
 
-    static std::string PopulationRow(const std::string& zip, const std::string& county_geoid,
-                                     const std::string& people, const std::string& zip_people)
+    static std::string PopulationRow(const std::string& zip, const std::string& county_geoid, const std::string& people,
+                                     const std::string& zip_people)
     {
         return Row(',', 24, {{0, zip}, {3, county_geoid}, {4, people}, {8, zip_people}}) + "\r\n";
     }
@@ -192,46 +180,41 @@ namespace ql
             "HD|1004|||N4ZIP|A|HA\r\n"
             "HD|junk|||BAD1|A|HA\r\n"  // Unreadable id.
             "short|line\r\n";
-        std::string en = EnRow("1001", "KEENE, WES", "CHATTANOOGA", "TN", "37415") +
-                         EnRow("1002", "ABLE, ANN", "NEWTON", "MA", "02467") +
-                         EnRow("1003", "OLD, EXPIRED", "X", "TN", "37415") +
-                         EnRow("1004", "PLUS, FOUR", "TRENTON", "GA", "307524915") +
-                         EnRow("9999", "NO LICENSE", "X", "TN", "37415");
+        std::string en =
+            EnRow("1001", "KEENE, WES", "CHATTANOOGA", "TN", "37415") +
+            EnRow("1002", "ABLE, ANN", "NEWTON", "MA", "02467") + EnRow("1003", "OLD, EXPIRED", "X", "TN", "37415") +
+            EnRow("1004", "PLUS, FOUR", "TRENTON", "GA", "307524915") + EnRow("9999", "NO LICENSE", "X", "TN", "37415");
         std::string am =
             "AM|1001|||W4KWK|E|\r\n"
             "AM|1002|||AA4FA|G|\r\n"
             "AM|1004|||N4ZIP|Q|\r\n";  // Unknown class code.
-        WriteZipFile(dir.File("l_amat.zip"), {{"HD.dat", hd, true},
-                                              {"EN.dat", en, true},
-                                              {"AM.dat", am, false},
-                                              {"counts", "not needed", true}});
+        WriteZipFile(
+            dir.File("l_amat.zip"),
+            {{"HD.dat", hd, true}, {"EN.dat", en, true}, {"AM.dat", am, false}, {"counts", "not needed", true}});
 
         // Census gazetteer: tab-separated, header row, lat/lon in fields 5
         // and 6, the last column padded with spaces as in the real file.
         std::string padding(70, ' ');
-        std::string gazetteer =
-            "GEOID\tALAND\tAWATER\tALAND_SQMI\tAWATER_SQMI\tINTPTLAT\tINTPTLONG" + padding + "\n" +
-            "37415\t1\t1\t1\t1\t35.1\t-85.28" + padding + "\n" +
-            "30752\t1\t1\t1\t1\t34.87\t-85.51" + padding + "\n" +
-            "99999\t1\t1\t1\t1\tnot-a-number\t-85\n" + "short\n";
+        std::string gazetteer = "GEOID\tALAND\tAWATER\tALAND_SQMI\tAWATER_SQMI\tINTPTLAT\tINTPTLONG" + padding + "\n" +
+                                "37415\t1\t1\t1\t1\t35.1\t-85.28" + padding + "\n" +
+                                "30752\t1\t1\t1\t1\t34.87\t-85.51" + padding + "\n" +
+                                "99999\t1\t1\t1\t1\tnot-a-number\t-85\n" + "short\n";
         WriteZipFile(dir.File("gaz.zip"), {{"gaz.txt", gazetteer, true}});
 
         // ZIP -> county (2020). 37415 is all Hamilton. 02467 straddles
         // three counties; Norfolk has the most land but Middlesex the most
         // people. 30752 has no population figures, so land decides (Dade).
-        std::string county_rel = "header\n" + RelRow("37415", "47065", "Hamilton County", "500") +
-                                 RelRow("02467", "25017", "Middlesex County", "100") +
-                                 RelRow("02467", "25021", "Norfolk County", "300") +
-                                 RelRow("02467", "25025", "Suffolk County", "50") +
-                                 RelRow("30752", "13083", "Dade County", "400") +
-                                 RelRow("30752", "13295", "Walker County", "100") + "junk\n";
+        std::string county_rel =
+            "header\n" + RelRow("37415", "47065", "Hamilton County", "500") +
+            RelRow("02467", "25017", "Middlesex County", "100") + RelRow("02467", "25021", "Norfolk County", "300") +
+            RelRow("02467", "25025", "Suffolk County", "50") + RelRow("30752", "13083", "Dade County", "400") +
+            RelRow("30752", "13295", "Walker County", "100") + "junk\n";
         WriteTextFile(dir.File("county.txt"), county_rel);
 
-        std::string population = "header\r\n" + PopulationRow("37415", "47065", "9000", "9000") +
-                                 PopulationRow("02467", "25017", "6000", "10000") +
-                                 PopulationRow("02467", "25021", "3000", "10000") +
-                                 PopulationRow("02467", "25025", "1000", "10000") +
-                                 PopulationRow("11111", "99999", "5", "0");
+        std::string population =
+            "header\r\n" + PopulationRow("37415", "47065", "9000", "9000") +
+            PopulationRow("02467", "25017", "6000", "10000") + PopulationRow("02467", "25021", "3000", "10000") +
+            PopulationRow("02467", "25025", "1000", "10000") + PopulationRow("11111", "99999", "5", "0");
         WriteTextFile(dir.File("population.txt"), population);
 
         // Towns inside ZIPs. Rising Fawn spans both 30752 counties; Walker
@@ -292,8 +275,7 @@ namespace ql
         return "(none)";
     }
 
-    static std::string PlaceCountyFor(Database* db, const std::string& zip,
-                                      const std::string& place)
+    static std::string PlaceCountyFor(Database* db, const std::string& zip, const std::string& place)
     {
         for (const ZipPlaceCounty& zip_place : db->GetAllZipPlaceCounties())
         {
@@ -313,8 +295,7 @@ namespace ql
         Database db(db_path);
         REQUIRE(db.TryClaimImportRun(kDataRefreshJob, Now(), kJobStaleAfterSeconds));
 
-        CHECK_EQ(RunDataRefresh(&db, db_path, FullPlan(), nullptr, sources),
-                 std::string("complete"));
+        CHECK_EQ(RunDataRefresh(&db, db_path, FullPlan(), nullptr, sources), std::string("complete"));
 
         // FCC licenses: active ones only, joined up, ZIP+4 trimmed.
         std::optional<Station> wes = db.FindUlsStationByCallsign("W4KWK");
@@ -349,8 +330,7 @@ namespace ql
         CHECK_EQ(ann->zip, std::string("K1A 0B1"));
         CHECK_EQ(ann->license_class, std::string("Advanced"));
         CHECK(ann->data_source == StationDataSource::kIsed);
-        CHECK_EQ(db.FindIsedStationByCallsign("VE2XYZ")->license_class,
-                 std::string("Basic with Honours"));
+        CHECK_EQ(db.FindIsedStationByCallsign("VE2XYZ")->license_class, std::string("Basic with Honours"));
         std::optional<Station> club = db.FindIsedStationByCallsign("VE3CLB");
         REQUIRE(club.has_value());
         CHECK_EQ(club->name, std::string("RADIO CLUB OF TORONTO"));
@@ -439,9 +419,8 @@ namespace ql
         REQUIRE(RunDataRefresh(&db, db_path, plan, nullptr, sources) == "complete");
         std::int64_t completed_at = db.GetImportRunStatus(kUlsDataset)->completed_at;
 
-        WriteZipFile(
-            dir.File("l_amat.zip"),
-            {{"HD.dat", "HD|1|||X|E|\r\n", true}, {"EN.dat", "", true}, {"AM.dat", "", true}});
+        WriteZipFile(dir.File("l_amat.zip"),
+                     {{"HD.dat", "HD|1|||X|E|\r\n", true}, {"EN.dat", "", true}, {"AM.dat", "", true}});
         CHECK_EQ(RunDataRefresh(&db, db_path, plan, nullptr, sources), std::string("failed"));
         std::optional<ImportRunStatus> uls = db.GetImportRunStatus(kUlsDataset);
         CHECK_EQ(uls->status, std::string("failed"));
@@ -478,8 +457,7 @@ namespace ql
         DataSources sources = WriteFixtures(dir);
         std::string db_path = dir.File("q.db");
         Database db(db_path);
-        CHECK_EQ(RunDataRefresh(&db, db_path, FullPlan(), AlwaysStop, sources),
-                 std::string("interrupted"));
+        CHECK_EQ(RunDataRefresh(&db, db_path, FullPlan(), AlwaysStop, sources), std::string("interrupted"));
         CHECK(!db.GetImportRunStatus(kUlsDataset).has_value());
     }
 
@@ -488,8 +466,7 @@ namespace ql
         TempDir dir;
         std::string db_path = dir.File("q.db");
         Database db(db_path);
-        CHECK_EQ(RunDataRefresh(&db, db_path, DataRefreshPlan(), nullptr, DataSources()),
-                 std::string("complete"));
+        CHECK_EQ(RunDataRefresh(&db, db_path, DataRefreshPlan(), nullptr, DataSources()), std::string("complete"));
         CHECK(!db.GetImportRunStatus(kUlsDataset).has_value());
     }
 
@@ -501,25 +478,21 @@ namespace ql
         Database db(dir.File("q.db"));
         std::int64_t now = Now();
         bool is_problem = true;
-        CHECK_EQ(DescribeStationDataNotice(&db, now, &is_problem),
-                 std::string("Station data not loaded yet"));
+        CHECK_EQ(DescribeStationDataNotice(&db, now, &is_problem), std::string("Station data not loaded yet"));
         CHECK(!is_problem);
 
         db.TryClaimImportRun(kDataRefreshJob, now, kJobStaleAfterSeconds);
         db.UpdateImportProgress(kDataRefreshJob, "Downloading FCC license data", 47, 0, now);
-        CHECK_EQ(DescribeStationDataNotice(&db, now, &is_problem),
-                 std::string("Loading station data 45%"));
+        CHECK_EQ(DescribeStationDataNotice(&db, now, &is_problem), std::string("Loading station data 45%"));
         std::string status = DescribeStationDataStatus(&db, now, true);
         CHECK(status.find("Downloading FCC license data, 45%") != std::string::npos);
         CHECK(status.find("Press F3") == std::string::npos);  // Already running.
 
         db.UpsertImportRunStatus(MakeStatus(kUlsDataset, "complete", now, now, 800000));
-        CHECK_EQ(DescribeStationDataNotice(&db, now, &is_problem),
-                 std::string("Updating station data 45%"));
+        CHECK_EQ(DescribeStationDataNotice(&db, now, &is_problem), std::string("Updating station data 45%"));
 
         // The worker died: its heartbeat went stale.
-        CHECK_EQ(DescribeStationDataNotice(&db, now + kJobStaleAfterSeconds + 1, &is_problem),
-                 std::string(""));
+        CHECK_EQ(DescribeStationDataNotice(&db, now + kJobStaleAfterSeconds + 1, &is_problem), std::string(""));
     }
 
     QL_TEST(StatusTextDescribesLoadedData)
@@ -535,8 +508,7 @@ namespace ql
         CHECK(DescribeStationDataStatus(&db, now, false).find("F3") == std::string::npos);
 
         db.UpsertImportRunStatus(MakeStatus(kZipCountyDataset, "failed", now, 0, 0));
-        CHECK(DescribeStationDataStatus(&db, now, false).find("County data failed") !=
-              std::string::npos);
+        CHECK(DescribeStationDataStatus(&db, now, false).find("County data failed") != std::string::npos);
     }
 
 }  // namespace ql

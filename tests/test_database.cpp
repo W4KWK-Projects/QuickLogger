@@ -47,13 +47,11 @@ namespace ql
         {
             Database db(dir.File("q.db"));
         }
-        for (const char* table :
-             {"stations", "nets", "net_instances", "check_ins", "net_saved_stations", "import_runs",
-              "uls_stations", "zip_centroids", "zip_counties", "zip_place_counties", "users"})
+        for (const char* table : {"stations", "nets", "net_instances", "check_ins", "net_saved_stations", "import_runs",
+                                  "uls_stations", "zip_centroids", "zip_counties", "zip_place_counties", "users"})
         {
             CHECK_EQ(CountRows(dir.File("q.db"),
-                               std::string("SELECT COUNT(*) FROM sqlite_schema WHERE name='") +
-                                   table + "'"),
+                               std::string("SELECT COUNT(*) FROM sqlite_schema WHERE name='") + table + "'"),
                      std::int64_t{1});
         }
         CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{13});
@@ -170,9 +168,7 @@ namespace ql
         )sql");
 
         Database db(path);
-        CHECK_EQ(
-            CountRows(path, "SELECT COUNT(*) FROM sqlite_schema WHERE name='net_seed_stations'"),
-            std::int64_t{0});
+        CHECK_EQ(CountRows(path, "SELECT COUNT(*) FROM sqlite_schema WHERE name='net_seed_stations'"), std::int64_t{0});
         // Today's remarks win; the one only in the old table is kept.
         CHECK_EQ(db.GetSavedNetStationRemarks(1, "K4AAA"), std::string("Training"));
         CHECK_EQ(db.GetSavedNetStationRemarks(1, "K4BBB"), std::string("Mobile"));
@@ -426,18 +422,15 @@ namespace ql
 
         // Open: the others keep their numbers.
         db.DeleteCheckIn(typo);
-        CHECK(CallsignsWithNumbers(&db, session) ==
-              std::vector<std::string>({"1 W4KWK", "3 K4BBB", "4 K4CCC"}));
+        CHECK(CallsignsWithNumbers(&db, session) == std::vector<std::string>({"1 W4KWK", "3 K4BBB", "4 K4CCC"}));
 
         // Closed: numbered without gaps, in the same order.
         REQUIRE(db.CloseNetInstance(session, 5));
-        CHECK(CallsignsWithNumbers(&db, session) ==
-              std::vector<std::string>({"1 W4KWK", "2 K4BBB", "3 K4CCC"}));
+        CHECK(CallsignsWithNumbers(&db, session) == std::vector<std::string>({"1 W4KWK", "2 K4BBB", "3 K4CCC"}));
 
         // A delete from a closed session renumbers straight away.
         db.DeleteCheckIn(db.GetCheckInsForNetInstance(session)[1].id);
-        CHECK(CallsignsWithNumbers(&db, session) ==
-              std::vector<std::string>({"1 W4KWK", "2 K4CCC"}));
+        CHECK(CallsignsWithNumbers(&db, session) == std::vector<std::string>({"1 W4KWK", "2 K4CCC"}));
     }
 
     QL_TEST(WriteTransactionsAreAllOrNothing)
@@ -717,8 +710,7 @@ namespace ql
     {
         TempDir dir;
         Database db(dir.File("q.db"));
-        std::vector<Station> stations = {MakeStation("K1AAA", "One", "37415"),
-                                         MakeStation("K1BBB", "Two", "30752")};
+        std::vector<Station> stations = {MakeStation("K1AAA", "One", "37415"), MakeStation("K1BBB", "Two", "30752")};
         db.BulkUpsertUlsStations(stations, 0, stations.size(), 100);
         stations[1].name = "Two Renamed";
         db.BulkUpsertUlsStations(stations, 0, stations.size(), 200);
@@ -770,14 +762,13 @@ namespace ql
     {
         TempDir dir;
         Database db(dir.File("q.db"));
-        std::vector<Station> stations = {
-            MakeStation("K1AAA", "", "37402"),   // 12 mi
-            MakeStation("K1BBB", "", "37415"),   // 0 mi
-            MakeStation("K1CCC", "", "37415"),   // 0 mi
-            MakeStation("K1DDD", "", "37450"),   // Same prefix, beyond the radius.
-            MakeStation("K1EEE", "", "37499"),   // No centroid on file (PO Box ZIP).
-            MakeStation("K1FFF", "", "90210"),   // Far away.
-            MakeStation("W9ZZZ", "", "37415")};  // Doesn't match.
+        std::vector<Station> stations = {MakeStation("K1AAA", "", "37402"),   // 12 mi
+                                         MakeStation("K1BBB", "", "37415"),   // 0 mi
+                                         MakeStation("K1CCC", "", "37415"),   // 0 mi
+                                         MakeStation("K1DDD", "", "37450"),   // Same prefix, beyond the radius.
+                                         MakeStation("K1EEE", "", "37499"),   // No centroid on file (PO Box ZIP).
+                                         MakeStation("K1FFF", "", "90210"),   // Far away.
+                                         MakeStation("W9ZZZ", "", "37415")};  // Doesn't match.
         db.BulkUpsertUlsStations(stations, 0, stations.size(), 1);
         std::vector<ZipCentroid> centroids = {
             {"37402", 35.05, -85.31}, {"37415", 35.10, -85.28}, {"37450", 36.5, -84.0}};
@@ -813,8 +804,7 @@ namespace ql
         CHECK_EQ(db.GetZipCentroidsInBox(35.0, 35.2, -85.4, -85.2).size(), std::size_t{2});
         // A prefix ending in 9 (whose "next" prefix isn't a digit).
         std::vector<NearbyZip> nine = {Near("37900", 5.0)};
-        db.BulkUpsertUlsStations(
-            {MakeStation("K1GGG", "", "37900"), MakeStation("K1HHH", "", "37999")}, 0, 2, 1);
+        db.BulkUpsertUlsStations({MakeStation("K1GGG", "", "37900"), MakeStation("K1HHH", "", "37999")}, 0, 2, 1);
         CHECK_EQ(db.SearchNearbyUlsStations("K1", nine, {"379"}, 8).size(), std::size_t{2});
         CHECK(db.SearchNearbyUlsStations("K1", {}, {"374"}, 8).empty());
     }
@@ -823,8 +813,7 @@ namespace ql
     {
         TempDir dir;
         Database db(dir.File("q.db"));
-        db.ReplaceZipCountyData({{"37415", "Hamilton"}, {"30752", "Dade"}},
-                                {{"02467", "NEWTON", "Middlesex"}});
+        db.ReplaceZipCountyData({{"37415", "Hamilton"}, {"30752", "Dade"}}, {{"02467", "NEWTON", "Middlesex"}});
         CHECK_EQ(db.GetAllZipCounties().size(), std::size_t{2});
         db.ReplaceZipCountyData({{"37415", "Hamilton"}}, {});
         CHECK_EQ(db.GetAllZipCounties().size(), std::size_t{1});

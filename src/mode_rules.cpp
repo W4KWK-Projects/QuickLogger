@@ -8,8 +8,7 @@ namespace ql
 
     const std::vector<std::string>& NetModes()
     {
-        static const std::vector<std::string> modes{"FM",     "SSB", "AM",    "CW",
-                                                    "D-STAR", "DMR", "Fusion"};
+        static const std::vector<std::string> modes{"FM", "SSB", "AM", "CW", "D-STAR", "DMR", "Fusion"};
         return modes;
     }
 

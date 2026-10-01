@@ -13,8 +13,7 @@ namespace ql
     // U+00C0 to U+00FF, and U+0100 to U+017F, without their accents. A few
     // become two letters ("AE", "ss"), marked here by '*' and handled in
     // FoldLatin1.
-    static const char kLatin1Folded[] =
-        "AAAAAA*CEEEEIIIIDNOOOOOxOUUUUY**aaaaaa*ceeeeiiiidnooooo/ouuuuy*y";
+    static const char kLatin1Folded[] = "AAAAAA*CEEEEIIIIDNOOOOOxOUUUUY**aaaaaa*ceeeeiiiidnooooo/ouuuuy*y";
     static const char kLatinExtendedAFolded[] =
         "AaAaAaCcCcCcCcDdDdEeEeEeEeEeGgGgGgGgHhHhIiIiIiIiIiJjJjKkkLlLlLlLlLlNnNnNnnNnOoOoOoOoRrRrRr"
         "SsSsSsSsTtTtTtUuUuUuUuUuUuWwYyYZzZzZzs";
@@ -54,14 +53,11 @@ namespace ql
             }
             // The code point and how many bytes it takes.
             int length = lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 1;
-            unsigned int code_point = length == 4   ? lead & 0x07U
-                                      : length == 3 ? lead & 0x0FU
-                                                    : lead & 0x1FU;
+            unsigned int code_point = length == 4 ? lead & 0x07U : length == 3 ? lead & 0x0FU : lead & 0x1FU;
             bool valid = length > 1 && i + static_cast<std::size_t>(length) <= text.size();
             for (int k = 1; valid && k < length; ++k)
             {
-                unsigned char next =
-                    static_cast<unsigned char>(text[i + static_cast<std::size_t>(k)]);
+                unsigned char next = static_cast<unsigned char>(text[i + static_cast<std::size_t>(k)]);
                 valid = (next & 0xC0) == 0x80;
                 code_point = (code_point << 6) | (next & 0x3FU);
             }
@@ -183,8 +179,7 @@ namespace ql
     // appended to `out`. The length is in bytes, so it's taken after
     // folding to ASCII, which goes through `scratch` (reused, so a field
     // costs no new string).
-    static void AppendField(std::string* out, std::string_view name, std::string_view value,
-                            std::string* scratch)
+    static void AppendField(std::string* out, std::string_view name, std::string_view value, std::string* scratch)
     {
         scratch->clear();
         FoldToAsciiInto(value, scratch);
@@ -246,8 +241,7 @@ namespace ql
             const Station& station = contact.station != nullptr ? *contact.station : kNoStation;
             std::int64_t at = check_in.checked_in_at;
             AppendField(&out, "CALL", check_in.callsign, &scratch);
-            AppendField(&out, "QSO_DATE", at > 0 ? FormatUtc(at, "%Y%m%d") : fallback_date,
-                        &scratch);
+            AppendField(&out, "QSO_DATE", at > 0 ? FormatUtc(at, "%Y%m%d") : fallback_date, &scratch);
             if (at > 0)
             {
                 AppendField(&out, "TIME_ON", FormatUtc(at, "%H%M%S"), &scratch);

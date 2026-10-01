@@ -47,8 +47,8 @@ namespace ql
         static std::atomic<int> counter{0};
         std::int64_t stamp = std::chrono::steady_clock::now().time_since_epoch().count();
         std::filesystem::path dir =
-            std::filesystem::temp_directory_path() / ("quicklogger-test-" + std::to_string(stamp) +
-                                                      "-" + std::to_string(counter.fetch_add(1)));
+            std::filesystem::temp_directory_path() /
+            ("quicklogger-test-" + std::to_string(stamp) + "-" + std::to_string(counter.fetch_add(1)));
         std::filesystem::create_directories(dir);
         path_ = dir.string();
     }
@@ -99,8 +99,7 @@ namespace ql
     static std::string RawDeflate(const std::string& data)
     {
         z_stream stream = {};
-        if (deflateInit2(&stream, Z_BEST_COMPRESSION, Z_DEFLATED, -MAX_WBITS, 8,
-                         Z_DEFAULT_STRATEGY) != Z_OK)
+        if (deflateInit2(&stream, Z_BEST_COMPRESSION, Z_DEFLATED, -MAX_WBITS, 8, Z_DEFAULT_STRATEGY) != Z_OK)
         {
             throw std::runtime_error("deflateInit2 failed");
         }
@@ -121,9 +120,8 @@ namespace ql
         std::string directory;
         for (const ZipFixtureEntry& entry : entries)
         {
-            std::uint32_t crc = static_cast<std::uint32_t>(
-                crc32(0L, reinterpret_cast<const Bytef*>(entry.contents.data()),
-                      static_cast<uInt>(entry.contents.size())));
+            std::uint32_t crc = static_cast<std::uint32_t>(crc32(
+                0L, reinterpret_cast<const Bytef*>(entry.contents.data()), static_cast<uInt>(entry.contents.size())));
             std::string data = entry.deflate ? RawDeflate(entry.contents) : entry.contents;
             std::uint32_t method = entry.deflate ? 8 : 0;
             std::uint32_t offset = static_cast<std::uint32_t>(archive.size());
@@ -184,8 +182,8 @@ namespace ql
         return "file://" + url_path;
     }
 
-    Station MakeStation(const std::string& callsign, const std::string& name,
-                        const std::string& zip, const std::string& city)
+    Station MakeStation(const std::string& callsign, const std::string& name, const std::string& zip,
+                        const std::string& city)
     {
         Station station;
         station.callsign = callsign;
@@ -203,8 +201,8 @@ namespace ql
         return db->CreateNet(net);
     }
 
-    std::int64_t AddTestInstance(Database* db, std::int64_t net_id, const std::string& date,
-                                 std::int64_t started_at, const std::string& operator_callsign)
+    std::int64_t AddTestInstance(Database* db, std::int64_t net_id, const std::string& date, std::int64_t started_at,
+                                 const std::string& operator_callsign)
     {
         NetInstance instance;
         instance.net_id = net_id;
@@ -216,8 +214,8 @@ namespace ql
         return db->CreateNetInstance(instance);
     }
 
-    std::int64_t AddTestCheckIn(Database* db, std::int64_t instance_id, const std::string& callsign,
-                                int sequence, int designated_role)
+    std::int64_t AddTestCheckIn(Database* db, std::int64_t instance_id, const std::string& callsign, int sequence,
+                                int designated_role)
     {
         db->RecordManualCheckInStation(MakeStation(callsign), 1);
         CheckIn check_in;

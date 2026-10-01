@@ -40,8 +40,8 @@ namespace ql
     // the new names (left by a user removed earlier) is replaced. What
     // doesn't exist is skipped. Returns false, with `error` set, if
     // something couldn't be moved.
-    bool MoveSshUserFiles(const std::string& db_path, const std::string& old_username,
-                          const std::string& new_username, std::string* error);
+    bool MoveSshUserFiles(const std::string& db_path, const std::string& old_username, const std::string& new_username,
+                          std::string* error);
 
     // How long an SSH user's exported and received files are kept.
     constexpr std::int64_t kSshUserFileMaxAgeSeconds = 7 * 24 * 60 * 60;
@@ -58,8 +58,7 @@ namespace ql
     // error) if `dir` doesn't exist yet -- callers should treat "no files"
     // and "no directory" the same way, since ImportsDir isn't created until
     // the first file lands there.
-    std::vector<std::string> ListFilesWithExtension(const std::string& dir,
-                                                    const std::string& extension);
+    std::vector<std::string> ListFilesWithExtension(const std::string& dir, const std::string& extension);
 
     // Creates `dir` and any missing parents (like `mkdir -p`); succeeds if it
     // already exists. Done with std::filesystem rather than shelling out to
@@ -85,8 +84,7 @@ namespace ql
     // first (see EnsureDirectory) so callers don't need the exports
     // directory to already exist. Returns true on success; on failure,
     // `error` is set to a short message.
-    bool WriteExportFile(const std::string& path, const std::vector<std::string>& lines,
-                         std::string* error);
+    bool WriteExportFile(const std::string& path, const std::vector<std::string>& lines, std::string* error);
 
     // Builds a filesystem-safe file name component from free-form text (a
     // net name might contain spaces, slashes, or other punctuation a real

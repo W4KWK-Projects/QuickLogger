@@ -71,8 +71,8 @@ namespace ql
                     return;
                 }
                 std::size_t end = i + 2;
-                while (end < output.size() && !((output[end] >= 'A' && output[end] <= 'Z') ||
-                                                (output[end] >= 'a' && output[end] <= 'z')))
+                while (end < output.size() &&
+                       !((output[end] >= 'A' && output[end] <= 'Z') || (output[end] >= 'a' && output[end] <= 'z')))
                 {
                     ++end;
                 }
@@ -259,13 +259,11 @@ namespace ql
             else
             {
                 int first = std::stoi(parameters);
-                if (first == 38 || first == 39 || (first >= 30 && first <= 37) ||
-                    (first >= 90 && first <= 97))
+                if (first == 38 || first == 39 || (first >= 30 && first <= 37) || (first >= 90 && first <= 97))
                 {
                     pen_.foreground = parameters;
                 }
-                else if (first == 48 || first == 49 || (first >= 40 && first <= 47) ||
-                         (first >= 100 && first <= 107))
+                else if (first == 48 || first == 49 || (first >= 40 && first <= 47) || (first >= 100 && first <= 107))
                 {
                     pen_.background = parameters;
                 }
@@ -303,13 +301,11 @@ namespace ql
                 const ftxui::Pixel& pixel = screen.PixelAt(x, y);
                 if (cell.character != pixel.character)
                 {
-                    return where + " has \"" + cell.character + "\", not \"" + pixel.character +
-                           "\"";
+                    return where + " has \"" + cell.character + "\", not \"" + pixel.character + "\"";
                 }
                 if (cell.foreground != pixel.foreground_color.Print(false) ||
-                    cell.background != pixel.background_color.Print(true) ||
-                    cell.bold != pixel.bold || cell.dim != pixel.dim ||
-                    cell.inverted != pixel.inverted || cell.underlined != pixel.underlined)
+                    cell.background != pixel.background_color.Print(true) || cell.bold != pixel.bold ||
+                    cell.dim != pixel.dim || cell.inverted != pixel.inverted || cell.underlined != pixel.underlined)
                 {
                     return where + " has the wrong style";
                 }
@@ -345,9 +341,8 @@ namespace ql
     static void RandomizeCell(ftxui::Screen* screen, TestRandom* random, int x, int y)
     {
         static const char* const kGlyphs[] = {"a", "b", " ", "é", "─", "Z", "日"};
-        static const ftxui::Color kColors[] = {ftxui::Color::Default, ftxui::Color::Blue,
-                                               ftxui::Color::Yellow, ftxui::Color::GrayDark,
-                                               ftxui::Color::RGB(10, 20, 30)};
+        static const ftxui::Color kColors[] = {ftxui::Color::Default, ftxui::Color::Blue, ftxui::Color::Yellow,
+                                               ftxui::Color::GrayDark, ftxui::Color::RGB(10, 20, 30)};
         ftxui::Pixel& pixel = screen->PixelAt(x, y);
         pixel = ftxui::Pixel();
         std::string glyph = kGlyphs[random->Next(7)];
@@ -417,9 +412,8 @@ namespace ql
             i += 2;
             std::size_t params_end = i;
             while (params_end < output.size() &&
-                   (std::isdigit(static_cast<unsigned char>(output[params_end])) != 0 ||
-                    output[params_end] == ';' || output[params_end] == '?' ||
-                    output[params_end] == ' '))
+                   (std::isdigit(static_cast<unsigned char>(output[params_end])) != 0 || output[params_end] == ';' ||
+                    output[params_end] == '?' || output[params_end] == ' '))
             {
                 ++params_end;
             }
@@ -430,9 +424,8 @@ namespace ql
             char final = output[params_end];
             std::string params = output.substr(i, params_end - i);
             i = params_end + 1;
-            bool movement =
-                std::string("ABCDEFGHIJKLMNPSTXZ@`abdef").find(final) != std::string::npos &&
-                final != 'J' && final != 'K';
+            bool movement = std::string("ABCDEFGHIJKLMNPSTXZ@`abdef").find(final) != std::string::npos &&
+                            final != 'J' && final != 'K';
             if (!movement)
             {
                 continue;  // Colors (m), cursor shape (q), clearing (J), modes (h/l).
@@ -441,8 +434,7 @@ namespace ql
             if (final == 'H')
             {
                 std::string::size_type semicolon = params.find(';');
-                safe = semicolon != std::string::npos && semicolon > 0 &&
-                       semicolon + 1 < params.size() &&
+                safe = semicolon != std::string::npos && semicolon > 0 && semicolon + 1 < params.size() &&
                        params.find(';', semicolon + 1) == std::string::npos;
             }
             else if (final == 'C')
@@ -480,8 +472,7 @@ namespace ql
                 RandomizeCell(&screen, &random, x, y);
             }
             ftxui::Screen::Cursor cursor;
-            cursor.shape =
-                frame % 3 == 0 ? ftxui::Screen::Cursor::Block : ftxui::Screen::Cursor::Hidden;
+            cursor.shape = frame % 3 == 0 ? ftxui::Screen::Cursor::Block : ftxui::Screen::Cursor::Hidden;
             cursor.x = 0;
             cursor.y = random.Next(screen.dimy());
             screen.SetCursor(cursor);

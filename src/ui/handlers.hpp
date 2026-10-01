@@ -80,10 +80,7 @@ namespace ql
     class DigitsFieldHandler
     {
     public:
-        DigitsFieldHandler(std::string* field, std::size_t max_digits)
-            : field_(field), max_digits_(max_digits)
-        {
-        }
+        DigitsFieldHandler(std::string* field, std::size_t max_digits) : field_(field), max_digits_(max_digits) {}
 
         void operator()() const;
 
@@ -464,10 +461,7 @@ namespace ql
     class SaveNetStationFormHandler
     {
     public:
-        SaveNetStationFormHandler(AppState* state, bool close_after)
-            : state_(state), close_after_(close_after)
-        {
-        }
+        SaveNetStationFormHandler(AppState* state, bool close_after) : state_(state), close_after_(close_after) {}
 
         void operator()() const;
 

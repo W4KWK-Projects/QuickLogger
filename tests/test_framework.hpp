@@ -92,13 +92,13 @@ namespace ql
         }                                                                     \
     } while (false)
 
-#define CHECK_EQ(actual, expected)                                                                \
-    do                                                                                            \
-    {                                                                                             \
-        if (!((actual) == (expected)))                                                            \
-        {                                                                                         \
-            ql::RecordFailure(__FILE__, __LINE__,                                                 \
-                              "CHECK_EQ(" #actual ", " #expected "): got " +                      \
-                                  ql::Describe(actual) + ", expected " + ql::Describe(expected)); \
-        }                                                                                         \
+#define CHECK_EQ(actual, expected)                                                                                  \
+    do                                                                                                              \
+    {                                                                                                               \
+        if (!((actual) == (expected)))                                                                              \
+        {                                                                                                           \
+            ql::RecordFailure(__FILE__, __LINE__,                                                                   \
+                              "CHECK_EQ(" #actual ", " #expected "): got " + ql::Describe(actual) + ", expected " + \
+                                  ql::Describe(expected));                                                          \
+        }                                                                                                           \
     } while (false)

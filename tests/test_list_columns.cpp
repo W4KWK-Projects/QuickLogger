@@ -13,8 +13,7 @@ namespace ql
     static std::vector<ListColumn> SampleColumns()
     {
         return {
-            {"A", 4, 4, 0, 0}, {"B", 6, 10, 0, 2}, {"Wide", 8, 8, 1, 0},
-            {"C", 5, 5, 3, 0}, {"D", 3, 3, 0, 0},
+            {"A", 4, 4, 0, 0}, {"B", 6, 10, 0, 2}, {"Wide", 8, 8, 1, 0}, {"C", 5, 5, 3, 0}, {"D", 3, 3, 0, 0},
         };
     }
 
@@ -93,11 +92,9 @@ namespace ql
         layout.gap = 2;
         CHECK_EQ(FormatListRow({"ab", "hidden", "abcdefgh", "last one runs on"}, layout),
                  std::string("ab   abcde  last one runs on"));
-        CHECK_EQ(
-            FormatListHeading(
-                {{"#", 3, 3, 0, 0}, {"x", 1, 1, 1, 0}, {"Name", 5, 5, 0, 0}, {"Note", 4, 4, 0, 0}},
-                layout),
-            std::string("#    Name   Note"));
+        CHECK_EQ(FormatListHeading({{"#", 3, 3, 0, 0}, {"x", 1, 1, 1, 0}, {"Name", 5, 5, 0, 0}, {"Note", 4, 4, 0, 0}},
+                                   layout),
+                 std::string("#    Name   Note"));
     }
 
     QL_TEST(AccentedAndWideCharactersTakeTheirOnScreenWidth)
@@ -127,8 +124,7 @@ namespace ql
         CHECK(layout.widths == std::vector<int>({5, 3, 4}));
         CHECK_EQ(layout.gap, 2);
         // Every column is cut to its width, the last one too.
-        CHECK_EQ(FormatListRow({"abcdefg", "hijk", "lmnopq"}, layout),
-                 std::string("abcde  hij  lmno"));
+        CHECK_EQ(FormatListRow({"abcdefg", "hijk", "lmnopq"}, layout), std::string("abcde  hij  lmno"));
         CHECK_EQ(FormatListRow({"a", "b", "c"}, layout), std::string("a      b    c   "));
     }
 

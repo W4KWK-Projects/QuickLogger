@@ -34,8 +34,7 @@ namespace ql
         {
             return ExportsDir(db_path);
         }
-        return ExportsDir(db_path) + "/" + kSshUsersSubdir + "/" +
-               SanitizeFilenameComponent(ssh_username);
+        return ExportsDir(db_path) + "/" + kSshUsersSubdir + "/" + SanitizeFilenameComponent(ssh_username);
     }
 
     std::string SessionImportsDir(const std::string& db_path, const std::string& ssh_username)
@@ -44,8 +43,7 @@ namespace ql
         {
             return ImportsDir(db_path);
         }
-        return ImportsDir(db_path) + "/" + kSshUsersSubdir + "/" +
-               SanitizeFilenameComponent(ssh_username);
+        return ImportsDir(db_path) + "/" + kSshUsersSubdir + "/" + SanitizeFilenameComponent(ssh_username);
     }
 
     std::string SshUserSettingsPath(const std::string& db_path, const std::string& username)
@@ -58,8 +56,7 @@ namespace ql
     // Moves `from` to `to` if `from` exists, replacing whatever is at `to`
     // -- unless they're the same file, as a change of case alone is on a
     // file system that ignores case.
-    static bool MoveReplacing(const std::filesystem::path& from, const std::filesystem::path& to,
-                              std::string* error)
+    static bool MoveReplacing(const std::filesystem::path& from, const std::filesystem::path& to, std::string* error)
     {
         std::error_code code;
         if (!std::filesystem::exists(from, code))
@@ -74,27 +71,24 @@ namespace ql
         std::filesystem::rename(from, to, code);
         if (code)
         {
-            *error =
-                "Couldn't move " + from.string() + " to " + to.string() + ": " + code.message();
+            *error = "Couldn't move " + from.string() + " to " + to.string() + ": " + code.message();
             return false;
         }
         return true;
     }
 
-    bool MoveSshUserFiles(const std::string& db_path, const std::string& old_username,
-                          const std::string& new_username, std::string* error)
+    bool MoveSshUserFiles(const std::string& db_path, const std::string& old_username, const std::string& new_username,
+                          std::string* error)
     {
-        return MoveReplacing(SshUserSettingsPath(db_path, old_username),
-                             SshUserSettingsPath(db_path, new_username), error) &&
-               MoveReplacing(SessionExportsDir(db_path, old_username),
-                             SessionExportsDir(db_path, new_username), error) &&
-               MoveReplacing(SessionImportsDir(db_path, old_username),
-                             SessionImportsDir(db_path, new_username), error);
+        return MoveReplacing(SshUserSettingsPath(db_path, old_username), SshUserSettingsPath(db_path, new_username),
+                             error) &&
+               MoveReplacing(SessionExportsDir(db_path, old_username), SessionExportsDir(db_path, new_username),
+                             error) &&
+               MoveReplacing(SessionImportsDir(db_path, old_username), SessionImportsDir(db_path, new_username), error);
     }
 
     // RemoveOldSshUserFiles for one of the two ssh-users directories.
-    static int RemoveOldFilesUnder(const std::filesystem::path& root,
-                                   std::filesystem::file_time_type cutoff)
+    static int RemoveOldFilesUnder(const std::filesystem::path& root, std::filesystem::file_time_type cutoff)
     {
         std::error_code error;
         if (!std::filesystem::is_directory(root, error))
@@ -103,8 +97,7 @@ namespace ql
         }
         int removed = 0;
         std::vector<std::filesystem::path> user_dirs;
-        for (const std::filesystem::directory_entry& user_dir :
-             std::filesystem::directory_iterator(root, error))
+        for (const std::filesystem::directory_entry& user_dir : std::filesystem::directory_iterator(root, error))
         {
             if (!user_dir.is_directory(error))
             {
@@ -142,14 +135,11 @@ namespace ql
     {
         std::filesystem::file_time_type cutoff =
             std::filesystem::file_time_type::clock::now() - std::chrono::seconds(max_age_seconds);
-        return RemoveOldFilesUnder(std::filesystem::path(ExportsDir(db_path)) / kSshUsersSubdir,
-                                   cutoff) +
-               RemoveOldFilesUnder(std::filesystem::path(ImportsDir(db_path)) / kSshUsersSubdir,
-                                   cutoff);
+        return RemoveOldFilesUnder(std::filesystem::path(ExportsDir(db_path)) / kSshUsersSubdir, cutoff) +
+               RemoveOldFilesUnder(std::filesystem::path(ImportsDir(db_path)) / kSshUsersSubdir, cutoff);
     }
 
-    std::vector<std::string> ListFilesWithExtension(const std::string& dir,
-                                                    const std::string& extension)
+    std::vector<std::string> ListFilesWithExtension(const std::string& dir, const std::string& extension)
     {
         std::vector<std::string> names;
         std::error_code error;
@@ -157,8 +147,7 @@ namespace ql
         {
             return names;
         }
-        for (const std::filesystem::directory_entry& entry :
-             std::filesystem::directory_iterator(dir, error))
+        for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(dir, error))
         {
             if (!entry.is_regular_file())
             {
@@ -187,8 +176,7 @@ namespace ql
         // The clock and a random number together: unique across processes
         // (SSH sessions) as well as within one.
         std::random_device random;
-        return path + ".tmp-" +
-               std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "-" +
+        return path + ".tmp-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "-" +
                std::to_string(random());
     }
 
@@ -206,8 +194,7 @@ namespace ql
         return true;
     }
 
-    bool WriteExportFile(const std::string& path, const std::vector<std::string>& lines,
-                         std::string* error)
+    bool WriteExportFile(const std::string& path, const std::vector<std::string>& lines, std::string* error)
     {
         std::string::size_type slash = path.find_last_of('/');
         if (slash != std::string::npos)
@@ -248,8 +235,7 @@ namespace ql
         bool last_was_underscore = false;
         for (char c : text)
         {
-            bool safe =
-                std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '_' || c == '-';
+            bool safe = std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '_' || c == '-';
             if (safe)
             {
                 result.push_back(c);

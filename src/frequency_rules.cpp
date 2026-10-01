@@ -53,10 +53,9 @@ namespace ql
 
     // The CTCSS tones, in tenths of a hertz (see IsCtcssTone).
     static const int kCtcssTones[] = {
-        670,  693,  719,  744,  770,  797,  825,  854,  885,  915,  948,  974,  1000,
-        1035, 1072, 1109, 1148, 1188, 1230, 1273, 1318, 1365, 1413, 1462, 1500, 1514,
-        1567, 1598, 1622, 1655, 1679, 1713, 1738, 1773, 1799, 1835, 1862, 1899, 1928,
-        1966, 1995, 2035, 2065, 2107, 2181, 2257, 2291, 2336, 2418, 2503, 2541,
+        670,  693,  719,  744,  770,  797,  825,  854,  885,  915,  948,  974,  1000, 1035, 1072, 1109, 1148,
+        1188, 1230, 1273, 1318, 1365, 1413, 1462, 1500, 1514, 1567, 1598, 1622, 1655, 1679, 1713, 1738, 1773,
+        1799, 1835, 1862, 1899, 1928, 1966, 1995, 2035, 2065, 2107, 2181, 2257, 2291, 2336, 2418, 2503, 2541,
     };
 
     // `text` as MHz ("146.940") in Hz, or false if it isn't digits with
@@ -137,8 +136,8 @@ namespace ql
             }
             std::size_t start = i;
             bool seen_point = false;
-            while (i < text.size() && (std::isdigit(static_cast<unsigned char>(text[i])) ||
-                                       (text[i] == '.' && !seen_point)))
+            while (i < text.size() &&
+                   (std::isdigit(static_cast<unsigned char>(text[i])) || (text[i] == '.' && !seen_point)))
             {
                 seen_point = seen_point || text[i] == '.';
                 ++i;

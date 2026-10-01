@@ -342,8 +342,7 @@ namespace ql
         // The Settings page's clock choice (0 = 12-hour, 1 = 24-hour), an
         // index into settings_time_format_labels for its Toggle; copied into
         // settings_form.use_24_hour_clock on save.
-        std::vector<std::string> settings_time_format_labels{"12-hour (3:42 PM)",
-                                                             "24-hour (15:42)"};
+        std::vector<std::string> settings_time_format_labels{"12-hour (3:42 PM)", "24-hour (15:42)"};
         int settings_time_format_index = 0;
         // The Settings page's Update Check choice (0 = on, 1 = off), shown
         // only at the console; copied into settings_form.check_for_updates
@@ -426,12 +425,10 @@ namespace ql
 
         // Select-role page: which role the operator is filling for this
         // instance -- or kRoleViewer, to watch an open session.
-        std::vector<std::string> role_labels{"Net Control", "Alternate Net Control", "Logger",
-                                             "Viewer"};
+        std::vector<std::string> role_labels{"Net Control", "Alternate Net Control", "Logger", "Viewer"};
         // The same, shortened where room may be tight: the session page's
         // info line and the check-in windows' role choices.
-        std::vector<std::string> role_short_labels{"Net Control", "Alt. Net Control", "Logger",
-                                                   "Viewer"};
+        std::vector<std::string> role_short_labels{"Net Control", "Alt. Net Control", "Logger", "Viewer"};
         int selected_role_index = kRoleNetControl;
 
         // Enter-callsign page: the operator's own callsign for that role.
@@ -569,8 +566,7 @@ namespace ql
         std::string edit_net_comments;
         int edit_net_partial_match_index = 0;  // As new_net_partial_match_index.
         std::vector<Station> edit_net_saved_stations;
-        std::vector<std::string>
-            edit_net_saved_station_labels;  // Kept in sync by RefreshEditNetSavedStations.
+        std::vector<std::string> edit_net_saved_station_labels;  // Kept in sync by RefreshEditNetSavedStations.
         int selected_saved_station_index = 0;
 
         // Edit-net page's "add/edit a saved station" mini-form.
@@ -794,8 +790,8 @@ namespace ql
     // already has the whole CheckIn to save). A no-op if `new_role` equals
     // `old_role`, or if `new_role` is the operator's own role -- the UI
     // never offers that choice, this just refuses to apply it if asked.
-    void ApplyCheckInRoleDesignation(AppState* state, std::int64_t check_in_id, int old_role,
-                                     int new_role, const std::string& callsign);
+    void ApplyCheckInRoleDesignation(AppState* state, std::int64_t check_in_id, int old_role, int new_role,
+                                     const std::string& callsign);
 
     // Clears the New Station modal's input fields and any validation error.
     void ClearModalFields(AppState* state);
@@ -828,12 +824,10 @@ namespace ql
     // A check-in list's rows as cells: number, time, callsign, the station's
     // name/member ID/city and state/county (looked up, not stored on
     // CheckIn), role, signal report, remarks and comment.
-    std::vector<std::vector<std::string>> CheckInCells(Database* db,
-                                                       const std::vector<CheckIn>& check_ins);
+    std::vector<std::vector<std::string>> CheckInCells(Database* db, const std::vector<CheckIn>& check_ins);
     // Those rows as lines, and the header line above them (with the Menu
     // gutter), laid out for a `terminal_width`-column terminal.
-    std::vector<std::string> FormatCheckInList(const std::vector<std::vector<std::string>>& cells,
-                                               int terminal_width);
+    std::vector<std::string> FormatCheckInList(const std::vector<std::vector<std::string>>& cells, int terminal_width);
     const std::string& CheckInListHeader(int terminal_width);
 
     // The header line above History's sessions -- for the ad hoc history
@@ -889,8 +883,7 @@ namespace ql
     // list shows on screen (not every field on the underlying Station
     // record -- this mirrors FormatSavedStationRow, which only ever showed
     // those three).
-    void ExportSavedStations(AppState* state, const std::string& net_name,
-                             const std::vector<Station>& saved_stations);
+    void ExportSavedStations(AppState* state, const std::string& net_name, const std::vector<Station>& saved_stations);
 
     // Writes everything about `net` -- its own definition, every station
     // saved to it or that's ever checked in, its instances, and their
@@ -1301,8 +1294,7 @@ namespace ql
     // blank or valid (see FrequencyProblem, OffsetProblem, ToneProblem in
     // frequency_rules.hpp), putting `*tone` in its usual one-decimal form;
     // otherwise sets AppState::form_error.
-    bool CheckNetRadio(AppState* state, const std::string& frequency, const std::string& offset,
-                       std::string* tone);
+    bool CheckNetRadio(AppState* state, const std::string& frequency, const std::string& offset, std::string* tone);
 
     // True if `zip` is acceptable as a net's ZIP: blank or 5 digits.
     // Otherwise sets AppState::form_error and returns false.
@@ -1313,8 +1305,7 @@ namespace ql
     // database so a net someone else just made counts; empty if there's
     // none. No two recurring nets may share a name. Ad hoc nets don't
     // count, and may share names freely.
-    std::string ExistingNetNamed(AppState* state, const std::string& name,
-                                 std::int64_t except_net_id = 0);
+    std::string ExistingNetNamed(AppState* state, const std::string& name, std::int64_t except_net_id = 0);
 
     // Reloads AppState::saved_station_suggestions/_labels from
     // AppState::saved_station.callsign, same three-tier priority as

@@ -81,8 +81,7 @@ namespace ql
         }
 
         // Logs `callsign` through the New Station modal.
-        bool Log(const std::string& callsign, const std::string& name = "",
-                 int role_choice_index = 0)
+        bool Log(const std::string& callsign, const std::string& name = "", int role_choice_index = 0)
         {
             ClearModalFields(&state);
             state.modal_station.callsign = callsign;
@@ -238,8 +237,7 @@ namespace ql
         f.state.edit_checkin_remarks = "fixing a typo";
         SaveEditCheckInForm(&f.state);
         CHECK_EQ(f.state.active_instance.net_control_callsign, std::string("W4KWK"));
-        CHECK_EQ(f.db()->GetNetInstanceById(f.state.active_instance.id)->net_control_callsign,
-                 std::string("W4KWK"));
+        CHECK_EQ(f.db()->GetNetInstanceById(f.state.active_instance.id)->net_control_callsign, std::string("W4KWK"));
         CHECK_EQ(f.state.active_check_ins[0].designated_role, kRoleNetControl);
         CHECK_EQ(f.state.active_check_ins[0].remarks, std::string("fixing a typo"));
     }
@@ -331,7 +329,7 @@ namespace ql
         MoveRowPickHighlight(&f.state, 5);
         CHECK(f.state.row_pick_digits.empty());
         CHECK_EQ(f.state.selected_check_in_index, 0);  // Clamped to the list.
-        FinishRowPick(&f.state);  // Enter with nothing typed: the highlighted row.
+        FinishRowPick(&f.state);                       // Enter with nothing typed: the highlighted row.
         CHECK(f.state.show_edit_checkin_modal);
     }
 
@@ -380,8 +378,7 @@ namespace ql
         CHECK_EQ(f.state.session_notes_text, std::string("Tornado touched down.\nMany check-ins."));
         f.state.session_notes_text = "Edited later.";
         SaveSessionNotes(&f.state);
-        CHECK_EQ(f.db()->GetNetInstanceById(f.state.history_instances[0].id)->notes,
-                 std::string("Edited later."));
+        CHECK_EQ(f.db()->GetNetInstanceById(f.state.history_instances[0].id)->notes, std::string("Edited later."));
     }
 
     QL_TEST(EditAndDeleteUseTheSameKeysAsTheActiveNet)
@@ -426,8 +423,7 @@ namespace ql
         SetAvailableUpdate("9.9.9");
         f.state.page = kPageNetHistory;
         CHECK(keys(OpenUpdatePageEvent()));
-        CHECK_EQ(f.state.status_message,
-                 "QuickLogger 9.9.9 is out: " + std::string(kReleasesPageUrl));
+        CHECK_EQ(f.state.status_message, "QuickLogger 9.9.9 is out: " + std::string(kReleasesPageUrl));
         SetAvailableUpdate("");
     }
 
@@ -443,8 +439,7 @@ namespace ql
         f.state.session_notes_text = "Changed";
         SaveSessionNotes(&f.state);
         CHECK(!f.state.show_session_notes_modal);
-        CHECK_EQ(f.db()->GetNetInstanceById(f.state.active_instance.id)->notes,
-                 std::string("Theirs."));
+        CHECK_EQ(f.db()->GetNetInstanceById(f.state.active_instance.id)->notes, std::string("Theirs."));
     }
 
     QL_TEST(AnOpenSessionCantBeDeletedFromHistory)
@@ -511,8 +506,7 @@ namespace ql
         CHECK(f.db()->CloseNetInstance(f.state.active_instance.id, 2000));
         f.state.show_new_station_modal = true;
         CHECK(!f.Log("K4BBB"));
-        CHECK_EQ(f.db()->GetCheckInsForNetInstance(f.state.active_instance.id).size(),
-                 std::size_t{2});
+        CHECK_EQ(f.db()->GetCheckInsForNetInstance(f.state.active_instance.id).size(), std::size_t{2});
         CHECK(!f.state.show_new_station_modal);
         CHECK(f.state.form_error.empty());
         REQUIRE(f.state.show_confirm_prompt);
@@ -522,8 +516,7 @@ namespace ql
         CHECK(text.find("Another user has closed this net at ") == 0);
         CHECK(text.find(FormatLocalTimeOfDay(2000) + ".\n") != std::string::npos);
         CHECK(text.find("K4BBB was not logged.\n") != std::string::npos);
-        CHECK(text.find("You will be returned to the Recurring Nets list when you press Enter.") !=
-              std::string::npos);
+        CHECK(text.find("You will be returned to the Recurring Nets list when you press Enter.") != std::string::npos);
         CHECK_EQ(f.state.watched_instance_id.load(), std::int64_t{0});
         // Enter returns to the net list.
         LeaveClosedSession(&f.state);
@@ -569,8 +562,7 @@ namespace ql
         CHECK(f.db()->CloseNetInstance(f.state.active_instance.id, 2000));
         RequestCloseActiveNet(&f.state);
         CloseActiveNet(&f.state);
-        CHECK_EQ(f.db()->GetNetInstanceById(f.state.active_instance.id)->closed_at,
-                 std::int64_t{2000});
+        CHECK_EQ(f.db()->GetNetInstanceById(f.state.active_instance.id)->closed_at, std::int64_t{2000});
         REQUIRE(f.state.show_confirm_prompt);
         CHECK(f.state.confirm_prompt == ConfirmPrompt::kSessionClosed);
         CHECK(PromptText(f.state).find("Another user has closed this net at ") == 0);
@@ -631,9 +623,8 @@ namespace ql
         FinishRowPick(&f.state);
         REQUIRE(f.state.show_row_delete_confirm_modal);
         // Closed on another day than it started, so the end shows its date.
-        CHECK(f.state.row_delete_lines[0].find("(ended " + FormatLocalDate(2000) + " " +
-                                               FormatLocalTimeOfDay(2000) + ", 2 check-ins)") !=
-              std::string::npos);
+        CHECK(f.state.row_delete_lines[0].find("(ended " + FormatLocalDate(2000) + " " + FormatLocalTimeOfDay(2000) +
+                                               ", 2 check-ins)") != std::string::npos);
         ConfirmRowDelete(&f.state);
         CHECK(f.state.history_instances.empty());
         CHECK_EQ(f.state.status_message, std::string("Net session deleted."));
@@ -652,8 +643,7 @@ namespace ql
         std::int64_t ended = 1790003600;
         f.db()->CloseNetInstance(f.state.active_instance.id, ended);
         RefreshNetHistory(&f.state);
-        CHECK_EQ(f.state.history_instance_labels[0].substr(end_column, 8),
-                 FormatLocalTimeOfDay(ended));
+        CHECK_EQ(f.state.history_instance_labels[0].substr(end_column, 8), FormatLocalTimeOfDay(ended));
         // End is 9 wide (a time and a space), then the one-space gap.
         CHECK_EQ(header.find("Net Control") - header.find("End"), std::size_t{10});
     }
@@ -670,10 +660,8 @@ namespace ql
         closed.instance_date = FormatLocalDate(1790000000);
         closed.closed_at = 1790000000 + 3600;
         ExportNetLog(&f.state, "Skywarn", closed, f.state.active_check_ins);
-        std::string log =
-            ReadTextFile(f.dir().File("exports/Skywarn_" + closed.instance_date + "_log.txt"));
-        CHECK(log.find("End Time: " + FormatLocalTimeOfDay(closed.closed_at) + "\n") !=
-              std::string::npos);
+        std::string log = ReadTextFile(f.dir().File("exports/Skywarn_" + closed.instance_date + "_log.txt"));
+        CHECK(log.find("End Time: " + FormatLocalTimeOfDay(closed.closed_at) + "\n") != std::string::npos);
 
         // Past midnight: the end date is shown too.
         closed.closed_at = 1790000000 + 86400;
@@ -726,8 +714,7 @@ namespace ql
         FinishRowPick(&f.state);
         CHECK(f.state.row_delete_lines[1].find("stay") != std::string::npos);
         ConfirmRowDelete(&f.state);
-        CHECK_EQ(f.state.status_message,
-                 std::string("Removed K4AAA from this net's saved stations."));
+        CHECK_EQ(f.state.status_message, std::string("Removed K4AAA from this net's saved stations."));
         CHECK(f.state.edit_net_saved_stations.empty());
     }
 
@@ -786,8 +773,7 @@ namespace ql
         f.state.new_user_username = "K4WES";
         f.state.new_user_public_key = kOtherTestKey;
         AddUserFromForm(&f.state);
-        CHECK_EQ(f.state.status_message,
-                 std::string("Added another key for \"K4WES\" (full access)."));
+        CHECK_EQ(f.state.status_message, std::string("Added another key for \"K4WES\" (full access)."));
         // One row for the user, however many keys.
         REQUIRE(f.state.manage_users_labels.size() == 1);
         CHECK(f.state.manage_users_labels[0].find("Full") != std::string::npos);
@@ -857,8 +843,7 @@ namespace ql
         f.state.new_user_username = "KB4VEW";
         f.state.new_user_public_key = kOtherTestKey;
         AddUserFromForm(&f.state);
-        CHECK_EQ(f.state.status_message,
-                 std::string("Added another key for \"KB4VEW\" (view-only)."));
+        CHECK_EQ(f.state.status_message, std::string("Added another key for \"KB4VEW\" (view-only)."));
 
         // Editing them switches every key of the username; the window
         // starts on their current access.
@@ -969,8 +954,7 @@ namespace ql
         f.state.new_user_public_key = kTestKey;
         f.state.new_user_username = "tester";
         AddUserFromForm(&f.state);
-        CHECK(f.state.form_error.find("TESTER isn't a valid US or Canadian call sign") !=
-              std::string::npos);
+        CHECK(f.state.form_error.find("TESTER isn't a valid US or Canadian call sign") != std::string::npos);
         f.state.new_user_username = "k4wes/m";
         AddUserFromForm(&f.state);
         CHECK(f.state.form_error.find("without /M") != std::string::npos);
@@ -1026,8 +1010,7 @@ namespace ql
         f.state.rename_username = "w4new";
         SaveEditedUser(&f.state);
         CHECK(f.state.form_error.empty());
-        CHECK_EQ(f.state.status_message,
-                 std::string("Renamed K4WES to W4NEW, now view-only, from their next login."));
+        CHECK_EQ(f.state.status_message, std::string("Renamed K4WES to W4NEW, now view-only, from their next login."));
         CHECK(!f.state.show_user_keys_modal);
         CHECK(f.db()->GetUserKeys("K4WES").empty());
         REQUIRE(f.db()->GetUserKeys("W4NEW").size() == 1);
@@ -1037,10 +1020,8 @@ namespace ql
                  std::string("W4NEW"));
         // Their settings and files moved with them.
         CHECK(!std::filesystem::exists(SshUserSettingsPath(f.state.db_path, "K4WES")));
-        CHECK_EQ(ReadTextFile(SshUserSettingsPath(f.state.db_path, "W4NEW")),
-                 std::string("location=37402\n"));
-        CHECK_EQ(ListFilesWithExtension(SessionExportsDir(f.state.db_path, "W4NEW"), ".txt").size(),
-                 std::size_t{1});
+        CHECK_EQ(ReadTextFile(SshUserSettingsPath(f.state.db_path, "W4NEW")), std::string("location=37402\n"));
+        CHECK_EQ(ListFilesWithExtension(SessionExportsDir(f.state.db_path, "W4NEW"), ".txt").size(), std::size_t{1});
         CHECK(!std::filesystem::exists(SessionExportsDir(f.state.db_path, "K4WES")));
     }
 
@@ -1154,13 +1135,11 @@ namespace ql
 
         CancelConfirmPrompt(&f.state);
         CHECK(!f.state.show_confirm_prompt);
-        CHECK(f.db()->GetNetInstanceById(f.state.active_instance.id)->status ==
-              NetInstanceStatus::kOpen);
+        CHECK(f.db()->GetNetInstanceById(f.state.active_instance.id)->status == NetInstanceStatus::kOpen);
 
         RequestCloseActiveNet(&f.state);
         CloseActiveNet(&f.state);
-        CHECK(f.db()->GetNetInstanceById(f.state.active_instance.id)->status ==
-              NetInstanceStatus::kClosed);
+        CHECK(f.db()->GetNetInstanceById(f.state.active_instance.id)->status == NetInstanceStatus::kClosed);
         CHECK_EQ(f.state.page, kPageNetList);
         CHECK(f.state.status_message.find("History") != std::string::npos);
     }
@@ -1193,8 +1172,7 @@ namespace ql
     {
         Fixture f;
         StartAdHoc(&f, "Tailgate");
-        std::int64_t session =
-            AddTestInstance(f.db(), f.state.start_net.id, "2026-09-24", 1000, "W4KWK");
+        std::int64_t session = AddTestInstance(f.db(), f.state.start_net.id, "2026-09-24", 1000, "W4KWK");
         AddTestCheckIn(f.db(), session, "K4AAA", 1);
         f.state.page = kPageAdHocNet;
         RefreshOpenAdHocSessions(&f.state);
@@ -1215,8 +1193,7 @@ namespace ql
         CHECK_EQ(f.state.active_net_name, std::string("Tailgate"));
         CHECK(f.state.active_net_is_ad_hoc);
         RequestCloseActiveNet(&f.state);
-        CHECK(f.state.confirm_prompt_lines[1].find("F6 on the Ad Hoc Net page") !=
-              std::string::npos);
+        CHECK(f.state.confirm_prompt_lines[1].find("F6 on the Ad Hoc Net page") != std::string::npos);
         CloseActiveNet(&f.state);
         CHECK(f.state.status_message.find("F6 on the Ad Hoc Net page") != std::string::npos);
         RefreshOpenAdHocSessions(&f.state);
@@ -1239,8 +1216,7 @@ namespace ql
         std::string header = NetInstanceListHeader(80, true);
         std::string::size_type net_column = header.find("Net ") - 2;  // Menu gutter.
         CHECK(f.state.history_instance_labels[0].find("2026-09-23") == 0);
-        CHECK(f.state.history_instance_labels[0].substr(net_column).find("Field Day Practice") ==
-              0);
+        CHECK(f.state.history_instance_labels[0].substr(net_column).find("Field Day Practice") == 0);
         CHECK(f.state.history_instance_labels[1].substr(net_column).find("Tailgate") == 0);
         CHECK_EQ(header.find("Net Control") - header.find("Net "), std::size_t{25});
         CHECK(header.size() <= 78);
@@ -1270,10 +1246,8 @@ namespace ql
         // The names get a 30-column Net column (see RefreshNets), then the
         // Frequency column (blank here) and the two-space gaps.
         std::string gap(30 - 7 + 2 + 10 + 2, ' ');
-        CHECK(f.state.net_names[1].find("Skywarn" + gap + "created " +
-                                        FormatLocalDate(1790000000)) == 0);
-        CHECK(f.state.net_names[2].find("Skywarn" + gap + "imported " +
-                                        FormatLocalDate(1790100000)) == 0);
+        CHECK(f.state.net_names[1].find("Skywarn" + gap + "created " + FormatLocalDate(1790000000)) == 0);
+        CHECK(f.state.net_names[2].find("Skywarn" + gap + "imported " + FormatLocalDate(1790100000)) == 0);
     }
 
     // ---- Autocomplete --------------------------------------------------------------
@@ -1296,11 +1270,10 @@ namespace ql
         LoadZipData(f.db());
         std::int64_t other = AddTestNet(f.db(), "Other");
         f.db()->SaveNetStation(other, MakeStation("K4AAB", "Other Net Guy"), "", 1);
-        f.db()->BulkUpsertUlsStations({MakeStation("K4AAA", "ULS DUPLICATE", "37415"),
-                                       MakeStation("K4AAC", "NEARBY, NED", "37402"),
-                                       MakeStation("K4AAD", "FAR, FRED", "90210"),
-                                       MakeStation("K4AAE", "NASHVILLE, NAN", "37201")},
-                                      0, 4, 1);
+        f.db()->BulkUpsertUlsStations(
+            {MakeStation("K4AAA", "ULS DUPLICATE", "37415"), MakeStation("K4AAC", "NEARBY, NED", "37402"),
+             MakeStation("K4AAD", "FAR, FRED", "90210"), MakeStation("K4AAE", "NASHVILLE, NAN", "37201")},
+            0, 4, 1);
         f.StartNet("Skywarn");
         f.Log("K4AAA", "Ann");
 
@@ -1341,8 +1314,7 @@ namespace ql
         CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("K4CCC"));
         CHECK_EQ(f.state.modal_callsign_suggestions[1].callsign, std::string("K4BBB"));
         CHECK_EQ(f.state.modal_callsign_suggestions[2].callsign, std::string("K4AAA"));
-        CHECK(f.state.modal_callsign_suggestion_labels[0].find("(ULS, ~0 mi)") !=
-              std::string::npos);
+        CHECK(f.state.modal_callsign_suggestion_labels[0].find("(ULS, ~0 mi)") != std::string::npos);
     }
 
     QL_TEST(TheNearbyRadiusSettingDecidesWhichLicensesAreSuggested)
@@ -1403,8 +1375,7 @@ namespace ql
         Fixture f;
         LoadZipData(f.db());
         f.db()->BulkUpsertUlsStations(
-            {MakeStation("K4AAA", "STAYS", "37415"), MakeStation("K4AAB", "EXPIRES", "37402")}, 0,
-            2, 1);
+            {MakeStation("K4AAA", "STAYS", "37415"), MakeStation("K4AAB", "EXPIRES", "37402")}, 0, 2, 1);
         f.StartNet("Skywarn");
         f.state.modal_station.callsign = "K4AA";
         RefreshCallsignSuggestions(&f.state);
@@ -1450,10 +1421,10 @@ namespace ql
         LoadZipData(f.db());
         // K4NAS is in Nashville: licensed, but beyond the 70-mile radius, so
         // never offered as a match. AK4NAS is nearby, and matches "K4NAS".
-        f.db()->BulkUpsertUlsStations({MakeStation("K4NAS", "NASHVILLE, NAN", "37201"),
-                                       MakeStation("K4NAT", "NASHVILLE, NAT", "37201"),
-                                       MakeStation("AK4NAS", "NEARBY, AL", "37402")},
-                                      0, 3, 1);
+        f.db()->BulkUpsertUlsStations(
+            {MakeStation("K4NAS", "NASHVILLE, NAN", "37201"), MakeStation("K4NAT", "NASHVILLE, NAT", "37201"),
+             MakeStation("AK4NAS", "NEARBY, AL", "37402")},
+            0, 3, 1);
         f.StartNet("Skywarn");
 
         // The callsign typed in full is listed below the matches, with its
@@ -1509,10 +1480,10 @@ namespace ql
         Fixture f;
         LoadZipData(f.db());
         // As above: K4NAS and K4NAT are beyond the radius; AK4NAS is nearby.
-        f.db()->BulkUpsertUlsStations({MakeStation("K4NAS", "NASHVILLE, NAN", "37201"),
-                                       MakeStation("K4NAT", "NASHVILLE, NAT", "37201"),
-                                       MakeStation("AK4NAS", "NEARBY, AL", "37402")},
-                                      0, 3, 1);
+        f.db()->BulkUpsertUlsStations(
+            {MakeStation("K4NAS", "NASHVILLE, NAN", "37201"), MakeStation("K4NAT", "NASHVILLE, NAT", "37201"),
+             MakeStation("AK4NAS", "NEARBY, AL", "37402")},
+            0, 3, 1);
         std::int64_t net_id = AddTestNet(f.db(), "Skywarn");
         OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
 
@@ -1562,8 +1533,7 @@ namespace ql
         ann.state = "ON";
         ann.zip = "K1A 0B1";
         ann.license_class = "Advanced";
-        f.db()->ReplaceIsedStations(
-            {ann, MakeStation("VE3XYZ", "Zed, Zoe"), MakeStation("VE3XZZ", "Zulu, Zak")}, 1);
+        f.db()->ReplaceIsedStations({ann, MakeStation("VE3XYZ", "Zed, Zoe"), MakeStation("VE3XZZ", "Zulu, Zak")}, 1);
         f.db()->BulkUpsertUlsStations({MakeStation("K4AAC", "NEARBY, NED", "37402")}, 0, 1, 1);
         f.StartNet("Skywarn");
 
@@ -1613,9 +1583,8 @@ namespace ql
         Fixture f;
         LoadZipData(f.db());
         f.db()->ReplaceIsedStations({MakeStation("VE3EVA", "Able, Eva")}, 1);
-        f.db()->BulkUpsertUlsStations({MakeStation("KQ4EVW", "NEAR, NED", "37402"),
-                                       MakeStation("EV4AA", "EARLY, EVE", "37402")},
-                                      0, 2, 1);
+        f.db()->BulkUpsertUlsStations(
+            {MakeStation("KQ4EVW", "NEAR, NED", "37402"), MakeStation("EV4AA", "EARLY, EVE", "37402")}, 0, 2, 1);
         f.StartNet("Skywarn");
 
         // A US net, as every net is unless changed: US call signs match
@@ -1797,17 +1766,15 @@ namespace ql
     {
         Fixture f;
         LoadZipData(f.db());
-        f.db()->BulkUpsertUlsStations({MakeStation("K4AAC", "CHATTANOOGA", "37402"),
-                                       MakeStation("K4AAE", "NASHVILLE", "37201")},
-                                      0, 2, 1);
+        f.db()->BulkUpsertUlsStations(
+            {MakeStation("K4AAC", "CHATTANOOGA", "37402"), MakeStation("K4AAE", "NASHVILLE", "37201")}, 0, 2, 1);
         f.StartNet("Skywarn");
         f.state.active_net_zip = "37201";
         f.state.modal_station.callsign = "K4AA";
         RefreshCallsignSuggestions(&f.state);
         REQUIRE(f.state.modal_callsign_suggestions.size() == 1);
         CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("K4AAE"));
-        CHECK(f.state.modal_callsign_suggestion_labels[0].find("(ULS, ~0 mi)") !=
-              std::string::npos);
+        CHECK(f.state.modal_callsign_suggestion_labels[0].find("(ULS, ~0 mi)") != std::string::npos);
 
         // A net ZIP with no location on file, or none at all, falls back to
         // the operator's home ZIP.
@@ -1825,9 +1792,8 @@ namespace ql
     {
         Fixture f;
         LoadZipData(f.db());
-        f.db()->BulkUpsertUlsStations({MakeStation("K4AAC", "CHATTANOOGA", "37402"),
-                                       MakeStation("K4AAE", "NASHVILLE", "37201")},
-                                      0, 2, 1);
+        f.db()->BulkUpsertUlsStations(
+            {MakeStation("K4AAC", "CHATTANOOGA", "37402"), MakeStation("K4AAE", "NASHVILLE", "37201")}, 0, 2, 1);
         Net net;
         net.name = "Nashville Net";
         net.default_location = "37201";
@@ -1874,9 +1840,7 @@ namespace ql
         Fixture f;
         std::int64_t net_id = f.StartNet("Skywarn");
         f.db()->SaveNetStation(
-            net_id,
-            MakeStation("K4LOG", "A Name That Is Far Too Long To Fit", "37415", "Chattanooga"), "",
-            1);
+            net_id, MakeStation("K4LOG", "A Name That Is Far Too Long To Fit", "37415", "Chattanooga"), "", 1);
         CheckIn check_in;
         check_in.net_instance_id = f.state.active_instance.id;
         check_in.callsign = "K4LOG";
@@ -1934,39 +1898,34 @@ namespace ql
         // Check-ins: "#, Callsign, Name, Member ID, County, Role, Remarks".
         REQUIRE(f.state.active_check_in_cells.size() == 2);
         const std::vector<std::string>& cells = f.state.active_check_in_cells[1];
-        std::snprintf(expected, sizeof(expected),
-                      "%-3d %-10.10s %-20.20s %-10.10s %-14.14s %-6.6s %s", 2, cells[2].c_str(),
-                      cells[3].c_str(), cells[4].c_str(), cells[6].c_str(), cells[7].c_str(),
+        std::snprintf(expected, sizeof(expected), "%-3d %-10.10s %-20.20s %-10.10s %-14.14s %-6.6s %s", 2,
+                      cells[2].c_str(), cells[3].c_str(), cells[4].c_str(), cells[6].c_str(), cells[7].c_str(),
                       cells[9].c_str());
         CHECK_EQ(f.state.active_display_rows[1], std::string(expected));
         CHECK_EQ(cells[9], std::string("on time"));
-        std::snprintf(expected, sizeof(expected),
-                      "  %-3.3s %-10.10s %-20.20s %-10.10s %-14.14s %-6.6s %s", "#", "Callsign",
-                      "Name", "Member ID", "County", "Role", "Remarks");
+        std::snprintf(expected, sizeof(expected), "  %-3.3s %-10.10s %-20.20s %-10.10s %-14.14s %-6.6s %s", "#",
+                      "Callsign", "Name", "Member ID", "County", "Role", "Remarks");
         CHECK_EQ(CheckInListHeader(80), std::string(expected));
 
         // History sessions.
-        std::snprintf(expected, sizeof(expected),
-                      "  %-11.11s %-9.9s %-9.9s %-12.12s %-13.13s %-9.9s %s", "Date", "Start",
-                      "End", "Net Control", "Alternate NC", "Logger", "Status");
+        std::snprintf(expected, sizeof(expected), "  %-11.11s %-9.9s %-9.9s %-12.12s %-13.13s %-9.9s %s", "Date",
+                      "Start", "End", "Net Control", "Alternate NC", "Logger", "Status");
         CHECK_EQ(NetInstanceListHeader(80, false), std::string(expected));
-        std::snprintf(expected, sizeof(expected), "  %-11.11s %-9.9s %-9.9s %-24.24s %-12.12s %s",
-                      "Date", "Start", "End", "Net", "Net Control", "Status");
+        std::snprintf(expected, sizeof(expected), "  %-11.11s %-9.9s %-9.9s %-24.24s %-12.12s %s", "Date", "Start",
+                      "End", "Net", "Net Control", "Status");
         CHECK_EQ(NetInstanceListHeader(80, true), std::string(expected));
 
         // Saved stations (since 1.8.0, a wider Name and City, State at 80
         // too, using the width) and autocomplete matches.
-        std::snprintf(expected, sizeof(expected), "  %-10.10s %-24.24s %-10.10s %s", "Callsign",
-                      "Name", "Member ID", "City, State");
+        std::snprintf(expected, sizeof(expected), "  %-10.10s %-24.24s %-10.10s %s", "Callsign", "Name", "Member ID",
+                      "City, State");
         CHECK_EQ(SavedStationListHeader(80), std::string(expected));
-        std::snprintf(expected, sizeof(expected), "  %-10.10s %-20.20s %s", "Callsign", "Name",
-                      "Source");
+        std::snprintf(expected, sizeof(expected), "  %-10.10s %-20.20s %s", "Callsign", "Name", "Source");
         CHECK_EQ(MatchListHeader(80), std::string(expected));
         f.state.modal_station.callsign = "K4AA";
         RefreshCallsignSuggestions(&f.state);
         REQUIRE(!f.state.modal_callsign_suggestion_labels.empty());
-        std::snprintf(expected, sizeof(expected), "%-10.10s %-20.20s %s", "K4AAA", "ANN AMATEUR",
-                      "(this net)");
+        std::snprintf(expected, sizeof(expected), "%-10.10s %-20.20s %s", "K4AAA", "ANN AMATEUR", "(this net)");
         CHECK_EQ(f.state.modal_callsign_suggestion_labels[0], std::string(expected));
 
         // The net list: the name padded to 30 columns (or 4 past the
@@ -1974,8 +1933,7 @@ namespace ql
         // is open.
         RefreshNets(&f.state);
         REQUIRE(f.state.net_names.size() == 1);
-        CHECK_EQ(f.state.net_names[0],
-                 "Skywarn" + std::string(30 - 7 + 2 + 10 + 2, ' ') + "session open");
+        CHECK_EQ(f.state.net_names[0], "Skywarn" + std::string(30 - 7 + 2 + 10 + 2, ' ') + "session open");
     }
 
     QL_TEST(AWiderTerminalShowsMoreOfEveryList)
@@ -1987,8 +1945,7 @@ namespace ql
         net.default_frequency = "146.940";
         net.recurrence_description = "Tuesdays 8pm";
         std::int64_t net_id = f.db()->CreateNet(net);
-        f.db()->SaveNetStation(net_id, MakeStation("K4AAA", "Ann", "37415", "Chattanooga"),
-                               "mobile", 1);
+        f.db()->SaveNetStation(net_id, MakeStation("K4AAA", "Ann", "37415", "Chattanooga"), "mobile", 1);
         RefreshNets(&f.state);
         OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
         // At 80 the net list has the frequency (since 1.8.0) but not the
@@ -2032,18 +1989,15 @@ namespace ql
         CHECK(first.find("Comment") != std::string::npos);
         // Remarks get 40 characters in a file (more than the screen's 30).
         CHECK(first.find("a remark longer than thirty characters, ") != std::string::npos);
-        CHECK(first.find("a remark longer than thirty characters, kept whole") ==
-              std::string::npos);
+        CHECK(first.find("a remark longer than thirty characters, kept whole") == std::string::npos);
         // Fixed columns, whatever the data: the header and each row put a
         // column at the same position.
         std::string::size_type header_start = first.find("#  ");
         REQUIRE(header_start != std::string::npos);
-        std::string header =
-            first.substr(header_start, first.find('\n', header_start) - header_start);
+        std::string header = first.substr(header_start, first.find('\n', header_start) - header_start);
         CHECK_EQ(header.find("Callsign"), std::string::size_type{4 + 2 + 8 + 2});
-        CHECK_EQ(header.find("Comment"),
-                 std::string::size_type{4 + 2 + 8 + 2 + 13 + 2 + 30 + 2 + 10 + 2 + 30 + 2 + 20 + 2 +
-                                        6 + 2 + 6 + 2 + 40 + 2});
+        CHECK_EQ(header.find("Comment"), std::string::size_type{4 + 2 + 8 + 2 + 13 + 2 + 30 + 2 + 10 + 2 + 30 + 2 + 20 +
+                                                                2 + 6 + 2 + 6 + 2 + 40 + 2});
     }
 
     // ---- Settings -------------------------------------------------------------------
@@ -2188,8 +2142,8 @@ namespace ql
             std::int64_t session = AddTestInstance(&other, net_id, "2026-01-01", 1, "N0XYZ");
             AddTestCheckIn(&other, session, "N0XYZ", 1);
             std::string error;
-            REQUIRE(WriteNetSliceFile(ImportsDir(f.state.db_path) + "/their.qlnet",
-                                      GatherNetSlice(&other, net_id), &error));
+            REQUIRE(WriteNetSliceFile(ImportsDir(f.state.db_path) + "/their.qlnet", GatherNetSlice(&other, net_id),
+                                      &error));
         }
         WriteTextFile(ImportsDir(f.state.db_path) + "/broken.qlnet", "not a database at all...");
 
@@ -2251,8 +2205,8 @@ namespace ql
             Database other(f.dir().File("other.db"));
             std::int64_t net_id = AddTestNet(&other, "TAG SKYWARN");
             std::string error;
-            REQUIRE(WriteNetSliceFile(ImportsDir(f.state.db_path) + "/tag.qlnet",
-                                      GatherNetSlice(&other, net_id), &error));
+            REQUIRE(
+                WriteNetSliceFile(ImportsDir(f.state.db_path) + "/tag.qlnet", GatherNetSlice(&other, net_id), &error));
         }
         AddTestNet(f.db(), "TAG Skywarn");
         RefreshNets(&f.state);
@@ -2277,8 +2231,8 @@ namespace ql
             Database other(f.dir().File("other.db"));
             std::int64_t net_id = AddTestNet(&other, "Hamilton County ARES");
             std::string error;
-            REQUIRE(WriteNetSliceFile(ImportsDir(f.state.db_path) + "/ares.qlnet",
-                                      GatherNetSlice(&other, net_id), &error));
+            REQUIRE(
+                WriteNetSliceFile(ImportsDir(f.state.db_path) + "/ares.qlnet", GatherNetSlice(&other, net_id), &error));
         }
         AddTestNet(f.db(), "Hamilton Co. ARES Net");
         AddTestNet(f.db(), "TAG Skywarn");
@@ -2321,8 +2275,7 @@ namespace ql
             NetSlice slice = GatherNetSlice(f.db(), net_id);
             Database other(f.dir().File("other.db"));
             std::int64_t other_net = ApplyNetSlice(&other, slice, 0);
-            std::int64_t later =
-                AddTestInstance(&other, other_net, "2026-10-01", 1000 + 8 * 24 * 3600, "W4KWK");
+            std::int64_t later = AddTestInstance(&other, other_net, "2026-10-01", 1000 + 8 * 24 * 3600, "W4KWK");
             AddTestCheckIn(&other, later, "K4ZZZ", 1);
             REQUIRE(WriteNetSliceFile(file, GatherNetSlice(&other, other_net), &error));
         }
@@ -2365,8 +2318,7 @@ namespace ql
 
     // Logs week `week` (0 = 2026-09-01) of net `net_id`: 8 PM to 8:45 PM,
     // closed, with `operator_callsign` first and then `stations`.
-    static void LogTuesday(Database* db, std::int64_t net_id, int week,
-                           const std::string& operator_callsign,
+    static void LogTuesday(Database* db, std::int64_t net_id, int week, const std::string& operator_callsign,
                            const std::vector<std::string>& stations)
     {
         static const char* const kDates[] = {"2026-09-01", "2026-09-08", "2026-09-15",
@@ -2386,8 +2338,7 @@ namespace ql
     // name, so the Import or Merge window offers only Merge (F3), then the
     // summary, then F2. Leaves `to` on the summary's result; returns the
     // plan the summary showed.
-    static NetMergePlan SyncNet(Database* from, std::int64_t net_id, Fixture* to,
-                                bool replace_stations = false)
+    static NetMergePlan SyncNet(Database* from, std::int64_t net_id, Fixture* to, bool replace_stations = false)
     {
         std::string error;
         std::string file = ImportsDir(to->state.db_path) + "/Tuesday_Night_Net.qlnet";
@@ -2539,8 +2490,7 @@ namespace ql
         CHECK(to_a.station_conflicts.empty());
         CHECK_EQ(to_a.new_saved_stations, 1);
         CHECK_EQ(to_a.known_saved_stations, 1);
-        CHECK(net.a.state.status_message.find("3 sessions and 1 saved station added") !=
-              std::string::npos);
+        CHECK(net.a.state.status_message.find("3 sessions and 1 saved station added") != std::string::npos);
 
         // A sends everything back: A's two weeks are new to B.
         NetMergePlan to_b = SyncNet(net.a.db(), net.a_net, &net.b);
@@ -2644,8 +2594,7 @@ namespace ql
         CHECK_EQ(on_a->member_id, std::string("SP-42"));
         CHECK_EQ(on_a->name, std::string("Beth Both"));
         CHECK_EQ(net.a.db()->GetSavedNetStationRemarks(net.a_net, "K4BTH"), std::string("on A"));
-        CHECK(net.a.state.status_message.find("1 station's details taken from the file") !=
-              std::string::npos);
+        CHECK(net.a.state.status_message.find("1 station's details taken from the file") != std::string::npos);
 
         // Now they agree: syncing back to B finds no station conflict.
         NetMergePlan to_b = SyncNet(net.a.db(), net.a_net, &net.b);
@@ -2665,15 +2614,13 @@ namespace ql
         REQUIRE(LogStationCheckIn(&f.state));
         ExportNetLog(&f.state, "Skywarn", f.state.active_instance, f.state.active_check_ins);
         CHECK(f.state.form_error.empty());
-        std::vector<std::string> files =
-            ListFilesWithExtension(f.dir().File("exports"), ".qlsession");
+        std::vector<std::string> files = ListFilesWithExtension(f.dir().File("exports"), ".qlsession");
         REQUIRE(files.size() == 1);
         CHECK_EQ(files[0], std::string("Skywarn_2026-09-24.qlsession"));
 
         // It holds the session exactly, with its stations' details.
         std::string error;
-        std::optional<NetSlice> slice =
-            ReadSessionSliceFile(f.dir().File("exports/" + files[0]), &error);
+        std::optional<NetSlice> slice = ReadSessionSliceFile(f.dir().File("exports/" + files[0]), &error);
         REQUIRE(slice.has_value());
         CHECK_EQ(slice->net.name, std::string("Skywarn"));
         REQUIRE(slice->instances.size() == 1);
@@ -2682,9 +2629,8 @@ namespace ql
         bool has_ann = false;
         for (const Station& station : slice->other_stations)
         {
-            has_ann =
-                has_ann || (station.callsign == "K4AAA" && station.street_address == "1 Main St" &&
-                            station.grid_square == "EM75");
+            has_ann = has_ann || (station.callsign == "K4AAA" && station.street_address == "1 Main St" &&
+                                  station.grid_square == "EM75");
         }
         CHECK(has_ann);
     }
@@ -2709,8 +2655,8 @@ namespace ql
         other.AddCheckIn(check_in);
         std::string error;
         EnsureDirectory(ImportsDir(f.state.db_path));
-        REQUIRE(WriteNetSliceFile(ImportsDir(f.state.db_path) + "/" + file_name,
-                                  GatherSessionSlice(&other, session), &error));
+        REQUIRE(WriteNetSliceFile(ImportsDir(f.state.db_path) + "/" + file_name, GatherSessionSlice(&other, session),
+                                  &error));
     }
 
     QL_TEST(ImportingASessionAddsItToTheNetBeingViewed)
@@ -2776,8 +2722,7 @@ namespace ql
         CHECK(f.state.show_confirm_prompt);
         CHECK(f.state.confirm_prompt == ConfirmPrompt::kImportOtherNet);
         REQUIRE(!f.state.confirm_prompt_lines.empty());
-        CHECK(f.state.confirm_prompt_lines[0].find("\"Hamilton County ARES\"") !=
-              std::string::npos);
+        CHECK(f.state.confirm_prompt_lines[0].find("\"Hamilton County ARES\"") != std::string::npos);
         CHECK_EQ(f.state.page, kPageImportNet);
         CHECK_EQ(f.db()->GetNetInstancesForNet(net_id).size(), std::size_t{1});
         CancelConfirmPrompt(&f.state);
@@ -2790,8 +2735,7 @@ namespace ql
         CHECK(!f.state.show_confirm_prompt);
         CHECK_EQ(f.state.page, kPageNetHistory);
         CHECK_EQ(f.db()->GetNetInstancesForNet(net_id).size(), std::size_t{2});
-        CHECK(f.state.status_message.find("logged as \"Hamilton County ARES\"") !=
-              std::string::npos);
+        CHECK(f.state.status_message.find("logged as \"Hamilton County ARES\"") != std::string::npos);
     }
 
     QL_TEST(ImportingASessionFromAdHocHistoryMakesANewAdHocNet)
@@ -2827,8 +2771,8 @@ namespace ql
             Database other(f.dir().File("other.db"));
             std::int64_t other_net = AddTestNet(&other, "Their Net");
             std::string error;
-            REQUIRE(WriteNetSliceFile(ImportsDir(f.state.db_path) + "/their.qlnet",
-                                      GatherNetSlice(&other, other_net), &error));
+            REQUIRE(WriteNetSliceFile(ImportsDir(f.state.db_path) + "/their.qlnet", GatherNetSlice(&other, other_net),
+                                      &error));
         }
         f.state.view_only_user = true;
         RefreshNets(&f.state);
@@ -2842,8 +2786,7 @@ namespace ql
         export_log();
         CHECK(f.state.form_error.empty());
         CHECK_EQ(ListFilesWithExtension(f.dir().File("exports"), ".txt").size(), std::size_t{1});
-        CHECK_EQ(ListFilesWithExtension(f.dir().File("exports"), ".qlsession").size(),
-                 std::size_t{1});
+        CHECK_EQ(ListFilesWithExtension(f.dir().File("exports"), ".qlsession").size(), std::size_t{1});
         f.state.show_zmodem_confirm_modal = false;
         // And a whole net (F8 on Recurring Nets).
         f.state.page = kPageNetList;
@@ -2893,8 +2836,7 @@ namespace ql
             AddTestInstance(&other, net_id, "2026-01-01", 1, "N0XYZ");
             AddTestInstance(&other, net_id, "2026-01-08", 2, "N0XYZ");
             std::string error;
-            REQUIRE(WriteNetSliceFile(f.dir().File("their.qlsession"),
-                                      GatherNetSlice(&other, net_id), &error));
+            REQUIRE(WriteNetSliceFile(f.dir().File("their.qlsession"), GatherNetSlice(&other, net_id), &error));
         }
         std::string error;
         CHECK(!ReadSessionSliceFile(f.dir().File("their.qlsession"), &error).has_value());
@@ -3202,8 +3144,7 @@ namespace ql
         f.db()->SaveNetStation(net_id, MakeStation("K4OLD"), "", 1);
         f.db()->SaveNetStation(net_id, MakeStation("K4NOW"), "", 1);
         AddPastSession(f.db(), net_id, "2020-01-01", {"K4OLD"});
-        AddPastSession(f.db(), net_id,
-                       FormatLocalDate(static_cast<std::int64_t>(std::time(nullptr))), {"K4NOW"});
+        AddPastSession(f.db(), net_id, FormatLocalDate(static_cast<std::int64_t>(std::time(nullptr))), {"K4NOW"});
         OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
         OpenQuietStations(&f.state);
         REQUIRE(f.state.info_rows.size() == 2);
@@ -3223,8 +3164,7 @@ namespace ql
         bool found_extra = false;
         for (const std::string& row : f.state.info_rows)
         {
-            found_extra =
-                found_extra || (row.find("F8") == 0 && row.find(" *") != std::string::npos);
+            found_extra = found_extra || (row.find("F8") == 0 && row.find(" *") != std::string::npos);
         }
         CHECK(found_extra);
         CHECK(!f.state.info_summary.empty());  // The note about extra keys.
@@ -3238,8 +3178,7 @@ namespace ql
     {
         Fixture f;
         std::int64_t net_id = f.StartNet("Skywarn");
-        f.db()->BulkUpsertUlsStations({MakeStation("K4AAA", "ANN", "37415", "Chattanooga")}, 0, 1,
-                                      1);
+        f.db()->BulkUpsertUlsStations({MakeStation("K4AAA", "ANN", "37415", "Chattanooga")}, 0, 1, 1);
         f.db()->SaveNetStation(net_id, MakeStation("K4AAA", "Ann", "37415", "Chattanooga"), "", 1);
         f.Log("K4AAA");
         OpenStationCard(&f.state, "K4AAA");
@@ -3336,11 +3275,9 @@ namespace ql
         CHECK_EQ(f.state.form_error, std::string("K4AAA is already in this session's log, as #2."));
         // Mobile, portable or operating from elsewhere, it's the same station.
         CHECK(!f.Log("K4AAA/M"));
-        CHECK_EQ(f.state.form_error,
-                 std::string("K4AAA/M is already in this session's log, as K4AAA #2."));
+        CHECK_EQ(f.state.form_error, std::string("K4AAA/M is already in this session's log, as K4AAA #2."));
         CHECK(!f.Log("VE3/K4AAA"));
-        CHECK_EQ(f.db()->GetCheckInsForNetInstance(f.state.active_instance.id).size(),
-                 std::size_t{2});
+        CHECK_EQ(f.db()->GetCheckInsForNetInstance(f.state.active_instance.id).size(), std::size_t{2});
         // The operator is in it too.
         CHECK(!f.Log("W4KWK"));
         CHECK(!f.Log("W4KWK/M"));

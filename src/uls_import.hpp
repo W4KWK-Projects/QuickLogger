@@ -79,9 +79,8 @@ namespace ql
     // it returns true. Downloads go into a uls_cache/ directory next to
     // `db_path`. Returns "complete", "failed" or "interrupted", for the job
     // row.
-    std::string RunDataRefresh(Database* db, const std::string& db_path,
-                               const DataRefreshPlan& plan, bool (*should_stop)(),
-                               const DataSources& sources);
+    std::string RunDataRefresh(Database* db, const std::string& db_path, const DataRefreshPlan& plan,
+                               bool (*should_stop)(), const DataSources& sources);
 
     // One or two sentences for the Settings page describing the station
     // data: whether it's loaded and how current, any failure, and a refresh

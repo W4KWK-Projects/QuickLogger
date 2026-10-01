@@ -7,11 +7,9 @@ namespace ql
 
     // Where the newest release is described: GitHub's "latest release",
     // which never includes drafts or pre-releases.
-    constexpr const char* kLatestReleaseUrl =
-        "https://api.github.com/repos/W4KWK-Projects/QuickLogger/releases/latest";
+    constexpr const char* kLatestReleaseUrl = "https://api.github.com/repos/W4KWK-Projects/QuickLogger/releases/latest";
     // Where to get it, as shown to the operator.
-    constexpr const char* kReleasesPageUrl =
-        "https://github.com/W4KWK-Projects/QuickLogger/releases/latest";
+    constexpr const char* kReleasesPageUrl = "https://github.com/W4KWK-Projects/QuickLogger/releases/latest";
 
     // The version in a GitHub release's JSON (its "tag_name", without the
     // leading "v"), or "" if there's none.
@@ -24,8 +22,7 @@ namespace ql
 
     // Fetches the latest release's version from `url` (kLatestReleaseUrl).
     // Returns false, with `error` set, if it couldn't be found.
-    bool FetchLatestReleaseVersion(const std::string& url, std::string* version,
-                                   std::string* error);
+    bool FetchLatestReleaseVersion(const std::string& url, std::string* version, std::string* error);
 
     // The newer version this console session has found, or "" if none
     // (or the check is turned off). Set by the update checker's thread,

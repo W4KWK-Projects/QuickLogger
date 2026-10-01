@@ -153,8 +153,8 @@ namespace ql
         pid_t child_pid = -1;
     };
 
-    static int AuthPubkeyCallback(ssh_session session, const char* user, ssh_key pubkey,
-                                  char signature_state, void* userdata)
+    static int AuthPubkeyCallback(ssh_session session, const char* user, ssh_key pubkey, char signature_state,
+                                  void* userdata)
     {
         (void)session;
         ConnectionState* state = static_cast<ConnectionState*>(userdata);
@@ -192,8 +192,7 @@ namespace ql
             state->authenticated = true;
             // As Manage Users has it, whatever case it was typed in.
             state->username = matched_username;
-            state->db->UpdateUserLastLogin(matched_key_id,
-                                           static_cast<std::int64_t>(std::time(nullptr)));
+            state->db->UpdateUserLastLogin(matched_key_id, static_cast<std::int64_t>(std::time(nullptr)));
         }
         return SSH_AUTH_SUCCESS;
     }
@@ -212,8 +211,8 @@ namespace ql
         return state->channel;
     }
 
-    static int PtyRequestCallback(ssh_session session, ssh_channel channel, const char* term,
-                                  int width, int height, int pxwidth, int pwheight, void* userdata)
+    static int PtyRequestCallback(ssh_session session, ssh_channel channel, const char* term, int width, int height,
+                                  int pxwidth, int pwheight, void* userdata)
     {
         (void)session;
         (void)channel;
@@ -226,16 +225,15 @@ namespace ql
         window_size.ws_xpixel = static_cast<unsigned short>(pxwidth);
         window_size.ws_ypixel = static_cast<unsigned short>(pwheight);
 
-        if (::openpty(&state->pty_master_fd, &state->pty_slave_fd, nullptr, nullptr,
-                      &window_size) != 0)
+        if (::openpty(&state->pty_master_fd, &state->pty_slave_fd, nullptr, nullptr, &window_size) != 0)
         {
             return -1;
         }
         return 0;
     }
 
-    static int PtyWindowChangeCallback(ssh_session session, ssh_channel channel, int width,
-                                       int height, int pxwidth, int pwheight, void* userdata)
+    static int PtyWindowChangeCallback(ssh_session session, ssh_channel channel, int width, int height, int pxwidth,
+                                       int pwheight, void* userdata)
     {
         (void)session;
         (void)channel;
@@ -289,8 +287,7 @@ namespace ql
             // whole timeout and reported "timed out" after every transfer.
             std::signal(SIGCHLD, SIG_DFL);
             std::string username = state->username;
-            RunInteractiveSession(PerUserSettingsPath(username), /*is_console_session=*/false,
-                                  username);
+            RunInteractiveSession(PerUserSettingsPath(username), /*is_console_session=*/false, username);
             _exit(0);
         }
 
@@ -301,8 +298,8 @@ namespace ql
         return 0;
     }
 
-    static int ChannelDataCallback(ssh_session session, ssh_channel channel, void* data,
-                                   uint32_t len, int is_stderr, void* userdata)
+    static int ChannelDataCallback(ssh_session session, ssh_channel channel, void* data, uint32_t len, int is_stderr,
+                                   void* userdata)
     {
         (void)session;
         (void)channel;
@@ -433,8 +430,7 @@ namespace ql
                 ssh_event_add_session(event, session);
 
                 deadline = std::time(nullptr) + 60;
-                while (!state.authenticated && ssh_is_connected(session) &&
-                       std::time(nullptr) < deadline)
+                while (!state.authenticated && ssh_is_connected(session) && std::time(nullptr) < deadline)
                 {
                     ssh_event_dopoll(event, 200);
                 }
@@ -579,8 +575,7 @@ namespace ql
 
             if (ssh_bind_listen(sshbind) < 0)
             {
-                std::fprintf(stderr, "SSH: failed to listen on port %d: %s\n", port_,
-                             ssh_get_error(sshbind));
+                std::fprintf(stderr, "SSH: failed to listen on port %d: %s\n", port_, ssh_get_error(sshbind));
                 ssh_bind_free(sshbind);
                 return;
             }

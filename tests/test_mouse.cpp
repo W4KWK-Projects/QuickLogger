@@ -64,8 +64,8 @@ namespace ql
     {
         BeginClickTargets();
         ftxui::Screen screen(20, 3);
-        ftxui::Render(screen, ftxui::vbox({ftxui::text("1 one") | ClickableRow(0),
-                                           ftxui::text("2 two") | ClickableRow(1)}));
+        ftxui::Render(screen,
+                      ftxui::vbox({ftxui::text("1 one") | ClickableRow(0), ftxui::text("2 two") | ClickableRow(1)}));
         int row = -1;
         bool double_click = true;
         ftxui::Event key;
@@ -88,8 +88,7 @@ namespace ql
     {
         std::vector<std::string> rows = {"one", "two", "three"};
         int selected = 0;
-        ftxui::Component list =
-            ftxui::Make<DoubleClickToEnter>(ftxui::Menu(&rows, &selected), nullptr);
+        ftxui::Component list = ftxui::Make<DoubleClickToEnter>(ftxui::Menu(&rows, &selected), nullptr);
         ftxui::Screen screen(20, 3);
         ftxui::Render(screen, list->Render());
         CHECK(list->OnEvent(ftxui::Event::Mouse("", Click(1, 2))) == false);

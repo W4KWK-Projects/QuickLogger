@@ -138,8 +138,8 @@ namespace ql
         // Only FTXUI's "Alt + key" events -- Esc and one or two more bytes
         // that aren't the start of a longer sequence -- need splitting.
         const std::string& input = event.input();
-        bool merged = !event.is_character() && input.size() >= 2 && input[0] == kEscapeByte &&
-                      input[1] != '[' && input[1] != 'P' && input[1] != ']';
+        bool merged = !event.is_character() && input.size() >= 2 && input[0] == kEscapeByte && input[1] != '[' &&
+                      input[1] != 'P' && input[1] != ']';
         // "Esc O" and one more byte is a whole key in itself (F1-F4).
         if (!merged || (input.size() == 3 && input[1] == 'O'))
         {

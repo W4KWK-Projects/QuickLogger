@@ -12,11 +12,9 @@ namespace ql
     static sqlite3_stmt* PrepareStatement(sqlite3* db, const char* sql, int bytes, bool persistent)
     {
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v3(db, sql, bytes, persistent ? SQLITE_PREPARE_PERSISTENT : 0, &stmt,
-                               nullptr) != SQLITE_OK)
+        if (sqlite3_prepare_v3(db, sql, bytes, persistent ? SQLITE_PREPARE_PERSISTENT : 0, &stmt, nullptr) != SQLITE_OK)
         {
-            throw std::runtime_error(std::string("Failed to prepare statement: ") +
-                                     sqlite3_errmsg(db));
+            throw std::runtime_error(std::string("Failed to prepare statement: ") + sqlite3_errmsg(db));
         }
         return stmt;
     }
@@ -88,8 +86,7 @@ namespace ql
 
     void Statement::BindText(int index, const std::string& value)
     {
-        sqlite3_bind_text(stmt_, index + 1, value.c_str(), static_cast<int>(value.size()),
-                          SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt_, index + 1, value.c_str(), static_cast<int>(value.size()), SQLITE_TRANSIENT);
     }
 
     void Statement::BindInt64(int index, std::int64_t value)
@@ -113,8 +110,7 @@ namespace ql
         {
             return false;
         }
-        throw std::runtime_error(std::string("Failed to step statement: ") +
-                                 sqlite3_errmsg(sqlite3_db_handle(stmt_)));
+        throw std::runtime_error(std::string("Failed to step statement: ") + sqlite3_errmsg(sqlite3_db_handle(stmt_)));
     }
 
     void Statement::Reset()

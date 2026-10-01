@@ -49,8 +49,7 @@ namespace ql
     }
 
     // One bar row's element: `hints[first]` up to (not including) `end`.
-    static ftxui::Element KeyHintRowOf(const std::vector<KeyHint>& hints, std::size_t first,
-                                       std::size_t end);
+    static ftxui::Element KeyHintRowOf(const std::vector<KeyHint>& hints, std::size_t first, std::size_t end);
 
     ftxui::Element Heading(const std::string& text)
     {
@@ -94,8 +93,7 @@ namespace ql
 
     ftxui::Element DialogFramed(ftxui::Element content)
     {
-        return std::move(content) | ftxui::color(kColorFrame) |
-               ftxui::borderStyled(kColorDialogBorder);
+        return std::move(content) | ftxui::color(kColorFrame) | ftxui::borderStyled(kColorDialogBorder);
     }
 
     int KeyHintRowWidth(const std::vector<KeyHint>& hints)
@@ -108,8 +106,7 @@ namespace ql
         return width;
     }
 
-    static ftxui::Element KeyHintRowOf(const std::vector<KeyHint>& hints, std::size_t first,
-                                       std::size_t end)
+    static ftxui::Element KeyHintRowOf(const std::vector<KeyHint>& hints, std::size_t first, std::size_t end)
     {
         ftxui::Elements pieces;
         pieces.reserve(end - first + 1);
@@ -128,17 +125,15 @@ namespace ql
             label_text += hint.label;
             label_text += "  ";
             // Clicking the key or its label presses the key (see mouse.hpp).
-            pieces.push_back(
-                ftxui::hbox({
-                    ftxui::text(std::move(key_text)) | ftxui::bgcolor(ftxui::Color::YellowLight) |
-                        ftxui::color(ftxui::Color::Black),
-                    ftxui::text(std::move(label_text)),
-                }) |
-                ClickTarget(hint.key));
+            pieces.push_back(ftxui::hbox({
+                                 ftxui::text(std::move(key_text)) | ftxui::bgcolor(ftxui::Color::YellowLight) |
+                                     ftxui::color(ftxui::Color::Black),
+                                 ftxui::text(std::move(label_text)),
+                             }) |
+                             ClickTarget(hint.key));
         }
         pieces.push_back(ftxui::filler());
-        return ftxui::hbox(std::move(pieces)) | ftxui::bgcolor(ftxui::Color::Cyan) |
-               ftxui::color(ftxui::Color::Black);
+        return ftxui::hbox(std::move(pieces)) | ftxui::bgcolor(ftxui::Color::Cyan) | ftxui::color(ftxui::Color::Black);
     }
 
     ftxui::Element KeyHintRow(const std::vector<KeyHint>& hints)
@@ -262,13 +257,12 @@ namespace ql
         ftxui::Element badge = ftxui::text(" " + notice + " ");
         if (is_problem)
         {
-            return ftxui::hbox({badge | ftxui::bgcolor(ftxui::Color::Red) |
-                                    ftxui::color(ftxui::Color::White) | ftxui::bold,
-                                ftxui::text(" ")});
+            return ftxui::hbox(
+                {badge | ftxui::bgcolor(ftxui::Color::Red) | ftxui::color(ftxui::Color::White) | ftxui::bold,
+                 ftxui::text(" ")});
         }
         return ftxui::hbox(
-            {badge | ftxui::bgcolor(ftxui::Color::YellowLight) | ftxui::color(ftxui::Color::Black),
-             ftxui::text(" ")});
+            {badge | ftxui::bgcolor(ftxui::Color::YellowLight) | ftxui::color(ftxui::Color::Black), ftxui::text(" ")});
     }
 
     ftxui::Element TopBar(const std::string& page_title, const std::string& status)
@@ -291,8 +285,7 @@ namespace ql
         static const std::string help_label = " Help  ";
         static const std::string status_gap = "   ";
         int left = 12 + static_cast<int>(version.size()) + 2;
-        int right = (notice.empty() ? 0 : TextWidth(notice) + 3) +
-                    (update->empty() ? 0 : TextWidth(*update) + 3) +
+        int right = (notice.empty() ? 0 : TextWidth(notice) + 3) + (update->empty() ? 0 : TextWidth(*update) + 3) +
                     (status.empty() ? 0 : TextWidth(status) + static_cast<int>(status_gap.size())) +
                     static_cast<int>(help_key.size() + help_label.size() + clock.size());
         // A trailing space after the title, and a wider gap before a status.
@@ -306,8 +299,7 @@ namespace ql
         std::string title = page_title;
         if (room < TextWidth(title))
         {
-            title = room > 3 ? CutToWidth(title, room - 3) + "..."
-                             : CutToWidth(title, std::max(room, 0));
+            title = room > 3 ? CutToWidth(title, room - 3) + "..." : CutToWidth(title, std::max(room, 0));
         }
 
         return ftxui::hbox({
@@ -316,8 +308,7 @@ namespace ql
                    ftxui::text("— ") | ftxui::color(kColorHeading),
                    ftxui::text(title + " ") | ftxui::color(kColorHeading),
                    ftxui::filler(),
-                   status.empty() ? ftxui::text("")
-                                  : ftxui::text(status + status_gap) | ftxui::color(kColorData),
+                   status.empty() ? ftxui::text("") : ftxui::text(status + status_gap) | ftxui::color(kColorData),
                    NoticeBadge(*update, false) | ClickTargetEvent(OpenUpdatePageEvent()),
                    NoticeBadge(notice, is_problem),
                    ftxui::hbox({
@@ -372,8 +363,8 @@ namespace ql
         return ftxui::vbox(std::move(lines));
     }
 
-    std::vector<KeyHint> AddExtraKeysThatFit(const std::vector<KeyHint>& hints,
-                                             const std::vector<KeyHint>& extras, int lines)
+    std::vector<KeyHint> AddExtraKeysThatFit(const std::vector<KeyHint>& hints, const std::vector<KeyHint>& extras,
+                                             int lines)
     {
         int max_width = FrameTerminalSize().dimx;
         // Extras go before a closing Esc, which stays last.
@@ -391,8 +382,8 @@ namespace ql
         int closing_width = has_closing ? KeyHintWidth(hints.back()) : 0;
         widths.push_back(closing_width);
         std::size_t with_closing = has_closing ? widths.size() : widths.size() - 1;
-        std::size_t most_lines = std::max(CountKeyHintRows(widths.data(), with_closing, max_width),
-                                          static_cast<std::size_t>(lines));
+        std::size_t most_lines =
+            std::max(CountKeyHintRows(widths.data(), with_closing, max_width), static_cast<std::size_t>(lines));
         std::size_t extras_that_fit = 0;
         for (const KeyHint& extra : extras)
         {
@@ -410,8 +401,7 @@ namespace ql
         std::vector<KeyHint> all;
         all.reserve(hints.size() + extras_that_fit);
         all.insert(all.end(), hints.begin(), hints.begin() + static_cast<std::ptrdiff_t>(kept));
-        all.insert(all.end(), extras.begin(),
-                   extras.begin() + static_cast<std::ptrdiff_t>(extras_that_fit));
+        all.insert(all.end(), extras.begin(), extras.begin() + static_cast<std::ptrdiff_t>(extras_that_fit));
         if (has_closing)
         {
             all.push_back(hints.back());
@@ -430,8 +420,8 @@ namespace ql
         return ftxui::vbox(std::move(lines));
     }
 
-    ftxui::Element PageChrome(const std::string& page_title, ftxui::Element content,
-                              const std::vector<KeyHint>& hints, const std::string& top_status)
+    ftxui::Element PageChrome(const std::string& page_title, ftxui::Element content, const std::vector<KeyHint>& hints,
+                              const std::string& top_status)
     {
         return ftxui::vbox({
             TopBar(page_title, top_status),

@@ -86,8 +86,7 @@ namespace ql
     {
         // 0xC3 0x80-0x9F are the uppercase letters, 0xA0-0xBF lowercase;
         // folding the case bit first lets one table cover both.
-        unsigned char upper =
-            second_byte >= 0xA0 ? static_cast<unsigned char>(second_byte - 0x20) : second_byte;
+        unsigned char upper = second_byte >= 0xA0 ? static_cast<unsigned char>(second_byte - 0x20) : second_byte;
         if (upper >= 0x80 && upper <= 0x85)
         {
             return 'A';
@@ -191,13 +190,12 @@ namespace ql
     static bool IsCommonNetWord(const std::string& word)
     {
         static const std::set<std::string> kCommon = {
-            "A",       "AN",        "AND",      "AT",          "FOR",      "IN",      "OF",
-            "ON",      "THE",       "NET",      "NETS",        "SESSION",  "AMATEUR", "RADIO",
-            "HAM",     "HAMS",      "CLUB",     "ASSOCIATION", "ASSN",     "SOCIETY", "GROUP",
-            "COUNTY",  "CITY",      "AREA",     "REGIONAL",    "DISTRICT", "WEEKLY",  "DAILY",
-            "NIGHTLY", "MONTHLY",   "MORNING",  "AFTERNOON",   "EVENING",  "NIGHT",   "MONDAY",
-            "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY",      "SATURDAY", "SUNDAY",  "FM",
-            "SSB",     "HF",        "VHF",      "UHF",         "DMR",      "REPEATER"};
+            "A",        "AN",          "AND",    "AT",      "FOR",       "IN",       "OF",      "ON",
+            "THE",      "NET",         "NETS",   "SESSION", "AMATEUR",   "RADIO",    "HAM",     "HAMS",
+            "CLUB",     "ASSOCIATION", "ASSN",   "SOCIETY", "GROUP",     "COUNTY",   "CITY",    "AREA",
+            "REGIONAL", "DISTRICT",    "WEEKLY", "DAILY",   "NIGHTLY",   "MONTHLY",  "MORNING", "AFTERNOON",
+            "EVENING",  "NIGHT",       "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY",  "SATURDAY",
+            "SUNDAY",   "FM",          "SSB",    "HF",      "VHF",       "UHF",      "DMR",     "REPEATER"};
         return kCommon.count(word) != 0;
     }
 
@@ -216,8 +214,7 @@ namespace ql
     // Edit distance, counting a swap of two neighboring letters as one edit.
     static std::size_t TypoDistance(const std::string& a, const std::string& b)
     {
-        std::vector<std::vector<std::size_t>> d(a.size() + 1,
-                                                std::vector<std::size_t>(b.size() + 1, 0));
+        std::vector<std::vector<std::size_t>> d(a.size() + 1, std::vector<std::size_t>(b.size() + 1, 0));
         for (std::size_t i = 0; i <= a.size(); ++i)
         {
             d[i][0] = i;
@@ -288,8 +285,7 @@ namespace ql
 
     // Whether a word of `words` (two letters or more) is the initials of
     // `other`.
-    static bool HasAcronymOf(const std::vector<std::string>& words,
-                             const std::vector<std::string>& other)
+    static bool HasAcronymOf(const std::vector<std::string>& words, const std::vector<std::string>& other)
     {
         std::string all = Initials(other, false);
         std::string trimmed = Initials(other, true);

@@ -109,8 +109,7 @@ namespace ql
         // (SearchNetStationsByCallsignSubstring). A ULS tier, if added, would
         // be a separate query appended after this one, not merged into it.
         // At most `limit` of them (-1: all).
-        std::vector<Station> SearchStationsByCallsignSubstring(const std::string& substring,
-                                                               int limit = -1);
+        std::vector<Station> SearchStationsByCallsignSubstring(const std::string& substring, int limit = -1);
         // Matches any callsign containing `substring` (case-insensitive) among
         // stations that have either checked into a past instance of `net_id`,
         // or been explicitly saved to it (see SaveNetStation) -- e.g. imported
@@ -118,8 +117,7 @@ namespace ql
         // tier: prefer callers already known to this specific net before
         // broadening to SearchStationsByCallsignSubstring (other nets).
         // At most `limit` of them (-1: all).
-        std::vector<Station> SearchNetStationsByCallsignSubstring(std::int64_t net_id,
-                                                                  const std::string& substring,
+        std::vector<Station> SearchNetStationsByCallsignSubstring(std::int64_t net_id, const std::string& substring,
                                                                   int limit = -1);
         // Associates `station.callsign` with `net_id` as "known to this net"
         // for autocomplete, without a real check-in -- for saving a station
@@ -128,16 +126,16 @@ namespace ql
         // `default_remarks` is carried on the net/callsign association (not
         // the Station), and gets copied into the New Station modal's Remarks
         // field when this station is picked via autocomplete for this net.
-        void SaveNetStation(std::int64_t net_id, const Station& station,
-                            const std::string& default_remarks, std::int64_t updated_at);
+        void SaveNetStation(std::int64_t net_id, const Station& station, const std::string& default_remarks,
+                            std::int64_t updated_at);
         // Directly sets an already-saved station's fields and default remarks
         // to exactly what's given in `station`/`default_remarks`, including
         // blanking any of them out. Unlike SaveNetStation, this never preserves
         // a previous value -- it's for explicitly editing a station the
         // operator already saved to this net (e.g. adding details they didn't
         // have when they first saved just the callsign), not adding a new one.
-        void UpdateSavedNetStation(std::int64_t net_id, const Station& station,
-                                   const std::string& default_remarks, std::int64_t updated_at);
+        void UpdateSavedNetStation(std::int64_t net_id, const Station& station, const std::string& default_remarks,
+                                   std::int64_t updated_at);
         // Removes a station's saved association with a net. Never touches
         // check-in history. Like every delete here, it then drops any
         // station record nothing refers to any more (see DeleteUnusedStations).
@@ -218,8 +216,7 @@ namespace ql
         // columns in sync with CheckIn::designated_role without a
         // general-purpose "update the whole NetInstance" method. A no-op if
         // `role` isn't one of the three (in particular, kRoleNone).
-        void SetNetInstanceRoleCallsign(std::int64_t instance_id, int role,
-                                        const std::string& callsign);
+        void SetNetInstanceRoleCallsign(std::int64_t instance_id, int role, const std::string& callsign);
         // Replaces a session's notes (NetInstance::notes).
         void SetNetInstanceNotes(std::int64_t instance_id, const std::string& notes);
         // Permanently removes one net instance (e.g. logged by mistake, or a
@@ -248,12 +245,10 @@ namespace ql
 
         // Every check-in `callsign` made to net `net_id`, newest session
         // first, each with its session and the net's name.
-        std::vector<StationCheckInRecord> GetStationCheckInsForNet(std::int64_t net_id,
-                                                                   const std::string& callsign);
+        std::vector<StationCheckInRecord> GetStationCheckInsForNet(std::int64_t net_id, const std::string& callsign);
         // Check-ins to any net by a callsign containing `substring`
         // (case-insensitive), newest first, at most `limit`.
-        std::vector<StationCheckInRecord> FindCheckInsByCallsign(const std::string& substring,
-                                                                 int limit);
+        std::vector<StationCheckInRecord> FindCheckInsByCallsign(const std::string& substring, int limit);
         // The callsigns that have checked in to net `net_id` most often, with
         // how many times and their latest session's date.
         std::vector<CallsignTally> GetTopCallsignsForNet(std::int64_t net_id, int limit);
@@ -266,8 +261,7 @@ namespace ql
         StationActivity GetStationActivity(const std::string& callsign);
         // How many check-ins a session has and the newest one's id -- enough
         // to tell cheaply whether someone else has logged or deleted one.
-        void GetCheckInSummary(std::int64_t net_instance_id, std::int64_t* count,
-                               std::int64_t* newest_id);
+        void GetCheckInSummary(std::int64_t net_instance_id, std::int64_t* count, std::int64_t* newest_id);
         void UpdateCheckIn(const CheckIn& check_in);
         // Removes one check-in entry entirely (e.g. logged in error). Does not
         // touch the Station record. In an open session the others keep their
@@ -278,8 +272,7 @@ namespace ql
         // `net_instance_id` currently holding `role`, except `except_check_in_id`
         // -- so handing a role to one check-in takes it away from whoever had
         // it, since only one check-in per instance can hold a given role.
-        void ClearCheckInRoleForInstance(std::int64_t net_instance_id, int role,
-                                         std::int64_t except_check_in_id);
+        void ClearCheckInRoleForInstance(std::int64_t net_instance_id, int role, std::int64_t except_check_in_id);
 
         // Background-data bookkeeping (see ImportRunStatus in models.hpp and
         // data_updater.hpp). `source` is a short fixed key, e.g. "uls".
@@ -292,8 +285,7 @@ namespace ql
         // UPSERT with a WHERE on its DO UPDATE, so two processes racing for
         // the same job can't both win. Returns whether this call got the
         // claim; a caller that gets false must not do the job.
-        bool TryClaimImportRun(const std::string& source, std::int64_t now,
-                               std::int64_t stale_after_seconds);
+        bool TryClaimImportRun(const std::string& source, std::int64_t now, std::int64_t stale_after_seconds);
         // Progress report for a claimed, running job: phase text, percent,
         // records so far, and a fresh heartbeat.
         void UpdateImportProgress(const std::string& source, const std::string& phase, int percent,
@@ -315,8 +307,8 @@ namespace ql
         // Writes stations[begin, end) in one transaction for performance, so
         // callers should pass a few thousand at a time. Rows whose data is
         // unchanged are left alone.
-        void BulkUpsertUlsStations(const std::vector<Station>& stations, std::size_t begin,
-                                   std::size_t end, std::int64_t updated_at);
+        void BulkUpsertUlsStations(const std::vector<Station>& stations, std::size_t begin, std::size_t end,
+                                   std::int64_t updated_at);
         // Deletes every ULS row whose callsign isn't in `current` -- run after
         // a full import, so a license that has expired or been cancelled
         // since the last one stops turning up in autocomplete. Returns how
@@ -331,16 +323,15 @@ namespace ql
         // also supplies each one's distance), or -- listed after those, with
         // an unknown distance -- a ZIP with no centroid on file (e.g. a PO
         // Box ZIP) that starts with one of `zip3_prefixes`.
-        std::vector<NearbyUlsStation> SearchNearbyUlsStations(
-            const std::string& substring, const std::vector<NearbyZip>& nearby_zips,
-            const std::vector<std::string>& zip3_prefixes, int limit);
+        std::vector<NearbyUlsStation> SearchNearbyUlsStations(const std::string& substring,
+                                                              const std::vector<NearbyZip>& nearby_zips,
+                                                              const std::vector<std::string>& zip3_prefixes, int limit);
         // Every station SearchNearbyUlsStations("") would return, in the same
         // order, as just its callsign and distance: what autocomplete keeps
         // in memory (see AppState::nearby_uls_callsigns). Read from the
         // (zip, callsign) index alone, never the table's rows.
-        std::vector<NearbyUlsCallsign> ListNearbyUlsCallsigns(
-            const std::vector<NearbyZip>& nearby_zips,
-            const std::vector<std::string>& zip3_prefixes);
+        std::vector<NearbyUlsCallsign> ListNearbyUlsCallsigns(const std::vector<NearbyZip>& nearby_zips,
+                                                              const std::vector<std::string>& zip3_prefixes);
         // Exact-callsign lookup against the ULS table, for resolving a
         // specific operator's info (see LogOperatorCheckIn) rather than
         // searching/ranking candidates.
@@ -354,12 +345,10 @@ namespace ql
         std::optional<Station> FindIsedStationByCallsign(const std::string& callsign);
         // Autocomplete's Canadian tier: ISED call signs starting with
         // `prefix` (case-insensitive), in order, at most `limit` of them.
-        std::vector<Station> SearchIsedStationsByCallsignPrefix(const std::string& prefix,
-                                                                int limit);
+        std::vector<Station> SearchIsedStationsByCallsignPrefix(const std::string& prefix, int limit);
         // The same, for a net with Canadian partial matching on: ISED call
         // signs containing `substring` anywhere, in order.
-        std::vector<Station> SearchIsedStationsByCallsignSubstring(const std::string& substring,
-                                                                   int limit);
+        std::vector<Station> SearchIsedStationsByCallsignSubstring(const std::string& substring, int limit);
         // A call sign's license details from whichever database has it:
         // the FCC's, else ISED's.
         std::optional<Station> FindLicensedStationByCallsign(const std::string& callsign);
@@ -377,8 +366,7 @@ namespace ql
         // Every centroid inside a latitude/longitude box, from an index on
         // (lat, lon): the candidates for NearbyZips, a few hundred rows
         // rather than the whole table.
-        std::vector<ZipCentroid> GetZipCentroidsInBox(double min_lat, double max_lat,
-                                                      double min_lon, double max_lon);
+        std::vector<ZipCentroid> GetZipCentroidsInBox(double min_lat, double max_lat, double min_lon, double max_lon);
         bool HasAnyZipCentroids();
         // Gives every station in `stations` with a blank Grid Square and a
         // US ZIP that has a centroid the 4-character grid of that centroid

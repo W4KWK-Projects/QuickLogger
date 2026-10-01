@@ -74,8 +74,7 @@ namespace ql
         return nearby;
     }
 
-    std::vector<std::string> NearbyZip3Prefixes(double origin_lat, double origin_lon,
-                                                double radius_miles,
+    std::vector<std::string> NearbyZip3Prefixes(double origin_lat, double origin_lon, double radius_miles,
                                                 const std::vector<ZipCentroid>& centroids)
     {
         std::set<std::string> prefixes;

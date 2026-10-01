@@ -158,8 +158,8 @@ namespace ql
     // or than `lines` if that's more (placed before a closing Esc, which
     // stays last). For a page's seldom-used keys (see InfoWindow in
     // app_state.hpp), which work whether shown or not.
-    std::vector<KeyHint> AddExtraKeysThatFit(const std::vector<KeyHint>& hints,
-                                             const std::vector<KeyHint>& extras, int lines);
+    std::vector<KeyHint> AddExtraKeysThatFit(const std::vector<KeyHint>& hints, const std::vector<KeyHint>& extras,
+                                             int lines);
 
     // Same as BottomBar, but `rows` forces each inner vector onto its own
     // line regardless of width -- the primitive BottomBar is built on.
@@ -178,8 +178,7 @@ namespace ql
     // Wraps `content` between a TopBar/BottomBar for `page_title`/`hints`
     // (and the top bar's `top_status`), giving `content` the full remaining
     // vertical space in between so it reaches the edges of the screen.
-    ftxui::Element PageChrome(const std::string& page_title, ftxui::Element content,
-                              const std::vector<KeyHint>& hints,
+    ftxui::Element PageChrome(const std::string& page_title, ftxui::Element content, const std::vector<KeyHint>& hints,
                               const std::string& top_status = "");
 
     // Same as PageChrome, but with a multi-row bottom bar -- see

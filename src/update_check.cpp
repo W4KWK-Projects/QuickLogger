@@ -93,8 +93,7 @@ namespace ql
         return false;
     }
 
-    static std::size_t AppendToString(char* data, std::size_t size, std::size_t count,
-                                      void* userdata)
+    static std::size_t AppendToString(char* data, std::size_t size, std::size_t count, void* userdata)
     {
         std::string* body = static_cast<std::string*>(userdata);
         // A release's description is a few KB; anything this big isn't one.

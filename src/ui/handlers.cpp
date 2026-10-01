@@ -119,8 +119,7 @@ namespace ql
             state_->form_error = "You already have a net named \"" + taken + "\".";
             return;
         }
-        if (!CheckNetRadio(state_, state_->new_net_frequency, state_->new_net_offset,
-                           &state_->new_net_tone) ||
+        if (!CheckNetRadio(state_, state_->new_net_frequency, state_->new_net_offset, &state_->new_net_tone) ||
             !CheckNetZip(state_, state_->new_net_location))
         {
             return;
@@ -204,8 +203,8 @@ namespace ql
         }
         if (event == ftxui::Event::F3)
         {
-            StartRowPick(state_, state_->view_only_user ? RowPickAction::kViewAdHocSession
-                                                        : RowPickAction::kResumeAdHocSession);
+            StartRowPick(
+                state_, state_->view_only_user ? RowPickAction::kViewAdHocSession : RowPickAction::kResumeAdHocSession);
             return true;
         }
         if (event == ftxui::Event::F6)
@@ -369,9 +368,8 @@ namespace ql
             }
             // Only say something if other fields were filled in and just the
             // callsign left out; either way, the cursor goes to it.
-            state_->form_error = SavedStationFormIsBlank(state_)
-                                     ? std::string()
-                                     : std::string("Enter a callsign to save this station.");
+            state_->form_error =
+                SavedStationFormIsBlank(state_) ? std::string() : std::string("Enter a callsign to save this station.");
             if (state_->saved_station_callsign_input)
             {
                 state_->saved_station_callsign_input->TakeFocus();
@@ -411,8 +409,7 @@ namespace ql
         {
             return;
         }
-        LoadSavedStationIntoForm(
-            state_, state_->edit_net_saved_stations[state_->selected_saved_station_index]);
+        LoadSavedStationIntoForm(state_, state_->edit_net_saved_stations[state_->selected_saved_station_index]);
     }
 
     void AddNewSavedStationHandler::operator()() const
@@ -432,8 +429,7 @@ namespace ql
     // whether it handled the event. Does nothing -- leaving Up/Down to move
     // between fields as usual -- when the field isn't focused or there are
     // no matches.
-    static bool MoveSuggestionHighlight(const ftxui::Event& event,
-                                        const ftxui::Component& callsign_input,
+    static bool MoveSuggestionHighlight(const ftxui::Event& event, const ftxui::Component& callsign_input,
                                         std::size_t suggestion_count, int* selected_index)
     {
         if (suggestion_count == 0 || !callsign_input || !callsign_input->Focused())
@@ -491,8 +487,7 @@ namespace ql
 
         if (state_->show_saved_station_modal)
         {
-            bool leaving_callsign = event == ftxui::Event::Tab ||
-                                    event == ftxui::Event::TabReverse ||
+            bool leaving_callsign = event == ftxui::Event::Tab || event == ftxui::Event::TabReverse ||
                                     event == ftxui::Event::F2 || event == ftxui::Event::F3;
             if (leaving_callsign && state_->saved_station_callsign_input &&
                 state_->saved_station_callsign_input->Focused())
@@ -792,8 +787,7 @@ namespace ql
         // "Created By" reflects who is running the software (from Settings),
         // which may differ from whichever role-callsign is entered below --
         // falling back to that role-callsign if Settings hasn't been set up yet.
-        instance.created_by = state_->settings.callsign.empty() ? state_->operator_callsign
-                                                                : state_->settings.callsign;
+        instance.created_by = state_->settings.callsign.empty() ? state_->operator_callsign : state_->settings.callsign;
         instance.operator_role = state_->selected_role_index;
         if (state_->selected_role_index == kRoleNetControl)
         {
@@ -872,8 +866,7 @@ namespace ql
 
         // Known to some net first; failing that, the FCC or ISED data (any
         // distance -- the full callsign was typed, so there's no guessing).
-        std::optional<Station> station =
-            state_->db->FindStationByCallsign(state_->modal_station.callsign);
+        std::optional<Station> station = state_->db->FindStationByCallsign(state_->modal_station.callsign);
         if (!station.has_value())
         {
             station = state_->db->FindLicensedStationByCallsign(state_->modal_station.callsign);
@@ -885,8 +878,8 @@ namespace ql
             BackfillGridFromZip(state_, &state_->modal_station);
         }
 
-        std::string default_remarks = state_->db->GetSavedNetStationRemarks(
-            state_->active_instance.net_id, state_->modal_station.callsign);
+        std::string default_remarks =
+            state_->db->GetSavedNetStationRemarks(state_->active_instance.net_id, state_->modal_station.callsign);
         if (!default_remarks.empty())
         {
             state_->modal_remarks = default_remarks;
@@ -961,8 +954,7 @@ namespace ql
 
     void ExportActiveNetLogHandler::operator()() const
     {
-        ExportNetLog(state_, state_->active_net_name, state_->active_instance,
-                     state_->active_check_ins);
+        ExportNetLog(state_, state_->active_net_name, state_->active_instance, state_->active_check_ins);
     }
 
     bool ActiveNetKeyHandler::operator()(const ftxui::Event& event) const
@@ -1023,15 +1015,13 @@ namespace ql
                 OpenActiveSessionNotes(state_);
                 return true;
             }
-            return event == ftxui::Event::F2 || event == ftxui::Event::F3 ||
-                   event == ftxui::Event::F4 || event == ftxui::Event::F5 ||
-                   event == ftxui::Event::Return;
+            return event == ftxui::Event::F2 || event == ftxui::Event::F3 || event == ftxui::Event::F4 ||
+                   event == ftxui::Event::F5 || event == ftxui::Event::Return;
         }
 
         bool leaving_callsign = event == ftxui::Event::Tab || event == ftxui::Event::TabReverse ||
-                                event == ftxui::Event::F2 || event == ftxui::Event::F3 ||
-                                event == ftxui::Event::F4 || event == ftxui::Event::F5 ||
-                                event == ftxui::Event::F6;
+                                event == ftxui::Event::F2 || event == ftxui::Event::F3 || event == ftxui::Event::F4 ||
+                                event == ftxui::Event::F5 || event == ftxui::Event::F6;
         if (state_->show_new_station_modal && leaving_callsign && state_->modal_callsign_input &&
             state_->modal_callsign_input->Focused())
         {
@@ -1050,8 +1040,7 @@ namespace ql
         }
 
         if (state_->show_new_station_modal &&
-            MoveSuggestionHighlight(event, state_->modal_callsign_input,
-                                    state_->modal_callsign_suggestions.size(),
+            MoveSuggestionHighlight(event, state_->modal_callsign_input, state_->modal_callsign_suggestions.size(),
                                     &state_->selected_suggestion_index))
         {
             return true;
@@ -1080,32 +1069,26 @@ namespace ql
         }
         // F4/F5/F6 in a check-in window: straight to Remarks, Comment or
         // the role choice, past the station's details.
-        if (modal_open &&
-            (event == ftxui::Event::F4 || event == ftxui::Event::F5 || event == ftxui::Event::F6))
+        if (modal_open && (event == ftxui::Event::F4 || event == ftxui::Event::F5 || event == ftxui::Event::F6))
         {
             bool is_new = state_->show_new_station_modal;
             // Remarks and Comment open with the cursor at the end of what's
             // there, ready to add to it.
             if (event == ftxui::Event::F4)
             {
-                int* cursor =
-                    is_new ? &state_->modal_remarks_cursor : &state_->edit_checkin_remarks_cursor;
-                *cursor = static_cast<int>(
-                    (is_new ? state_->modal_remarks : state_->edit_checkin_remarks).size());
+                int* cursor = is_new ? &state_->modal_remarks_cursor : &state_->edit_checkin_remarks_cursor;
+                *cursor = static_cast<int>((is_new ? state_->modal_remarks : state_->edit_checkin_remarks).size());
             }
             else if (event == ftxui::Event::F5)
             {
-                int* cursor =
-                    is_new ? &state_->modal_comment_cursor : &state_->edit_checkin_comment_cursor;
-                *cursor = static_cast<int>(
-                    (is_new ? state_->modal_comment : state_->edit_checkin_comment).size());
+                int* cursor = is_new ? &state_->modal_comment_cursor : &state_->edit_checkin_comment_cursor;
+                *cursor = static_cast<int>((is_new ? state_->modal_comment : state_->edit_checkin_comment).size());
             }
-            ftxui::Component target =
-                event == ftxui::Event::F4
-                    ? (is_new ? state_->modal_remarks_input : state_->edit_checkin_remarks_input)
-                : event == ftxui::Event::F5
-                    ? (is_new ? state_->modal_comment_input : state_->edit_checkin_comment_input)
-                    : (is_new ? state_->modal_role_input : state_->edit_checkin_role_input);
+            ftxui::Component target = event == ftxui::Event::F4
+                                          ? (is_new ? state_->modal_remarks_input : state_->edit_checkin_remarks_input)
+                                      : event == ftxui::Event::F5
+                                          ? (is_new ? state_->modal_comment_input : state_->edit_checkin_comment_input)
+                                          : (is_new ? state_->modal_role_input : state_->edit_checkin_role_input);
             if (target)
             {
                 target->TakeFocus();
@@ -1219,8 +1202,7 @@ namespace ql
         {
             return;
         }
-        state_->db->RequestImportRun(kDataRefreshJob,
-                                     static_cast<std::int64_t>(std::time(nullptr)));
+        state_->db->RequestImportRun(kDataRefreshJob, static_cast<std::int64_t>(std::time(nullptr)));
         state_->form_error.clear();
         state_->status_message = "Station data refresh requested; it starts within a few seconds.";
     }
@@ -1481,9 +1463,8 @@ namespace ql
             return true;
         }
         if (state->info_window == InfoWindow::kStationSearch && event != ftxui::Event::Custom &&
-            (event.is_character() || event == ftxui::Event::Backspace ||
-             event == ftxui::Event::Delete || event == ftxui::Event::ArrowLeft ||
-             event == ftxui::Event::ArrowRight || event == ftxui::Event::Home ||
+            (event.is_character() || event == ftxui::Event::Backspace || event == ftxui::Event::Delete ||
+             event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight || event == ftxui::Event::Home ||
              event == ftxui::Event::End))
         {
             return false;  // To the callsign field.
@@ -1495,10 +1476,9 @@ namespace ql
     // InfoWindow, pick mode or a confirmation, handled before this matters).
     static bool AnyPageDialogOpen(const AppState* state)
     {
-        return state->show_new_station_modal || state->show_edit_checkin_modal ||
-               state->show_saved_station_modal || state->show_zmodem_confirm_modal ||
-               state->show_delete_net_confirm_modal || state->show_session_notes_modal ||
-               state->show_merge_modal;
+        return state->show_new_station_modal || state->show_edit_checkin_modal || state->show_saved_station_modal ||
+               state->show_zmodem_confirm_modal || state->show_delete_net_confirm_modal ||
+               state->show_session_notes_modal || state->show_merge_modal;
     }
 
     // Keys in the Import or Merge window (see MergeStage); it takes them
@@ -1551,12 +1531,10 @@ namespace ql
             CloseSessionNotes(state);
             return true;
         }
-        return event == ftxui::Event::F1 || event == ftxui::Event::F3 ||
-               event == ftxui::Event::F4 || event == ftxui::Event::F5 ||
-               event == ftxui::Event::F6 || event == ftxui::Event::F7 ||
-               event == ftxui::Event::F8 || event == ftxui::Event::F9 ||
-               event == ftxui::Event::F10 || event == ftxui::Event::F11 ||
-               event == ftxui::Event::F12 || event == ftxui::Event::Tab ||
+        return event == ftxui::Event::F1 || event == ftxui::Event::F3 || event == ftxui::Event::F4 ||
+               event == ftxui::Event::F5 || event == ftxui::Event::F6 || event == ftxui::Event::F7 ||
+               event == ftxui::Event::F8 || event == ftxui::Event::F9 || event == ftxui::Event::F10 ||
+               event == ftxui::Event::F11 || event == ftxui::Event::F12 || event == ftxui::Event::Tab ||
                event == ftxui::Event::TabReverse;
     }
 
@@ -1666,8 +1644,7 @@ namespace ql
         return false;
     }
 
-    SafeAppEventDispatcher::SafeAppEventDispatcher(ftxui::Component child, AppState* state)
-        : state_(state)
+    SafeAppEventDispatcher::SafeAppEventDispatcher(ftxui::Component child, AppState* state) : state_(state)
     {
         Add(std::move(child));
     }
@@ -1713,10 +1690,9 @@ namespace ql
         state_->screen_height = terminal.dimy;
         // Not while a prompt or window is up over it, which may be about the
         // highlighted net.
-        state_->showing_net_list = state_->page == kPageNetList && !state_->show_confirm_prompt &&
-                                   state_->info_window == InfoWindow::kNone &&
-                                   state_->row_pick_action == RowPickAction::kNone &&
-                                   !state_->show_zmodem_confirm_modal;
+        state_->showing_net_list =
+            state_->page == kPageNetList && !state_->show_confirm_prompt && state_->info_window == InfoWindow::kNone &&
+            state_->row_pick_action == RowPickAction::kNone && !state_->show_zmodem_confirm_modal;
         return ComponentBase::Render();
     }
 

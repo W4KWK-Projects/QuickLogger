@@ -167,8 +167,7 @@ CREATE TABLE IF NOT EXISTS users (
     // schema of a database created by an older version of QuickLogger without
     // forcing the user to delete it. kSchemaSql's CREATE TABLE only covers
     // brand-new databases.
-    static void EnsureColumnExists(sqlite3* db, const char* table, const char* column,
-                                   const char* column_declaration)
+    static void EnsureColumnExists(sqlite3* db, const char* table, const char* column, const char* column_declaration)
     {
         std::string pragma_sql = std::string("PRAGMA table_info(") + table + ");";
         sqlite3_stmt* stmt = nullptr;
@@ -188,8 +187,8 @@ CREATE TABLE IF NOT EXISTS users (
 
         if (!exists)
         {
-            std::string alter_sql = std::string("ALTER TABLE ") + table + " ADD COLUMN " + column +
-                                    " " + column_declaration + ";";
+            std::string alter_sql =
+                std::string("ALTER TABLE ") + table + " ADD COLUMN " + column + " " + column_declaration + ";";
             sqlite3_exec(db, alter_sql.c_str(), nullptr, nullptr, nullptr);
         }
     }
@@ -447,8 +446,7 @@ CREATE TABLE IF NOT EXISTS users (
         }
 
         EnsureColumnExists(db_, "stations", "street_address", "TEXT NOT NULL DEFAULT ''");
-        EnsureColumnExists(db_, "net_saved_stations", "default_remarks",
-                           "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(db_, "net_saved_stations", "default_remarks", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(db_, "net_instances", "operator_role", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(db_, "net_instances", "started_at", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(db_, "check_ins", "designated_role", "INTEGER NOT NULL DEFAULT -1");
@@ -481,8 +479,8 @@ CREATE TABLE IF NOT EXISTS users (
         // digits: every ZIP lookup (county, distance) is keyed on the
         // five-digit form, so those rows got neither until the next weekly
         // refresh rewrote them. Idempotent -- a no-op once none remain.
-        sqlite3_exec(db_, "UPDATE uls_stations SET zip = substr(zip, 1, 5) WHERE length(zip) > 5;",
-                     nullptr, nullptr, nullptr);
+        sqlite3_exec(db_, "UPDATE uls_stations SET zip = substr(zip, 1, 5) WHERE length(zip) > 5;", nullptr, nullptr,
+                     nullptr);
 
         // One-time fix-up for nets saved before a net's location became a
         // 5-digit ZIP field: keep the ZIP if the old free text has one
@@ -683,8 +681,7 @@ COMMIT;
             return;
         }
         WriteTransaction transaction(this);
-        Statement update(&statements_,
-                         "UPDATE nets SET default_frequency = ?, notes = ? WHERE id = ?;");
+        Statement update(&statements_, "UPDATE nets SET default_frequency = ?, notes = ? WHERE id = ?;");
         for (const Fix& fix : fixes)
         {
             update.BindText(0, fix.frequency);
@@ -850,8 +847,7 @@ COMMIT;
         return ReadStationRow(statement);
     }
 
-    std::vector<Station> Database::FindStationsByCallsigns(
-        const std::vector<std::string>& callsigns)
+    std::vector<Station> Database::FindStationsByCallsigns(const std::vector<std::string>& callsigns)
     {
         // In batches, under SQLite's oldest limit on parameters (999).
         static constexpr std::size_t kBatch = 500;
@@ -902,8 +898,7 @@ COMMIT;
         return stations;
     }
 
-    std::vector<Station> Database::SearchStationsByCallsignSubstring(const std::string& substring,
-                                                                     int limit)
+    std::vector<Station> Database::SearchStationsByCallsignSubstring(const std::string& substring, int limit)
     {
         Statement statement(&statements_, R"sql(
         SELECT callsign, name, member_id, street_address, city, county, state, zip,
@@ -920,8 +915,8 @@ COMMIT;
         return stations;
     }
 
-    std::vector<Station> Database::SearchNetStationsByCallsignSubstring(
-        std::int64_t net_id, const std::string& substring, int limit)
+    std::vector<Station> Database::SearchNetStationsByCallsignSubstring(std::int64_t net_id,
+                                                                        const std::string& substring, int limit)
     {
         Statement statement(&statements_, R"sql(
         SELECT s.callsign, s.name, s.member_id, s.street_address, s.city, s.county,
@@ -951,8 +946,8 @@ COMMIT;
         return stations;
     }
 
-    void Database::SaveNetStation(std::int64_t net_id, const Station& station,
-                                  const std::string& default_remarks, std::int64_t updated_at)
+    void Database::SaveNetStation(std::int64_t net_id, const Station& station, const std::string& default_remarks,
+                                  std::int64_t updated_at)
     {
         RecordManualCheckInStation(station, updated_at);
 
@@ -968,8 +963,7 @@ COMMIT;
     }
 
     void Database::UpdateSavedNetStation(std::int64_t net_id, const Station& station,
-                                         const std::string& default_remarks,
-                                         std::int64_t updated_at)
+                                         const std::string& default_remarks, std::int64_t updated_at)
     {
         UpdateStationFields(station, updated_at);
 
@@ -1035,8 +1029,7 @@ COMMIT;
         return stations;
     }
 
-    std::string Database::GetSavedNetStationRemarks(std::int64_t net_id,
-                                                    const std::string& callsign)
+    std::string Database::GetSavedNetStationRemarks(std::int64_t net_id, const std::string& callsign)
     {
         Statement statement(&statements_, R"sql(
         SELECT default_remarks FROM net_saved_stations WHERE net_id = ? AND callsign = ?;
@@ -1238,9 +1231,8 @@ COMMIT;
 
     std::vector<std::int64_t> Database::GetNetIdsWithOpenInstances()
     {
-        Statement statement(
-            &statements_,
-            "SELECT DISTINCT net_id FROM net_instances WHERE status = ? ORDER BY net_id;");
+        Statement statement(&statements_,
+                            "SELECT DISTINCT net_id FROM net_instances WHERE status = ? ORDER BY net_id;");
         statement.BindInt64(0, static_cast<std::int64_t>(NetInstanceStatus::kOpen));
         std::vector<std::int64_t> net_ids;
         while (statement.Step())
@@ -1317,8 +1309,7 @@ COMMIT;
     {
         WriteTransaction transaction(this);
 
-        Statement delete_check_ins(&statements_,
-                                   "DELETE FROM check_ins WHERE net_instance_id = ?;");
+        Statement delete_check_ins(&statements_, "DELETE FROM check_ins WHERE net_instance_id = ?;");
         delete_check_ins.BindInt64(0, instance_id);
         delete_check_ins.Step();
 
@@ -1330,8 +1321,7 @@ COMMIT;
         transaction.Commit();
     }
 
-    void Database::SetNetInstanceRoleCallsign(std::int64_t instance_id, int role,
-                                              const std::string& callsign)
+    void Database::SetNetInstanceRoleCallsign(std::int64_t instance_id, int role, const std::string& callsign)
     {
         const char* column = nullptr;
         switch (role)
@@ -1411,12 +1401,10 @@ COMMIT;
         return sqlite3_last_insert_rowid(db_);
     }
 
-    void Database::GetCheckInSummary(std::int64_t net_instance_id, std::int64_t* count,
-                                     std::int64_t* newest_id)
+    void Database::GetCheckInSummary(std::int64_t net_instance_id, std::int64_t* count, std::int64_t* newest_id)
     {
-        Statement statement(
-            &statements_,
-            "SELECT COUNT(*), COALESCE(MAX(id), 0) FROM check_ins WHERE net_instance_id = ?;");
+        Statement statement(&statements_,
+                            "SELECT COUNT(*), COALESCE(MAX(id), 0) FROM check_ins WHERE net_instance_id = ?;");
         statement.BindInt64(0, net_instance_id);
         *count = 0;
         *newest_id = 0;
@@ -1443,12 +1431,11 @@ COMMIT;
         return records;
     }
 
-    std::vector<StationCheckInRecord> Database::GetStationCheckInsForNet(
-        std::int64_t net_id, const std::string& callsign)
+    std::vector<StationCheckInRecord> Database::GetStationCheckInsForNet(std::int64_t net_id,
+                                                                         const std::string& callsign)
     {
         Statement statement(&statements_,
-                            "SELECT n.name, n.is_ad_hoc, " QL_NET_INSTANCE_COLUMNS
-                            ", " QL_CHECK_IN_COLUMNS
+                            "SELECT n.name, n.is_ad_hoc, " QL_NET_INSTANCE_COLUMNS ", " QL_CHECK_IN_COLUMNS
                             " FROM check_ins c"
                             " JOIN net_instances i ON i.id = c.net_instance_id"
                             " JOIN nets n ON n.id = i.net_id"
@@ -1459,12 +1446,10 @@ COMMIT;
         return ReadStationCheckIns(&statement);
     }
 
-    std::vector<StationCheckInRecord> Database::FindCheckInsByCallsign(const std::string& substring,
-                                                                       int limit)
+    std::vector<StationCheckInRecord> Database::FindCheckInsByCallsign(const std::string& substring, int limit)
     {
         Statement statement(&statements_,
-                            "SELECT n.name, n.is_ad_hoc, " QL_NET_INSTANCE_COLUMNS
-                            ", " QL_CHECK_IN_COLUMNS
+                            "SELECT n.name, n.is_ad_hoc, " QL_NET_INSTANCE_COLUMNS ", " QL_CHECK_IN_COLUMNS
                             " FROM check_ins c"
                             " JOIN net_instances i ON i.id = c.net_instance_id"
                             " JOIN nets n ON n.id = i.net_id"
@@ -1570,10 +1555,9 @@ COMMIT;
 
     std::vector<CheckIn> Database::GetCheckInsForNet(std::int64_t net_id)
     {
-        Statement statement(&statements_,
-                            "SELECT " QL_CHECK_IN_COLUMNS
-                            " FROM check_ins c JOIN net_instances i ON i.id = c.net_instance_id"
-                            " WHERE i.net_id = ? ORDER BY c.net_instance_id, c.sequence_number;");
+        Statement statement(&statements_, "SELECT " QL_CHECK_IN_COLUMNS
+                                          " FROM check_ins c JOIN net_instances i ON i.id = c.net_instance_id"
+                                          " WHERE i.net_id = ? ORDER BY c.net_instance_id, c.sequence_number;");
         statement.BindInt64(0, net_id);
         std::vector<CheckIn> check_ins;
         while (statement.Step())
@@ -1615,8 +1599,7 @@ COMMIT;
             if (find.Step())
             {
                 instance_id = find.ColumnInt64(0);
-                closed =
-                    find.ColumnInt64(1) == static_cast<std::int64_t>(NetInstanceStatus::kClosed);
+                closed = find.ColumnInt64(1) == static_cast<std::int64_t>(NetInstanceStatus::kClosed);
             }
         }
         Statement statement(&statements_, "DELETE FROM check_ins WHERE id = ?;");
@@ -1629,8 +1612,7 @@ COMMIT;
         DeleteUnusedStations();
     }
 
-    void Database::ClearCheckInRoleForInstance(std::int64_t net_instance_id, int role,
-                                               std::int64_t except_check_in_id)
+    void Database::ClearCheckInRoleForInstance(std::int64_t net_instance_id, int role, std::int64_t except_check_in_id)
     {
         Statement statement(&statements_, R"sql(
         UPDATE check_ins SET designated_role = -1
@@ -1668,8 +1650,7 @@ COMMIT;
         return result;
     }
 
-    bool Database::TryClaimImportRun(const std::string& source, std::int64_t now,
-                                     std::int64_t stale_after_seconds)
+    bool Database::TryClaimImportRun(const std::string& source, std::int64_t now, std::int64_t stale_after_seconds)
     {
         Statement statement(&statements_, R"sql(
         INSERT INTO import_runs
@@ -1695,9 +1676,8 @@ COMMIT;
         return sqlite3_changes(db_) > 0;
     }
 
-    void Database::UpdateImportProgress(const std::string& source, const std::string& phase,
-                                        int percent, std::int64_t records_imported,
-                                        std::int64_t now)
+    void Database::UpdateImportProgress(const std::string& source, const std::string& phase, int percent,
+                                        std::int64_t records_imported, std::int64_t now)
     {
         Statement statement(&statements_, R"sql(
         UPDATE import_runs
@@ -1754,8 +1734,8 @@ COMMIT;
         statement.Step();
     }
 
-    void Database::BulkUpsertUlsStations(const std::vector<Station>& stations, std::size_t begin,
-                                         std::size_t end, std::int64_t updated_at)
+    void Database::BulkUpsertUlsStations(const std::vector<Station>& stations, std::size_t begin, std::size_t end,
+                                         std::int64_t updated_at)
     {
         // The WHERE on the update skips rows whose data hasn't changed -- on a
         // weekly refresh that's nearly all of them, and an unchanged row then
@@ -1799,9 +1779,10 @@ COMMIT;
         transaction.Commit();
     }
 
-    std::vector<NearbyUlsStation> Database::SearchNearbyUlsStations(
-        const std::string& substring, const std::vector<NearbyZip>& nearby_zips,
-        const std::vector<std::string>& zip3_prefixes, int limit)
+    std::vector<NearbyUlsStation> Database::SearchNearbyUlsStations(const std::string& substring,
+                                                                    const std::vector<NearbyZip>& nearby_zips,
+                                                                    const std::vector<std::string>& zip3_prefixes,
+                                                                    int limit)
     {
         std::vector<NearbyUlsStation> results;
         if (nearby_zips.empty())
@@ -1904,8 +1885,7 @@ COMMIT;
 
     // Appends `statement`'s rows (a callsign each) to `results`, each at
     // `miles` away.
-    static void AppendNearbyCallsigns(Statement* statement, float miles,
-                                      std::vector<NearbyUlsCallsign>* results)
+    static void AppendNearbyCallsigns(Statement* statement, float miles, std::vector<NearbyUlsCallsign>* results)
     {
         while (statement->Step())
         {
@@ -1921,8 +1901,8 @@ COMMIT;
         }
     }
 
-    std::vector<NearbyUlsCallsign> Database::ListNearbyUlsCallsigns(
-        const std::vector<NearbyZip>& nearby_zips, const std::vector<std::string>& zip3_prefixes)
+    std::vector<NearbyUlsCallsign> Database::ListNearbyUlsCallsigns(const std::vector<NearbyZip>& nearby_zips,
+                                                                    const std::vector<std::string>& zip3_prefixes)
     {
         std::vector<NearbyUlsCallsign> results;
         if (nearby_zips.empty())
@@ -1981,8 +1961,7 @@ COMMIT;
         return station;
     }
 
-    void Database::ReplaceIsedStations(const std::vector<Station>& stations,
-                                       std::int64_t updated_at)
+    void Database::ReplaceIsedStations(const std::vector<Station>& stations, std::int64_t updated_at)
     {
         WriteTransaction transaction(this);
         sqlite3_exec(db_, "DELETE FROM ised_stations;", nullptr, nullptr, nullptr);
@@ -2022,8 +2001,7 @@ COMMIT;
         return ReadLicensedStationRow(statement, StationDataSource::kIsed);
     }
 
-    std::vector<Station> Database::SearchIsedStationsByCallsignPrefix(const std::string& prefix,
-                                                                      int limit)
+    std::vector<Station> Database::SearchIsedStationsByCallsignPrefix(const std::string& prefix, int limit)
     {
         // A range on the primary key rather than LIKE, so it's an index
         // lookup: every callsign from `prefix` up to `prefix` followed by
@@ -2046,8 +2024,7 @@ COMMIT;
         return stations;
     }
 
-    std::vector<Station> Database::SearchIsedStationsByCallsignSubstring(
-        const std::string& substring, int limit)
+    std::vector<Station> Database::SearchIsedStationsByCallsignSubstring(const std::string& substring, int limit)
     {
         // The inner query reads only the primary key's index, not the rows
         // (about 90,000 call signs); only the matches' rows are read after.
@@ -2194,8 +2171,8 @@ COMMIT;
         return centroid;
     }
 
-    std::vector<ZipCentroid> Database::GetZipCentroidsInBox(double min_lat, double max_lat,
-                                                            double min_lon, double max_lon)
+    std::vector<ZipCentroid> Database::GetZipCentroidsInBox(double min_lat, double max_lat, double min_lon,
+                                                            double max_lon)
     {
         Statement statement(&statements_, R"sql(
         SELECT zip, lat, lon FROM zip_centroids
@@ -2226,8 +2203,7 @@ COMMIT;
 
     std::string Database::FindZipPlaceCounty(const std::string& zip, const std::string& place)
     {
-        Statement statement(&statements_,
-                            "SELECT county FROM zip_place_counties WHERE zip = ? AND place = ?;");
+        Statement statement(&statements_, "SELECT county FROM zip_place_counties WHERE zip = ? AND place = ?;");
         statement.BindText(0, zip);
         statement.BindText(1, place);
         return statement.Step() ? statement.ColumnText(0) : std::string();
@@ -2253,8 +2229,7 @@ COMMIT;
                      "DELETE FROM current_uls_callsigns;",
                      nullptr, nullptr, nullptr);
         {
-            Statement insert(&statements_,
-                             "INSERT OR IGNORE INTO current_uls_callsigns (callsign) VALUES (?);");
+            Statement insert(&statements_, "INSERT OR IGNORE INTO current_uls_callsigns (callsign) VALUES (?);");
             for (std::string_view callsign : current_callsigns)
             {
                 insert.Reset();
@@ -2383,8 +2358,7 @@ COMMIT;
 
     void Database::SetUserViewOnly(const std::string& username, bool view_only)
     {
-        Statement statement(&statements_,
-                            "UPDATE users SET view_only = ? WHERE username = ? COLLATE NOCASE;");
+        Statement statement(&statements_, "UPDATE users SET view_only = ? WHERE username = ? COLLATE NOCASE;");
         statement.BindInt64(0, view_only ? 1 : 0);
         statement.BindText(1, username);
         statement.Step();
@@ -2392,10 +2366,9 @@ COMMIT;
 
     bool Database::IsUserViewOnly(const std::string& username)
     {
-        Statement statement(
-            &statements_,
-            "SELECT EXISTS(SELECT 1 FROM users WHERE username = ? COLLATE NOCASE AND "
-            "view_only);");
+        Statement statement(&statements_,
+                            "SELECT EXISTS(SELECT 1 FROM users WHERE username = ? COLLATE NOCASE AND "
+                            "view_only);");
         statement.BindText(0, username);
         statement.Step();
         return statement.ColumnInt64(0) != 0;
@@ -2453,8 +2426,7 @@ COMMIT;
                 return false;
             }
         }
-        Statement statement(&statements_,
-                            "UPDATE users SET username = ? WHERE username = ? COLLATE NOCASE;");
+        Statement statement(&statements_, "UPDATE users SET username = ? WHERE username = ? COLLATE NOCASE;");
         statement.BindText(0, new_username);
         statement.BindText(1, old_username);
         statement.Step();

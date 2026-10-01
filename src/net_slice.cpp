@@ -170,8 +170,7 @@ namespace ql
             for (Station& station : saved)
             {
                 NetSliceSavedStation entry;
-                entry.default_remarks =
-                    source.GetSavedNetStationRemarks(slice.net.id, station.callsign);
+                entry.default_remarks = source.GetSavedNetStationRemarks(slice.net.id, station.callsign);
                 known_callsigns.insert(ToUpperAscii(station.callsign));
                 entry.station = std::move(station);
                 slice.saved_stations.push_back(std::move(entry));
@@ -196,8 +195,7 @@ namespace ql
                         }
                     }
                 }
-                slice.check_ins.insert(slice.check_ins.end(),
-                                       std::make_move_iterator(check_ins.begin()),
+                slice.check_ins.insert(slice.check_ins.end(), std::make_move_iterator(check_ins.begin()),
                                        std::make_move_iterator(check_ins.end()));
             }
 
@@ -249,17 +247,15 @@ namespace ql
         std::optional<NetSlice> slice = ReadNetSliceFile(source_path, error);
         if (slice.has_value() && slice->instances.size() != 1)
         {
-            *error = slice->instances.empty()
-                         ? "This file has no session in it."
-                         : "This file has more than one session in it -- a whole net's export "
-                           "(.qlnet), not a single session's.";
+            *error = slice->instances.empty() ? "This file has no session in it."
+                                              : "This file has more than one session in it -- a whole net's export "
+                                                "(.qlnet), not a single session's.";
             return std::nullopt;
         }
         return slice;
     }
 
-    std::int64_t ApplySessionSlice(Database* db, const NetSlice& slice, std::int64_t net_id,
-                                   std::string* error)
+    std::int64_t ApplySessionSlice(Database* db, const NetSlice& slice, std::int64_t net_id, std::string* error)
     {
         if (slice.instances.size() != 1)
         {
@@ -271,13 +267,11 @@ namespace ql
         const NetInstance& source = slice.instances[0];
         for (const NetInstance& existing : db->GetNetInstancesForNet(net_id))
         {
-            if (existing.instance_date == source.instance_date &&
-                existing.started_at == source.started_at)
+            if (existing.instance_date == source.instance_date && existing.started_at == source.started_at)
             {
                 *error =
                     "This net already has that session (" + source.instance_date +
-                    (source.started_at > 0 ? ", started " + FormatLocalTimeOfDay(source.started_at)
-                                           : std::string()) +
+                    (source.started_at > 0 ? ", started " + FormatLocalTimeOfDay(source.started_at) : std::string()) +
                     "), so nothing was imported.";
                 return 0;
             }
@@ -306,8 +300,7 @@ namespace ql
             std::string upper = ToUpperAscii(check_in.callsign);
             if (saved_callsigns.insert(upper).second)
             {
-                std::unordered_map<std::string, const Station*>::const_iterator found =
-                    stations.find(upper);
+                std::unordered_map<std::string, const Station*>::const_iterator found = stations.find(upper);
                 // Just the callsign, if the file has nothing else on it.
                 Station bare;
                 if (found == stations.end())
@@ -316,8 +309,7 @@ namespace ql
                 }
                 const Station& station = found != stations.end() ? *found->second : bare;
                 std::string remarks = db->GetSavedNetStationRemarks(net_id, upper);
-                db->SaveNetStation(net_id, station, remarks.empty() ? check_in.remarks : remarks,
-                                   now);
+                db->SaveNetStation(net_id, station, remarks.empty() ? check_in.remarks : remarks, now);
             }
             db->AddCheckIn(check_in, instance_id);
         }
@@ -335,8 +327,8 @@ namespace ql
     static void CheckInKey(const CheckIn& check_in, std::string* key)
     {
         key->clear();
-        key->reserve(check_in.callsign.size() + check_in.signal_report.size() +
-                     check_in.remarks.size() + check_in.comment.size() + 8);
+        key->reserve(check_in.callsign.size() + check_in.signal_report.size() + check_in.remarks.size() +
+                     check_in.comment.size() + 8);
         key->append(check_in.callsign);
         for (char& c : *key)
         {
@@ -405,8 +397,8 @@ namespace ql
         return std::llabs(a.started_at - b.started_at) <= kSameStartSeconds;
     }
 
-    bool SameSession(const NetInstance& a, const std::vector<CheckIn>& a_check_ins,
-                     const NetInstance& b, const std::vector<CheckIn>& b_check_ins)
+    bool SameSession(const NetInstance& a, const std::vector<CheckIn>& a_check_ins, const NetInstance& b,
+                     const std::vector<CheckIn>& b_check_ins)
     {
         if (!BothHaveStartTimes(a, b))
         {
@@ -417,8 +409,7 @@ namespace ql
 
     // The slice's check-ins grouped by the file's session id: pointers into
     // the slice, not copies.
-    static std::unordered_map<std::int64_t, std::vector<const CheckIn*>> CheckInsBySession(
-        const NetSlice& slice)
+    static std::unordered_map<std::int64_t, std::vector<const CheckIn*>> CheckInsBySession(const NetSlice& slice)
     {
         std::unordered_map<std::int64_t, std::vector<const CheckIn*>> grouped;
         for (const CheckIn& check_in : slice.check_ins)
@@ -431,9 +422,8 @@ namespace ql
     // `id`'s sorted check-in keys from `keys`, worked out the first time
     // they're needed.
     template <typename CheckIns>
-    static const std::vector<std::string>& KeysFor(
-        std::int64_t id, const CheckIns& check_ins,
-        std::unordered_map<std::int64_t, std::vector<std::string>>* keys)
+    static const std::vector<std::string>& KeysFor(std::int64_t id, const CheckIns& check_ins,
+                                                   std::unordered_map<std::int64_t, std::vector<std::string>>* keys)
     {
         std::unordered_map<std::int64_t, std::vector<std::string>>::iterator found = keys->find(id);
         if (found == keys->end())
@@ -452,18 +442,12 @@ namespace ql
     };
 
     static const DetailFieldName kDetailFields[] = {
-        {"name", &Station::name},
-        {"member ID", &Station::member_id},
-        {"address", &Station::street_address},
-        {"city", &Station::city},
-        {"county", &Station::county},
-        {"state", &Station::state},
-        {"ZIP", &Station::zip},
-        {"grid", &Station::grid_square},
+        {"name", &Station::name}, {"member ID", &Station::member_id}, {"address", &Station::street_address},
+        {"city", &Station::city}, {"county", &Station::county},       {"state", &Station::state},
+        {"ZIP", &Station::zip},   {"grid", &Station::grid_square},
     };
 
-    static constexpr int kDetailFieldCount =
-        static_cast<int>(sizeof(kDetailFields) / sizeof(kDetailFields[0]));
+    static constexpr int kDetailFieldCount = static_cast<int>(sizeof(kDetailFields) / sizeof(kDetailFields[0]));
 
     static bool SameIgnoringCase(const std::string& a, const std::string& b)
     {
@@ -473,8 +457,7 @@ namespace ql
         }
         for (std::size_t i = 0; i < a.size(); ++i)
         {
-            if (std::tolower(static_cast<unsigned char>(a[i])) !=
-                std::tolower(static_cast<unsigned char>(b[i])))
+            if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
             {
                 return false;
             }
@@ -569,8 +552,8 @@ namespace ql
 
     // Which callsigns' check-ins differ between a session in the file and
     // the same session here (see MergeSession::callsigns_changed).
-    static void DescribeCheckInChanges(const std::vector<const CheckIn*>& file,
-                                       const std::vector<CheckIn>& here, MergeSession* session)
+    static void DescribeCheckInChanges(const std::vector<const CheckIn*>& file, const std::vector<CheckIn>& here,
+                                       MergeSession* session)
     {
         std::unordered_map<std::string, std::string> here_keys;
         here_keys.reserve(here.size());
@@ -632,8 +615,7 @@ namespace ql
             std::int64_t session_id = check_in.net_instance_id;
             local_check_ins[session_id].push_back(std::move(check_in));
         }
-        std::unordered_map<std::int64_t, std::vector<const CheckIn*>> file_check_ins =
-            CheckInsBySession(slice);
+        std::unordered_map<std::int64_t, std::vector<const CheckIn*>> file_check_ins = CheckInsBySession(slice);
         // Each session's sorted check-in keys, made only when compared.
         std::unordered_map<std::int64_t, std::vector<std::string>> file_keys;
         std::unordered_map<std::int64_t, std::vector<std::string>> local_keys;
@@ -655,12 +637,11 @@ namespace ql
                     continue;
                 }
                 const std::vector<CheckIn>& here_list = local_check_ins[here.id];
-                bool same_session = BothHaveStartTimes(file, here)
-                                        ? TimesMatch(file, here)
-                                        : file.instance_date == here.instance_date &&
-                                              file_list.size() == here_list.size() &&
-                                              KeysFor(file.id, file_list, &file_keys) ==
-                                                  KeysFor(here.id, here_list, &local_keys);
+                bool same_session =
+                    BothHaveStartTimes(file, here)
+                        ? TimesMatch(file, here)
+                        : file.instance_date == here.instance_date && file_list.size() == here_list.size() &&
+                              KeysFor(file.id, file_list, &file_keys) == KeysFor(here.id, here_list, &local_keys);
                 if (!same_session)
                 {
                     continue;
@@ -669,17 +650,16 @@ namespace ql
                 session.local_id = here.id;
                 session.local_open = here.status == NetInstanceStatus::kOpen;
                 session.local_check_ins = static_cast<int>(here_list.size());
-                session.check_ins_differ = file_list.size() != here_list.size() ||
-                                           KeysFor(file.id, file_list, &file_keys) !=
-                                               KeysFor(here.id, here_list, &local_keys);
+                session.check_ins_differ =
+                    file_list.size() != here_list.size() ||
+                    KeysFor(file.id, file_list, &file_keys) != KeysFor(here.id, here_list, &local_keys);
                 session.notes_differ = file.notes != here.notes;
                 if (session.check_ins_differ)
                 {
                     DescribeCheckInChanges(file_list, here_list, &session);
                 }
                 bool same = !session.check_ins_differ && !session.notes_differ;
-                session.kind = same || session.local_open ? MergeSessionKind::kAlreadyHere
-                                                          : MergeSessionKind::kDiffers;
+                session.kind = same || session.local_open ? MergeSessionKind::kAlreadyHere : MergeSessionKind::kDiffers;
                 break;
             }
         }
@@ -723,8 +703,8 @@ namespace ql
                     continue;
                 }
                 std::string callsign = ToUpperAscii(conflict.file_station->callsign);
-                std::vector<Station>::iterator station = std::lower_bound(
-                    stations.begin(), stations.end(), callsign, StationBeforeCallsign());
+                std::vector<Station>::iterator station =
+                    std::lower_bound(stations.begin(), stations.end(), callsign, StationBeforeCallsign());
                 if (station == stations.end() || station->callsign != callsign)
                 {
                     continue;
@@ -745,14 +725,12 @@ namespace ql
         {
             db->FillStationBlanks(saved.station, now);
             have_station.insert(ToUpperAscii(saved.station.callsign));
-            if (db->AddNetSavedStationIfMissing(plan.target_net_id, saved.station.callsign,
-                                                saved.default_remarks))
+            if (db->AddNetSavedStationIfMissing(plan.target_net_id, saved.station.callsign, saved.default_remarks))
             {
                 ++result.saved_stations_added;
             }
         }
-        std::unordered_map<std::int64_t, std::vector<const CheckIn*>> file_check_ins =
-            CheckInsBySession(slice);
+        std::unordered_map<std::int64_t, std::vector<const CheckIn*>> file_check_ins = CheckInsBySession(slice);
         // The other stations' details, for those in sessions being added
         // (the rest would be left with nothing referring to them).
         std::unordered_set<std::string> callsigns_added;
@@ -761,8 +739,7 @@ namespace ql
             if (session.kind == MergeSessionKind::kNew ||
                 (session.kind == MergeSessionKind::kDiffers && session.replace))
             {
-                for (const CheckIn* check_in :
-                     file_check_ins[slice.instances[session.file_index].id])
+                for (const CheckIn* check_in : file_check_ins[slice.instances[session.file_index].id])
                 {
                     callsigns_added.insert(ToUpperAscii(check_in->callsign));
                 }
@@ -816,8 +793,7 @@ namespace ql
             {
                 db->RenumberCheckIns(instance_id);
             }
-            ++(session.kind == MergeSessionKind::kNew ? result.sessions_added
-                                                      : result.sessions_replaced);
+            ++(session.kind == MergeSessionKind::kNew ? result.sessions_added : result.sessions_replaced);
         }
 
         transaction.Commit();

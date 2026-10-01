@@ -51,8 +51,7 @@ namespace ql
     static bool Deflate(const std::string& data, std::string* compressed)
     {
         z_stream stream{};
-        if (deflateInit2(&stream, Z_BEST_COMPRESSION, Z_DEFLATED, -MAX_WBITS, 8,
-                         Z_DEFAULT_STRATEGY) != Z_OK)
+        if (deflateInit2(&stream, Z_BEST_COMPRESSION, Z_DEFLATED, -MAX_WBITS, 8, Z_DEFAULT_STRATEGY) != Z_OK)
         {
             return false;
         }
@@ -72,10 +71,10 @@ namespace ql
     {
         // MS-DOS date and time, as ZIP keeps them.
         std::tm local = LocalTime(static_cast<std::time_t>(modified_at));
-        std::uint16_t dos_time = static_cast<std::uint16_t>(
-            (local.tm_hour << 11) | (local.tm_min << 5) | (local.tm_sec / 2));
-        std::uint16_t dos_date = static_cast<std::uint16_t>(
-            ((local.tm_year - 80) << 9) | ((local.tm_mon + 1) << 5) | local.tm_mday);
+        std::uint16_t dos_time =
+            static_cast<std::uint16_t>((local.tm_hour << 11) | (local.tm_min << 5) | (local.tm_sec / 2));
+        std::uint16_t dos_date =
+            static_cast<std::uint16_t>(((local.tm_year - 80) << 9) | ((local.tm_mon + 1) << 5) | local.tm_mday);
 
         std::string archive;
         std::vector<WrittenEntry> entries;
@@ -87,8 +86,7 @@ namespace ql
                 *error = "Couldn't read " + path + ".";
                 return false;
             }
-            std::string data((std::istreambuf_iterator<char>(in)),
-                             std::istreambuf_iterator<char>());
+            std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             std::string compressed;
             if (!Deflate(data, &compressed))
             {
@@ -97,8 +95,8 @@ namespace ql
             }
             WrittenEntry entry;
             entry.name = std::filesystem::path(path).filename().string();
-            entry.crc32 = static_cast<std::uint32_t>(crc32(
-                0L, reinterpret_cast<const Bytef*>(data.data()), static_cast<uInt>(data.size())));
+            entry.crc32 = static_cast<std::uint32_t>(
+                crc32(0L, reinterpret_cast<const Bytef*>(data.data()), static_cast<uInt>(data.size())));
             entry.compressed_size = static_cast<std::uint32_t>(compressed.size());
             entry.uncompressed_size = static_cast<std::uint32_t>(data.size());
             entry.local_header_offset = static_cast<std::uint32_t>(archive.size());
@@ -141,8 +139,7 @@ namespace ql
             AppendU32(&archive, entry.local_header_offset);
             archive += entry.name;
         }
-        std::uint32_t directory_size =
-            static_cast<std::uint32_t>(archive.size()) - directory_offset;
+        std::uint32_t directory_size = static_cast<std::uint32_t>(archive.size()) - directory_offset;
         AppendU32(&archive, kEndRecordSignature);
         AppendU16(&archive, 0);  // This disk.
         AppendU16(&archive, 0);  // The directory's disk.

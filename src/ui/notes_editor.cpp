@@ -126,8 +126,8 @@ namespace ql
     // The furthest the cursor can go on line `index`: onto the last
     // character (the space or '\n' it ends with), or past the end of the
     // text on the last line.
-    static std::size_t LastCursorPosition(const std::string& text,
-                                          const std::vector<TextLineSpan>& lines, std::size_t index)
+    static std::size_t LastCursorPosition(const std::string& text, const std::vector<TextLineSpan>& lines,
+                                          std::size_t index)
     {
         if (index + 1 == lines.size())
         {
@@ -136,8 +136,7 @@ namespace ql
         return std::max(lines[index].start, PreviousCodePoint(text, lines[index].end));
     }
 
-    NotesEditor::NotesEditor(std::string* text, int* cursor, const bool* read_only,
-                             const int* width, const int* height)
+    NotesEditor::NotesEditor(std::string* text, int* cursor, const bool* read_only, const int* width, const int* height)
         : text_(text), cursor_(cursor), read_only_(read_only), width_(width), height_(height)
     {
     }
@@ -202,8 +201,7 @@ namespace ql
         std::size_t cursor = Cursor();
         std::size_t line = LineOf(lines, cursor);
         int column = CountCodePoints(*text_, lines[line].start, cursor);
-        int target =
-            std::clamp(static_cast<int>(line) + rows, 0, static_cast<int>(lines.size()) - 1);
+        int target = std::clamp(static_cast<int>(line) + rows, 0, static_cast<int>(lines.size()) - 1);
         std::size_t target_line = static_cast<std::size_t>(target);
         std::size_t last = LastCursorPosition(*text_, lines, target_line);
         std::size_t position = lines[target_line].start;
@@ -246,8 +244,7 @@ namespace ql
         {
             std::vector<TextLineSpan> lines = WrapText(*text_, *width_ - 1);
             std::size_t line = LineOf(lines, cursor);
-            SetCursor(event == ftxui::Event::Home ? lines[line].start
-                                                  : LastCursorPosition(*text_, lines, line));
+            SetCursor(event == ftxui::Event::Home ? lines[line].start : LastCursorPosition(*text_, lines, line));
             return true;
         }
         if (*read_only_)

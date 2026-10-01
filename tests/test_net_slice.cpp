@@ -109,8 +109,7 @@ namespace ql
         // Into a database that already has a net of its own (so ids collide).
         Database dest(dir.File("dest.db"));
         std::int64_t existing = AddTestNet(&dest, "Existing");
-        AddTestCheckIn(&dest, AddTestInstance(&dest, existing, "2025-12-01", 1, "N0ONE"), "N0ONE",
-                       1);
+        AddTestCheckIn(&dest, AddTestInstance(&dest, existing, "2025-12-01", 1, "N0ONE"), "N0ONE", 1);
         std::int64_t imported = ApplyNetSlice(&dest, *slice, 1800000000);
         CHECK(imported != existing);
 
@@ -245,13 +244,11 @@ namespace ql
             local.UpdateSavedNetStation(local_net, sam, "changed remark", 2);
             local.SaveNetStation(local_net, MakeStation("K4NEW", "Nell New"), "new here", 2);
             // A week after the last one (BuildSourceNet's start at 1000 and 2000).
-            std::int64_t outage =
-                AddTestInstance(&local, local_net, "2026-01-20", 2000 + 7 * 24 * 3600, "W4KWK");
+            std::int64_t outage = AddTestInstance(&local, local_net, "2026-01-20", 2000 + 7 * 24 * 3600, "W4KWK");
             AddTestCheckIn(&local, outage, "K4NEW", 1);
             AddTestCheckIn(&local, outage, "K4SAV", 2);
             local.SetNetInstanceNotes(outage, "Logged during the outage.");
-            REQUIRE(WriteNetSliceFile(dir.File("back.qlnet"), GatherNetSlice(&local, local_net),
-                                      &error));
+            REQUIRE(WriteNetSliceFile(dir.File("back.qlnet"), GatherNetSlice(&local, local_net), &error));
         }
 
         // Back on the master.
@@ -366,8 +363,7 @@ namespace ql
         REQUIRE(plan.station_conflicts.size() == 1);
         CHECK_EQ(plan.station_conflicts[0].file_station->callsign, std::string("K4AAA"));
         REQUIRE(plan.station_conflicts[0].differences.size() == 1);
-        CHECK_EQ(std::string(plan.station_conflicts[0].differences[0].field),
-                 std::string("member ID"));
+        CHECK_EQ(std::string(plan.station_conflicts[0].differences[0].field), std::string("member ID"));
 
         // Kept: the member ID stays; the blank grid is still filled in.
         ApplyNetMerge(&here, slice, plan);

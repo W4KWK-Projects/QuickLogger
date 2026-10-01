@@ -54,8 +54,7 @@ namespace ql
     static std::uint32_t ReadU32(const unsigned char* bytes)
     {
         return static_cast<std::uint32_t>(bytes[0]) | (static_cast<std::uint32_t>(bytes[1]) << 8U) |
-               (static_cast<std::uint32_t>(bytes[2]) << 16U) |
-               (static_cast<std::uint32_t>(bytes[3]) << 24U);
+               (static_cast<std::uint32_t>(bytes[2]) << 16U) | (static_cast<std::uint32_t>(bytes[3]) << 24U);
     }
 
     static std::string BaseName(const std::string& entry_name)
@@ -65,8 +64,7 @@ namespace ql
     }
 
     // Reads the archive's central directory into `entries`.
-    static bool ReadCentralDirectory(std::ifstream* file, std::vector<ZipEntry>* entries,
-                                     std::string* error)
+    static bool ReadCentralDirectory(std::ifstream* file, std::vector<ZipEntry>* entries, std::string* error)
     {
         file->seekg(0, std::ios::end);
         std::streamoff file_size = file->tellg();
@@ -76,8 +74,8 @@ namespace ql
             return false;
         }
 
-        std::size_t tail_size = static_cast<std::size_t>(
-            std::min<std::streamoff>(file_size, kEndRecordSize + kMaxCommentSize));
+        std::size_t tail_size =
+            static_cast<std::size_t>(std::min<std::streamoff>(file_size, kEndRecordSize + kMaxCommentSize));
         std::vector<unsigned char> tail(tail_size);
         file->seekg(file_size - static_cast<std::streamoff>(tail_size), std::ios::beg);
         file->read(reinterpret_cast<char*>(tail.data()), static_cast<std::streamsize>(tail_size));
@@ -92,8 +90,7 @@ namespace ql
         std::size_t end_record = tail_size;
         for (std::size_t i = tail_size - kEndRecordSize + 1; i-- > 0;)
         {
-            if (ReadU32(&tail[i]) == kEndRecordSignature &&
-                i + kEndRecordSize + ReadU16(&tail[i + 20]) == tail_size)
+            if (ReadU32(&tail[i]) == kEndRecordSignature && i + kEndRecordSize + ReadU16(&tail[i + 20]) == tail_size)
             {
                 end_record = i;
                 break;
@@ -108,8 +105,7 @@ namespace ql
         std::uint16_t entry_count = ReadU16(&tail[end_record + 10]);
         std::uint32_t directory_size = ReadU32(&tail[end_record + 12]);
         std::uint32_t directory_offset = ReadU32(&tail[end_record + 16]);
-        if (entry_count == kZip64Marker16 || directory_size == kZip64Marker32 ||
-            directory_offset == kZip64Marker32)
+        if (entry_count == kZip64Marker16 || directory_size == kZip64Marker32 || directory_offset == kZip64Marker32)
         {
             *error = "ZIP64 archives aren't supported.";
             return false;
@@ -122,8 +118,7 @@ namespace ql
 
         std::vector<unsigned char> directory(directory_size);
         file->seekg(static_cast<std::streamoff>(directory_offset), std::ios::beg);
-        file->read(reinterpret_cast<char*>(directory.data()),
-                   static_cast<std::streamsize>(directory_size));
+        file->read(reinterpret_cast<char*>(directory.data()), static_cast<std::streamsize>(directory_size));
         if (!file->good())
         {
             *error = "Could not read the ZIP archive's central directory.";
@@ -143,8 +138,7 @@ namespace ql
             std::size_t name_length = ReadU16(header + 28);
             std::size_t extra_length = ReadU16(header + 30);
             std::size_t comment_length = ReadU16(header + 32);
-            if (position + kCentralHeaderSize + name_length + extra_length + comment_length >
-                directory.size())
+            if (position + kCentralHeaderSize + name_length + extra_length + comment_length > directory.size())
             {
                 *error = "Corrupt ZIP archive (central directory entry out of range).";
                 return false;
@@ -157,10 +151,8 @@ namespace ql
             entry.compressed_size = ReadU32(header + 20);
             entry.uncompressed_size = ReadU32(header + 24);
             entry.local_header_offset = ReadU32(header + 42);
-            entry.name.assign(reinterpret_cast<const char*>(header + kCentralHeaderSize),
-                              name_length);
-            if (entry.compressed_size == kZip64Marker32 ||
-                entry.uncompressed_size == kZip64Marker32 ||
+            entry.name.assign(reinterpret_cast<const char*>(header + kCentralHeaderSize), name_length);
+            if (entry.compressed_size == kZip64Marker32 || entry.uncompressed_size == kZip64Marker32 ||
                 entry.local_header_offset == kZip64Marker32)
             {
                 *error = "ZIP64 archives aren't supported.";
@@ -174,8 +166,8 @@ namespace ql
 
     // Streams one entry's data to `dest_path`, then verifies its size and
     // CRC-32 against what the central directory recorded.
-    static bool ExtractEntry(std::ifstream* file, const ZipEntry& entry,
-                             const std::string& dest_path, std::string* error)
+    static bool ExtractEntry(std::ifstream* file, const ZipEntry& entry, const std::string& dest_path,
+                             std::string* error)
     {
         if ((entry.flags & kFlagEncrypted) != 0)
         {
@@ -201,8 +193,8 @@ namespace ql
             return false;
         }
         std::streamoff data_offset = static_cast<std::streamoff>(entry.local_header_offset) +
-                                     static_cast<std::streamoff>(kLocalHeaderSize) +
-                                     ReadU16(local_header + 26) + ReadU16(local_header + 28);
+                                     static_cast<std::streamoff>(kLocalHeaderSize) + ReadU16(local_header + 26) +
+                                     ReadU16(local_header + 28);
         file->seekg(data_offset, std::ios::beg);
 
         std::ofstream out(dest_path, std::ios::binary | std::ios::trunc);
@@ -245,8 +237,7 @@ namespace ql
                     break;
                 }
                 std::size_t chunk = std::min<std::size_t>(remaining, in_buffer.size());
-                file->read(reinterpret_cast<char*>(in_buffer.data()),
-                           static_cast<std::streamsize>(chunk));
+                file->read(reinterpret_cast<char*>(in_buffer.data()), static_cast<std::streamsize>(chunk));
                 if (static_cast<std::size_t>(file->gcount()) != chunk)
                 {
                     *error = "Corrupt ZIP archive (" + entry.name + " is truncated).";
@@ -282,8 +273,7 @@ namespace ql
                 stream.avail_in = 0;
             }
 
-            out.write(reinterpret_cast<const char*>(produced_data),
-                      static_cast<std::streamsize>(produced));
+            out.write(reinterpret_cast<const char*>(produced_data), static_cast<std::streamsize>(produced));
             crc = crc32(crc, produced_data, static_cast<uInt>(produced));
             written += produced;
         }
@@ -300,8 +290,7 @@ namespace ql
                 *error = "Failed while writing " + dest_path + ".";
                 ok = false;
             }
-            else if (written != entry.uncompressed_size ||
-                     static_cast<std::uint32_t>(crc) != entry.crc32)
+            else if (written != entry.uncompressed_size || static_cast<std::uint32_t>(crc) != entry.crc32)
             {
                 *error = "Corrupt ZIP archive (" + entry.name + " failed its checksum).";
                 ok = false;

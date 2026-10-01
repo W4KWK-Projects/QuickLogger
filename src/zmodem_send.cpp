@@ -25,8 +25,7 @@ namespace ql
         return true;
     }
 
-    bool SendFilesViaZmodem(ftxui::ScreenInteractive* screen, const std::vector<std::string>& paths,
-                            std::string* error)
+    bool SendFilesViaZmodem(ftxui::ScreenInteractive* screen, const std::vector<std::string>& paths, std::string* error)
     {
         (void)screen;
         (void)paths;
@@ -34,8 +33,7 @@ namespace ql
         return false;
     }
 
-    bool ReceiveFileViaZmodem(ftxui::ScreenInteractive* screen, const std::string& dest_dir,
-                              std::string* error)
+    bool ReceiveFileViaZmodem(ftxui::ScreenInteractive* screen, const std::string& dest_dir, std::string* error)
     {
         (void)screen;
         (void)dest_dir;
@@ -293,8 +291,7 @@ namespace ql
         ftxui::Closure transfer_;
     };
 
-    bool SendFilesViaZmodem(ftxui::ScreenInteractive* screen, const std::vector<std::string>& paths,
-                            std::string* error)
+    bool SendFilesViaZmodem(ftxui::ScreenInteractive* screen, const std::vector<std::string>& paths, std::string* error)
     {
         if (!ZmodemSendAvailable())
         {
@@ -303,8 +300,7 @@ namespace ql
         }
 
         bool ok = false;
-        ftxui::Closure run =
-            screen->WithRestoredIO(ThenLetTerminalSettle(RunSzProcess(paths, &ok, error)));
+        ftxui::Closure run = screen->WithRestoredIO(ThenLetTerminalSettle(RunSzProcess(paths, &ok, error)));
         run();
         // FTXUI took the terminal back, turning movement reports on again.
         RequestMouseMovementReportsOff();
@@ -377,8 +373,7 @@ namespace ql
         std::string* error_;
     };
 
-    bool ReceiveFileViaZmodem(ftxui::ScreenInteractive* screen, const std::string& dest_dir,
-                              std::string* error)
+    bool ReceiveFileViaZmodem(ftxui::ScreenInteractive* screen, const std::string& dest_dir, std::string* error)
     {
         if (!ZmodemReceiveAvailable())
         {
@@ -389,8 +384,7 @@ namespace ql
         EnsureDirectory(dest_dir);
 
         bool ok = false;
-        ftxui::Closure run =
-            screen->WithRestoredIO(ThenLetTerminalSettle(RunRzProcess(dest_dir, &ok, error)));
+        ftxui::Closure run = screen->WithRestoredIO(ThenLetTerminalSettle(RunRzProcess(dest_dir, &ok, error)));
         run();
         // FTXUI took the terminal back, turning movement reports on again.
         RequestMouseMovementReportsOff();

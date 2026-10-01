@@ -12,8 +12,7 @@ namespace ql
 {
 
     // Feeds `inputs` (as FTXUI would deliver them) and collects what comes out.
-    static std::vector<ftxui::Event> FeedAll(EscapeSplitter* splitter,
-                                             const std::vector<ftxui::Event>& inputs)
+    static std::vector<ftxui::Event> FeedAll(EscapeSplitter* splitter, const std::vector<ftxui::Event>& inputs)
     {
         std::vector<ftxui::Event> out;
         for (const ftxui::Event& input : inputs)
@@ -63,16 +62,14 @@ namespace ql
 
         // "Esc" + F5 ("Esc [ 1 5 ~").
         out = FeedAll(&splitter, {ftxui::Event::Special("\x1B\x1B["), ftxui::Event::Character('1'),
-                                  ftxui::Event::Custom, ftxui::Event::Character('5'),
-                                  ftxui::Event::Character('~')});
+                                  ftxui::Event::Custom, ftxui::Event::Character('5'), ftxui::Event::Character('~')});
         REQUIRE(out.size() == 3);
         CHECK(out[0] == ftxui::Event::Escape);
         CHECK(out[1] == ftxui::Event::Custom);  // A redraw in between still gets through.
         CHECK(out[2] == ftxui::Event::F5);
 
         // "Esc" + Up in the terminal's application cursor mode ("Esc O A").
-        out =
-            FeedAll(&splitter, {ftxui::Event::Special("\x1B\x1BO"), ftxui::Event::Character('A')});
+        out = FeedAll(&splitter, {ftxui::Event::Special("\x1B\x1BO"), ftxui::Event::Character('A')});
         REQUIRE(out.size() == 2);
         CHECK(out[1] == ftxui::Event::ArrowUp);
     }
@@ -105,8 +102,7 @@ namespace ql
     QL_TEST(AnUnfinishedSequenceIsDroppedByTheNextKey)
     {
         EscapeSplitter splitter;
-        std::vector<ftxui::Event> out =
-            FeedAll(&splitter, {ftxui::Event::Special("\x1B\x1B["), ftxui::Event::F2});
+        std::vector<ftxui::Event> out = FeedAll(&splitter, {ftxui::Event::Special("\x1B\x1B["), ftxui::Event::F2});
         REQUIRE(out.size() == 2);
         CHECK(out[0] == ftxui::Event::Escape);
         CHECK(out[1] == ftxui::Event::F2);

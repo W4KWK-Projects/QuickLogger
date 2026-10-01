@@ -39,10 +39,7 @@ namespace ql
     class RefreshCheckInsTask
     {
     public:
-        RefreshCheckInsTask(AppState* state, std::int64_t instance_id)
-            : state_(state), instance_id_(instance_id)
-        {
-        }
+        RefreshCheckInsTask(AppState* state, std::int64_t instance_id) : state_(state), instance_id_(instance_id) {}
 
         void operator()() const
         {
@@ -83,10 +80,7 @@ namespace ql
     class SessionClosedTask
     {
     public:
-        SessionClosedTask(AppState* state, std::int64_t instance_id)
-            : state_(state), instance_id_(instance_id)
-        {
-        }
+        SessionClosedTask(AppState* state, std::int64_t instance_id) : state_(state), instance_id_(instance_id) {}
 
         void operator()() const
         {
@@ -128,10 +122,7 @@ namespace ql
     {
     public:
         ScreenTicker(ftxui::ScreenInteractive* screen, AppState* state, std::string db_path)
-            : screen_(screen),
-              state_(state),
-              db_path_(std::move(db_path)),
-              thread_(&ScreenTicker::Run, this)
+            : screen_(screen), state_(state), db_path_(std::move(db_path)), thread_(&ScreenTicker::Run, this)
         {
         }
 
@@ -204,8 +195,7 @@ namespace ql
                     std::chrono::floor<std::chrono::minutes>(now) + std::chrono::minutes(1);
                 // The margin keeps a wake-up that lands a hair early from
                 // missing the minute change.
-                std::chrono::system_clock::duration wait_time =
-                    next_minute - now + std::chrono::milliseconds(200);
+                std::chrono::system_clock::duration wait_time = next_minute - now + std::chrono::milliseconds(200);
                 // Every kCheckInPoll whatever the page, so a session or list
                 // just opened is watched from the start, not only once a
                 // longer wait begun on another page is over.
@@ -257,8 +247,7 @@ namespace ql
                         drawn_status = status;
                         changed = true;
                     }
-                    next_status_check = std::chrono::system_clock::now() +
-                                        (busy ? kStatusPollBusy : kStatusPollIdle);
+                    next_status_check = std::chrono::system_clock::now() + (busy ? kStatusPollBusy : kStatusPollIdle);
                 }
                 if (changed)
                 {
@@ -322,8 +311,7 @@ namespace ql
             {
                 return;  // Busy right now; try again next time.
             }
-            if (count != state_->shown_check_in_count ||
-                newest_id != state_->shown_newest_check_in_id)
+            if (count != state_->shown_check_in_count || newest_id != state_->shown_newest_check_in_id)
             {
                 screen_->Post(RefreshCheckInsTask(state_, instance_id));
             }
@@ -352,8 +340,7 @@ namespace ql
     class UpdateChecker
     {
     public:
-        explicit UpdateChecker(ftxui::ScreenInteractive* screen)
-            : screen_(screen), thread_(&UpdateChecker::Run, this)
+        explicit UpdateChecker(ftxui::ScreenInteractive* screen) : screen_(screen), thread_(&UpdateChecker::Run, this)
         {
         }
 
@@ -414,8 +401,7 @@ namespace ql
                     std::string error;
                     if (FetchLatestReleaseVersion(kLatestReleaseUrl, &version, &error))
                     {
-                        std::string found =
-                            IsNewerVersion(version, QuickLoggerVersion()) ? version : "";
+                        std::string found = IsNewerVersion(version, QuickLoggerVersion()) ? version : "";
                         if (found != AvailableUpdate())
                         {
                             SetAvailableUpdate(found);
@@ -469,8 +455,7 @@ namespace ql
         // Decided once, at login: a change in Manage Users applies from
         // the user's next login.
         state.ssh_username = is_console_session ? std::string() : ssh_username;
-        state.view_only_user =
-            !is_console_session && !ssh_username.empty() && db.IsUserViewOnly(ssh_username);
+        state.view_only_user = !is_console_session && !ssh_username.empty() && db.IsUserViewOnly(ssh_username);
         state.settings_path = settings_path;
         state.settings = ql::LoadSettings(state.settings_path);
         // An SSH user's callsign is their username (usernames are
@@ -537,8 +522,7 @@ namespace ql
         // because another connection -- another session, or the station data
         // updater -- is mid-transaction) taking down the whole session.
         // Help and the seldom-used windows open over whichever page is up.
-        ftxui::Component with_info_window =
-            ql::LayeredModal(tab, ql::BuildInfoWindow(&state), &state.show_info_window);
+        ftxui::Component with_info_window = ql::LayeredModal(tab, ql::BuildInfoWindow(&state), &state.show_info_window);
         ftxui::Component ui = ftxui::Make<ql::SafeAppEventDispatcher>(with_info_window, &state);
 
         // The top bar's station-data notice reads this session's database.

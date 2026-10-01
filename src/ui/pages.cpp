@@ -39,14 +39,12 @@ namespace ql
     {
         // A paragraph, so a long message wraps rather than being cut off at
         // the edge of the screen.
-        return message.empty() ? ftxui::emptyElement()
-                               : ftxui::paragraph(message) | ftxui::color(kColorError);
+        return message.empty() ? ftxui::emptyElement() : ftxui::paragraph(message) | ftxui::color(kColorError);
     }
 
     static ftxui::Element StatusLine(const std::string& message)
     {
-        return message.empty() ? ftxui::emptyElement()
-                               : ftxui::paragraph(message) | ftxui::color(kColorSuccess);
+        return message.empty() ? ftxui::emptyElement() : ftxui::paragraph(message) | ftxui::color(kColorSuccess);
     }
 
     static ftxui::Element FieldLabel(const std::string& label)
@@ -163,8 +161,7 @@ namespace ql
         option.entries_option.transform = ToggleEntryTransform;
         option.elements_infix = ToggleGap;
         option.focused_entry = index;
-        return std::make_shared<IgnoreTab>(
-            ftxui::Menu(&state->partial_match_labels, index, option));
+        return std::make_shared<IgnoreTab>(ftxui::Menu(&state->partial_match_labels, index, option));
     }
 
     // A net's Mode choice (one of NetModes()), bound to `index` (an index
@@ -255,21 +252,18 @@ namespace ql
     // Builds every StationFieldInputs field except `callsign` (the caller
     // supplies that, since it needs different wiring per form) bound to
     // `station`'s fields.
-    static StationFieldInputs BuildStationFieldInputs(Station* station,
-                                                      ftxui::Component callsign_input)
+    static StationFieldInputs BuildStationFieldInputs(Station* station, ftxui::Component callsign_input)
     {
         StationFieldInputs inputs;
         inputs.callsign = std::move(callsign_input);
         inputs.name = ftxui::Input(&station->name, "Name", SingleLineInputOption());
         inputs.member_id = ftxui::Input(&station->member_id, "Member ID", SingleLineInputOption());
-        inputs.street_address =
-            ftxui::Input(&station->street_address, "Street Address", SingleLineInputOption());
+        inputs.street_address = ftxui::Input(&station->street_address, "Street Address", SingleLineInputOption());
         inputs.city = ftxui::Input(&station->city, "City", SingleLineInputOption());
         inputs.county = ftxui::Input(&station->county, "County", SingleLineInputOption());
         inputs.state = ftxui::Input(&station->state, "State", SingleLineInputOption());
         inputs.zip = ftxui::Input(&station->zip, "Zip", SingleLineInputOption());
-        inputs.grid_square =
-            ftxui::Input(&station->grid_square, "Grid Square", SingleLineInputOption());
+        inputs.grid_square = ftxui::Input(&station->grid_square, "Grid Square", SingleLineInputOption());
         return inputs;
     }
 
@@ -305,8 +299,7 @@ namespace ql
         }
         rows.push_back(ftxui::hbox({FieldLabel("Name:          "), inputs.name->Render()}));
         rows.push_back(ftxui::hbox({FieldLabel("Member ID:     "), inputs.member_id->Render()}));
-        rows.push_back(
-            ftxui::hbox({FieldLabel("Street Addr:   "), inputs.street_address->Render()}));
+        rows.push_back(ftxui::hbox({FieldLabel("Street Addr:   "), inputs.street_address->Render()}));
         rows.push_back(ftxui::hbox({FieldLabel("City:          "), inputs.city->Render()}));
         rows.push_back(ftxui::hbox({FieldLabel("County:        "), inputs.county->Render()}));
         rows.push_back(ftxui::hbox({FieldLabel("State:         "), inputs.state->Render()}));
@@ -326,8 +319,7 @@ namespace ql
     // fields in Tab order belongs in `fields` too (at the end), not drawn
     // below them, where it would sit under the left column but be reached
     // only after the right one.
-    static void AppendFormFields(const AppState* state, const ftxui::Elements& fields,
-                                 ftxui::Elements* rows)
+    static void AppendFormFields(const AppState* state, const ftxui::Elements& fields, ftxui::Elements* rows)
     {
         if (state->list_width < kTwoColumnFormWidth || fields.size() < 2)
         {
@@ -350,15 +342,13 @@ namespace ql
     // its marked row when it has the cursor itself -- so on a short screen
     // the marker could move onto rows that couldn't be seen. This list is
     // as tall as the screen allows and always scrolls the marker into view.
-    static ftxui::Element MatchList(const std::string& header,
-                                    const std::vector<std::string>& labels, int selected)
+    static ftxui::Element MatchList(const std::string& header, const std::vector<std::string>& labels, int selected)
     {
         ftxui::Elements rows;
         for (std::size_t i = 0; i < labels.size(); ++i)
         {
             bool marked = static_cast<int>(i) == selected;
-            ftxui::Element row =
-                ftxui::text((marked ? "> " : "  ") + labels[i]) | ftxui::color(kColorListRow);
+            ftxui::Element row = ftxui::text((marked ? "> " : "  ") + labels[i]) | ftxui::color(kColorListRow);
             rows.push_back(marked ? row | ftxui::focus : row);
         }
         int room = std::max(2, FrameTerminalSize().dimy - kMatchWindowOtherRows);
@@ -420,8 +410,7 @@ namespace ql
                     rows.push_back(ftxui::text("  " + path) | ftxui::color(kColorLabel));
                 }
                 rows.push_back(ftxui::text(""));
-                rows.push_back(
-                    ftxui::text("Open your terminal's file-receive (ZMODEM) dialog now, then"));
+                rows.push_back(ftxui::text("Open your terminal's file-receive (ZMODEM) dialog now, then"));
                 rows.push_back(ftxui::text("press Enter to start. Gives up after about 25s if"));
                 rows.push_back(ftxui::text("nothing responds."));
                 rows.push_back(DialogSeparator());
@@ -429,20 +418,17 @@ namespace ql
             }
             else
             {
-                rows.push_back(ftxui::text(state_->ssh_username.empty()
-                                               ? "Ready to receive a file into imports/."
-                                               : "Ready to receive a file."));
+                rows.push_back(ftxui::text(state_->ssh_username.empty() ? "Ready to receive a file into imports/."
+                                                                        : "Ready to receive a file."));
                 rows.push_back(ftxui::text(""));
                 rows.push_back(ftxui::text("Press Enter now to start listening, THEN start"));
-                rows.push_back(
-                    ftxui::text("sending (uploading) the file from your terminal client."));
+                rows.push_back(ftxui::text("sending (uploading) the file from your terminal client."));
                 rows.push_back(ftxui::text("Gives up after about 25s if nothing arrives."));
                 rows.push_back(DialogSeparator());
                 rows.push_back(KeyHintRow({{"F2/Enter", "Receive"}, {"Esc", "Cancel"}}));
             }
 
-            return ftxui::vbox(std::move(rows)) | ftxui::color(kColorHeading) |
-                   ftxui::borderStyled(kColorDialogBorder);
+            return ftxui::vbox(std::move(rows)) | ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder);
         }
 
     private:
@@ -461,8 +447,7 @@ namespace ql
     class SessionNotesModalRenderer
     {
     public:
-        SessionNotesModalRenderer(AppState* state, ftxui::Component editor)
-            : state_(state), editor_(std::move(editor))
+        SessionNotesModalRenderer(AppState* state, ftxui::Component editor) : state_(state), editor_(std::move(editor))
         {
         }
 
@@ -485,11 +470,9 @@ namespace ql
                        notes | ftxui::yframe | ftxui::vscroll_indicator |
                            ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height),
                        DialogSeparator(),
-                       HintText(read_only ? "Up/Down scroll."
-                                          : "Enter starts a new line. Not in the text log."),
-                       KeyHintRow(read_only
-                                      ? std::vector<KeyHint>{{"Esc", "Close"}}
-                                      : std::vector<KeyHint>{{"F2", "Save"}, {"Esc", "Cancel"}}),
+                       HintText(read_only ? "Up/Down scroll." : "Enter starts a new line. Not in the text log."),
+                       KeyHintRow(read_only ? std::vector<KeyHint>{{"Esc", "Close"}}
+                                            : std::vector<KeyHint>{{"F2", "Save"}, {"Esc", "Cancel"}}),
                    }) |
                    ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
@@ -503,9 +486,8 @@ namespace ql
     static ftxui::Component BuildSessionNotesModal(AppState* state)
     {
         ftxui::Component editor = std::make_shared<NotesEditor>(
-            &state->session_notes_text, &state->session_notes_cursor,
-            &state->session_notes_read_only, &state->session_notes_width,
-            &state->session_notes_height);
+            &state->session_notes_text, &state->session_notes_cursor, &state->session_notes_read_only,
+            &state->session_notes_width, &state->session_notes_height);
         ftxui::Component root = ftxui::Container::Vertical({editor});
         return ftxui::Renderer(root, SessionNotesModalRenderer(state, editor));
     }
@@ -514,8 +496,7 @@ namespace ql
 
     static bool IsPicking(const AppState* state, PickList list)
     {
-        return state->row_pick_action != RowPickAction::kNone &&
-               RowPickListFor(state->row_pick_action) == list;
+        return state->row_pick_action != RowPickAction::kNone && RowPickListFor(state->row_pick_action) == list;
     }
 
     // Check-in rows already begin with their # column, which is the number
@@ -552,8 +533,7 @@ namespace ql
 
     // A list's column heading over its rows, shifted right in pick mode
     // (see PickHeaderPad). Only then is a new string made for it.
-    static ftxui::Element PickableColumnHeader(const AppState* state, PickList list,
-                                               const std::string& heading)
+    static ftxui::Element PickableColumnHeader(const AppState* state, PickList list, const std::string& heading)
     {
         std::string pad = PickHeaderPad(state, list);
         if (pad.empty())
@@ -566,9 +546,8 @@ namespace ql
 
     // A list's rows: its Menu normally; in pick mode, every row with its
     // number beside it and the row about to be picked highlighted.
-    static ftxui::Element PickableRows(const AppState* state, PickList list,
-                                       const std::vector<std::string>& labels, int highlighted,
-                                       const ftxui::Component& menu)
+    static ftxui::Element PickableRows(const AppState* state, PickList list, const std::vector<std::string>& labels,
+                                       int highlighted, const ftxui::Component& menu)
     {
         if (!IsPicking(state, list))
         {
@@ -591,11 +570,9 @@ namespace ql
             }
             else
             {
-                std::string digits = i < state->row_pick_numbers.size()
-                                         ? std::to_string(state->row_pick_numbers[i])
-                                         : std::string();
-                number = std::string(static_cast<std::size_t>(width) - digits.size(), ' ') +
-                         digits + " ";
+                std::string digits =
+                    i < state->row_pick_numbers.size() ? std::to_string(state->row_pick_numbers[i]) : std::string();
+                number = std::string(static_cast<std::size_t>(width) - digits.size(), ' ') + digits + " ";
             }
             ftxui::Element row = ftxui::hbox({
                 ftxui::text(number) | ftxui::color(kColorPickNumber),
@@ -619,8 +596,7 @@ namespace ql
         }
         return ftxui::hbox({
             ftxui::text(RowPickPrompt(state) + "  ") | ftxui::bold | ftxui::color(kColorLabel),
-            ftxui::text("#" + state->row_pick_digits + "_") | ftxui::bold |
-                ftxui::color(kColorData),
+            ftxui::text("#" + state->row_pick_digits + "_") | ftxui::bold | ftxui::color(kColorData),
         });
     }
 
@@ -642,8 +618,7 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Elements rows;
-            rows.push_back(ftxui::text(state_->row_delete_title) | ftxui::bold |
-                           ftxui::color(kColorDanger));
+            rows.push_back(ftxui::text(state_->row_delete_title) | ftxui::bold | ftxui::color(kColorDanger));
             rows.push_back(DialogSeparator());
             for (std::size_t i = 0; i < state_->row_delete_lines.size(); ++i)
             {
@@ -653,8 +628,7 @@ namespace ql
             }
             rows.push_back(DialogSeparator());
             rows.push_back(
-                KeyHintRow({{"F2/Enter", "Yes, " + RowPickVerbFor(state_->row_delete_action)},
-                            {"Esc", "Cancel"}}));
+                KeyHintRow({{"F2/Enter", "Yes, " + RowPickVerbFor(state_->row_delete_action)}, {"Esc", "Cancel"}}));
             // Long lines wrap rather than stretching the box across the
             // whole screen.
             return ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, 64) |
@@ -668,8 +642,7 @@ namespace ql
     // Wraps `page` so the numbered-delete confirmation can pop up over it.
     static ftxui::Component WithRowDeleteConfirm(AppState* state, ftxui::Component page)
     {
-        ftxui::Component modal =
-            ftxui::Renderer(ftxui::Container::Vertical({}), RowDeleteConfirmModalRenderer(state));
+        ftxui::Component modal = ftxui::Renderer(ftxui::Container::Vertical({}), RowDeleteConfirmModalRenderer(state));
         return LayeredModal(std::move(page), modal, &state->show_row_delete_confirm_modal);
     }
 
@@ -698,10 +671,8 @@ namespace ql
             rows.push_back(DialogSeparator());
             if (state_->confirm_prompt == ConfirmPrompt::kResumeNet)
             {
-                rows.push_back(KeyHintRow({{"F2/Enter", "Resume"},
-                                           {"F3", "Close & New"},
-                                           {"F4", "View"},
-                                           {"Esc", "Cancel"}}));
+                rows.push_back(
+                    KeyHintRow({{"F2/Enter", "Resume"}, {"F3", "Close & New"}, {"F4", "View"}, {"Esc", "Cancel"}}));
             }
             else if (state_->confirm_prompt == ConfirmPrompt::kSessionClosed)
             {
@@ -726,8 +697,7 @@ namespace ql
     // Wraps `page` so a ConfirmPrompt can pop up over it.
     static ftxui::Component WithConfirmPrompt(AppState* state, ftxui::Component page)
     {
-        ftxui::Component modal =
-            ftxui::Renderer(ftxui::Container::Vertical({}), ConfirmPromptRenderer(state));
+        ftxui::Component modal = ftxui::Renderer(ftxui::Container::Vertical({}), ConfirmPromptRenderer(state));
         return LayeredModal(std::move(page), modal, &state->show_confirm_prompt);
     }
 
@@ -736,36 +706,28 @@ namespace ql
     class NetListRenderer
     {
     public:
-        NetListRenderer(AppState* state, ftxui::Component net_menu)
-            : state_(state), net_menu_(std::move(net_menu))
-        {
-        }
+        NetListRenderer(AppState* state, ftxui::Component net_menu) : state_(state), net_menu_(std::move(net_menu)) {}
 
         ftxui::Element operator()() const
         {
             ftxui::Element net_list_elem =
                 state_->nets.empty()
-                    ? HintText(state_->view_only_user
-                                   ? "No recurring nets yet."
-                                   : "No recurring nets yet. Press F2 to create one.")
+                    ? HintText(state_->view_only_user ? "No recurring nets yet."
+                                                      : "No recurring nets yet. Press F2 to create one.")
                     // yframe, not frame, on every list: a row can be wider
                     // than the box (the last column isn't cut), and frame
                     // would then scroll the whole list sideways to show all
                     // of the highlighted row. yframe just clips it.
-                    : PickableRows(state_, PickList::kNets, state_->net_names,
-                                   state_->selected_net_index, net_menu_) |
+                    : PickableRows(state_, PickList::kNets, state_->net_names, state_->selected_net_index, net_menu_) |
                           ftxui::yframe | ftxui::vscroll_indicator;
 
             ftxui::Element callsign_hint =
                 state_->settings.callsign.empty()
-                    ? ftxui::text("No callsign set -- see Settings (F4)") |
-                          ftxui::color(kColorLabel)
+                    ? ftxui::text("No callsign set -- see Settings (F4)") | ftxui::color(kColorLabel)
                     : ftxui::hbox({ftxui::text("Operating as ") | ftxui::color(kColorLabel),
-                                   ftxui::text(state_->settings.callsign) | ftxui::bold |
-                                       ftxui::color(kColorData),
-                                   state_->view_only_user
-                                       ? ftxui::text("  (view-only)") | ftxui::color(kColorLabel)
-                                       : ftxui::emptyElement()});
+                                   ftxui::text(state_->settings.callsign) | ftxui::bold | ftxui::color(kColorData),
+                                   state_->view_only_user ? ftxui::text("  (view-only)") | ftxui::color(kColorLabel)
+                                                          : ftxui::emptyElement()});
 
             // What F3/Enter will do with the highlighted net -- by far the
             // most used key, so it's spelled out under the list.
@@ -776,8 +738,7 @@ namespace ql
                     // hint and messages under the list.
                     ? (state_->view_only_user
                            ? NoticeText("Session open: F3/Enter to view it.")
-                           : NoticeText(
-                                 "Session open: F3/Enter to join it, view it, or start a new one."))
+                           : NoticeText("Session open: F3/Enter to join it, view it, or start a new one."))
                     : state_->view_only_user || state_->nets.empty()
                           ? ftxui::emptyElement()
                           : HintText(
@@ -790,8 +751,7 @@ namespace ql
                 Heading("Recurring Nets"),
                 Framed(state_->nets.empty() ? net_list_elem
                                             : ftxui::vbox({
-                                                  PickableColumnHeader(state_, PickList::kNets,
-                                                                       NetListHeader(state_)),
+                                                  PickableColumnHeader(state_, PickList::kNets, NetListHeader(state_)),
                                                   net_list_elem,
                                               })) |
                     ftxui::flex,
@@ -850,13 +810,13 @@ namespace ql
         net_menu_option.focused_entry = &state->selected_net_index;
         net_menu_option.on_enter = StartSelectedNetHandler(state);
         net_menu_option.entries_option.transform = AlignedMenuEntryTransform;
-        ftxui::Component net_menu = ClickableList(
-            state, ftxui::Menu(&state->net_names, &state->selected_net_index, net_menu_option));
+        ftxui::Component net_menu =
+            ClickableList(state, ftxui::Menu(&state->net_names, &state->selected_net_index, net_menu_option));
 
         ftxui::Component root = ftxui::Container::Vertical({net_menu});
         ftxui::Component main_view = ftxui::Renderer(root, NetListRenderer(state, net_menu));
-        return WithConfirmPrompt(state, LayeredModal(main_view, BuildZmodemConfirmModal(state),
-                                                     &state->show_zmodem_confirm_modal));
+        return WithConfirmPrompt(
+            state, LayeredModal(main_view, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal));
     }
 
     // ---- Create-net page ---------------------------------------------------
@@ -865,10 +825,9 @@ namespace ql
     {
     public:
         CreateNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
-                          ftxui::Component input_frequency, ftxui::Component input_offset,
-                          ftxui::Component input_tone, ftxui::Component input_location,
-                          ftxui::Component input_recurrence, ftxui::Component input_comments,
-                          ftxui::Component partial_match)
+                          ftxui::Component input_frequency, ftxui::Component input_offset, ftxui::Component input_tone,
+                          ftxui::Component input_location, ftxui::Component input_recurrence,
+                          ftxui::Component input_comments, ftxui::Component partial_match)
             : state_(state),
               input_name_(std::move(input_name)),
               input_mode_(std::move(input_mode)),
@@ -918,23 +877,21 @@ namespace ql
         ftxui::Component input_name =
             ftxui::Input(&state->new_net_name, "e.g. Weekly Skywarn Net", SingleLineInputOption());
         ftxui::Component input_mode = ModeToggle(state, &state->new_net_mode_index);
-        ftxui::Component input_frequency =
-            ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
-                         FrequencyInputOption(&state->new_net_frequency));
-        ftxui::Component input_offset = ftxui::Input(&state->new_net_offset, "e.g. -0.6 (optional)",
-                                                     OffsetInputOption(&state->new_net_offset));
-        ftxui::Component input_tone = ftxui::Input(&state->new_net_tone, "e.g. 100.0 (optional)",
-                                                   FrequencyInputOption(&state->new_net_tone));
+        ftxui::Component input_frequency = ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
+                                                        FrequencyInputOption(&state->new_net_frequency));
+        ftxui::Component input_offset =
+            ftxui::Input(&state->new_net_offset, "e.g. -0.6 (optional)", OffsetInputOption(&state->new_net_offset));
+        ftxui::Component input_tone =
+            ftxui::Input(&state->new_net_tone, "e.g. 100.0 (optional)", FrequencyInputOption(&state->new_net_tone));
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->new_net_location);
         ftxui::Component input_location =
             ftxui::Input(&state->new_net_location, "5-digit ZIP (optional)", location_option);
-        ftxui::Component input_recurrence = ftxui::Input(
-            &state->new_net_recurrence, "e.g. Tuesdays 8pm ET", SingleLineInputOption());
+        ftxui::Component input_recurrence =
+            ftxui::Input(&state->new_net_recurrence, "e.g. Tuesdays 8pm ET", SingleLineInputOption());
         ftxui::Component input_comments =
             ftxui::Input(&state->new_net_comments, "Anything (optional)", SingleLineInputOption());
-        ftxui::Component partial_match =
-            PartialMatchToggle(state, &state->new_net_partial_match_index);
+        ftxui::Component partial_match = PartialMatchToggle(state, &state->new_net_partial_match_index);
 
         ftxui::Component root = ftxui::Container::Vertical({
             input_name,
@@ -951,9 +908,8 @@ namespace ql
         state->new_net_name_input = input_name;
 
         return ftxui::Renderer(
-            root, CreateNetRenderer(state, input_name, input_mode, input_frequency, input_offset,
-                                    input_tone, input_location, input_recurrence, input_comments,
-                                    partial_match));
+            root, CreateNetRenderer(state, input_name, input_mode, input_frequency, input_offset, input_tone,
+                                    input_location, input_recurrence, input_comments, partial_match));
     }
 
     // ---- Select-role page ---------------------------------------------------
@@ -969,9 +925,8 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Element content = ftxui::vbox({
-                ftxui::hbox(
-                    {ftxui::text("Logging: ") | ftxui::color(kColorLabel),
-                     ftxui::text(state_->start_net.name) | ftxui::bold | ftxui::color(kColorData)}),
+                ftxui::hbox({ftxui::text("Logging: ") | ftxui::color(kColorLabel),
+                             ftxui::text(state_->start_net.name) | ftxui::bold | ftxui::color(kColorData)}),
                 Separator(),
                 HintText("Select your role for this net:"),
                 role_radiobox_->Render(),
@@ -984,16 +939,14 @@ namespace ql
                 ErrorLine(state_->form_error),
             });
 
-            return PageChrome("Select Your Role", content,
-                              {{"F2/Enter", "Continue"}, {"Esc", "Back"}});
+            return PageChrome("Select Your Role", content, {{"F2/Enter", "Continue"}, {"Esc", "Back"}});
         }
 
     private:
         // One role's line in the list of what each role does.
         static ftxui::Element RoleHint(const std::string& role, const std::string& what)
         {
-            return ftxui::hbox(
-                {ftxui::text(role + ": ") | ftxui::color(kColorLabel), HintText(what)});
+            return ftxui::hbox({ftxui::text(role + ": ") | ftxui::color(kColorLabel), HintText(what)});
         }
 
         AppState* state_;
@@ -1041,8 +994,7 @@ namespace ql
                 ErrorLine(state_->form_error),
             });
 
-            return PageChrome("Enter Callsign", content,
-                              {{"F2/Enter", "Start Log"}, {"Esc", "Back"}});
+            return PageChrome("Enter Callsign", content, {{"F2/Enter", "Start Log"}, {"Esc", "Back"}});
         }
 
     private:
@@ -1100,11 +1052,9 @@ namespace ql
             };
             // The net's frequency, offset and tone, only when the line has
             // room for them (a wide terminal): at 80 columns it's nearly full.
-            std::size_t used =
-                6 + started.size() + 9 + role_label.size() + 13 + state_->operator_callsign.size();
+            std::size_t used = 6 + started.size() + 9 + role_label.size() + 13 + state_->operator_callsign.size();
             const std::string& radio = state_->active_net_radio;
-            if (!radio.empty() &&
-                used + 3 + radio.size() <= static_cast<std::size_t>(state_->list_width))
+            if (!radio.empty() && used + 3 + radio.size() <= static_cast<std::size_t>(state_->list_width))
             {
                 info.push_back(ftxui::text("   " + radio) | ftxui::color(kColorData));
             }
@@ -1120,22 +1070,18 @@ namespace ql
                     ftxui::flex,
                 IsPicking(state_, PickList::kActiveCheckIns)
                     ? PickPrompt(state_, PickList::kActiveCheckIns)
-                    : (state_->show_new_station_modal || state_->show_edit_checkin_modal
-                           ? ftxui::text("")
-                       : state_->viewing_only
-                           ? HintText("Watching as a Viewer: nothing can be changed here. Esc "
-                                      "leaves.")
-                           : HintText("F3 edits and F5 deletes a check-in by its #; Enter edits "
-                                      "the highlighted one.")),
+                    : (state_->show_new_station_modal || state_->show_edit_checkin_modal ? ftxui::text("")
+                       : state_->viewing_only ? HintText("Watching as a Viewer: nothing can be changed here. Esc "
+                                                         "leaves.")
+                                              : HintText("F3 edits and F5 deletes a check-in by its #; Enter edits "
+                                                         "the highlighted one.")),
                 StatusLine(state_->status_message),
                 // A check-in window shows its own errors.
-                state_->show_new_station_modal || state_->show_edit_checkin_modal
-                    ? ftxui::emptyElement()
-                    : ErrorLine(state_->form_error),
+                state_->show_new_station_modal || state_->show_edit_checkin_modal ? ftxui::emptyElement()
+                                                                                  : ErrorLine(state_->form_error),
             });
 
-            std::string page_title =
-                state_->active_net_name.empty() ? "Active Net" : state_->active_net_name;
+            std::string page_title = state_->active_net_name.empty() ? "Active Net" : state_->active_net_name;
             // F3/F4/F5 only do anything when no modal is open (see
             // ActiveNetKeyHandler) -- showing them while one is up would be a
             // hint for a key that currently does nothing, so they're hidden
@@ -1148,11 +1094,7 @@ namespace ql
             }
             else if (state_->show_edit_checkin_modal)
             {
-                hints = {{"F2", "Save"},
-                         {"F4", "Remarks"},
-                         {"F5", "Comment"},
-                         {"F6", "Role"},
-                         {"Esc", "Cancel"}};
+                hints = {{"F2", "Save"}, {"F4", "Remarks"}, {"F5", "Comment"}, {"F6", "Role"}, {"Esc", "Cancel"}};
             }
             else if (state_->show_new_station_modal)
             {
@@ -1173,17 +1115,14 @@ namespace ql
             {
                 // The seldom-used keys (see InfoWindow) join the bar when
                 // there's room.
-                hints = AddExtraKeysThatFit({{"F2", "Check In"},
-                                             {"F3", "Edit"},
-                                             {"F4", "Close/Save"},
-                                             {"F5", "Delete"},
-                                             {"F7", "Export"}},
-                                            {{"F6", "Stn History"},
-                                             {"F8", "Regulars"},
-                                             {"F9", "Stn Card"},
-                                             {"F10", "Summary"},
-                                             {"F12", "Notes"}},
-                                            1);
+                hints = AddExtraKeysThatFit(
+                    {{"F2", "Check In"}, {"F3", "Edit"}, {"F4", "Close/Save"}, {"F5", "Delete"}, {"F7", "Export"}},
+                    {{"F6", "Stn History"},
+                     {"F8", "Regulars"},
+                     {"F9", "Stn Card"},
+                     {"F10", "Summary"},
+                     {"F12", "Notes"}},
+                    1);
             }
             // The check-in count, in the top bar.
             std::size_t count = state_->active_check_ins.size();
@@ -1198,14 +1137,12 @@ namespace ql
 
     // The keys in the check-in windows that jump to the fields usually
     // wanted after the callsign, past the station's details.
-    static const std::vector<KeyHint> kJumpKeyHints = {
-        {"F4", "Remarks"}, {"F5", "Comment"}, {"F6", "Role"}};
+    static const std::vector<KeyHint> kJumpKeyHints = {{"F4", "Remarks"}, {"F5", "Comment"}, {"F6", "Role"}};
 
     // A check-in window's keys: `actions` (ending with Esc) and the jump
     // keys, on one row when the window is wide enough for them all, with
     // Esc last; otherwise the jump keys on a second row.
-    static void AppendCheckInKeyRows(const AppState* state, std::vector<KeyHint> actions,
-                                     ftxui::Elements* rows)
+    static void AppendCheckInKeyRows(const AppState* state, std::vector<KeyHint> actions, ftxui::Elements* rows)
     {
         std::vector<KeyHint> all(actions.begin(), actions.end() - 1);
         all.insert(all.end(), kJumpKeyHints.begin(), kJumpKeyHints.end());
@@ -1225,8 +1162,7 @@ namespace ql
     // typed in it.
     static ftxui::Element CheckInWindow(const AppState* state, ftxui::Element content)
     {
-        return std::move(content) | ftxui::color(kColorHeading) |
-               ftxui::borderStyled(kColorDialogBorder) |
+        return std::move(content) | ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder) |
                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, CheckInWindowWidth(state->list_width));
     }
 
@@ -1234,8 +1170,7 @@ namespace ql
     class NewStationModalRenderer
     {
     public:
-        NewStationModalRenderer(AppState* state, StationFieldInputs inputs,
-                                ftxui::Component input_signal_report,
+        NewStationModalRenderer(AppState* state, StationFieldInputs inputs, ftxui::Component input_signal_report,
                                 ftxui::Component input_remarks, ftxui::Component input_comment,
                                 ftxui::Component role_choice_menu)
             : state_(state),
@@ -1260,28 +1195,22 @@ namespace ql
             // callsign is cleared or the cursor leaves the field.
             if (!state_->modal_callsign_suggestions.empty() && inputs_.callsign->Focused())
             {
-                rows.push_back(MatchList(MatchListHeader(state_->list_width),
-                                         state_->modal_callsign_suggestion_labels,
+                rows.push_back(MatchList(MatchListHeader(state_->list_width), state_->modal_callsign_suggestion_labels,
                                          state_->selected_suggestion_index));
             }
             else
             {
                 ftxui::Elements fields(field_rows.begin() + 1, field_rows.end());
-                fields.push_back(
-                    ftxui::hbox({FieldLabel("Signal Report: "), input_signal_report_->Render()}));
-                fields.push_back(
-                    ftxui::hbox({FieldLabel("Remarks:       "), input_remarks_->Render()}));
-                fields.push_back(
-                    ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
+                fields.push_back(ftxui::hbox({FieldLabel("Signal Report: "), input_signal_report_->Render()}));
+                fields.push_back(ftxui::hbox({FieldLabel("Remarks:       "), input_remarks_->Render()}));
+                fields.push_back(ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
                 // Last, in Tab order too: at the bottom of the right column
                 // when the form is in two.
-                fields.push_back(ftxui::vbox(
-                    {FieldLabel("Additional Role (optional):"), role_choice_menu_->Render()}));
+                fields.push_back(ftxui::vbox({FieldLabel("Additional Role (optional):"), role_choice_menu_->Render()}));
                 AppendFormFields(state_, fields, &rows);
             }
             rows.push_back(DialogSeparator());
-            AppendCheckInKeyRows(
-                state_, {{"F2", "Log & Next"}, {"F3", "Log & Close"}, {"Esc", "Cancel"}}, &rows);
+            AppendCheckInKeyRows(state_, {{"F2", "Log & Next"}, {"F3", "Log & Close"}, {"Esc", "Cancel"}}, &rows);
             rows.push_back(ErrorLine(state_->form_error));
 
             return CheckInWindow(state_, ftxui::vbox(std::move(rows)));
@@ -1302,8 +1231,7 @@ namespace ql
     class EditCheckInModalRenderer
     {
     public:
-        EditCheckInModalRenderer(AppState* state, StationFieldInputs inputs,
-                                 ftxui::Component input_signal_report,
+        EditCheckInModalRenderer(AppState* state, StationFieldInputs inputs, ftxui::Component input_signal_report,
                                  ftxui::Component input_remarks, ftxui::Component input_comment,
                                  ftxui::Component role_choice_menu)
             : state_(state),
@@ -1320,17 +1248,13 @@ namespace ql
             ftxui::Elements rows;
             rows.push_back(Heading("Edit Check-In"));
             rows.push_back(DialogSeparator());
-            rows.push_back(ftxui::hbox({FieldLabel("Callsign:      "),
-                                        ftxui::text(state_->edit_checkin_original.callsign)}));
+            rows.push_back(
+                ftxui::hbox({FieldLabel("Callsign:      "), ftxui::text(state_->edit_checkin_original.callsign)}));
             ftxui::Elements fields = StationFieldRows(inputs_);
-            fields.push_back(
-                ftxui::hbox({FieldLabel("Signal Report: "), input_signal_report_->Render()}));
-            fields.push_back(
-                ftxui::hbox({FieldLabel("Remarks:       "), input_remarks_->Render()}));
-            fields.push_back(
-                ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
-            fields.push_back(ftxui::vbox(
-                {FieldLabel("Additional Role (optional):"), role_choice_menu_->Render()}));
+            fields.push_back(ftxui::hbox({FieldLabel("Signal Report: "), input_signal_report_->Render()}));
+            fields.push_back(ftxui::hbox({FieldLabel("Remarks:       "), input_remarks_->Render()}));
+            fields.push_back(ftxui::hbox({FieldLabel("Comment:       "), input_comment_->Render()}));
+            fields.push_back(ftxui::vbox({FieldLabel("Additional Role (optional):"), role_choice_menu_->Render()}));
             AppendFormFields(state_, fields, &rows);
             rows.push_back(DialogSeparator());
             AppendCheckInKeyRows(state_, {{"F2", "Save"}, {"Esc", "Cancel"}}, &rows);
@@ -1354,31 +1278,25 @@ namespace ql
         check_in_menu_option.on_enter = EditSelectedCheckInHandler(state);
         check_in_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component check_in_menu = ClickableList(
-            state, ftxui::Menu(&state->active_display_rows, &state->selected_check_in_index,
-                               check_in_menu_option));
+            state, ftxui::Menu(&state->active_display_rows, &state->selected_check_in_index, check_in_menu_option));
 
         ftxui::Component main_root = ftxui::Container::Vertical({check_in_menu});
-        ftxui::Component main_view =
-            ftxui::Renderer(main_root, ActiveNetRenderer(state, check_in_menu));
+        ftxui::Component main_view = ftxui::Renderer(main_root, ActiveNetRenderer(state, check_in_menu));
 
         ftxui::InputOption callsign_option = SingleLineInputOption();
         callsign_option.on_enter = CallsignLookupHandler(state);
         callsign_option.on_change = CallsignSuggestHandler(state);
-        ftxui::Component input_callsign =
-            ftxui::Input(&state->modal_station.callsign, "Callsign", callsign_option);
-        StationFieldInputs modal_inputs =
-            BuildStationFieldInputs(&state->modal_station, input_callsign);
+        ftxui::Component input_callsign = ftxui::Input(&state->modal_station.callsign, "Callsign", callsign_option);
+        StationFieldInputs modal_inputs = BuildStationFieldInputs(&state->modal_station, input_callsign);
 
         ftxui::Component input_signal_report =
             ftxui::Input(&state->modal_signal_report, "Signal Report", SingleLineInputOption());
         ftxui::InputOption remarks_option = SingleLineInputOption();
         remarks_option.cursor_position = &state->modal_remarks_cursor;
-        ftxui::Component input_remarks =
-            ftxui::Input(&state->modal_remarks, "Remarks", remarks_option);
+        ftxui::Component input_remarks = ftxui::Input(&state->modal_remarks, "Remarks", remarks_option);
         ftxui::InputOption comment_option = SingleLineInputOption();
         comment_option.cursor_position = &state->modal_comment_cursor;
-        ftxui::Component input_comment =
-            ftxui::Input(&state->modal_comment, "Comment", comment_option);
+        ftxui::Component input_comment = ftxui::Input(&state->modal_comment, "Comment", comment_option);
         // A Menu (not Radiobox) so arrow keys change the choice immediately --
         // no separate "confirm with Space/Enter" step, and no internal hover
         // cursor left dangling from a previous check-in. A Radiobox retains
@@ -1391,8 +1309,7 @@ namespace ql
         ftxui::MenuOption role_choice_menu_option;
         role_choice_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component role_choice_menu =
-            ftxui::Menu(&state->modal_role_choice_labels, &state->modal_role_choice_index,
-                        role_choice_menu_option);
+            ftxui::Menu(&state->modal_role_choice_labels, &state->modal_role_choice_index, role_choice_menu_option);
 
         state->modal_callsign_input = input_callsign;
         state->modal_remarks_input = input_remarks;
@@ -1405,14 +1322,14 @@ namespace ql
         modal_components.push_back(input_comment);
         modal_components.push_back(role_choice_menu);
         ftxui::Component modal_root = ftxui::Container::Vertical(modal_components);
-        ftxui::Component modal_view = ftxui::Renderer(
-            modal_root, NewStationModalRenderer(state, modal_inputs, input_signal_report,
-                                                input_remarks, input_comment, role_choice_menu));
+        ftxui::Component modal_view =
+            ftxui::Renderer(modal_root, NewStationModalRenderer(state, modal_inputs, input_signal_report, input_remarks,
+                                                                input_comment, role_choice_menu));
 
         StationFieldInputs edit_checkin_inputs =
             BuildStationFieldInputs(&state->edit_checkin_station, ftxui::Component());
-        ftxui::Component edit_input_signal_report = ftxui::Input(
-            &state->edit_checkin_signal_report, "Signal Report", SingleLineInputOption());
+        ftxui::Component edit_input_signal_report =
+            ftxui::Input(&state->edit_checkin_signal_report, "Signal Report", SingleLineInputOption());
         ftxui::InputOption edit_remarks_option = SingleLineInputOption();
         edit_remarks_option.cursor_position = &state->edit_checkin_remarks_cursor;
         ftxui::Component edit_input_remarks =
@@ -1424,8 +1341,8 @@ namespace ql
         ftxui::MenuOption edit_role_choice_menu_option;
         edit_role_choice_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component edit_role_choice_menu =
-            ftxui::Menu(&state->edit_checkin_role_choice_labels,
-                        &state->edit_checkin_role_choice_index, edit_role_choice_menu_option);
+            ftxui::Menu(&state->edit_checkin_role_choice_labels, &state->edit_checkin_role_choice_index,
+                        edit_role_choice_menu_option);
 
         state->edit_checkin_remarks_input = edit_input_remarks;
         state->edit_checkin_comment_input = edit_input_comment;
@@ -1438,21 +1355,17 @@ namespace ql
         edit_modal_components.push_back(edit_role_choice_menu);
         ftxui::Component edit_modal_root = ftxui::Container::Vertical(edit_modal_components);
         ftxui::Component edit_modal_view = ftxui::Renderer(
-            edit_modal_root, EditCheckInModalRenderer(state, edit_checkin_inputs,
-                                                      edit_input_signal_report, edit_input_remarks,
-                                                      edit_input_comment, edit_role_choice_menu));
+            edit_modal_root, EditCheckInModalRenderer(state, edit_checkin_inputs, edit_input_signal_report,
+                                                      edit_input_remarks, edit_input_comment, edit_role_choice_menu));
 
-        ftxui::Component with_new_station_modal =
-            LayeredModal(main_view, modal_view, &state->show_new_station_modal);
+        ftxui::Component with_new_station_modal = LayeredModal(main_view, modal_view, &state->show_new_station_modal);
         ftxui::Component with_edit_checkin_modal =
             LayeredModal(with_new_station_modal, edit_modal_view, &state->show_edit_checkin_modal);
         ftxui::Component with_notes_modal =
-            LayeredModal(with_edit_checkin_modal, BuildSessionNotesModal(state),
-                         &state->show_session_notes_modal);
+            LayeredModal(with_edit_checkin_modal, BuildSessionNotesModal(state), &state->show_session_notes_modal);
         return WithConfirmPrompt(
-            state, WithRowDeleteConfirm(
-                       state, LayeredModal(with_notes_modal, BuildZmodemConfirmModal(state),
-                                           &state->show_zmodem_confirm_modal)));
+            state, WithRowDeleteConfirm(state, LayeredModal(with_notes_modal, BuildZmodemConfirmModal(state),
+                                                            &state->show_zmodem_confirm_modal)));
     }
 
     // ---- Settings page ---------------------------------------------------
@@ -1460,9 +1373,9 @@ namespace ql
     class SettingsRenderer
     {
     public:
-        SettingsRenderer(AppState* state, ftxui::Component input_callsign,
-                         ftxui::Component input_location, ftxui::Component input_radius,
-                         ftxui::Component time_format_toggle, ftxui::Component update_check_toggle)
+        SettingsRenderer(AppState* state, ftxui::Component input_callsign, ftxui::Component input_location,
+                         ftxui::Component input_radius, ftxui::Component time_format_toggle,
+                         ftxui::Component update_check_toggle)
             : state_(state),
               input_callsign_(std::move(input_callsign)),
               input_location_(std::move(input_location)),
@@ -1480,39 +1393,34 @@ namespace ql
             ftxui::Element update_hint = ftxui::text("");
             if (state_->is_console_session)
             {
-                update_check_row =
-                    ftxui::hbox({FieldLabel("Update Check:  "), update_check_toggle_->Render()});
+                update_check_row = ftxui::hbox({FieldLabel("Update Check:  "), update_check_toggle_->Render()});
                 const std::string& available = AvailableUpdateForDisplay();
                 update_hint = ftxui::vbox(
                     {ftxui::text(""),
-                     HintParagraph(
-                         available.empty()
-                             ? "Update Check notifies you about new releases. It checks GitHub "
-                               "every 6 hours."
-                             : "QuickLogger " + available +
-                                   " is out. Click the notice in the top bar to open its download "
-                                   "page: " +
-                                   std::string(kReleasesPageUrl))});
+                     HintParagraph(available.empty()
+                                       ? "Update Check notifies you about new releases. It checks GitHub "
+                                         "every 6 hours."
+                                       : "QuickLogger " + available +
+                                             " is out. Click the notice in the top bar to open its download "
+                                             "page: " +
+                                             std::string(kReleasesPageUrl))});
             }
             // The station data's status: one paragraph per line of it.
             ftxui::Elements status_lines;
-            std::istringstream status_text(
-                DescribeStationDataStatus(state_->db, static_cast<std::int64_t>(std::time(nullptr)),
-                                          state_->is_console_session));
+            std::istringstream status_text(DescribeStationDataStatus(
+                state_->db, static_cast<std::int64_t>(std::time(nullptr)), state_->is_console_session));
             std::string status_line;
             while (std::getline(status_text, status_line))
             {
                 status_lines.push_back(ftxui::paragraph(status_line));
             }
-            ftxui::Element station_status =
-                ftxui::vbox(std::move(status_lines)) | ftxui::color(kColorHeading);
+            ftxui::Element station_status = ftxui::vbox(std::move(status_lines)) | ftxui::color(kColorHeading);
             ftxui::Element content = ftxui::vbox({
                 state_->callsign_editable
                     ? ftxui::hbox({FieldLabel("My Callsign*:  "), input_callsign_->Render()})
-                    : ftxui::hbox(
-                          {FieldLabel("My Callsign:   "),
-                           ftxui::text(state_->settings_form.callsign) | ftxui::color(kColorData),
-                           HintText("  (your username)")}),
+                    : ftxui::hbox({FieldLabel("My Callsign:   "),
+                                   ftxui::text(state_->settings_form.callsign) | ftxui::color(kColorData),
+                                   HintText("  (your username)")}),
                 ftxui::hbox({FieldLabel("My ZIP Code*:  "), input_location_->Render()}),
                 ftxui::hbox({FieldLabel("Nearby Radius: "),
                              input_radius_->Render() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 4),
@@ -1521,12 +1429,11 @@ namespace ql
                 update_check_row,
                 HintText("* Required"),
                 Separator(),
-                HintParagraph(
-                    "My ZIP Code is a plain 5-digit US ZIP code (digits only), used "
-                    "to find nearby licensed stations for nets that have no ZIP "
-                    "code of their own. Nearby Radius (1-250, 70 if left blank) is how far "
-                    "from the net's ZIP, or yours, a station can be and still "
-                    "be suggested."),
+                HintParagraph("My ZIP Code is a plain 5-digit US ZIP code (digits only), used "
+                              "to find nearby licensed stations for nets that have no ZIP "
+                              "code of their own. Nearby Radius (1-250, 70 if left blank) is how far "
+                              "from the net's ZIP, or yours, a station can be and still "
+                              "be suggested."),
                 ftxui::text(""),
                 HintParagraph("Time Format (Left/Right to change) sets how times are shown "
                               "and exported. Times are shown in the time zone of the computer "
@@ -1568,35 +1475,30 @@ namespace ql
         // Can't be focused or typed into while the callsign is the SSH
         // user's username (see AppState::callsign_editable).
         ftxui::Component input_callsign = ftxui::Maybe(
-            ftxui::Input(&state->settings_form.callsign, "Your callsign", callsign_option),
-            &state->callsign_editable);
+            ftxui::Input(&state->settings_form.callsign, "Your callsign", callsign_option), &state->callsign_editable);
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->settings_form.location);
-        ftxui::Component input_location =
-            ftxui::Input(&state->settings_form.location, "5-digit ZIP", location_option);
+        ftxui::Component input_location = ftxui::Input(&state->settings_form.location, "5-digit ZIP", location_option);
         ftxui::InputOption radius_option = SingleLineInputOption();
         radius_option.on_change = DigitsFieldHandler(&state->settings_radius_text, 3);
-        ftxui::Component input_radius =
-            ftxui::Input(&state->settings_radius_text, "70", radius_option);
+        ftxui::Component input_radius = ftxui::Input(&state->settings_radius_text, "70", radius_option);
 
         ftxui::MenuOption time_format_option = ftxui::MenuOption::Toggle();
         time_format_option.entries_option.transform = ToggleEntryTransform;
         time_format_option.elements_infix = ToggleGap;
         time_format_option.focused_entry = &state->settings_time_format_index;
         ftxui::Component time_format_toggle = std::make_shared<IgnoreTab>(
-            ftxui::Menu(&state->settings_time_format_labels, &state->settings_time_format_index,
-                        time_format_option));
+            ftxui::Menu(&state->settings_time_format_labels, &state->settings_time_format_index, time_format_option));
 
         // Only at the console: an SSH user can't update the server.
         ftxui::MenuOption update_check_option = ftxui::MenuOption::Toggle();
         update_check_option.entries_option.transform = ToggleEntryTransform;
         update_check_option.elements_infix = ToggleGap;
         update_check_option.focused_entry = &state->settings_update_check_index;
-        ftxui::Component update_check_toggle =
-            ftxui::Maybe(std::make_shared<IgnoreTab>(
-                             ftxui::Menu(&state->settings_update_check_labels,
-                                         &state->settings_update_check_index, update_check_option)),
-                         &state->is_console_session);
+        ftxui::Component update_check_toggle = ftxui::Maybe(
+            std::make_shared<IgnoreTab>(ftxui::Menu(&state->settings_update_check_labels,
+                                                    &state->settings_update_check_index, update_check_option)),
+            &state->is_console_session);
 
         ftxui::Component root = ftxui::Container::Vertical({
             input_callsign,
@@ -1606,9 +1508,8 @@ namespace ql
             update_check_toggle,
         });
 
-        return ftxui::Renderer(root,
-                               SettingsRenderer(state, input_callsign, input_location, input_radius,
-                                                time_format_toggle, update_check_toggle));
+        return ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_location, input_radius,
+                                                      time_format_toggle, update_check_toggle));
     }
 
     // ---- Ad hoc net page ---------------------------------------------------
@@ -1617,9 +1518,9 @@ namespace ql
     {
     public:
         AdHocNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
-                         ftxui::Component input_frequency, ftxui::Component input_offset,
-                         ftxui::Component input_tone, ftxui::Component input_location,
-                         ftxui::Component partial_match, ftxui::Component open_session_menu)
+                         ftxui::Component input_frequency, ftxui::Component input_offset, ftxui::Component input_tone,
+                         ftxui::Component input_location, ftxui::Component partial_match,
+                         ftxui::Component open_session_menu)
             : state_(state),
               input_name_(std::move(input_name)),
               input_mode_(std::move(input_mode)),
@@ -1668,8 +1569,7 @@ namespace ql
             if (!state_->open_ad_hoc_sessions.empty())
             {
                 rows.push_back(Separator());
-                rows.push_back(
-                    Heading(view_only ? "Open (F3 views one):" : "Still open (F3 resumes one):"));
+                rows.push_back(Heading(view_only ? "Open (F3 views one):" : "Still open (F3 resumes one):"));
                 rows.push_back(Framed(OpenSessionRows()));
                 rows.push_back(PickPrompt(state_, PickList::kOpenAdHocSessions));
                 hints.push_back({"F3", view_only ? "View" : "Resume"});
@@ -1693,9 +1593,8 @@ namespace ql
         {
             if (IsPicking(state_, PickList::kOpenAdHocSessions))
             {
-                return PickableRows(state_, PickList::kOpenAdHocSessions,
-                                    state_->open_ad_hoc_labels, state_->selected_open_ad_hoc_index,
-                                    open_session_menu_);
+                return PickableRows(state_, PickList::kOpenAdHocSessions, state_->open_ad_hoc_labels,
+                                    state_->selected_open_ad_hoc_index, open_session_menu_);
             }
             ftxui::Elements lines;
             for (const std::string& label : state_->open_ad_hoc_labels)
@@ -1718,22 +1617,19 @@ namespace ql
 
     ftxui::Component BuildAdHocNetPage(AppState* state)
     {
-        ftxui::Component input_name =
-            ftxui::Input(&state->new_net_name, "e.g. Tailgate Net", SingleLineInputOption());
+        ftxui::Component input_name = ftxui::Input(&state->new_net_name, "e.g. Tailgate Net", SingleLineInputOption());
         ftxui::Component input_mode = ModeToggle(state, &state->new_net_mode_index);
-        ftxui::Component input_frequency =
-            ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
-                         FrequencyInputOption(&state->new_net_frequency));
-        ftxui::Component input_offset = ftxui::Input(&state->new_net_offset, "e.g. -0.6 (optional)",
-                                                     OffsetInputOption(&state->new_net_offset));
-        ftxui::Component input_tone = ftxui::Input(&state->new_net_tone, "e.g. 100.0 (optional)",
-                                                   FrequencyInputOption(&state->new_net_tone));
+        ftxui::Component input_frequency = ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
+                                                        FrequencyInputOption(&state->new_net_frequency));
+        ftxui::Component input_offset =
+            ftxui::Input(&state->new_net_offset, "e.g. -0.6 (optional)", OffsetInputOption(&state->new_net_offset));
+        ftxui::Component input_tone =
+            ftxui::Input(&state->new_net_tone, "e.g. 100.0 (optional)", FrequencyInputOption(&state->new_net_tone));
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->new_net_location);
         ftxui::Component input_location =
             ftxui::Input(&state->new_net_location, "5-digit ZIP (optional)", location_option);
-        ftxui::Component partial_match =
-            PartialMatchToggle(state, &state->new_net_partial_match_index);
+        ftxui::Component partial_match = PartialMatchToggle(state, &state->new_net_partial_match_index);
 
         ftxui::Component root = ftxui::Container::Vertical({
             input_name,
@@ -1754,14 +1650,13 @@ namespace ql
         ftxui::MenuOption open_session_menu_option;
         open_session_menu_option.focused_entry = &state->selected_open_ad_hoc_index;
         ftxui::Component open_session_menu = ClickableList(
-            state, ftxui::Menu(&state->open_ad_hoc_labels, &state->selected_open_ad_hoc_index,
-                               open_session_menu_option));
+            state,
+            ftxui::Menu(&state->open_ad_hoc_labels, &state->selected_open_ad_hoc_index, open_session_menu_option));
 
         return WithConfirmPrompt(
             state,
-            ftxui::Renderer(root, AdHocNetRenderer(state, input_name, input_mode, input_frequency,
-                                                   input_offset, input_tone, input_location,
-                                                   partial_match, open_session_menu)));
+            ftxui::Renderer(root, AdHocNetRenderer(state, input_name, input_mode, input_frequency, input_offset,
+                                                   input_tone, input_location, partial_match, open_session_menu)));
     }
 
     // ---- Net history page ---------------------------------------------------
@@ -1794,27 +1689,22 @@ namespace ql
     class NetHistoryRenderer
     {
     public:
-        NetHistoryRenderer(AppState* state, ftxui::Component instance_menu,
-                           ftxui::Component checkin_menu)
-            : state_(state),
-              instance_menu_(std::move(instance_menu)),
-              checkin_menu_(std::move(checkin_menu))
+        NetHistoryRenderer(AppState* state, ftxui::Component instance_menu, ftxui::Component checkin_menu)
+            : state_(state), instance_menu_(std::move(instance_menu)), checkin_menu_(std::move(checkin_menu))
         {
         }
 
         ftxui::Element operator()() const
         {
             std::string net_name = "Ad Hoc Nets";
-            if (!state_->history_ad_hoc &&
-                state_->selected_net_index < static_cast<int>(state_->nets.size()))
+            if (!state_->history_ad_hoc && state_->selected_net_index < static_cast<int>(state_->nets.size()))
             {
                 net_name = state_->nets[state_->selected_net_index].name;
             }
 
             ftxui::Element instance_list =
                 state_->history_instances.empty()
-                    ? HintText(state_->history_ad_hoc ? "No ad hoc nets yet."
-                                                      : "No past instances of this net yet.")
+                    ? HintText(state_->history_ad_hoc ? "No ad hoc nets yet." : "No past instances of this net yet.")
                     : PickableRows(state_, PickList::kNetInstances, state_->history_instance_labels,
                                    state_->selected_history_index, instance_menu_) |
                           ftxui::yframe | ftxui::vscroll_indicator;
@@ -1822,16 +1712,14 @@ namespace ql
             ftxui::Element checkin_list =
                 state_->history_check_in_labels.empty()
                     ? HintText(state_->history_instances.empty() ? "" : "No check-ins were logged.")
-                    : PickableRows(state_, PickList::kHistoryCheckIns,
-                                   state_->history_check_in_labels,
+                    : PickableRows(state_, PickList::kHistoryCheckIns, state_->history_check_in_labels,
                                    state_->selected_history_check_in_index, checkin_menu_) |
                           ftxui::yframe | ftxui::vscroll_indicator;
 
             ftxui::Element content = ftxui::vbox({
                 Framed(ftxui::vbox({
-                    PickableColumnHeader(
-                        state_, PickList::kNetInstances,
-                        NetInstanceListHeader(state_->list_width, state_->history_ad_hoc)),
+                    PickableColumnHeader(state_, PickList::kNetInstances,
+                                         NetInstanceListHeader(state_->list_width, state_->history_ad_hoc)),
                     instance_list,
                 })) |
                     ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, SessionBoxHeight()),
@@ -1867,14 +1755,12 @@ namespace ql
             if (state_->view_only_user)
             {
                 return PageChrome("History: " + net_name, content,
-                                  InKeyOrder(AddExtraKeysThatFit(
-                                      {{"F7", "Export"}, {"Esc", "Back"}}, extras, 1)));
+                                  InKeyOrder(AddExtraKeysThatFit({{"F7", "Export"}, {"Esc", "Back"}}, extras, 1)));
             }
             return PageChrome(
                 "History: " + net_name, content,
                 InKeyOrder(AddExtraKeysThatFit(
-                    {{"F5", "Del Check-In"}, {"F6", "Import"}, {"F7", "Export"}, {"Esc", "Back"}},
-                    extras, 1)));
+                    {{"F5", "Del Check-In"}, {"F6", "Import"}, {"F7", "Export"}, {"Esc", "Back"}}, extras, 1)));
         }
 
     private:
@@ -1903,25 +1789,22 @@ namespace ql
         instance_menu_option.focused_entry = &state->selected_history_index;
         instance_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         instance_menu_option.on_change = HistoryInstanceChangedHandler(state);
-        ftxui::Component instance_menu =
-            ClickableList(state, ftxui::Menu(&state->history_instance_labels,
-                                             &state->selected_history_index, instance_menu_option));
+        ftxui::Component instance_menu = ClickableList(
+            state, ftxui::Menu(&state->history_instance_labels, &state->selected_history_index, instance_menu_option));
 
         ftxui::MenuOption checkin_menu_option;
         checkin_menu_option.focused_entry = &state->selected_history_check_in_index;
         checkin_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component checkin_menu = ClickableList(
-            state, ftxui::Menu(&state->history_check_in_labels,
-                               &state->selected_history_check_in_index, checkin_menu_option));
+            state,
+            ftxui::Menu(&state->history_check_in_labels, &state->selected_history_check_in_index, checkin_menu_option));
 
         ftxui::Component root = ftxui::Container::Vertical({instance_menu, checkin_menu});
-        ftxui::Component main_view =
-            ftxui::Renderer(root, NetHistoryRenderer(state, instance_menu, checkin_menu));
-        ftxui::Component with_notes_modal = LayeredModal(main_view, BuildSessionNotesModal(state),
-                                                         &state->show_session_notes_modal);
-        return WithRowDeleteConfirm(state,
-                                    LayeredModal(with_notes_modal, BuildZmodemConfirmModal(state),
-                                                 &state->show_zmodem_confirm_modal));
+        ftxui::Component main_view = ftxui::Renderer(root, NetHistoryRenderer(state, instance_menu, checkin_menu));
+        ftxui::Component with_notes_modal =
+            LayeredModal(main_view, BuildSessionNotesModal(state), &state->show_session_notes_modal);
+        return WithRowDeleteConfirm(
+            state, LayeredModal(with_notes_modal, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal));
     }
 
     // ---- Edit net page ---------------------------------------------------
@@ -1952,8 +1835,7 @@ namespace ql
             rows.push_back(ftxui::text("be undone."));
             rows.push_back(DialogSeparator());
             rows.push_back(KeyHintRow({{"F2/Enter", "Delete"}, {"Esc", "Cancel"}}));
-            return ftxui::vbox(std::move(rows)) | ftxui::color(kColorDanger) |
-                   ftxui::borderStyled(kColorDialogBorder);
+            return ftxui::vbox(std::move(rows)) | ftxui::color(kColorDanger) | ftxui::borderStyled(kColorDialogBorder);
         }
 
     private:
@@ -1970,10 +1852,10 @@ namespace ql
     {
     public:
         EditNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
-                        ftxui::Component input_frequency, ftxui::Component input_offset,
-                        ftxui::Component input_tone, ftxui::Component input_location,
-                        ftxui::Component input_recurrence, ftxui::Component input_comments,
-                        ftxui::Component partial_match, ftxui::Component saved_station_menu)
+                        ftxui::Component input_frequency, ftxui::Component input_offset, ftxui::Component input_tone,
+                        ftxui::Component input_location, ftxui::Component input_recurrence,
+                        ftxui::Component input_comments, ftxui::Component partial_match,
+                        ftxui::Component saved_station_menu)
             : state_(state),
               input_name_(std::move(input_name)),
               input_mode_(std::move(input_mode)),
@@ -1993,8 +1875,7 @@ namespace ql
             ftxui::Element saved_station_list =
                 state_->edit_net_saved_stations.empty()
                     ? HintText("No saved stations yet. F6 adds one.")
-                    : PickableRows(state_, PickList::kSavedStations,
-                                   state_->edit_net_saved_station_labels,
+                    : PickableRows(state_, PickList::kSavedStations, state_->edit_net_saved_station_labels,
                                    state_->selected_saved_station_index, saved_station_menu_) |
                           ftxui::yframe | ftxui::vscroll_indicator;
 
@@ -2006,31 +1887,29 @@ namespace ql
             };
             if (state_->edit_net_mode_was_blank)
             {
-                rows.push_back(
-                    HintText("                  The old mode wasn't one of these. Pick one."));
+                rows.push_back(HintText("                  The old mode wasn't one of these. Pick one."));
             }
-            AppendFormFields(
-                state_,
-                {
-                    ftxui::hbox({FieldLabel("Frequency:        "), input_frequency_->Render()}),
-                    ftxui::hbox({FieldLabel("Offset:           "), input_offset_->Render()}),
-                    ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
-                    ftxui::hbox({FieldLabel("ZIP Code:         "), input_location_->Render()}),
-                    ftxui::hbox({FieldLabel("Recurrence:       "), input_recurrence_->Render()}),
-                    ftxui::hbox({FieldLabel("Comments:         "), input_comments_->Render()}),
-                    // Last, in Tab order too: at the bottom of the right
-                    // column when the form is in two.
-                    PartialMatchRow("Partial Matching: ", partial_match_),
-                },
-                &rows);
+            AppendFormFields(state_,
+                             {
+                                 ftxui::hbox({FieldLabel("Frequency:        "), input_frequency_->Render()}),
+                                 ftxui::hbox({FieldLabel("Offset:           "), input_offset_->Render()}),
+                                 ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
+                                 ftxui::hbox({FieldLabel("ZIP Code:         "), input_location_->Render()}),
+                                 ftxui::hbox({FieldLabel("Recurrence:       "), input_recurrence_->Render()}),
+                                 ftxui::hbox({FieldLabel("Comments:         "), input_comments_->Render()}),
+                                 // Last, in Tab order too: at the bottom of the right
+                                 // column when the form is in two.
+                                 PartialMatchRow("Partial Matching: ", partial_match_),
+                             },
+                             &rows);
             rows.push_back(Separator());
             rows.push_back(Heading("Saved Stations:"));
-            rows.push_back(Framed(ftxui::vbox({
-                               PickableColumnHeader(state_, PickList::kSavedStations,
-                                                    SavedStationListHeader(state_->list_width)),
-                               saved_station_list,
-                           })) |
-                           ftxui::flex);
+            rows.push_back(
+                Framed(ftxui::vbox({
+                    PickableColumnHeader(state_, PickList::kSavedStations, SavedStationListHeader(state_->list_width)),
+                    saved_station_list,
+                })) |
+                ftxui::flex);
             rows.push_back(PickPrompt(state_, PickList::kSavedStations));
             rows.push_back(StatusLine(state_->status_message));
             if (!state_->show_saved_station_modal)
@@ -2040,14 +1919,13 @@ namespace ql
 
             if (state_->row_pick_action != RowPickAction::kNone)
             {
-                return PageChrome("Edit Net: " + state_->edit_net_name,
-                                  ftxui::vbox(std::move(rows)), PickKeyHints(state_));
+                return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(std::move(rows)),
+                                  PickKeyHints(state_));
             }
             if (state_->show_saved_station_modal)
             {
-                return PageChrome(
-                    "Edit Net: " + state_->edit_net_name, ftxui::vbox(std::move(rows)),
-                    {{"F2", "Save & Continue"}, {"F3", "Save & Close"}, {"Esc", "Cancel"}});
+                return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(std::move(rows)),
+                                  {{"F2", "Save & Continue"}, {"F3", "Save & Close"}, {"Esc", "Cancel"}});
             }
             return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(std::move(rows)),
                               AddExtraKeysThatFit(
@@ -2085,8 +1963,7 @@ namespace ql
     class SavedStationModalRenderer
     {
     public:
-        SavedStationModalRenderer(AppState* state, StationFieldInputs inputs,
-                                  ftxui::Component remarks_input)
+        SavedStationModalRenderer(AppState* state, StationFieldInputs inputs, ftxui::Component remarks_input)
             : state_(state), inputs_(std::move(inputs)), remarks_input_(std::move(remarks_input))
         {
         }
@@ -2102,20 +1979,17 @@ namespace ql
             // fields while choosing.
             if (!state_->saved_station_suggestions.empty() && inputs_.callsign->Focused())
             {
-                rows.push_back(MatchList(MatchListHeader(state_->list_width),
-                                         state_->saved_station_suggestion_labels,
+                rows.push_back(MatchList(MatchListHeader(state_->list_width), state_->saved_station_suggestion_labels,
                                          state_->selected_saved_station_suggestion_index));
             }
             else
             {
                 ftxui::Elements fields(field_rows.begin() + 1, field_rows.end());
-                fields.push_back(
-                    ftxui::hbox({FieldLabel("Remarks:       "), remarks_input_->Render()}));
+                fields.push_back(ftxui::hbox({FieldLabel("Remarks:       "), remarks_input_->Render()}));
                 AppendFormFields(state_, fields, &rows);
             }
             rows.push_back(DialogSeparator());
-            rows.push_back(
-                KeyHintRow({{"F2", "Save & Continue"}, {"F3", "Save & Close"}, {"Esc", "Cancel"}}));
+            rows.push_back(KeyHintRow({{"F2", "Save & Continue"}, {"F3", "Save & Close"}, {"Esc", "Cancel"}}));
             rows.push_back(ErrorLine(state_->form_error));
             return CheckInWindow(state_, ftxui::vbox(std::move(rows)));
         }
@@ -2131,32 +2005,29 @@ namespace ql
         ftxui::Component input_name =
             ftxui::Input(&state->edit_net_name, "e.g. Weekly Skywarn Net", SingleLineInputOption());
         ftxui::Component input_mode = ModeToggle(state, &state->edit_net_mode_index);
-        ftxui::Component input_frequency =
-            ftxui::Input(&state->edit_net_frequency, "MHz, e.g. 146.940",
-                         FrequencyInputOption(&state->edit_net_frequency));
+        ftxui::Component input_frequency = ftxui::Input(&state->edit_net_frequency, "MHz, e.g. 146.940",
+                                                        FrequencyInputOption(&state->edit_net_frequency));
         ftxui::Component input_offset =
-            ftxui::Input(&state->edit_net_offset, "e.g. -0.6 (optional)",
-                         OffsetInputOption(&state->edit_net_offset));
-        ftxui::Component input_tone = ftxui::Input(&state->edit_net_tone, "e.g. 100.0 (optional)",
-                                                   FrequencyInputOption(&state->edit_net_tone));
+            ftxui::Input(&state->edit_net_offset, "e.g. -0.6 (optional)", OffsetInputOption(&state->edit_net_offset));
+        ftxui::Component input_tone =
+            ftxui::Input(&state->edit_net_tone, "e.g. 100.0 (optional)", FrequencyInputOption(&state->edit_net_tone));
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->edit_net_location);
         ftxui::Component input_location =
             ftxui::Input(&state->edit_net_location, "5-digit ZIP (optional)", location_option);
-        ftxui::Component input_recurrence = ftxui::Input(
-            &state->edit_net_recurrence, "e.g. Tuesdays 8pm ET", SingleLineInputOption());
+        ftxui::Component input_recurrence =
+            ftxui::Input(&state->edit_net_recurrence, "e.g. Tuesdays 8pm ET", SingleLineInputOption());
         ftxui::Component input_comments =
             ftxui::Input(&state->edit_net_comments, "Anything (optional)", SingleLineInputOption());
-        ftxui::Component partial_match =
-            PartialMatchToggle(state, &state->edit_net_partial_match_index);
+        ftxui::Component partial_match = PartialMatchToggle(state, &state->edit_net_partial_match_index);
 
         ftxui::MenuOption saved_station_menu_option;
         saved_station_menu_option.focused_entry = &state->selected_saved_station_index;
         saved_station_menu_option.on_enter = LoadSavedStationHandler(state);
         saved_station_menu_option.entries_option.transform = AlignedMenuEntryTransform;
-        ftxui::Component saved_station_menu = ClickableList(
-            state, ftxui::Menu(&state->edit_net_saved_station_labels,
-                               &state->selected_saved_station_index, saved_station_menu_option));
+        ftxui::Component saved_station_menu =
+            ClickableList(state, ftxui::Menu(&state->edit_net_saved_station_labels,
+                                             &state->selected_saved_station_index, saved_station_menu_option));
 
         ftxui::Component root = ftxui::Container::Vertical({
             input_name,
@@ -2172,34 +2043,28 @@ namespace ql
         });
         state->edit_net_name_input = input_name;
         ftxui::Component main_view = ftxui::Renderer(
-            root, EditNetRenderer(state, input_name, input_mode, input_frequency, input_offset,
-                                  input_tone, input_location, input_recurrence, input_comments,
-                                  partial_match, saved_station_menu));
+            root, EditNetRenderer(state, input_name, input_mode, input_frequency, input_offset, input_tone,
+                                  input_location, input_recurrence, input_comments, partial_match, saved_station_menu));
 
         ftxui::InputOption callsign_option = SingleLineInputOption();
         callsign_option.on_change = SavedStationCallsignChangeHandler(state);
         callsign_option.on_enter = SavedStationCallsignEnterHandler(state);
-        ftxui::Component callsign_input =
-            ftxui::Input(&state->saved_station.callsign, "Callsign", callsign_option);
+        ftxui::Component callsign_input = ftxui::Input(&state->saved_station.callsign, "Callsign", callsign_option);
         state->saved_station_callsign_input = callsign_input;
-        StationFieldInputs station_inputs =
-            BuildStationFieldInputs(&state->saved_station, callsign_input);
+        StationFieldInputs station_inputs = BuildStationFieldInputs(&state->saved_station, callsign_input);
         ftxui::Component remarks_input =
             ftxui::Input(&state->saved_station_remarks, "Optional", SingleLineInputOption());
 
         ftxui::Components modal_components = StationFieldComponents(station_inputs);
         modal_components.push_back(remarks_input);
-        ftxui::Component modal_view =
-            ftxui::Renderer(ftxui::Container::Vertical(modal_components),
-                            SavedStationModalRenderer(state, station_inputs, remarks_input));
+        ftxui::Component modal_view = ftxui::Renderer(ftxui::Container::Vertical(modal_components),
+                                                      SavedStationModalRenderer(state, station_inputs, remarks_input));
 
-        ftxui::Component with_station_modal =
-            LayeredModal(main_view, modal_view, &state->show_saved_station_modal);
-        ftxui::Component with_zmodem_modal = LayeredModal(
-            with_station_modal, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal);
-        return WithRowDeleteConfirm(
-            state, LayeredModal(with_zmodem_modal, BuildDeleteNetConfirmModal(state),
-                                &state->show_delete_net_confirm_modal));
+        ftxui::Component with_station_modal = LayeredModal(main_view, modal_view, &state->show_saved_station_modal);
+        ftxui::Component with_zmodem_modal =
+            LayeredModal(with_station_modal, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal);
+        return WithRowDeleteConfirm(state, LayeredModal(with_zmodem_modal, BuildDeleteNetConfirmModal(state),
+                                                        &state->show_delete_net_confirm_modal));
     }
 
     // ---- Import net page ---------------------------------------------------
@@ -2207,8 +2072,7 @@ namespace ql
     class ImportNetRenderer
     {
     public:
-        ImportNetRenderer(AppState* state, ftxui::Component file_menu)
-            : state_(state), file_menu_(std::move(file_menu))
+        ImportNetRenderer(AppState* state, ftxui::Component file_menu) : state_(state), file_menu_(std::move(file_menu))
         {
         }
 
@@ -2222,39 +2086,35 @@ namespace ql
                                    ? "No " + pattern +
                                          " files in imports/ yet. Press F3 to receive one via "
                                          "ZMODEM."
-                                   : "No " + pattern +
-                                         " files received yet. Press F3 to receive one via ZMODEM.")
+                                   : "No " + pattern + " files received yet. Press F3 to receive one via ZMODEM.")
                     : file_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator;
 
             ftxui::Elements rows;
             if (session)
             {
-                rows.push_back(HintParagraph(
-                    state_->import_session_ad_hoc
-                        ? "A session exported with F7 (its .qlsession file) becomes a new ad hoc "
-                          "net here."
-                        : "A session exported with F7 (its .qlsession file) is added to " +
-                              state_->import_session_net_name + "'s history."));
+                rows.push_back(
+                    HintParagraph(state_->import_session_ad_hoc
+                                      ? "A session exported with F7 (its .qlsession file) becomes a new ad hoc "
+                                        "net here."
+                                      : "A session exported with F7 (its .qlsession file) is added to " +
+                                            state_->import_session_net_name + "'s history."));
             }
             rows.push_back(Heading("Files ready to import:"));
             rows.push_back(Framed(file_list) | ftxui::flex);
             rows.push_back(StatusLine(state_->status_message));
             rows.push_back(ErrorLine(state_->form_error));
 
-            std::string title = !session ? "Import Net"
-                                : state_->import_session_ad_hoc
-                                    ? "Import Ad Hoc Session"
-                                    : "Import Session: " + state_->import_session_net_name;
+            std::string title = !session                        ? "Import Net"
+                                : state_->import_session_ad_hoc ? "Import Ad Hoc Session"
+                                                                : "Import Session: " + state_->import_session_net_name;
             // No ZMODEM at a local terminal: there's no one to receive from.
             // Nor where the system has none (Windows, Alpine).
             if (IsLocalTerminal(state_->is_console_session) || NoZmodemOnThisSystem())
             {
-                return PageChrome(title, ftxui::vbox(std::move(rows)),
-                                  {{"F2/Enter", "Import"}, {"Esc", "Back"}});
+                return PageChrome(title, ftxui::vbox(std::move(rows)), {{"F2/Enter", "Import"}, {"Esc", "Back"}});
             }
-            return PageChrome(
-                title, ftxui::vbox(std::move(rows)),
-                {{"F2/Enter", "Import"}, {"F3", "Receive (ZMODEM)"}, {"Esc", "Back"}});
+            return PageChrome(title, ftxui::vbox(std::move(rows)),
+                              {{"F2/Enter", "Import"}, {"F3", "Receive (ZMODEM)"}, {"Esc", "Back"}});
         }
 
     private:
@@ -2271,8 +2131,7 @@ namespace ql
 
         ftxui::Element operator()() const
         {
-            ftxui::Elements rows =
-                state_->merge_stage == MergeStage::kSummary ? SummaryRows() : ChoiceRows();
+            ftxui::Elements rows = state_->merge_stage == MergeStage::kSummary ? SummaryRows() : ChoiceRows();
             int width = WindowWidth();
             return ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) |
                    ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder);
@@ -2310,10 +2169,8 @@ namespace ql
             // The window's other rows: 13 around one list, and about 4 more
             // (a heading and a frame) for each further one.
             int room = std::max(2, (FrameTerminalSize().dimy - 13 - 4 * (lists - 1)) / lists);
-            int height =
-                std::min(line_count >= 0 ? line_count : static_cast<int>(lines.size()), room);
-            return DialogFramed(ftxui::vbox(std::move(rows)) | ftxui::yframe |
-                                ftxui::vscroll_indicator |
+            int height = std::min(line_count >= 0 ? line_count : static_cast<int>(lines.size()), room);
+            return DialogFramed(ftxui::vbox(std::move(rows)) | ftxui::yframe | ftxui::vscroll_indicator |
                                 ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height));
         }
 
@@ -2327,14 +2184,12 @@ namespace ql
                 ftxui::paragraph(state_->merge_name_taken
                                      ? "You already have a net named \"" + name +
                                            "\", so this file can't be added as a new net."
-                                     : "This file's net, \"" + name +
-                                           "\", looks like one you already have.") |
+                                     : "This file's net, \"" + name + "\", looks like one you already have.") |
                 ftxui::bold | ftxui::color(kColorLabel));
-            rows.push_back(
-                ftxui::paragraph("Merge adds the file's sessions and saved stations that the "
-                                 "highlighted net doesn't have yet, and shows what it will do "
-                                 "first.") |
-                ftxui::color(kColorHint));
+            rows.push_back(ftxui::paragraph("Merge adds the file's sessions and saved stations that the "
+                                            "highlighted net doesn't have yet, and shows what it will do "
+                                            "first.") |
+                           ftxui::color(kColorHint));
             std::vector<ftxui::Element> lines;
             for (const std::string& label : state_->merge_candidate_labels)
             {
@@ -2348,8 +2203,7 @@ namespace ql
             }
             else
             {
-                rows.push_back(
-                    KeyHintRow({{"F2/Enter", "Import New"}, {"F3", "Merge"}, {"Esc", "Cancel"}}));
+                rows.push_back(KeyHintRow({{"F2/Enter", "Import New"}, {"F3", "Merge"}, {"Esc", "Cancel"}}));
             }
             return rows;
         }
@@ -2375,11 +2229,9 @@ namespace ql
             ftxui::Elements rows;
             rows.push_back(Heading("Merge into " + state_->merge_target_name + "?"));
             rows.push_back(DialogSeparator());
-            rows.push_back(ftxui::paragraph(
-                               "Adds " + std::to_string(added) + " of the file's " +
-                               Plural(total, "session", "sessions") + " and " +
-                               Plural(plan.new_saved_stations, "saved station", "saved stations") +
-                               ".") |
+            rows.push_back(ftxui::paragraph("Adds " + std::to_string(added) + " of the file's " +
+                                            Plural(total, "session", "sessions") + " and " +
+                                            Plural(plan.new_saved_stations, "saved station", "saved stations") + ".") |
                            ftxui::bold | ftxui::color(kColorLabel));
             // A line each: the sessions already here, and the stations.
             std::string sessions_line;
@@ -2399,23 +2251,20 @@ namespace ql
                 sessions_line.push_back('.');
                 rows.push_back(ftxui::paragraph(sessions_line) | ftxui::color(kColorHint));
             }
-            rows.push_back(
-                ftxui::paragraph("Local stations keep their details and remarks; blanks are filled "
-                                 "in.") |
-                ftxui::color(kColorHint));
+            rows.push_back(ftxui::paragraph("Local stations keep their details and remarks; blanks are filled "
+                                            "in.") |
+                           ftxui::color(kColorHint));
 
-            int list_count = (state_->merge_conflicts.empty() ? 0 : 1) +
-                             (plan.station_conflicts.empty() ? 0 : 1);
+            int list_count = (state_->merge_conflicts.empty() ? 0 : 1) + (plan.station_conflicts.empty() ? 0 : 1);
             if (!state_->merge_conflicts.empty())
             {
-                rows.push_back(
-                    ftxui::paragraph(state_->merge_conflicts.size() == 1
-                                         ? "1 session differs. Keep yours, or Replace it with "
-                                           "the file's:"
-                                         : std::to_string(state_->merge_conflicts.size()) +
-                                               " sessions differ. Keep yours, or Replace them "
-                                               "with the file's:") |
-                    ftxui::color(kColorLabel));
+                rows.push_back(ftxui::paragraph(state_->merge_conflicts.size() == 1
+                                                    ? "1 session differs. Keep yours, or Replace it with "
+                                                      "the file's:"
+                                                    : std::to_string(state_->merge_conflicts.size()) +
+                                                          " sessions differ. Keep yours, or Replace them "
+                                                          "with the file's:") |
+                               ftxui::color(kColorLabel));
                 std::vector<ftxui::Element> lines;
                 // A row's room: the window less its border, the list's
                 // frame and the "> " marker.
@@ -2459,21 +2308,19 @@ namespace ql
                     }));
                     ++line_count;
                 }
-                rows.push_back(
-                    List(lines, state_->selected_merge_conflict, list_count, line_count));
+                rows.push_back(List(lines, state_->selected_merge_conflict, list_count, line_count));
             }
             // Then the stations whose details differ; one highlight moves
             // through both lists.
             if (!plan.station_conflicts.empty())
             {
-                rows.push_back(
-                    ftxui::paragraph(plan.station_conflicts.size() == 1
-                                         ? "1 station differs. Keep yours, or Replace it with the "
-                                           "file's:"
-                                         : std::to_string(plan.station_conflicts.size()) +
-                                               " stations differ. Keep yours, or Replace them with "
-                                               "the file's:") |
-                    ftxui::color(kColorLabel));
+                rows.push_back(ftxui::paragraph(plan.station_conflicts.size() == 1
+                                                    ? "1 station differs. Keep yours, or Replace it with the "
+                                                      "file's:"
+                                                    : std::to_string(plan.station_conflicts.size()) +
+                                                          " stations differ. Keep yours, or Replace them with "
+                                                          "the file's:") |
+                               ftxui::color(kColorLabel));
                 // Each station: Keep/Replace and its callsign, then a line
                 // for each detail that differs.
                 std::vector<ftxui::Element> lines;
@@ -2485,29 +2332,25 @@ namespace ql
                     station_lines.reserve(conflict.differences.size() + 1);
                     station_lines.push_back(ftxui::hbox({
                         ReplaceLabel(conflict.replace),
-                        ftxui::text("  " + conflict.file_station->callsign) |
-                            ftxui::color(kColorListRow),
+                        ftxui::text("  " + conflict.file_station->callsign) | ftxui::color(kColorListRow),
                     }));
                     for (const StationDetailDifference& difference : conflict.differences)
                     {
-                        station_lines.push_back(ftxui::text("         " +
-                                                            std::string(difference.field) + ": " +
-                                                            difference.here + " here, " +
-                                                            difference.file + " in file") |
+                        station_lines.push_back(ftxui::text("         " + std::string(difference.field) + ": " +
+                                                            difference.here + " here, " + difference.file +
+                                                            " in file") |
                                                 ftxui::color(kColorListRow));
                     }
                     line_count += static_cast<int>(station_lines.size());
                     lines.push_back(ftxui::vbox(std::move(station_lines)));
                 }
                 rows.push_back(List(lines,
-                                    state_->selected_merge_conflict -
-                                        static_cast<int>(state_->merge_conflicts.size()),
+                                    state_->selected_merge_conflict - static_cast<int>(state_->merge_conflicts.size()),
                                     list_count, line_count));
             }
             rows.push_back(DialogSeparator());
-            bool anything = added > 0 || plan.new_saved_stations > 0 ||
-                            !state_->merge_conflicts.empty() || plan.known_saved_stations > 0 ||
-                            !plan.station_conflicts.empty();
+            bool anything = added > 0 || plan.new_saved_stations > 0 || !state_->merge_conflicts.empty() ||
+                            plan.known_saved_stations > 0 || !plan.station_conflicts.empty();
             if (anything)
             {
                 rows.push_back(HintText("A merge can't be undone."));
@@ -2515,10 +2358,8 @@ namespace ql
                 // other keys rather than in each list's heading.
                 if (list_count > 0)
                 {
-                    rows.push_back(KeyHintRow({{"F2", "Merge"},
-                                               {"Up/Down", "Choose"},
-                                               {"Left/Right", "Keep/Replace"},
-                                               {"Esc", "Back"}}));
+                    rows.push_back(KeyHintRow(
+                        {{"F2", "Merge"}, {"Up/Down", "Choose"}, {"Left/Right", "Keep/Replace"}, {"Esc", "Back"}}));
                 }
                 else
                 {
@@ -2599,18 +2440,15 @@ namespace ql
         ftxui::MenuOption file_menu_option;
         file_menu_option.on_enter = ImportSelectedNetSliceHandler(state);
         file_menu_option.entries_option.transform = AlignedMenuEntryTransform;
-        ftxui::Component file_menu =
-            ClickableList(state, ftxui::Menu(&state->import_net_files,
-                                             &state->selected_import_file_index, file_menu_option));
+        ftxui::Component file_menu = ClickableList(
+            state, ftxui::Menu(&state->import_net_files, &state->selected_import_file_index, file_menu_option));
 
         ftxui::Component root = ftxui::Container::Vertical({file_menu});
         ftxui::Component main_view = ftxui::Renderer(root, ImportNetRenderer(state, file_menu));
-        ftxui::Component merge_modal =
-            ftxui::Renderer(ftxui::Container::Vertical({}), NetMergeModalRenderer(state));
-        ftxui::Component with_merge =
-            LayeredModal(main_view, merge_modal, &state->show_merge_modal);
-        return WithConfirmPrompt(state, LayeredModal(with_merge, BuildZmodemConfirmModal(state),
-                                                     &state->show_zmodem_confirm_modal));
+        ftxui::Component merge_modal = ftxui::Renderer(ftxui::Container::Vertical({}), NetMergeModalRenderer(state));
+        ftxui::Component with_merge = LayeredModal(main_view, merge_modal, &state->show_merge_modal);
+        return WithConfirmPrompt(
+            state, LayeredModal(with_merge, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal));
     }
 
     // ---- Manage users page --------------------------------------------------
@@ -2624,9 +2462,8 @@ namespace ql
     class ManageUsersRenderer
     {
     public:
-        ManageUsersRenderer(AppState* state, ftxui::Component user_menu,
-                            ftxui::Component input_username, ftxui::Component input_public_key,
-                            ftxui::Component access_toggle)
+        ManageUsersRenderer(AppState* state, ftxui::Component user_menu, ftxui::Component input_username,
+                            ftxui::Component input_public_key, ftxui::Component access_toggle)
             : state_(state),
               user_menu_(std::move(user_menu)),
               input_username_(std::move(input_username)),
@@ -2641,8 +2478,7 @@ namespace ql
                 state_->manage_users.empty()
                     ? HintText("No SSH users yet.")
                     : ftxui::vbox({
-                          PickableColumnHeader(state_, PickList::kUsers,
-                                               UserListHeader(state_->list_width)),
+                          PickableColumnHeader(state_, PickList::kUsers, UserListHeader(state_->list_width)),
                           PickableRows(state_, PickList::kUsers, state_->manage_users_labels,
                                        state_->selected_user_index, user_menu_) |
                               ftxui::yframe | ftxui::vscroll_indicator,
@@ -2692,9 +2528,8 @@ namespace ql
     class UserKeysModalRenderer
     {
     public:
-        UserKeysModalRenderer(AppState* state, ftxui::Component input_username,
-                              ftxui::Component access_toggle, ftxui::Component key_menu,
-                              ftxui::Component input_key)
+        UserKeysModalRenderer(AppState* state, ftxui::Component input_username, ftxui::Component access_toggle,
+                              ftxui::Component key_menu, ftxui::Component input_key)
             : state_(state),
               input_username_(std::move(input_username)),
               access_toggle_(std::move(access_toggle)),
@@ -2716,12 +2551,10 @@ namespace ql
             rows.push_back(DialogSeparator());
             rows.push_back(Heading("Keys:"));
             rows.push_back(Framed(ftxui::vbox({
-                PickableColumnHeader(state_, PickList::kUserKeys,
-                                     UserKeyListHeader(state_->list_width)),
-                PickableRows(state_, PickList::kUserKeys, state_->user_keys_labels,
-                             state_->selected_user_key_index, key_menu_) |
-                    ftxui::yframe | ftxui::vscroll_indicator |
-                    ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, 8),
+                PickableColumnHeader(state_, PickList::kUserKeys, UserKeyListHeader(state_->list_width)),
+                PickableRows(state_, PickList::kUserKeys, state_->user_keys_labels, state_->selected_user_key_index,
+                             key_menu_) |
+                    ftxui::yframe | ftxui::vscroll_indicator | ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, 8),
             })));
             rows.push_back(PickPrompt(state_, PickList::kUserKeys));
             rows.push_back(ftxui::hbox({FieldLabel("Add a key:  "), input_key_->Render()}));
@@ -2732,8 +2565,8 @@ namespace ql
             }
             else
             {
-                rows.push_back(KeyHintRow(
-                    {{"F2", "Save"}, {"F3", "Remove Key"}, {"F4", "Add Key"}, {"Esc", "Cancel"}}));
+                rows.push_back(
+                    KeyHintRow({{"F2", "Save"}, {"F3", "Remove Key"}, {"F4", "Add Key"}, {"Esc", "Cancel"}}));
             }
             rows.push_back(StatusLine(state_->status_message));
             rows.push_back(ErrorLine(state_->form_error));
@@ -2753,54 +2586,47 @@ namespace ql
         ftxui::MenuOption user_menu_option;
         user_menu_option.on_enter = ShowUserKeysHandler(state);
         user_menu_option.entries_option.transform = AlignedMenuEntryTransform;
-        ftxui::Component user_menu =
-            ClickableList(state, ftxui::Menu(&state->manage_users_labels,
-                                             &state->selected_user_index, user_menu_option));
+        ftxui::Component user_menu = ClickableList(
+            state, ftxui::Menu(&state->manage_users_labels, &state->selected_user_index, user_menu_option));
         ftxui::InputOption username_option = SingleLineInputOption();
         username_option.on_change = UppercaseFieldHandler(&state->new_user_username);
-        ftxui::Component input_username =
-            ftxui::Input(&state->new_user_username, "Their call sign", username_option);
-        ftxui::Component input_public_key = ftxui::Input(
-            &state->new_user_public_key, "ssh-ed25519 AAAA... comment", SingleLineInputOption());
+        ftxui::Component input_username = ftxui::Input(&state->new_user_username, "Their call sign", username_option);
+        ftxui::Component input_public_key =
+            ftxui::Input(&state->new_user_public_key, "ssh-ed25519 AAAA... comment", SingleLineInputOption());
 
         ftxui::MenuOption access_option = ftxui::MenuOption::Toggle();
         access_option.entries_option.transform = ToggleEntryTransform;
         access_option.elements_infix = ToggleGap;
         access_option.focused_entry = &state->new_user_access_index;
-        ftxui::Component access_toggle = std::make_shared<IgnoreTab>(ftxui::Menu(
-            &state->new_user_access_labels, &state->new_user_access_index, access_option));
+        ftxui::Component access_toggle = std::make_shared<IgnoreTab>(
+            ftxui::Menu(&state->new_user_access_labels, &state->new_user_access_index, access_option));
 
-        ftxui::Component root = ftxui::Container::Vertical(
-            {user_menu, input_username, input_public_key, access_toggle});
+        ftxui::Component root =
+            ftxui::Container::Vertical({user_menu, input_username, input_public_key, access_toggle});
         ftxui::Component main_view = ftxui::Renderer(
-            root,
-            ManageUsersRenderer(state, user_menu, input_username, input_public_key, access_toggle));
+            root, ManageUsersRenderer(state, user_menu, input_username, input_public_key, access_toggle));
 
         ftxui::InputOption rename_option = SingleLineInputOption();
         rename_option.on_change = UppercaseFieldHandler(&state->rename_username);
-        ftxui::Component input_rename =
-            ftxui::Input(&state->rename_username, "Their call sign", rename_option);
+        ftxui::Component input_rename = ftxui::Input(&state->rename_username, "Their call sign", rename_option);
         ftxui::MenuOption edit_access_option = ftxui::MenuOption::Toggle();
         edit_access_option.entries_option.transform = ToggleEntryTransform;
         edit_access_option.elements_infix = ToggleGap;
         edit_access_option.focused_entry = &state->edit_user_access_index;
-        ftxui::Component edit_access_toggle = std::make_shared<IgnoreTab>(ftxui::Menu(
-            &state->new_user_access_labels, &state->edit_user_access_index, edit_access_option));
+        ftxui::Component edit_access_toggle = std::make_shared<IgnoreTab>(
+            ftxui::Menu(&state->new_user_access_labels, &state->edit_user_access_index, edit_access_option));
         ftxui::MenuOption key_menu_option;
         key_menu_option.entries_option.transform = AlignedMenuEntryTransform;
-        ftxui::Component key_menu =
-            ClickableList(state, ftxui::Menu(&state->user_keys_labels,
-                                             &state->selected_user_key_index, key_menu_option));
+        ftxui::Component key_menu = ClickableList(
+            state, ftxui::Menu(&state->user_keys_labels, &state->selected_user_key_index, key_menu_option));
         ftxui::InputOption key_option = SingleLineInputOption();
         key_option.on_enter = AddUserKeyHandler(state);
-        ftxui::Component input_key =
-            ftxui::Input(&state->new_key_text, "ssh-ed25519 AAAA... comment", key_option);
-        ftxui::Component keys_modal = ftxui::Renderer(
-            ftxui::Container::Vertical({input_rename, edit_access_toggle, key_menu, input_key}),
-            UserKeysModalRenderer(state, input_rename, edit_access_toggle, key_menu, input_key));
+        ftxui::Component input_key = ftxui::Input(&state->new_key_text, "ssh-ed25519 AAAA... comment", key_option);
+        ftxui::Component keys_modal =
+            ftxui::Renderer(ftxui::Container::Vertical({input_rename, edit_access_toggle, key_menu, input_key}),
+                            UserKeysModalRenderer(state, input_rename, edit_access_toggle, key_menu, input_key));
 
-        return WithRowDeleteConfirm(
-            state, LayeredModal(main_view, keys_modal, &state->show_user_keys_modal));
+        return WithRowDeleteConfirm(state, LayeredModal(main_view, keys_modal, &state->show_user_keys_modal));
     }
 
     // ---- Help and the seldom-used windows (see InfoWindow) -------------------
@@ -2815,8 +2641,8 @@ namespace ql
         const std::size_t kLabelWidth = 16;
         if (line.size() <= kLabelWidth)
         {
-            return ftxui::hbox({ftxui::text(line) | ftxui::color(kColorLabel),
-                                ftxui::text("(none)") | ftxui::color(kColorHint)});
+            return ftxui::hbox(
+                {ftxui::text(line) | ftxui::color(kColorLabel), ftxui::text("(none)") | ftxui::color(kColorHint)});
         }
         std::string value = line.substr(kLabelWidth);
         bool placeholder = value[0] == '(' || value == "none yet" || value == "no nets";
@@ -2860,8 +2686,7 @@ namespace ql
                 {
                     bool marked = static_cast<int>(i) == state_->info_selected;
                     ftxui::Element line =
-                        ftxui::text((marked ? "> " : "  ") + state_->info_rows[i]) |
-                        ftxui::color(kColorListRow);
+                        ftxui::text((marked ? "> " : "  ") + state_->info_rows[i]) | ftxui::color(kColorListRow);
                     lines.push_back(marked ? line | ftxui::focus : line);
                 }
                 // As tall as the screen allows -- counting the lines the
@@ -2875,8 +2700,7 @@ namespace ql
                     int length = TextWidth(line);
                     summary_lines += std::max(1, (length + text_width - 1) / text_width);
                 }
-                int other_rows =
-                    9 + summary_lines + (state_->info_window == InfoWindow::kStationSearch ? 1 : 0);
+                int other_rows = 9 + summary_lines + (state_->info_window == InfoWindow::kStationSearch ? 1 : 0);
                 int room = std::max(3, screen_height - other_rows);
                 int height = std::min(static_cast<int>(lines.size()), room);
                 rows.push_back(DialogFramed(ftxui::vbox({
@@ -2891,15 +2715,13 @@ namespace ql
             {
                 keys.push_back({"Up/Down", "Scroll"});
             }
-            if (state_->info_window == InfoWindow::kRegulars && !state_->info_rows.empty() &&
-                !state_->viewing_only)
+            if (state_->info_window == InfoWindow::kRegulars && !state_->info_rows.empty() && !state_->viewing_only)
             {
                 keys.push_back({"Enter", "Check In"});
             }
             keys.push_back({"Esc", "Close"});
             rows.push_back(KeyHintRow(keys));
-            return ftxui::vbox(std::move(rows)) |
-                   ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, screen_width - 4) |
+            return ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, screen_width - 4) |
                    ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder);
         }
 
@@ -2913,10 +2735,8 @@ namespace ql
         // Only drawn (and only given keys) in the Find a Station window.
         ftxui::InputOption query_option = SingleLineInputOption();
         query_option.on_change = InfoQueryChangeHandler(state);
-        ftxui::Component query_input =
-            ftxui::Input(&state->info_query, "Part of a callsign", query_option);
-        return ftxui::Renderer(ftxui::Container::Vertical({query_input}),
-                               InfoWindowRenderer(state, query_input));
+        ftxui::Component query_input = ftxui::Input(&state->info_query, "Part of a callsign", query_option);
+        return ftxui::Renderer(ftxui::Container::Vertical({query_input}), InfoWindowRenderer(state, query_input));
     }
 
 }  // namespace ql

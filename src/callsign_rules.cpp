@@ -236,8 +236,7 @@ namespace ql
             return (IsBaseCallsign(pieces[0]) && IsTrailingIndicator(pieces[1])) ||
                    (IsLocationPrefix(pieces[0]) && IsBaseCallsign(pieces[1]));
         }
-        return IsLocationPrefix(pieces[0]) && IsBaseCallsign(pieces[1]) &&
-               IsTrailingIndicator(pieces[2]);
+        return IsLocationPrefix(pieces[0]) && IsBaseCallsign(pieces[1]) && IsTrailingIndicator(pieces[2]);
     }
 
     std::string BaseCallsign(const std::string& callsign)

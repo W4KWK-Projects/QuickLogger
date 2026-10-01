@@ -28,8 +28,7 @@ namespace ql
     // within `radius_miles` of (origin_lat, origin_lon). Used to find nearby
     // stations whose own ZIP has no centroid on file (e.g. a PO Box ZIP) --
     // see Database::SearchNearbyUlsStations.
-    std::vector<std::string> NearbyZip3Prefixes(double origin_lat, double origin_lon,
-                                                double radius_miles,
+    std::vector<std::string> NearbyZip3Prefixes(double origin_lat, double origin_lon, double radius_miles,
                                                 const std::vector<ZipCentroid>& centroids);
 
 }  // namespace ql

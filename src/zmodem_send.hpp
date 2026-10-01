@@ -63,7 +63,6 @@ namespace ql
     // then restores the screen. Blocks the calling thread the same way
     // SendFilesViaZmodem does. Returns true if `rz` exited zero; on failure
     // or timeout, `error` is set to a short message.
-    bool ReceiveFileViaZmodem(ftxui::ScreenInteractive* screen, const std::string& dest_dir,
-                              std::string* error);
+    bool ReceiveFileViaZmodem(ftxui::ScreenInteractive* screen, const std::string& dest_dir, std::string* error);
 
 }  // namespace ql

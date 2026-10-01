@@ -98,8 +98,7 @@ namespace ql
 
     // Reads a .qlsession file; like ReadNetSliceFile, but refuses a file
     // that doesn't hold exactly one session.
-    std::optional<NetSlice> ReadSessionSliceFile(const std::string& source_path,
-                                                 std::string* error);
+    std::optional<NetSlice> ReadSessionSliceFile(const std::string& source_path, std::string* error);
 
     // Adds the one session in `slice` to net `net_id` as a new session, with
     // its check-ins. Each of its stations is saved to the net as logging
@@ -109,8 +108,7 @@ namespace ql
     // `error` set) if the net already has a session on the same date with
     // the same start time -- most likely this one, imported before.
     // Otherwise returns the new session's id.
-    std::int64_t ApplySessionSlice(Database* db, const NetSlice& slice, std::int64_t net_id,
-                                   std::string* error);
+    std::int64_t ApplySessionSlice(Database* db, const NetSlice& slice, std::int64_t net_id, std::string* error);
 
     // ---- Merging a .qlnet into a net that's already here -------------------
     //
@@ -190,8 +188,8 @@ namespace ql
     // closed without a recorded time), starts within 30 minutes of each
     // other. Without a start time on either, the same date and the same
     // check-ins (see SameCheckIns).
-    bool SameSession(const NetInstance& a, const std::vector<CheckIn>& a_check_ins,
-                     const NetInstance& b, const std::vector<CheckIn>& b_check_ins);
+    bool SameSession(const NetInstance& a, const std::vector<CheckIn>& a_check_ins, const NetInstance& b,
+                     const std::vector<CheckIn>& b_check_ins);
 
     // The same callsigns, signal reports, remarks, comments and roles, in
     // any order (numbers and times aside).

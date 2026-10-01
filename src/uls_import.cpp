@@ -116,8 +116,7 @@ namespace ql
     // no per-field allocation, and `fields` is reused from call to call, so
     // parsing millions of lines costs no allocations after the first. The
     // views are only valid while `line` is unchanged.
-    static void SplitFields(std::string_view line, char separator,
-                            std::vector<std::string_view>* fields)
+    static void SplitFields(std::string_view line, char separator, std::vector<std::string_view>* fields)
     {
         fields->clear();
         std::string_view::size_type start = 0;
@@ -134,8 +133,7 @@ namespace ql
         }
     }
 
-    static std::string_view FieldOrEmpty(const std::vector<std::string_view>& fields,
-                                         std::size_t index)
+    static std::string_view FieldOrEmpty(const std::vector<std::string_view>& fields, std::size_t index)
     {
         return index < fields.size() ? fields[index] : std::string_view();
     }
@@ -237,9 +235,7 @@ namespace ql
     class ProgressReporter
     {
     public:
-        ProgressReporter(Database* db, bool (*should_stop)()) : db_(db), should_stop_(should_stop)
-        {
-        }
+        ProgressReporter(Database* db, bool (*should_stop)()) : db_(db), should_stop_(should_stop) {}
 
         void BeginStep(const std::string& phase, int base, int span)
         {
@@ -296,8 +292,8 @@ namespace ql
 
     // Reports download progress, and aborts the transfer (non-zero return)
     // once a stop has been requested.
-    static int CurlProgressCallback(void* userdata, curl_off_t dltotal, curl_off_t dlnow,
-                                    curl_off_t /*ultotal*/, curl_off_t /*ulnow*/)
+    static int CurlProgressCallback(void* userdata, curl_off_t dltotal, curl_off_t dlnow, curl_off_t /*ultotal*/,
+                                    curl_off_t /*ulnow*/)
     {
         ProgressReporter* reporter = static_cast<ProgressReporter*>(userdata);
         if (dltotal > 0)
@@ -307,8 +303,8 @@ namespace ql
         return reporter->StopRequested() ? 1 : 0;
     }
 
-    static bool DownloadFile(const std::string& url, const std::string& dest_path,
-                             long timeout_seconds, ProgressReporter* reporter, std::string* error)
+    static bool DownloadFile(const std::string& url, const std::string& dest_path, long timeout_seconds,
+                             ProgressReporter* reporter, std::string* error)
     {
         std::FILE* file = std::fopen(dest_path.c_str(), "wb");
         if (file == nullptr)
@@ -351,8 +347,7 @@ namespace ql
 
     // ---- FCC ULS license data ----------------------------------------------
 
-    static bool ExtractUlsZip(const std::string& cache_dir, const std::string& zip_path,
-                              std::string* error)
+    static bool ExtractUlsZip(const std::string& cache_dir, const std::string& zip_path, std::string* error)
     {
         if (!ExtractZipEntries(zip_path, cache_dir, {"HD.dat", "EN.dat", "AM.dat"}, error))
         {
@@ -368,8 +363,8 @@ namespace ql
     // the current step. Returns false if the file can't be read or a stop
     // was requested.
     template <typename Handler>
-    static bool ForEachUlsRecord(const std::string& path, ProgressReporter* reporter,
-                                 double fraction_base, double fraction_span, Handler* handler)
+    static bool ForEachUlsRecord(const std::string& path, ProgressReporter* reporter, double fraction_base,
+                                 double fraction_span, Handler* handler)
     {
         std::ifstream file(path, std::ios::binary);
         if (!file.good())
@@ -393,9 +388,7 @@ namespace ql
                 std::streamoff position = file.tellg();
                 if (total_bytes > 0.0 && position > 0)
                 {
-                    reporter->Report(
-                        fraction_base + fraction_span * static_cast<double>(position) / total_bytes,
-                        0);
+                    reporter->Report(fraction_base + fraction_span * static_cast<double>(position) / total_bytes, 0);
                 }
             }
         }
@@ -466,8 +459,8 @@ namespace ql
         // The record with FCC id `id`, or nullptr if it isn't an active one.
         UlsRecord* Find(std::uint32_t id)
         {
-            std::vector<std::pair<std::uint32_t, std::uint32_t>>::iterator it = std::lower_bound(
-                ids.begin(), ids.end(), std::pair<std::uint32_t, std::uint32_t>(id, 0));
+            std::vector<std::pair<std::uint32_t, std::uint32_t>>::iterator it =
+                std::lower_bound(ids.begin(), ids.end(), std::pair<std::uint32_t, std::uint32_t>(id, 0));
             if (it == ids.end() || it->first != id)
             {
                 return nullptr;
@@ -483,8 +476,8 @@ namespace ql
 
         void HandleLine(const std::vector<std::string_view>& fields)
         {
-            if (fields.size() <= kHdLicenseStatus || fields[0] != "HD" ||
-                fields[kHdLicenseStatus] != "A" || fields[kHdCallSign].empty())
+            if (fields.size() <= kHdLicenseStatus || fields[0] != "HD" || fields[kHdLicenseStatus] != "A" ||
+                fields[kHdCallSign].empty())
             {
                 return;
             }
@@ -513,8 +506,7 @@ namespace ql
             {
                 return;
             }
-            UlsRecord* record =
-                licenses_->Find(ParseRecordId(FieldOrEmpty(fields, kEnUniqueSystemId)));
+            UlsRecord* record = licenses_->Find(ParseRecordId(FieldOrEmpty(fields, kEnUniqueSystemId)));
             if (record == nullptr)
             {
                 return;
@@ -541,8 +533,7 @@ namespace ql
             {
                 return;
             }
-            UlsRecord* record =
-                licenses_->Find(ParseRecordId(FieldOrEmpty(fields, kAmUniqueSystemId)));
+            UlsRecord* record = licenses_->Find(ParseRecordId(FieldOrEmpty(fields, kAmUniqueSystemId)));
             if (record == nullptr)
             {
                 return;
@@ -554,9 +545,8 @@ namespace ql
         UlsLicenses* licenses_;
     };
 
-    static bool ParseAndImport(const std::string& cache_dir, Database* db,
-                               ProgressReporter* reporter, std::int64_t* out_records,
-                               std::string* error)
+    static bool ParseAndImport(const std::string& cache_dir, Database* db, ProgressReporter* reporter,
+                               std::int64_t* out_records, std::string* error)
     {
         UlsLicenses licenses;
         licenses.records.reserve(900000);
@@ -633,8 +623,7 @@ namespace ql
     }
 
     static bool LoadUls(const DataSources& sources, const std::string& cache_dir, Database* db,
-                        ProgressReporter* reporter, int base, int span, std::int64_t* out_records,
-                        std::string* error)
+                        ProgressReporter* reporter, int base, int span, std::int64_t* out_records, std::string* error)
     {
         // Download ~60% of this step's time, extraction ~5%, parsing the
         // rest -- roughly how long each takes on a typical connection.
@@ -740,23 +729,18 @@ namespace ql
             // "Surname, First", as the FCC data has names.
             std::string surname(FieldOrEmpty(fields, kIsedSurname));
             std::string first(FieldOrEmpty(fields, kIsedFirstName));
-            station->name =
-                surname.empty() || first.empty() ? surname + first : surname + ", " + first;
+            station->name = surname.empty() || first.empty() ? surname + first : surname + ", " + first;
         }
         bool club_address = !club.empty() && !FieldOrEmpty(fields, kIsedClubCity).empty();
-        station->street_address =
-            std::string(FieldOrEmpty(fields, club_address ? kIsedClubAddress : kIsedAddress));
+        station->street_address = std::string(FieldOrEmpty(fields, club_address ? kIsedClubAddress : kIsedAddress));
         station->city = std::string(FieldOrEmpty(fields, club_address ? kIsedClubCity : kIsedCity));
-        station->state =
-            std::string(FieldOrEmpty(fields, club_address ? kIsedClubProvince : kIsedProvince));
-        station->zip = FormatPostalCode(
-            FieldOrEmpty(fields, club_address ? kIsedClubPostalCode : kIsedPostalCode));
+        station->state = std::string(FieldOrEmpty(fields, club_address ? kIsedClubProvince : kIsedProvince));
+        station->zip = FormatPostalCode(FieldOrEmpty(fields, club_address ? kIsedClubPostalCode : kIsedPostalCode));
         return true;
     }
 
     static bool LoadIsed(const DataSources& sources, const std::string& cache_dir, Database* db,
-                         ProgressReporter* reporter, int base, int span, std::int64_t* out_records,
-                         std::string* error)
+                         ProgressReporter* reporter, int base, int span, std::int64_t* out_records, std::string* error)
     {
         std::string zip_path = cache_dir + "/amateur_delim.zip";
         reporter->BeginStep("Downloading Canadian call sign data", base, span / 2);
@@ -809,9 +793,8 @@ namespace ql
 
     // ---- ZIP centroids -----------------------------------------------------
 
-    static bool FetchAndLoadZipCentroids(const DataSources& sources, const std::string& cache_dir,
-                                         Database* db, ProgressReporter* reporter,
-                                         std::string* error)
+    static bool FetchAndLoadZipCentroids(const DataSources& sources, const std::string& cache_dir, Database* db,
+                                         ProgressReporter* reporter, std::string* error)
     {
         std::string zip_path = cache_dir + "/zip_gazetteer.zip";
         if (!DownloadFile(sources.zip_gazetteer_url, zip_path, 300L, reporter, error))
@@ -829,8 +812,7 @@ namespace ql
         std::ifstream file(txt_path);
         if (!file.good())
         {
-            *error =
-                "Extraction did not produce " + std::string(sources.zip_gazetteer_file_name) + ".";
+            *error = "Extraction did not produce " + std::string(sources.zip_gazetteer_file_name) + ".";
             return false;
         }
 
@@ -878,8 +860,7 @@ namespace ql
     static std::string StripCountySuffix(const std::string& county)
     {
         const std::string suffix = " County";
-        if (county.size() > suffix.size() &&
-            county.compare(county.size() - suffix.size(), suffix.size(), suffix) == 0)
+        if (county.size() > suffix.size() && county.compare(county.size() - suffix.size(), suffix.size(), suffix) == 0)
         {
             return county.substr(0, county.size() - suffix.size());
         }
@@ -905,8 +886,8 @@ namespace ql
     // name a station would give as its city ("District 6" -> "DISTRICT").
     static bool IsGenericPlaceWord(const std::string& name)
     {
-        return name.empty() || name == "DISTRICT" || name == "PRECINCT" || name == "WARD" ||
-               name == "BEAT" || name == "ELECTION DISTRICT";
+        return name.empty() || name == "DISTRICT" || name == "PRECINCT" || name == "WARD" || name == "BEAT" ||
+               name == "ELECTION DISTRICT";
     }
 
     // The forms a Census county-subdivision name might take as a mailing
@@ -928,8 +909,7 @@ namespace ql
         {
             std::string two_word_suffix(suffix);
             if (full.size() > two_word_suffix.size() &&
-                full.compare(full.size() - two_word_suffix.size(), two_word_suffix.size(),
-                             two_word_suffix) == 0)
+                full.compare(full.size() - two_word_suffix.size(), two_word_suffix.size(), two_word_suffix) == 0)
             {
                 variants.push_back(full.substr(0, full.size() - two_word_suffix.size()));
                 return variants;
@@ -968,9 +948,8 @@ namespace ql
     //     more than one county within the ZIP (a town split by the line
     //     itself, like Bethlehem, PA), the county with more of that town's
     //     land in the ZIP wins.
-    static bool FetchAndLoadZipCounties(const DataSources& sources, const std::string& cache_dir,
-                                        Database* db, ProgressReporter* reporter, int base,
-                                        int span, std::string* error)
+    static bool FetchAndLoadZipCounties(const DataSources& sources, const std::string& cache_dir, Database* db,
+                                        ProgressReporter* reporter, int base, int span, std::string* error)
     {
         // The three downloads (about 6, 7 and 16 MB) get a third of the
         // step's progress each.
@@ -983,15 +962,12 @@ namespace ql
             return false;
         }
         reporter->BeginStep("Downloading county data", base + span / 3, span / 3);
-        if (!DownloadFile(sources.zcta_county_population_url, population_path, 300L, reporter,
-                          error))
+        if (!DownloadFile(sources.zcta_county_population_url, population_path, 300L, reporter, error))
         {
             return false;
         }
-        reporter->BeginStep("Downloading county data", base + 2 * (span / 3),
-                            span - 2 * (span / 3));
-        if (!DownloadFile(sources.zcta_county_subdivision_url, subdivision_path, 300L, reporter,
-                          error))
+        reporter->BeginStep("Downloading county data", base + 2 * (span / 3), span - 2 * (span / 3));
+        if (!DownloadFile(sources.zcta_county_subdivision_url, subdivision_path, 300L, reporter, error))
         {
             return false;
         }
@@ -1065,8 +1041,8 @@ namespace ql
 
             // Population shares, if the 2010 figures cover this ZIP's 2020
             // counties (most of its people accounted for); land otherwise.
-            std::unordered_map<std::string, std::unordered_map<std::string, double>>::const_iterator
-                population_it = population_share.find(entry.first);
+            std::unordered_map<std::string, std::unordered_map<std::string, double>>::const_iterator population_it =
+                population_share.find(entry.first);
             double population_covered = 0.0;
             if (population_it != population_share.end())
             {
@@ -1091,13 +1067,12 @@ namespace ql
                 {
                     std::unordered_map<std::string, double>::const_iterator county_it =
                         population_it->second.find(share.county_geoid);
-                    share.share =
-                        county_it != population_it->second.end() ? county_it->second : 0.0;
+                    share.share = county_it != population_it->second.end() ? county_it->second : 0.0;
                 }
                 else
                 {
-                    share.share = total_land > 0.0 ? share.land_area / total_land
-                                                   : 1.0 / static_cast<double>(shares.size());
+                    share.share =
+                        total_land > 0.0 ? share.land_area / total_land : 1.0 / static_cast<double>(shares.size());
                 }
             }
 
@@ -1136,8 +1111,7 @@ namespace ql
             while (std::getline(file, line))
             {
                 SplitFields(line, '|', &fields);
-                if (fields.size() < 17 || fields[9].size() < 5 ||
-                    straddling_zips.count(std::string(fields[1])) == 0)
+                if (fields.size() < 17 || fields[9].size() < 5 || straddling_zips.count(std::string(fields[1])) == 0)
                 {
                     continue;
                 }
@@ -1187,13 +1161,11 @@ namespace ql
     // The FCC or ISED license data (`status`) is due: never loaded; failed
     // (and due a retry); a "running" row left behind by an older version of
     // the app, which ran imports inside a session; or a week old.
-    static bool IsLicenseDataDue(const std::optional<ImportRunStatus>& status, std::int64_t now,
-                                 bool requested)
+    static bool IsLicenseDataDue(const std::optional<ImportRunStatus>& status, std::int64_t now, bool requested)
     {
         if (!status.has_value() || status->status != "complete")
         {
-            return !status.has_value() || status->status != "failed" ||
-                   IsRetryDue(*status, now, requested);
+            return !status.has_value() || status->status != "failed" || IsRetryDue(*status, now, requested);
         }
         return requested || now - status->completed_at > kUlsStalenessThresholdSeconds;
     }
@@ -1211,15 +1183,15 @@ namespace ql
         if (!db->HasAnyZipCentroids())
         {
             std::optional<ImportRunStatus> centroids = db->GetImportRunStatus(kZipCentroidsDataset);
-            plan.zip_centroids = !centroids.has_value() || centroids->status != "failed" ||
-                                 IsRetryDue(*centroids, now, requested);
+            plan.zip_centroids =
+                !centroids.has_value() || centroids->status != "failed" || IsRetryDue(*centroids, now, requested);
         }
 
         std::optional<ImportRunStatus> counties = db->GetImportRunStatus(kZipCountyDataset);
         if (!counties.has_value() || counties->status != "complete")
         {
-            plan.zip_counties = !counties.has_value() || counties->status != "failed" ||
-                                IsRetryDue(*counties, now, requested);
+            plan.zip_counties =
+                !counties.has_value() || counties->status != "failed" || IsRetryDue(*counties, now, requested);
         }
         return plan;
     }
@@ -1232,9 +1204,8 @@ namespace ql
     // Records one dataset's outcome. A failure keeps the figures from the
     // last good load (completed_at, records) so "last updated" stays true,
     // and stamps started_at with this attempt for the retry timer.
-    static void RecordDatasetOutcome(Database* db, const std::string& dataset, bool ok,
-                                     std::int64_t started_at, std::int64_t records,
-                                     const std::string& error)
+    static void RecordDatasetOutcome(Database* db, const std::string& dataset, bool ok, std::int64_t started_at,
+                                     std::int64_t records, const std::string& error)
     {
         ImportRunStatus status;
         std::optional<ImportRunStatus> previous = db->GetImportRunStatus(dataset);
@@ -1262,9 +1233,8 @@ namespace ql
         db->UpsertImportRunStatus(status);
     }
 
-    std::string RunDataRefresh(Database* db, const std::string& db_path,
-                               const DataRefreshPlan& plan, bool (*should_stop)(),
-                               const DataSources& sources)
+    std::string RunDataRefresh(Database* db, const std::string& db_path, const DataRefreshPlan& plan,
+                               bool (*should_stop)(), const DataSources& sources)
     {
         std::string cache_dir = UlsCacheDir(db_path);
         EnsureDirectory(cache_dir);
@@ -1337,8 +1307,7 @@ namespace ql
             int span = 100 - base;
             std::int64_t started_at = Now();
             std::string error;
-            bool ok =
-                FetchAndLoadZipCounties(sources, cache_dir, db, &reporter, base, span, &error);
+            bool ok = FetchAndLoadZipCounties(sources, cache_dir, db, &reporter, base, span, &error);
             if (reporter.StopRequested())
             {
                 return "interrupted";
@@ -1356,8 +1325,7 @@ namespace ql
     static std::optional<ImportRunStatus> RunningJob(Database* db, std::int64_t now)
     {
         std::optional<ImportRunStatus> job = db->GetImportRunStatus(kDataRefreshJob);
-        if (job.has_value() && job->status == "running" &&
-            now - job->heartbeat_at <= kJobStaleAfterSeconds)
+        if (job.has_value() && job->status == "running" && now - job->heartbeat_at <= kJobStaleAfterSeconds)
         {
             return job;
         }
@@ -1382,8 +1350,7 @@ namespace ql
         std::optional<ImportRunStatus> job = RunningJob(db, now);
         if (job.has_value())
         {
-            message =
-                "Updating station data: " + job->phase + ", " + RoundedPercent(job->percent) + ". ";
+            message = "Updating station data: " + job->phase + ", " + RoundedPercent(job->percent) + ". ";
         }
 
         std::optional<ImportRunStatus> uls = db->GetImportRunStatus(kUlsDataset);
@@ -1398,8 +1365,8 @@ namespace ql
         }
         if (uls.has_value() && uls->status == "failed")
         {
-            message += " Last attempt (" + FormatLocalDateTime(uls->started_at) +
-                       ") failed: " + uls->last_error + " It will be retried automatically.";
+            message += " Last attempt (" + FormatLocalDateTime(uls->started_at) + ") failed: " + uls->last_error +
+                       " It will be retried automatically.";
         }
 
         // The Canadian (ISED) data's status starts a line of its own.
@@ -1407,8 +1374,7 @@ namespace ql
         std::string ised_message;
         if (UlsDataLoaded(ised))
         {
-            ised_message = "Canadian (ISED) call sign data updated " +
-                           FormatLocalDateTime(ised->completed_at) + " (" +
+            ised_message = "Canadian (ISED) call sign data updated " + FormatLocalDateTime(ised->completed_at) + " (" +
                            std::to_string(ised->records_imported) + " records).";
         }
         if (ised.has_value() && ised->status == "failed")
@@ -1417,8 +1383,8 @@ namespace ql
             {
                 ised_message += " ";
             }
-            ised_message += "Canadian call sign data failed to load (" + ised->last_error +
-                            "); it will be retried automatically.";
+            ised_message +=
+                "Canadian call sign data failed to load (" + ised->last_error + "); it will be retried automatically.";
         }
         if (!ised_message.empty())
         {
@@ -1453,8 +1419,7 @@ namespace ql
         std::optional<ImportRunStatus> job = RunningJob(db, now);
         if (job.has_value())
         {
-            return std::string(loaded ? "Updating" : "Loading") + " station data " +
-                   RoundedPercent(job->percent);
+            return std::string(loaded ? "Updating" : "Loading") + " station data " + RoundedPercent(job->percent);
         }
         if (loaded)
         {

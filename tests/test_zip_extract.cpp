@@ -26,12 +26,10 @@ namespace ql
     {
         TempDir dir;
         std::string big = LargeText();
-        WriteZipFile(
-            dir.File("a.zip"),
-            {{"HD.dat", big, true}, {"EN.dat", "EN|1|name\n", false}, {"empty.txt", "", true}});
+        WriteZipFile(dir.File("a.zip"),
+                     {{"HD.dat", big, true}, {"EN.dat", "EN|1|name\n", false}, {"empty.txt", "", true}});
         std::string error;
-        REQUIRE(ExtractZipEntries(dir.File("a.zip"), dir.path(), {"HD.dat", "EN.dat", "empty.txt"},
-                                  &error));
+        REQUIRE(ExtractZipEntries(dir.File("a.zip"), dir.path(), {"HD.dat", "EN.dat", "empty.txt"}, &error));
         CHECK_EQ(ReadTextFile(dir.File("HD.dat")), big);
         CHECK_EQ(ReadTextFile(dir.File("EN.dat")), std::string("EN|1|name\n"));
         CHECK_EQ(ReadTextFile(dir.File("empty.txt")), std::string(""));
@@ -52,11 +50,9 @@ namespace ql
         TempDir dir;
         // Like `unzip -j`: a nested path lands in the destination by its base
         // name -- which also stops "../" from escaping the destination.
-        WriteZipFile(dir.File("a.zip"),
-                     {{"../../escape.txt", "x", true}, {"some/dir/inner.txt", "y", true}});
+        WriteZipFile(dir.File("a.zip"), {{"../../escape.txt", "x", true}, {"some/dir/inner.txt", "y", true}});
         std::string error;
-        REQUIRE(ExtractZipEntries(dir.File("a.zip"), dir.File(""), {"escape.txt", "inner.txt"},
-                                  &error));
+        REQUIRE(ExtractZipEntries(dir.File("a.zip"), dir.File(""), {"escape.txt", "inner.txt"}, &error));
         CHECK_EQ(ReadTextFile(dir.File("escape.txt")), std::string("x"));
         CHECK_EQ(ReadTextFile(dir.File("inner.txt")), std::string("y"));
     }
@@ -124,12 +120,11 @@ namespace ql
         WriteTextFile(dir.File("net_log.txt"), big);
         WriteTextFile(dir.File("net.adi"), "<EOH>\n");
         std::string error;
-        REQUIRE(WriteZipArchive(dir.File("net.zip"), {dir.File("net_log.txt"), dir.File("net.adi")},
-                                1790000000, &error));
+        REQUIRE(
+            WriteZipArchive(dir.File("net.zip"), {dir.File("net_log.txt"), dir.File("net.adi")}, 1790000000, &error));
         CHECK(ReadTextFile(dir.File("net.zip")).size() < big.size() / 4);  // Deflated.
         EnsureDirectory(dir.File("x"));
-        REQUIRE(ExtractZipEntries(dir.File("net.zip"), dir.File("x"), {"net_log.txt", "net.adi"},
-                                  &error));
+        REQUIRE(ExtractZipEntries(dir.File("net.zip"), dir.File("x"), {"net_log.txt", "net.adi"}, &error));
         CHECK_EQ(ReadTextFile(dir.File("x/net_log.txt")), big);
         CHECK_EQ(ReadTextFile(dir.File("x/net.adi")), std::string("<EOH>\n"));
         CHECK(!WriteZipArchive(dir.File("bad.zip"), {dir.File("missing.txt")}, 1790000000, &error));
