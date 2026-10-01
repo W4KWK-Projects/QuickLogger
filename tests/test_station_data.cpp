@@ -404,8 +404,8 @@ namespace ql
         std::string notice = DescribeStationDataNotice(&db, Now(), &is_problem);
         CHECK(is_problem);
         CHECK(notice.find("failed") != std::string::npos);
-        std::string status = DescribeStationDataStatus(&db, Now(), true);
-        CHECK(status.find("retried automatically") != std::string::npos);
+        std::string status = DescribeStationDataStatus(&db, Now());
+        CHECK(status.find("Retrying.") != std::string::npos);
     }
 
     QL_TEST(AFailedRefreshKeepsTheLastGoodLoadsFigures)
@@ -484,9 +484,8 @@ namespace ql
         db.TryClaimImportRun(kDataRefreshJob, now, kJobStaleAfterSeconds);
         db.UpdateImportProgress(kDataRefreshJob, "Downloading FCC license data", 47, 0, now);
         CHECK_EQ(DescribeStationDataNotice(&db, now, &is_problem), std::string("Loading station data 45%"));
-        std::string status = DescribeStationDataStatus(&db, now, true);
+        std::string status = DescribeStationDataStatus(&db, now);
         CHECK(status.find("Downloading FCC license data, 45%") != std::string::npos);
-        CHECK(status.find("Press F3") == std::string::npos);  // Already running.
 
         db.UpsertImportRunStatus(MakeStatus(kUlsDataset, "complete", now, now, 800000));
         CHECK_EQ(DescribeStationDataNotice(&db, now, &is_problem), std::string("Updating station data 45%"));
@@ -501,14 +500,12 @@ namespace ql
         Database db(dir.File("q.db"));
         std::int64_t now = Now();
         db.UpsertImportRunStatus(MakeStatus(kUlsDataset, "complete", now, now, 812345));
-        std::string status = DescribeStationDataStatus(&db, now, true);
+        std::string status = DescribeStationDataStatus(&db, now);
         CHECK(status.find("FCC license data updated") != std::string::npos);
         CHECK(status.find("(812345 records)") != std::string::npos);
-        CHECK(status.find("Press F3 to refresh now.") != std::string::npos);
-        CHECK(DescribeStationDataStatus(&db, now, false).find("F3") == std::string::npos);
 
         db.UpsertImportRunStatus(MakeStatus(kZipCountyDataset, "failed", now, 0, 0));
-        CHECK(DescribeStationDataStatus(&db, now, false).find("County data failed") != std::string::npos);
+        CHECK(DescribeStationDataStatus(&db, now).find("\nCounty data failed") != std::string::npos);
     }
 
 }  // namespace ql

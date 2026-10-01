@@ -82,11 +82,10 @@ namespace ql
     std::string RunDataRefresh(Database* db, const std::string& db_path, const DataRefreshPlan& plan,
                                bool (*should_stop)(), const DataSources& sources);
 
-    // One or two sentences for the Settings page describing the station
+    // Lines ("\n"-separated) for the Settings page describing the station
     // data: whether it's loaded and how current, any failure, and a refresh
-    // in progress. `can_request_refresh` adds the "Press F3" hint (local
-    // console only).
-    std::string DescribeStationDataStatus(Database* db, std::int64_t now, bool can_request_refresh);
+    // in progress.
+    std::string DescribeStationDataStatus(Database* db, std::int64_t now);
 
     // A short notice for the top bar of every page while the station data
     // isn't fully usable or is being refreshed ("Loading station data

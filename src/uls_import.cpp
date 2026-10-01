@@ -1344,7 +1344,7 @@ namespace ql
         return uls.has_value() && uls->completed_at > 0 && uls->records_imported > 0;
     }
 
-    std::string DescribeStationDataStatus(Database* db, std::int64_t now, bool can_request_refresh)
+    std::string DescribeStationDataStatus(Database* db, std::int64_t now)
     {
         std::string message;
         std::optional<ImportRunStatus> job = RunningJob(db, now);
@@ -1361,15 +1361,17 @@ namespace ql
         }
         else if (!job.has_value())
         {
-            message += "FCC license data not loaded yet; it downloads automatically.";
+            message += "FCC license data not loaded yet.";
         }
         if (uls.has_value() && uls->status == "failed")
         {
             message += " Last attempt (" + FormatLocalDateTime(uls->started_at) + ") failed: " + uls->last_error +
-                       " It will be retried automatically.";
+                       " Retrying.";
         }
 
-        // The Canadian (ISED) data's status starts a line of its own.
+        // Each dataset after the FCC's starts a line of its own. "Retrying"
+        // is enough: the Settings heading says the data is kept up to date
+        // automatically.
         std::optional<ImportRunStatus> ised = db->GetImportRunStatus(kIsedDataset);
         std::string ised_message;
         if (UlsDataLoaded(ised))
@@ -1383,8 +1385,7 @@ namespace ql
             {
                 ised_message += " ";
             }
-            ised_message +=
-                "Canadian call sign data failed to load (" + ised->last_error + "); it will be retried automatically.";
+            ised_message += "Canadian call sign data failed to load (" + ised->last_error + "). Retrying.";
         }
         if (!ised_message.empty())
         {
@@ -1394,19 +1395,12 @@ namespace ql
         std::optional<ImportRunStatus> centroids = db->GetImportRunStatus(kZipCentroidsDataset);
         if (centroids.has_value() && centroids->status == "failed" && !db->HasAnyZipCentroids())
         {
-            message += " ZIP location data failed to load (" + centroids->last_error +
-                       "), so the saved-station proximity search has no data yet.";
+            message += "\nZIP location data failed to load (" + centroids->last_error + "); no nearby stations yet.";
         }
         std::optional<ImportRunStatus> counties = db->GetImportRunStatus(kZipCountyDataset);
         if (counties.has_value() && counties->status == "failed")
         {
-            message += " County data failed to load (" + counties->last_error +
-                       "), so County may be missing or less accurate.";
-        }
-
-        if (can_request_refresh && !job.has_value())
-        {
-            message += " Press F3 to refresh now.";
+            message += "\nCounty data failed to load (" + counties->last_error + "); County may be missing.";
         }
         return message;
     }

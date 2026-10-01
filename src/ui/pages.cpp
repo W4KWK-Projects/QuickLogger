@@ -1407,8 +1407,8 @@ namespace ql
             }
             // The station data's status: one paragraph per line of it.
             ftxui::Elements status_lines;
-            std::istringstream status_text(DescribeStationDataStatus(
-                state_->db, static_cast<std::int64_t>(std::time(nullptr)), state_->is_console_session));
+            std::istringstream status_text(
+                DescribeStationDataStatus(state_->db, static_cast<std::int64_t>(std::time(nullptr))));
             std::string status_line;
             while (std::getline(status_text, status_line))
             {
@@ -1429,15 +1429,13 @@ namespace ql
                 update_check_row,
                 HintText("* Required"),
                 Separator(),
-                HintParagraph("My ZIP Code is a plain 5-digit US ZIP code (digits only), used "
-                              "to find nearby licensed stations for nets that have no ZIP "
-                              "code of their own. Nearby Radius (1-250, 70 if left blank) is how far "
-                              "from the net's ZIP, or yours, a station can be and still "
-                              "be suggested."),
+                HintParagraph("My ZIP Code (5 digits) finds nearby licensed stations for nets without a ZIP."),
                 ftxui::text(""),
-                HintParagraph("Time Format (Left/Right to change) sets how times are shown "
-                              "and exported. Times are shown in the time zone of the computer "
-                              "QuickLogger runs on."),
+                HintParagraph("Nearby Radius (1-250 miles, 70 if blank) is how far from the net's ZIP, or yours, a "
+                              "suggested station can be."),
+                ftxui::text(""),
+                HintParagraph("Time Format (Left/Right to change) sets how times are shown and exported. Times use "
+                              "the time zone of the computer QuickLogger runs on."),
                 update_hint,
                 Separator(),
                 Heading("Station data (shared globally, kept up to date automatically):"),

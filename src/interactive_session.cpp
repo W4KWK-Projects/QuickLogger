@@ -160,7 +160,7 @@ namespace ql
                 bool is_problem = false;
                 std::string notice = DescribeStationDataNotice(db, now, &is_problem);
                 *busy = !notice.empty();
-                return notice + "|" + DescribeStationDataStatus(db, now, true);
+                return notice + "|" + DescribeStationDataStatus(db, now);
             }
             catch (const std::exception&)
             {

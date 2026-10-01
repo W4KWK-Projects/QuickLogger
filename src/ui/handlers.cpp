@@ -1189,7 +1189,7 @@ namespace ql
         // enforces above, so Esc can't be used to bypass it.
         if (!SettingsAreComplete(state_->settings))
         {
-            state_->form_error = "Please enter your callsign and ZIP code before continuing.";
+            state_->form_error = "Enter your callsign and ZIP code first.";
             return;
         }
         state_->form_error.clear();
@@ -1204,7 +1204,7 @@ namespace ql
         }
         state_->db->RequestImportRun(kDataRefreshJob, static_cast<std::int64_t>(std::time(nullptr)));
         state_->form_error.clear();
-        state_->status_message = "Station data refresh requested; it starts within a few seconds.";
+        state_->status_message = "Station data refresh starts in a few seconds.";
     }
 
     void ShowManageUsersPageHandler::operator()() const
