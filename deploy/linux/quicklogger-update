@@ -57,7 +57,7 @@ fi
 
 # Download and check it once; later runs reuse it while waiting.
 if [ ! -x "$WORK/$version/QuickLogger" ]; then
-    rm -rf "${WORK:?}/${version:?}" "$WORK/$asset" "$WORK/$asset.sha256"
+    rm -rf "${WORK:?}/${version:?}" "${WORK:?}/${asset:?}" "${WORK:?}/${asset:?}.sha256"
     curl -fsSL -o "$WORK/$asset" "$url"
     curl -fsSL -o "$WORK/$asset.sha256" "$url.sha256"
     expected=$(awk '{print $1}' "$WORK/$asset.sha256")
