@@ -33,6 +33,7 @@
 
 #include "db/database.hpp"
 #include "interactive_session.hpp"
+#include "remote_command.hpp"
 #include "sftp_server.hpp"
 
 namespace ql
@@ -159,6 +160,11 @@ namespace ql
         // The client asked for the SFTP subsystem instead of a shell (see
         // SubsystemRequestCallback).
         bool sftp_requested = false;
+
+        // The client asked to run a command instead (see
+        // ExecRequestCallback), and which.
+        bool exec_requested = false;
+        std::string exec_command;
     };
 
     static int AuthPubkeyCallback(ssh_session session, const char* user, ssh_key pubkey, char signature_state,
@@ -277,7 +283,7 @@ namespace ql
         ConnectionState* state = static_cast<ConnectionState*>(userdata);
         // One or the other per connection: a channel already given to SFTP
         // gets no shell.
-        if (state->pty_slave_fd < 0 || state->sftp_requested)
+        if (state->pty_slave_fd < 0 || state->sftp_requested || state->exec_requested)
         {
             return 1;
         }
@@ -319,12 +325,88 @@ namespace ql
         (void)session;
         (void)channel;
         ConnectionState* state = static_cast<ConnectionState*>(userdata);
-        if (state->shell_started || state->sftp_requested || std::string_view(subsystem) != "sftp")
+        if (state->shell_started || state->sftp_requested || state->exec_requested ||
+            std::string_view(subsystem) != "sftp")
         {
             return -1;
         }
         state->sftp_requested = true;
         return 0;
+    }
+
+    // Accepts a command (`ssh user@host <command>`) on a channel that
+    // hasn't started anything else. It's never given to a shell or run as
+    // a program: HandleConnection hands it to RunRemoteCommand, which knows
+    // only QuickLogger's own commands and refuses everything else.
+    static int ExecRequestCallback(ssh_session session, ssh_channel channel, const char* command, void* userdata)
+    {
+        (void)session;
+        (void)channel;
+        ConnectionState* state = static_cast<ConnectionState*>(userdata);
+        if (state->shell_started || state->sftp_requested || state->exec_requested)
+        {
+            return -1;
+        }
+        state->exec_requested = true;
+        state->exec_command = command;
+        return 0;
+    }
+
+    // Runs the command an exec request asked for (see ExecRequestCallback),
+    // writes its result to the channel and returns its exit status. Opens
+    // the database itself: this process closed its own before the channel
+    // was set up, and forks nothing after this (THE FORK RULE).
+    static int RunExecCommand(ssh_channel channel, const std::string& db_path, const ConnectionState& state)
+    {
+        RemoteCommandResult result;
+        RemoteCommand command;
+        std::string error;
+        // A view-only user is refused whatever the command; RunRemoteCommand
+        // says so before looking at it.
+        if (!state.view_only && !ParseRemoteCommand(state.exec_command, &command, &error))
+        {
+            result = RemoteCommandParseError(error);
+        }
+        else
+        {
+            try
+            {
+                Database db(db_path);
+                result = RunRemoteCommand(command, &db, db_path, state.username, state.view_only,
+                                          static_cast<std::int64_t>(std::time(nullptr)));
+            }
+            catch (const std::exception& e)
+            {
+                result = RemoteCommandParseError(std::string("The database couldn't be opened: ") + e.what());
+            }
+        }
+        ssh_channel_write(channel, result.output.data(), static_cast<uint32_t>(result.output.size()));
+        return result.exit_status;
+    }
+
+    // Ends a channel that ran SFTP or a command with `exit_status`, and the
+    // connection with it. scp counts a copy as failed unless ssh exits 0,
+    // and a command's caller reads ssh's exit status as the command's:
+    // that takes an exit status and the client closing the connection
+    // itself, since a disconnect from this end is "closed by remote host"
+    // (exit 255). So close the channel and give the client a few seconds to
+    // go.
+    static void EndChannel(ssh_session session, ssh_channel channel, int exit_status)
+    {
+        ssh_channel_request_send_exit_status(channel, exit_status);
+        ssh_channel_send_eof(channel);
+        ssh_channel_close(channel);
+        ssh_event closing = ssh_event_new();
+        ssh_event_add_session(closing, session);
+        std::time_t closing_deadline = std::time(nullptr) + 5;
+        while (ssh_is_connected(session) && std::time(nullptr) < closing_deadline)
+        {
+            ssh_event_dopoll(closing, 200);
+        }
+        ssh_event_free(closing);
+        ssh_channel_free(channel);
+        ssh_disconnect(session);
+        ssh_free(session);
     }
 
     static int ChannelDataCallback(ssh_session session, ssh_channel channel, void* data, uint32_t len, int is_stderr,
@@ -492,18 +574,19 @@ namespace ql
 
         // Poll until a channel exists (the client opens one once it
         // sees auth succeeded) and, once channel callbacks are wired up
-        // below, until a pty+shell or SFTP has actually been started.
+        // below, until a pty+shell, SFTP or a command has been asked for.
         struct ssh_channel_callbacks_struct channel_callbacks{};
         channel_callbacks.userdata = &state;
         channel_callbacks.channel_pty_request_function = PtyRequestCallback;
         channel_callbacks.channel_pty_window_change_function = PtyWindowChangeCallback;
         channel_callbacks.channel_shell_request_function = ShellRequestCallback;
         channel_callbacks.channel_subsystem_request_function = SubsystemRequestCallback;
+        channel_callbacks.channel_exec_request_function = ExecRequestCallback;
         channel_callbacks.channel_data_function = ChannelDataCallback;
         ssh_callbacks_init(&channel_callbacks);
         bool channel_callbacks_registered = false;
 
-        while (!state.shell_started && !state.sftp_requested && ssh_is_connected(session) &&
+        while (!state.shell_started && !state.sftp_requested && !state.exec_requested && ssh_is_connected(session) &&
                std::time(nullptr) < deadline)
         {
             ssh_event_dopoll(event, 200);
@@ -514,42 +597,32 @@ namespace ql
             }
         }
 
-        if (state.sftp_requested)
+        if (state.sftp_requested || state.exec_requested)
         {
             ::alarm(0);
-            // A pty asked for before the subsystem has no use.
+            // A pty asked for before the subsystem or command has no use.
             if (state.pty_master_fd >= 0)
             {
                 ::close(state.pty_master_fd);
                 ::close(state.pty_slave_fd);
             }
             // RunSftpSession reads the channel with libssh's blocking
-            // calls, which poll the session themselves: take it back out
-            // of the event loop and the callbacks first.
+            // calls, which poll the session themselves (as does writing a
+            // command's result): take it back out of the event loop and the
+            // callbacks first.
             ssh_remove_channel_callbacks(state.channel, &channel_callbacks);
             ssh_event_remove_session(event, session);
             ssh_event_free(event);
-            RunSftpSession(session, state.channel, db_path, state.username, state.view_only);
-
-            // scp counts a copy as failed unless ssh exits 0, which takes an
-            // exit status and the client closing the connection itself: a
-            // disconnect from this end is "closed by remote host" (exit
-            // 255). So close the channel and give the client a few seconds
-            // to go.
-            ssh_channel_request_send_exit_status(state.channel, 0);
-            ssh_channel_send_eof(state.channel);
-            ssh_channel_close(state.channel);
-            ssh_event closing = ssh_event_new();
-            ssh_event_add_session(closing, session);
-            std::time_t closing_deadline = std::time(nullptr) + 5;
-            while (ssh_is_connected(session) && std::time(nullptr) < closing_deadline)
+            int exit_status = 0;
+            if (state.sftp_requested)
             {
-                ssh_event_dopoll(closing, 200);
+                RunSftpSession(session, state.channel, db_path, state.username, state.view_only);
             }
-            ssh_event_free(closing);
-            ssh_channel_free(state.channel);
-            ssh_disconnect(session);
-            ssh_free(session);
+            else
+            {
+                exit_status = RunExecCommand(state.channel, db_path, state);
+            }
+            EndChannel(session, state.channel, exit_status);
             return;
         }
 

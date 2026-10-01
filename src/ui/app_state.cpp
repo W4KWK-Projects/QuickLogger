@@ -3568,31 +3568,13 @@ namespace ql
         {
             if (state->import_session_ad_hoc)
             {
-                // Imported before: an ad hoc net of the same name with the
-                // same session.
-                const NetInstance& session = slice->instances[0];
-                for (const NetInstance& existing : state->db->GetAdHocNetInstances())
-                {
-                    std::optional<Net> existing_net = state->db->GetNetById(existing.net_id);
-                    if (existing_net.has_value() && existing_net->name == slice->net.name &&
-                        existing.instance_date == session.instance_date && existing.started_at == session.started_at)
-                    {
-                        state->status_message.clear();
-                        state->form_error =
-                            "The ad hoc net " + slice->net.name + " already has that session, so nothing was imported.";
-                        return;
-                    }
-                }
-                // A new ad hoc net, as it was defined where it was logged.
-                Net net = slice->net;
-                net.is_ad_hoc = true;
-                net.imported_at = now;
-                net.default_location = ExtractZipCode(net.default_location);
-                MoveBadFrequencyToComments(&net.default_frequency, &net.comments);
-                net_id = state->db->CreateNet(net);
-                net_name = net.name;
+                instance_id = ApplyAdHocSessionSlice(state->db, *slice, now, &net_id, &error);
+                net_name = slice->net.name;
             }
-            instance_id = ApplySessionSlice(state->db, *slice, net_id, &error);
+            else
+            {
+                instance_id = ApplySessionSlice(state->db, *slice, net_id, &error);
+            }
             if (instance_id != 0)
             {
                 transaction.Commit();

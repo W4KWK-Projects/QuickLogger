@@ -314,6 +314,8 @@ Public-key authentication only — there's no password option.
 
 The same address, port and key work for `scp` and `sftp`, which reach only that user's own exports and imports (see the [User Guide](docs/USER_GUIDE.md)).
 
+The server also runs two commands of its own, `import-session` (for another QuickLogger pushing a session to it) and `version`; it never runs a shell or any other program. See [import-session](docs/IMPORT_SESSION.md).
+
 ### Creating your SSH key
 
 Anyone who wants to connect needs an SSH key pair, created on the machine they'll be connecting **from**. The private half never leaves that machine; only the public half (the `.pub` file) gets handed to whoever is adding you in Manage Users.

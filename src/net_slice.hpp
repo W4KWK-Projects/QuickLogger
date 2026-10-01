@@ -110,6 +110,16 @@ namespace ql
     // Otherwise returns the new session's id.
     std::int64_t ApplySessionSlice(Database* db, const NetSlice& slice, std::int64_t net_id, std::string* error);
 
+    // Adds the one session in `slice` as a new ad hoc net, defined as it was
+    // where it was logged and imported at `imported_at`, as History's F6
+    // does for an ad hoc session. Refuses (returning 0, with `error` set) if
+    // an ad hoc net of the same name already has that session (see
+    // Database::FindAdHocSession). Otherwise returns the new session's id,
+    // and its net's in `net_id`. The net is kept only if the session is
+    // imported too.
+    std::int64_t ApplyAdHocSessionSlice(Database* db, const NetSlice& slice, std::int64_t imported_at,
+                                        std::int64_t* net_id, std::string* error);
+
     // ---- Merging a .qlnet into a net that's already here -------------------
     //
     // For a net exported from here, logged somewhere else for a while (on a

@@ -189,6 +189,12 @@ namespace ql
         std::vector<NetInstance> GetNetInstancesForNet(std::int64_t net_id);
         // Every session of every ad hoc net (Net::is_ad_hoc), newest first.
         std::vector<NetInstance> GetAdHocNetInstances();
+        // The session of an ad hoc net named exactly `net_name` on
+        // `instance_date` that started at `started_at`, if there is one: a
+        // .qlsession already imported as an ad hoc net (see
+        // ApplyAdHocSessionSlice).
+        std::optional<NetInstance> FindAdHocSession(const std::string& net_name, const std::string& instance_date,
+                                                    std::int64_t started_at);
         std::optional<NetInstance> GetNetInstanceById(std::int64_t instance_id);
         // Closes an open instance as of `closed_at`. Returns false, changing
         // nothing, if it's already closed (someone else got there first, and

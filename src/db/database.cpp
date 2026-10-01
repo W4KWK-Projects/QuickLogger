@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS net_instances (
     closed_at INTEGER NOT NULL DEFAULT 0,
     operator_role INTEGER NOT NULL DEFAULT 0,
     started_at INTEGER NOT NULL DEFAULT 0,
-    notes TEXT NOT NULL DEFAULT ''
+    notes TEXT NOT NULL DEFAULT '',
+    pushed_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_net_instances_net ON net_instances(net_id);
 
@@ -155,7 +156,7 @@ CREATE TABLE IF NOT EXISTS users (
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 13;
+    static constexpr int kSchemaVersion = 14;
 
     static int ReadUserVersion(sqlite3* db)
     {
@@ -516,6 +517,10 @@ CREATE TABLE IF NOT EXISTS users (
         // ("FOREIGN KEY constraint failed"). Anything in it that isn't
         // already a saved station becomes one first.
         DropOldSeedStations();
+        // Since 2.0.0 a session records when it was last pushed upstream
+        // (Federated Logging); 0 is never. Only this database's own: it
+        // isn't part of a NetInstance, so exports and merges don't carry it.
+        EnsureColumnExists(db_, "net_instances", "pushed_at", "INTEGER NOT NULL DEFAULT 0");
 
         std::string set_version = "PRAGMA user_version = " + std::to_string(kSchemaVersion) + ";";
         sqlite3_exec(db_, set_version.c_str(), nullptr, nullptr, nullptr);
@@ -1193,6 +1198,28 @@ COMMIT;
             instances.push_back(ReadNetInstanceRow(statement));
         }
         return instances;
+    }
+
+    std::optional<NetInstance> Database::FindAdHocSession(const std::string& net_name, const std::string& instance_date,
+                                                          std::int64_t started_at)
+    {
+        Statement statement(&statements_, R"sql(
+        SELECT i.id, i.net_id, i.instance_date, i.net_control_callsign,
+               i.alternate_net_control_callsign, i.logger_callsign, i.created_by,
+               i.frequency, i.location, i.status, i.closed_at, i.operator_role, i.started_at,
+               i.notes
+        FROM net_instances i JOIN nets n ON n.id = i.net_id
+        WHERE n.is_ad_hoc = 1 AND n.name = ? AND i.instance_date = ? AND i.started_at = ?
+        ORDER BY i.id LIMIT 1;
+    )sql");
+        statement.BindText(0, net_name);
+        statement.BindText(1, instance_date);
+        statement.BindInt64(2, started_at);
+        if (!statement.Step())
+        {
+            return std::nullopt;
+        }
+        return ReadNetInstanceRow(statement);
     }
 
     std::vector<NetInstance> Database::GetNetInstancesForNet(std::int64_t net_id)

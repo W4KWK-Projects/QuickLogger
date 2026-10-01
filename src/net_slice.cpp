@@ -322,6 +322,36 @@ namespace ql
         return instance_id;
     }
 
+    std::int64_t ApplyAdHocSessionSlice(Database* db, const NetSlice& slice, std::int64_t imported_at,
+                                        std::int64_t* net_id, std::string* error)
+    {
+        if (slice.instances.size() != 1)
+        {
+            *error = "This file doesn't hold exactly one session.";
+            return 0;
+        }
+        Database::WriteTransaction transaction(db);
+        const NetInstance& session = slice.instances[0];
+        if (db->FindAdHocSession(slice.net.name, session.instance_date, session.started_at).has_value())
+        {
+            *error = "The ad hoc net " + slice.net.name + " already has that session, so nothing was imported.";
+            return 0;
+        }
+        Net net = slice.net;
+        net.is_ad_hoc = true;
+        net.imported_at = imported_at;
+        net.default_location = ExtractZipCode(net.default_location);
+        MoveBadFrequencyToComments(&net.default_frequency, &net.comments);
+        std::int64_t new_net_id = db->CreateNet(net);
+        std::int64_t instance_id = ApplySessionSlice(db, slice, new_net_id, error);
+        if (instance_id != 0)
+        {
+            transaction.Commit();
+            *net_id = new_net_id;
+        }
+        return instance_id;
+    }
+
     // A check-in as compared by SameCheckIns, appended to `key` (cleared
     // first) so one string is reused rather than built from temporaries.
     static void CheckInKey(const CheckIn& check_in, std::string* key)
