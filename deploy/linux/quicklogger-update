@@ -57,7 +57,7 @@ fi
 
 # Download and check it once; later runs reuse it while waiting.
 if [ ! -x "$WORK/$version/QuickLogger" ]; then
-    rm -rf "$WORK/$version" "$WORK/$asset" "$WORK/$asset.sha256"
+    rm -rf "${WORK:?}/${version:?}" "$WORK/$asset" "$WORK/$asset.sha256"
     curl -fsSL -o "$WORK/$asset" "$url"
     curl -fsSL -o "$WORK/$asset.sha256" "$url.sha256"
     expected=$(awk '{print $1}' "$WORK/$asset.sha256")
@@ -72,7 +72,7 @@ if [ ! -x "$WORK/$version/QuickLogger" ]; then
     rm -f "$WORK/$asset" "$WORK/$asset.sha256"
     if ! "$WORK/$version/QuickLogger" --version > /dev/null; then
         log "$version doesn't run here (missing libraries?); not installing"
-        rm -rf "$WORK/$version"
+        rm -rf "${WORK:?}/${version:?}"
         exit 1
     fi
     log "downloaded $version"
@@ -100,7 +100,9 @@ if [ -f "$DATA/quicklogger.db" ]; then
     backup="$DATA/backups/quicklogger-before-$version.db"
     runuser -u quicklogger -- sqlite3 "$DATA/quicklogger.db" ".backup '$backup'"
     gzip -f "$backup"
-    ls -t "$DATA"/backups/quicklogger-before-*.db.gz | tail -n +$((KEEP_BACKUPS + 1)) | xargs -r rm -f
+    # All but the newest KEEP_BACKUPS.
+    find "$DATA/backups" -name 'quicklogger-before-*.db.gz' -printf '%T@ %p\n' | sort -rn |
+        tail -n +$((KEEP_BACKUPS + 1)) | cut -d' ' -f2- | xargs -r rm -f
 fi
 
 if [ -f "$BIN" ]; then
@@ -120,7 +122,7 @@ if [ -d "$WORK/$version/deploy" ]; then
     done
     systemctl daemon-reload
 fi
-rm -rf "$WORK/$version"
+rm -rf "${WORK:?}/${version:?}"
 
 systemctl start quicklogger
 log "running $version"
