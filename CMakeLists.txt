@@ -121,6 +121,7 @@ set(quicklogger_sources
     src/net_slice.cpp
     src/public_key.cpp
     src/sftp_paths.cpp
+    src/gmrs_channels.cpp
     src/remote_command.cpp
     src/scp_server.cpp
     src/run_program.cpp
@@ -251,6 +252,7 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_scp_server.cpp
         tests/test_upstream_push.cpp
         tests/test_push_ui.cpp
+        tests/test_gmrs.cpp
         tests/test_app_state.cpp
     )
     target_link_libraries(quicklogger_tests PRIVATE quicklogger_core)

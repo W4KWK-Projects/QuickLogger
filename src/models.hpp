@@ -56,6 +56,14 @@ namespace ql
 
     // A recurring net definition, e.g. "Skywarn Net, Tuesdays 8pm ET".
     // Holds the defaults that seed each new NetInstance.
+    // The radio service a net is on: what its frequencies, call signs and
+    // licensee data are. Stored as nets.service, 'amateur' or 'gmrs'.
+    enum class NetService
+    {
+        kAmateur,
+        kGmrs,
+    };
+
     struct Net
     {
         std::int64_t id = 0;
@@ -96,6 +104,9 @@ namespace ql
         // it. False is the FCC's US data (the default, and every net from
         // before 1.7.0), true is ISED's Canadian data.
         bool partial_match_canada = false;
+        // Amateur Radio or GMRS, chosen when the net is created (Ad Hoc
+        // included) and not changed after.
+        NetService service = NetService::kAmateur;
     };
 
     enum class NetInstanceStatus

@@ -119,22 +119,15 @@ namespace ql
             state_->form_error = "You already have a net named \"" + taken + "\".";
             return;
         }
-        if (!CheckNetRadio(state_, state_->new_net_frequency, state_->new_net_offset, &state_->new_net_tone) ||
-            !CheckNetZip(state_, state_->new_net_location))
+        Net net;
+        if (!ReadNewNetRadio(state_, &net) || !CheckNetZip(state_, state_->new_net_location))
         {
             return;
         }
-
-        Net net;
         net.name = state_->new_net_name;
-        net.mode = NetModes()[static_cast<std::size_t>(state_->new_net_mode_index)];
-        net.default_frequency = state_->new_net_frequency;
-        net.repeater_offset = state_->new_net_offset;
-        net.pl_tone = state_->new_net_tone;
         net.default_location = state_->new_net_location;
         net.recurrence_description = state_->new_net_recurrence;
         net.comments = state_->new_net_comments;
-        net.partial_match_canada = state_->new_net_partial_match_index == 1;
         net.created_at = static_cast<std::int64_t>(std::time(nullptr));
         state_->db->CreateNet(net);
 

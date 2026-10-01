@@ -461,6 +461,16 @@ namespace ql
         std::vector<std::string> partial_match_labels{"US", "Canada"};
         // The Mode choice's entries, on the same three pages: NetModes().
         std::vector<std::string> mode_labels = NetModes();
+        // New Recurring Net and Ad Hoc Net: Amateur Radio (0) or GMRS (1),
+        // an index into service_labels, and which of the two sets of radio
+        // fields is showing (see SetNewNetService). A GMRS net's frequency
+        // is one of GmrsChannels() (gmrs_channels.hpp), new_net_gmrs_channel
+        // an index into it; its mode is always FM.
+        std::vector<std::string> service_labels{"Amateur Radio", "GMRS"};
+        int new_net_service_index = 0;
+        bool new_net_amateur = true;
+        bool new_net_gmrs = false;
+        int new_net_gmrs_channel = 0;
 
         // The net being started or resumed: set by StartSelectedNet, the Ad
         // Hoc page and the resume prompt, and read by the Select Role and
@@ -617,6 +627,11 @@ namespace ql
         std::string edit_net_recurrence;
         std::string edit_net_comments;
         int edit_net_partial_match_index = 0;  // As new_net_partial_match_index.
+        // The net's service, which Edit Net shows but doesn't change, and
+        // for a GMRS net its channel (as new_net_gmrs_channel).
+        bool edit_net_amateur = true;
+        bool edit_net_gmrs = false;
+        int edit_net_gmrs_channel = 0;
         std::vector<Station> edit_net_saved_stations;
         std::vector<std::string> edit_net_saved_station_labels;  // Kept in sync by RefreshEditNetSavedStations.
         int selected_saved_station_index = 0;
@@ -1387,6 +1402,21 @@ namespace ql
     // frequency_rules.hpp), putting `*tone` in its usual one-decimal form;
     // otherwise sets AppState::form_error.
     bool CheckNetRadio(AppState* state, const std::string& frequency, const std::string& offset, std::string* tone);
+
+    // "Amateur Radio" or "GMRS".
+    const char* ServiceLabel(NetService service);
+
+    // The Service toggle on New Recurring Net and Ad Hoc Net: shows the
+    // radio fields for AppState::new_net_service_index.
+    void SetNewNetService(AppState* state);
+
+    // Fills in `net`'s service, mode, frequency, offset, PL tone and
+    // Partial Matching from the New Recurring Net / Ad Hoc Net form, or from
+    // Edit Net's, checking them as CheckNetRadio does. A GMRS net gets its
+    // channel's frequency and offset, and FM. False (with form_error set)
+    // if something's wrong.
+    bool ReadNewNetRadio(AppState* state, Net* net);
+    bool ReadEditNetRadio(AppState* state, Net* net);
 
     // True if `zip` is acceptable as a net's ZIP: blank or 5 digits.
     // Otherwise sets AppState::form_error and returns false.

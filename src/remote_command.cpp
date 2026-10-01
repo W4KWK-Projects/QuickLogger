@@ -275,6 +275,11 @@ namespace ql
         return text;
     }
 
+    static const char* ServiceName(NetService service)
+    {
+        return service == NetService::kGmrs ? "GMRS" : "Amateur Radio";
+    }
+
     static bool CompareNetNames(const Net* left, const Net* right)
     {
         std::string left_upper = ToUpperAscii(left->name);
@@ -309,20 +314,41 @@ namespace ql
                 return ImportAdHoc();
             }
 
+            // Only nets on the session's own service: an Amateur Radio
+            // session never goes into a GMRS net, or the other way round.
             std::vector<Net> nets = db_->GetAllNets();
             std::vector<const Net*> recurring;
+            std::vector<const Net*> other_service;
             recurring.reserve(nets.size());
             for (const Net& net : nets)
             {
-                if (!net.is_ad_hoc)
+                if (net.is_ad_hoc)
+                {
+                    continue;
+                }
+                if (net.service == slice_.net.service)
                 {
                     recurring.emplace_back(&net);
+                }
+                else
+                {
+                    other_service.emplace_back(&net);
                 }
             }
 
             if (command.has_confirm_net)
             {
                 const Net* confirmed = FindNamed(recurring, command.confirm_net);
+                const Net* elsewhere = confirmed == nullptr ? FindNamed(other_service, command.confirm_net) : nullptr;
+                if (elsewhere != nullptr)
+                {
+                    SetNet(*elsewhere);
+                    return Finish("refused",
+                                  "\"" + elsewhere->name + "\" is on " + ServiceName(elsewhere->service) +
+                                      " and this session was logged on " + ServiceName(slice_.net.service) +
+                                      ", so it wasn't imported.",
+                                  kRemoteExitRefused);
+                }
                 if (confirmed == nullptr)
                 {
                     return Finish("no-match", "No net here is named \"" + command.confirm_net + "\".",

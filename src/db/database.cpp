@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS nets (
     is_ad_hoc INTEGER NOT NULL DEFAULT 0,
     repeater_offset TEXT NOT NULL DEFAULT '',
     pl_tone TEXT NOT NULL DEFAULT '',
-    partial_match_canada INTEGER NOT NULL DEFAULT 0
+    partial_match_canada INTEGER NOT NULL DEFAULT 0,
+    service TEXT NOT NULL DEFAULT 'amateur'
 );
 
 CREATE TABLE IF NOT EXISTS net_instances (
@@ -156,7 +157,7 @@ CREATE TABLE IF NOT EXISTS users (
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 14;
+    static constexpr int kSchemaVersion = 15;
 
     static int ReadUserVersion(sqlite3* db)
     {
@@ -240,6 +241,7 @@ CREATE TABLE IF NOT EXISTS users (
         net.repeater_offset = row.ColumnText(11);
         net.pl_tone = row.ColumnText(12);
         net.partial_match_canada = row.ColumnInt64(13) != 0;
+        net.service = row.ColumnText(14) == "gmrs" ? NetService::kGmrs : NetService::kAmateur;
         return net;
     }
 
@@ -523,6 +525,9 @@ CREATE TABLE IF NOT EXISTS users (
         // CreateNetInstance never writes it, so exports, imports and merges
         // don't carry it.
         EnsureColumnExists(db_, "net_instances", "pushed_at", "INTEGER NOT NULL DEFAULT 0");
+        // Since 2.0.0 a net is Amateur Radio or GMRS; every net already
+        // there is Amateur Radio.
+        EnsureColumnExists(db_, "nets", "service", "TEXT NOT NULL DEFAULT 'amateur'");
 
         std::string set_version = "PRAGMA user_version = " + std::to_string(kSchemaVersion) + ";";
         sqlite3_exec(db_, set_version.c_str(), nullptr, nullptr, nullptr);
@@ -1056,8 +1061,8 @@ COMMIT;
         INSERT INTO nets
             (name, mode, default_frequency, default_location,
              default_grid_square, recurrence_description, notes, created_at, imported_at,
-             is_ad_hoc, repeater_offset, pl_tone, partial_match_canada)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);
+             is_ad_hoc, repeater_offset, pl_tone, partial_match_canada, service)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?);
     )sql");
         statement.BindText(0, net.name);
         statement.BindText(1, net.mode);
@@ -1072,6 +1077,7 @@ COMMIT;
         statement.BindText(10, net.repeater_offset);
         statement.BindText(11, net.pl_tone);
         statement.BindInt64(12, net.partial_match_canada ? 1 : 0);
+        statement.BindText(13, net.service == NetService::kGmrs ? "gmrs" : "amateur");
         statement.Step();
         return sqlite3_last_insert_rowid(db_);
     }
@@ -1103,7 +1109,7 @@ COMMIT;
         Statement statement(&statements_, R"sql(
         SELECT id, name, mode, default_frequency, default_location,
                default_grid_square, recurrence_description, notes, created_at, imported_at,
-               is_ad_hoc, repeater_offset, pl_tone, partial_match_canada
+               is_ad_hoc, repeater_offset, pl_tone, partial_match_canada, service
         FROM nets ORDER BY name COLLATE NOCASE, id;
     )sql");
         std::vector<Net> nets;
@@ -1119,7 +1125,7 @@ COMMIT;
         Statement statement(&statements_, R"sql(
         SELECT id, name, mode, default_frequency, default_location,
                default_grid_square, recurrence_description, notes, created_at, imported_at,
-               is_ad_hoc, repeater_offset, pl_tone, partial_match_canada
+               is_ad_hoc, repeater_offset, pl_tone, partial_match_canada, service
         FROM nets WHERE id = ?;
     )sql");
         statement.BindInt64(0, net_id);

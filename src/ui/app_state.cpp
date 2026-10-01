@@ -22,6 +22,7 @@
 #include "../frequency_rules.hpp"
 #include "../file_export.hpp"
 #include "../geo_utils.hpp"
+#include "../gmrs_channels.hpp"
 #include "../mode_rules.hpp"
 #include "../net_slice.hpp"
 #include "../public_key.hpp"
@@ -619,13 +620,17 @@ namespace ql
     // name narrows to make room for more columns.
     static constexpr int kNetNameBreathingRoom = 4;
     static constexpr int kNetNameNarrowRoom = 2;
+    // The most the name starts at: what's left at 80 columns beside the
+    // always-shown Type (4), Frequency (10) and Notes (19), with their gaps.
+    // It widens back toward kMaxNetNameColumnWidth when there's room.
+    static constexpr int kNetNameWidthAt80 = 36;
 
     // The when-created/imported column (and "session open") comes last, as
     // it always has.
     // The Recurrence column's index in NetListColumns, and its full width:
     // a typical recurrence ("Wednesdays at 8pm ET") is about 20; more
     // than 24 would take room Offset and PL can use.
-    static constexpr std::size_t kNetRecurrenceColumn = 5;
+    static constexpr std::size_t kNetRecurrenceColumn = 6;
     static constexpr int kNetRecurrenceFullWidth = 24;
 
     // `name_width` widens toward `name_max_width` only after everything
@@ -634,6 +639,10 @@ namespace ql
     {
         return {
             {"Net", name_width, name_max_width, 0, 99},
+            // Amateur Radio ("HAM", to keep it narrow) or GMRS, at every
+            // width; at 80 columns its room comes out of the name's (see
+            // kNetNameWidthAt80).
+            {"Type", 4, 4, 0, 0, 4},
             {"Mode", 6, 8, 1, 6},
             // Always shown: at 80 columns it fits beside the name and the
             // notes, whose longest text ("imported 2026-09-30") is known.
@@ -657,7 +666,9 @@ namespace ql
     static ListLayout NetListLayout(const AppState* state)
     {
         int available = ScreenListWidth(state->list_width);
-        ListLayout usual = LayOutList(NetListColumns(state->net_name_width, state->net_name_width), available,
+        ListLayout usual = LayOutList(NetListColumns(std::min(state->net_name_width, kNetNameWidthAt80),
+                                                     state->net_name_width),
+                                      available,
                                       kScreenListWidthAt80, 2);
         // Recurrence at full width beside the usual name: nothing to gain.
         if (usual.widths[kNetRecurrenceColumn] >= kNetRecurrenceFullWidth ||
@@ -699,8 +710,20 @@ namespace ql
         std::vector<std::string> cells;
         cells.reserve(7);
         cells.push_back(net.name);
+        cells.emplace_back(net.service == NetService::kGmrs ? "GMRS" : "HAM");
         cells.push_back(net.mode);
-        cells.push_back(net.default_frequency);
+        // A GMRS net by its channel ("Ch 22R"): channel 22 and its repeater
+        // pair share a frequency.
+        int channel = net.service == NetService::kGmrs ? FindGmrsChannel(net.default_frequency, net.repeater_offset)
+                                                       : -1;
+        if (channel >= 0)
+        {
+            cells.push_back("Ch " + std::string(GmrsChannels()[static_cast<std::size_t>(channel)].name));
+        }
+        else
+        {
+            cells.push_back(net.default_frequency);
+        }
         cells.push_back(net.repeater_offset);
         cells.push_back(net.pl_tone);
         cells.push_back(net.recurrence_description);
@@ -711,7 +734,7 @@ namespace ql
     static std::vector<std::string> FormatNetList(const AppState* state)
     {
         std::vector<std::string> rows = FormatRows(state->net_cells, NetListLayout(state));
-        // A net with nothing after its name is shown as just its name.
+        // No trailing blanks when nothing follows the Type.
         for (std::string& row : rows)
         {
             row.erase(row.find_last_not_of(' ') + 1);
@@ -1272,20 +1295,13 @@ namespace ql
             state->form_error = "Net name is required.";
             return;
         }
-        if (!CheckNetRadio(state, state->new_net_frequency, state->new_net_offset, &state->new_net_tone) ||
-            !CheckNetZip(state, state->new_net_location))
+        Net net;
+        if (!ReadNewNetRadio(state, &net) || !CheckNetZip(state, state->new_net_location))
         {
             return;
         }
-
-        Net net;
         net.name = state->new_net_name;
-        net.mode = NetModes()[static_cast<std::size_t>(state->new_net_mode_index)];
-        net.default_frequency = state->new_net_frequency;
-        net.repeater_offset = state->new_net_offset;
-        net.pl_tone = state->new_net_tone;
         net.default_location = state->new_net_location;
-        net.partial_match_canada = state->new_net_partial_match_index == 1;
         net.created_at = static_cast<std::int64_t>(std::time(nullptr));
         net.is_ad_hoc = true;
         net.id = state->db->CreateNet(net);
@@ -1616,6 +1632,19 @@ namespace ql
 
     std::string DescribeNetRadio(const Net& net)
     {
+        int channel = net.service == NetService::kGmrs ? FindGmrsChannel(net.default_frequency, net.repeater_offset)
+                                                       : -1;
+        if (channel >= 0)
+        {
+            // "GMRS 20R  462.6750 MHz  PL 141.3": the channel says the rest.
+            std::string text = "GMRS " + std::string(GmrsChannels()[static_cast<std::size_t>(channel)].name) + "  " +
+                               net.default_frequency + " MHz";
+            if (!net.pl_tone.empty())
+            {
+                text += "  PL " + net.pl_tone;
+            }
+            return text;
+        }
         std::string text;
         if (!net.default_frequency.empty())
         {
@@ -1652,6 +1681,77 @@ namespace ql
         return true;
     }
 
+    const char* ServiceLabel(NetService service)
+    {
+        return service == NetService::kGmrs ? "GMRS" : "Amateur Radio";
+    }
+
+    void SetNewNetService(AppState* state)
+    {
+        state->new_net_gmrs = state->new_net_service_index == 1;
+        state->new_net_amateur = !state->new_net_gmrs;
+    }
+
+    // A GMRS net's radio: FM on `channel` (an index into GmrsChannels()),
+    // with `tone`, checked; US data for Partial Matching (GMRS licenses are
+    // the FCC's alone).
+    static bool FillGmrsRadio(AppState* state, int channel, std::string* tone, Net* net)
+    {
+        std::string problem = ToneProblem(*tone);
+        if (!problem.empty())
+        {
+            state->form_error = problem;
+            return false;
+        }
+        *tone = NormalizeTone(*tone);
+        const GmrsChannel& chosen = GmrsChannels()[static_cast<std::size_t>(channel)];
+        net->service = NetService::kGmrs;
+        net->mode = "FM";
+        net->default_frequency = chosen.frequency;
+        net->repeater_offset = chosen.offset;
+        net->pl_tone = *tone;
+        net->partial_match_canada = false;
+        return true;
+    }
+
+    bool ReadNewNetRadio(AppState* state, Net* net)
+    {
+        if (state->new_net_gmrs)
+        {
+            return FillGmrsRadio(state, state->new_net_gmrs_channel, &state->new_net_tone, net);
+        }
+        if (!CheckNetRadio(state, state->new_net_frequency, state->new_net_offset, &state->new_net_tone))
+        {
+            return false;
+        }
+        net->service = NetService::kAmateur;
+        net->mode = NetModes()[static_cast<std::size_t>(state->new_net_mode_index)];
+        net->default_frequency = state->new_net_frequency;
+        net->repeater_offset = state->new_net_offset;
+        net->pl_tone = state->new_net_tone;
+        net->partial_match_canada = state->new_net_partial_match_index == 1;
+        return true;
+    }
+
+    bool ReadEditNetRadio(AppState* state, Net* net)
+    {
+        if (state->edit_net_gmrs)
+        {
+            return FillGmrsRadio(state, state->edit_net_gmrs_channel, &state->edit_net_tone, net);
+        }
+        if (!CheckNetRadio(state, state->edit_net_frequency, state->edit_net_offset, &state->edit_net_tone))
+        {
+            return false;
+        }
+        net->service = NetService::kAmateur;
+        net->mode = NetModes()[static_cast<std::size_t>(state->edit_net_mode_index)];
+        net->default_frequency = state->edit_net_frequency;
+        net->repeater_offset = state->edit_net_offset;
+        net->pl_tone = state->edit_net_tone;
+        net->partial_match_canada = state->edit_net_partial_match_index == 1;
+        return true;
+    }
+
     bool CheckNetZip(AppState* state, const std::string& zip)
     {
         if (!zip.empty() && !IsFiveDigitZip(zip))
@@ -1685,6 +1785,9 @@ namespace ql
         state->new_net_recurrence.clear();
         state->new_net_comments.clear();
         state->new_net_partial_match_index = 0;
+        state->new_net_service_index = 0;
+        state->new_net_gmrs_channel = 0;
+        SetNewNetService(state);
         state->form_error.clear();
     }
 
@@ -3409,15 +3512,22 @@ namespace ql
             state->form_error = "Saved " + log_path + ", but not " + session_path + ": " + error;
             return;
         }
-        // And for a logging program (see BuildAdif).
-        std::string adif_path = stem + ".adi";
-        if (!WriteSessionAdif(state, instance, check_ins, adif_path, &error))
+        std::vector<std::string> paths{log_path, session_path};
+        // And for a logging program (see BuildAdif), except a GMRS session:
+        // ADIF is for amateur contacts.
+        std::optional<Net> net = state->db->GetNetById(instance.net_id);
+        if (!net.has_value() || net->service != NetService::kGmrs)
         {
-            state->status_message.clear();
-            state->form_error = "Saved " + log_path + " and " + session_path + ", but not " + adif_path + ": " + error;
-            return;
+            std::string adif_path = stem + ".adi";
+            if (!WriteSessionAdif(state, instance, check_ins, adif_path, &error))
+            {
+                state->status_message.clear();
+                state->form_error =
+                    "Saved " + log_path + " and " + session_path + ", but not " + adif_path + ": " + error;
+                return;
+            }
+            paths.push_back(adif_path);
         }
-        std::vector<std::string> paths{log_path, session_path, adif_path};
         // Sent over ZMODEM as one .zip, so there's one file to receive. With
         // no ZMODEM (at the console, on Windows, or without sz), the files
         // are all there is.
@@ -3762,13 +3872,30 @@ namespace ql
         // probably the same one (imported before, or set up by hand), so
         // the operator chooses: merge, or import it as a new net anyway.
         bool taken = !ExistingNetNamed(state, slice->net.name).empty();
+        // Merging only ever joins nets of one service (Amateur Radio or
+        // GMRS); a name taken on the other one can't be merged into or
+        // shared.
+        if (taken)
+        {
+            for (const Net& net : state->nets)
+            {
+                if (NetNamesAreTheSame(slice->net.name, net.name) && net.service != slice->net.service)
+                {
+                    state->status_message.clear();
+                    state->form_error = "You already have a net named \"" + net.name + "\" on " +
+                                        ServiceLabel(net.service) + "; this one is on " +
+                                        ServiceLabel(slice->net.service) + ". Rename yours to import it.";
+                    return;
+                }
+            }
+        }
         if (taken || !names_checked)
         {
             std::vector<Net> alike;
             for (const Net& net : state->nets)
             {
-                if (NetNamesAreTheSame(slice->net.name, net.name) ||
-                    NetNamesLookAlike(slice->net.name, net.name, false))
+                if (net.service == slice->net.service && (NetNamesAreTheSame(slice->net.name, net.name) ||
+                                                          NetNamesLookAlike(slice->net.name, net.name, false)))
                 {
                     alike.push_back(net);
                 }
@@ -3873,6 +4000,20 @@ namespace ql
             state->status_message.clear();
             state->form_error = error;
             return;
+        }
+
+        // Never across services: an Amateur Radio session doesn't go into a
+        // GMRS net's History, or the other way round.
+        if (!state->import_session_ad_hoc)
+        {
+            std::optional<Net> target = state->db->GetNetById(state->import_session_net_id);
+            if (target.has_value() && target->service != slice->net.service)
+            {
+                state->status_message.clear();
+                state->form_error = "This session was logged on " + std::string(ServiceLabel(slice->net.service)) +
+                                    ", and " + target->name + " is on " + ServiceLabel(target->service) + ".";
+                return;
+            }
         }
 
         // Logged under a name nothing like this net's: probably the wrong
@@ -4128,6 +4269,10 @@ namespace ql
         state->edit_net_recurrence = net.recurrence_description;
         state->edit_net_comments = net.comments;
         state->edit_net_partial_match_index = net.partial_match_canada ? 1 : 0;
+        state->edit_net_gmrs = net.service == NetService::kGmrs;
+        state->edit_net_amateur = !state->edit_net_gmrs;
+        int channel = FindGmrsChannel(net.default_frequency, net.repeater_offset);
+        state->edit_net_gmrs_channel = channel < 0 ? 0 : channel;
 
         CloseSavedStationForm(state);
         state->status_message.clear();
@@ -4147,8 +4292,8 @@ namespace ql
             state->form_error = "Net name is required.";
             return false;
         }
-        if (!CheckNetRadio(state, state->edit_net_frequency, state->edit_net_offset, &state->edit_net_tone) ||
-            !CheckNetZip(state, state->edit_net_location))
+        Net net;
+        if (!ReadEditNetRadio(state, &net) || !CheckNetZip(state, state->edit_net_location))
         {
             return false;
         }
@@ -4165,17 +4310,11 @@ namespace ql
             }
         }
 
-        Net net;
         net.id = state->edit_net_id;
         net.name = state->edit_net_name;
-        net.mode = NetModes()[static_cast<std::size_t>(state->edit_net_mode_index)];
-        net.default_frequency = state->edit_net_frequency;
-        net.repeater_offset = state->edit_net_offset;
-        net.pl_tone = state->edit_net_tone;
         net.default_location = state->edit_net_location;
         net.recurrence_description = state->edit_net_recurrence;
         net.comments = state->edit_net_comments;
-        net.partial_match_canada = state->edit_net_partial_match_index == 1;
         state->db->UpdateNet(net);
 
         RefreshNets(state);

@@ -1244,10 +1244,10 @@ namespace ql
         f.db()->CreateNet(old);
         RefreshNets(&f.state);
         REQUIRE(f.state.net_names.size() == 3);
-        CHECK_EQ(f.state.net_names[0], std::string("Old"));
-        // The names get a 30-column Net column (see RefreshNets), then the
-        // Frequency column (blank here) and the two-space gaps.
-        std::string gap(30 - 7 + 2 + 10 + 2, ' ');
+        CHECK_EQ(f.state.net_names[0], "Old" + std::string(30 - 3 + 2, ' ') + "HAM");
+        // The names get a 30-column Net column (see RefreshNets), then Type,
+        // the Frequency column (blank here) and the two-space gaps.
+        std::string gap = std::string(30 - 7 + 2, ' ') + "HAM" + std::string(1 + 2 + 10 + 2, ' ');
         CHECK(f.state.net_names[1].find("Skywarn" + gap + "created " + FormatLocalDate(1790000000)) == 0);
         CHECK(f.state.net_names[2].find("Skywarn" + gap + "imported " + FormatLocalDate(1790100000)) == 0);
     }
@@ -1931,11 +1931,12 @@ namespace ql
         CHECK_EQ(f.state.modal_callsign_suggestion_labels[0], std::string(expected));
 
         // The net list: the name padded to 30 columns (or 4 past the
-        // longest name), the frequency (none here), then whether a session
-        // is open.
+        // longest name), its Type, the frequency (none here), then whether
+        // a session is open.
         RefreshNets(&f.state);
         REQUIRE(f.state.net_names.size() == 1);
-        CHECK_EQ(f.state.net_names[0], "Skywarn" + std::string(30 - 7 + 2 + 10 + 2, ' ') + "session open");
+        CHECK_EQ(f.state.net_names[0], "Skywarn" + std::string(30 - 7 + 2, ' ') + "HAM" +
+                                           std::string(1 + 2 + 10 + 2, ' ') + "session open");
     }
 
     QL_TEST(AWiderTerminalShowsMoreOfEveryList)
