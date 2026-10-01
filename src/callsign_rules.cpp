@@ -266,4 +266,29 @@ namespace ql
         return callsign;
     }
 
+    bool IsValidGmrsCallsign(const std::string& callsign)
+    {
+        if (callsign.size() != 7 || (callsign[0] != 'K' && callsign[0] != 'W'))
+        {
+            return false;
+        }
+        std::size_t letters = 0;
+        while (letters < callsign.size() && callsign[letters] >= 'A' && callsign[letters] <= 'Z')
+        {
+            ++letters;
+        }
+        if (letters != 3 && letters != 4)
+        {
+            return false;
+        }
+        for (std::size_t i = letters; i < callsign.size(); ++i)
+        {
+            if (callsign[i] < '0' || callsign[i] > '9')
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
 }  // namespace ql

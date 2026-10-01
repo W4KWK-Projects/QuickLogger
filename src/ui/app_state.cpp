@@ -1331,6 +1331,7 @@ namespace ql
         state->active_net_name = net.has_value() ? net->name : "";
         state->active_net_zip = net.has_value() ? net->default_location : "";
         state->active_net_partial_match_canada = net.has_value() && net->partial_match_canada;
+        state->active_net_service = net.has_value() ? net->service : NetService::kAmateur;
         state->active_net_radio = net.has_value() ? DescribeNetRadio(*net) : "";
         state->active_net_is_ad_hoc = net.has_value() && net->is_ad_hoc;
         // The header shows who started it, in which role.
@@ -1625,6 +1626,20 @@ namespace ql
         if (!IsValidCallsign(callsign))
         {
             state->form_error = callsign + " isn't a valid US or Canadian call sign.";
+            return false;
+        }
+        return true;
+    }
+
+    bool CheckNetCallsign(AppState* state, const std::string& callsign, NetService service)
+    {
+        if (service != NetService::kGmrs)
+        {
+            return CheckCallsign(state, callsign);
+        }
+        if (!IsValidGmrsCallsign(callsign))
+        {
+            state->form_error = callsign + " isn't a valid GMRS call sign.";
             return false;
         }
         return true;
@@ -2107,7 +2122,7 @@ namespace ql
             state->form_error = "Callsign is required.";
             return false;
         }
-        if (!CheckCallsign(state, state->modal_station.callsign))
+        if (!CheckNetCallsign(state, state->modal_station.callsign, state->active_net_service))
         {
             return false;
         }
@@ -4357,7 +4372,8 @@ namespace ql
             state->form_error = "Callsign is required.";
             return false;
         }
-        if (!CheckCallsign(state, state->saved_station.callsign))
+        if (!CheckNetCallsign(state, state->saved_station.callsign,
+                              state->edit_net_gmrs ? NetService::kGmrs : NetService::kAmateur))
         {
             return false;
         }

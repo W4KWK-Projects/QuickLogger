@@ -771,7 +771,7 @@ namespace ql
             state_->form_error = "Enter a callsign to continue.";
             return;
         }
-        if (!CheckCallsign(state_, state_->operator_callsign))
+        if (!CheckNetCallsign(state_, state_->operator_callsign, state_->start_net.service))
         {
             return;
         }
@@ -805,6 +805,7 @@ namespace ql
         state_->active_net_name = net.name;
         state_->active_net_zip = net.default_location;
         state_->active_net_partial_match_canada = net.partial_match_canada;
+        state_->active_net_service = net.service;
         state_->active_net_radio = DescribeNetRadio(net);
         state_->active_net_is_ad_hoc = net.is_ad_hoc;
         state_->viewing_only = false;

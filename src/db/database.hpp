@@ -17,6 +17,14 @@ namespace ql
 
     // Owns the sqlite3 connection for QuickLogger's local database and
     // creates the schema (if it doesn't already exist) on construction.
+    // The FCC's two licensee tables: amateur (uls_stations, l_amat.zip) and
+    // GMRS (gmrs_stations, l_gmrs.zip), which have the same columns.
+    enum class LicenseTable
+    {
+        kAmateur,
+        kGmrs,
+    };
+
     class Database
     {
     public:
@@ -316,14 +324,18 @@ namespace ql
         // Writes stations[begin, end) in one transaction for performance, so
         // callers should pass a few thousand at a time. Rows whose data is
         // unchanged are left alone.
+        //
+        // Every FCC licensee method here takes a LicenseTable: the amateur
+        // table by default, or the GMRS one, which is alike in every column.
         void BulkUpsertUlsStations(const std::vector<Station>& stations, std::size_t begin, std::size_t end,
-                                   std::int64_t updated_at);
+                                   std::int64_t updated_at, LicenseTable table = LicenseTable::kAmateur);
         // Deletes every ULS row whose callsign isn't in `current` -- run after
         // a full import, so a license that has expired or been cancelled
         // since the last one stops turning up in autocomplete. Returns how
         // many were deleted.
         int DeleteUlsStationsNotIn(const std::vector<Station>& current);
-        int DeleteUlsStationsNotIn(const std::vector<std::string_view>& current_callsigns);
+        int DeleteUlsStationsNotIn(const std::vector<std::string_view>& current_callsigns,
+                                   LicenseTable table = LicenseTable::kAmateur);
         // Autocomplete's FCC tier: ULS stations whose callsign contains
         // `substring` (case-insensitive) and who live near the operator,
         // nearest first (then by callsign), at most `limit` of them (-1 for
@@ -334,17 +346,20 @@ namespace ql
         // Box ZIP) that starts with one of `zip3_prefixes`.
         std::vector<NearbyUlsStation> SearchNearbyUlsStations(const std::string& substring,
                                                               const std::vector<NearbyZip>& nearby_zips,
-                                                              const std::vector<std::string>& zip3_prefixes, int limit);
+                                                              const std::vector<std::string>& zip3_prefixes, int limit,
+                                                              LicenseTable table = LicenseTable::kAmateur);
         // Every station SearchNearbyUlsStations("") would return, in the same
         // order, as just its callsign and distance: what autocomplete keeps
         // in memory (see AppState::nearby_uls_callsigns). Read from the
         // (zip, callsign) index alone, never the table's rows.
         std::vector<NearbyUlsCallsign> ListNearbyUlsCallsigns(const std::vector<NearbyZip>& nearby_zips,
-                                                              const std::vector<std::string>& zip3_prefixes);
+                                                              const std::vector<std::string>& zip3_prefixes,
+                                                              LicenseTable table = LicenseTable::kAmateur);
         // Exact-callsign lookup against the ULS table, for resolving a
         // specific operator's info (see LogOperatorCheckIn) rather than
         // searching/ranking candidates.
-        std::optional<Station> FindUlsStationByCallsign(const std::string& callsign);
+        std::optional<Station> FindUlsStationByCallsign(const std::string& callsign,
+                                                        LicenseTable table = LicenseTable::kAmateur);
 
         // Canada's amateur call sign database (ISED -- see uls_import.hpp),
         // in its own table like the FCC's. Replaced wholesale on each load,
@@ -395,7 +410,7 @@ namespace ql
         std::string FindZipCounty(const std::string& zip);
         std::string FindZipPlaceCounty(const std::string& zip, const std::string& place);
 
-        bool HasAnyUlsStations();
+        bool HasAnyUlsStations(LicenseTable table = LicenseTable::kAmateur);
 
         // Login keys for the built-in SSH server (see ssh_server.hpp), one
         // row per key -- global/shared data, like Net, even though each

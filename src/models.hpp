@@ -17,6 +17,8 @@ namespace ql
         kUls = 2,
         // Canada's amateur call sign database (ISED); see uls_import.hpp.
         kIsed = 3,
+        // The FCC's GMRS licenses (gmrs_stations); see uls_import.hpp.
+        kGmrs = 4,
     };
 
     // A callsign the logger has ever seen, independent of any particular net.

@@ -36,6 +36,7 @@ namespace ql
     static void MarkAllLoaded(Database* db, std::int64_t now)
     {
         db->UpsertImportRunStatus(MakeStatus(kUlsDataset, "complete", now - 10, now - 5, 100));
+        db->UpsertImportRunStatus(MakeStatus(kGmrsDataset, "complete", now - 10, now - 5, 100));
         db->UpsertImportRunStatus(MakeStatus(kIsedDataset, "complete", now - 10, now - 5, 100));
         db->UpsertImportRunStatus(MakeStatus(kZipCountyDataset, "complete", now - 10, now - 5, 0));
         ZipCentroid centroid;
@@ -53,6 +54,7 @@ namespace ql
         Database db(dir.File("q.db"));
         DataRefreshPlan plan = PlanDataRefresh(&db, Now());
         CHECK(plan.uls);
+        CHECK(plan.gmrs);
         CHECK(plan.ised);
         CHECK(plan.zip_centroids);
         CHECK(plan.zip_counties);
@@ -107,6 +109,7 @@ namespace ql
         db.RequestImportRun(kDataRefreshJob, now);
         DataRefreshPlan plan = PlanDataRefresh(&db, now);
         CHECK(plan.uls);
+        CHECK(plan.gmrs);
         CHECK(plan.ised);
         CHECK(plan.zip_counties);
         CHECK(!plan.zip_centroids);  // Loaded fine; no need to fetch again.
@@ -192,6 +195,15 @@ namespace ql
             dir.File("l_amat.zip"),
             {{"HD.dat", hd, true}, {"EN.dat", en, true}, {"AM.dat", am, false}, {"counts", "not needed", true}});
 
+        // FCC GMRS: HD and EN only, the same layout. WSIP663 covers a
+        // family; WRAA123 has expired.
+        std::string gmrs_hd =
+            "HD|2001|||WSIP663|A|ZA\r\n"
+            "HD|2002|||WRAA123|E|ZA\r\n";
+        std::string gmrs_en =
+            EnRow("2001", "FAMILY, PAT", "CHATTANOOGA", "TN", "37415") + EnRow("2002", "GONE, OLD", "X", "TN", "37415");
+        WriteZipFile(dir.File("l_gmrs.zip"), {{"HD.dat", gmrs_hd, true}, {"EN.dat", gmrs_en, true}});
+
         // Census gazetteer: tab-separated, header row, lat/lon in fields 5
         // and 6, the last column padded with spaces as in the real file.
         std::string padding(70, ' ');
@@ -244,6 +256,7 @@ namespace ql
 
         DataSources sources;
         sources.uls_zip_url = FileUrl(dir.File("l_amat.zip"));
+        sources.gmrs_zip_url = FileUrl(dir.File("l_gmrs.zip"));
         sources.ised_zip_url = FileUrl(dir.File("amateur_delim.zip"));
         sources.zip_gazetteer_url = FileUrl(dir.File("gaz.zip"));
         sources.zip_gazetteer_file_name = "gaz.txt";
@@ -257,6 +270,7 @@ namespace ql
     {
         DataRefreshPlan plan;
         plan.uls = true;
+        plan.gmrs = true;
         plan.ised = true;
         plan.zip_centroids = true;
         plan.zip_counties = true;
@@ -318,6 +332,19 @@ namespace ql
         CHECK_EQ(uls->status, std::string("complete"));
         CHECK_EQ(uls->records_imported, std::int64_t{3});
         CHECK(uls->completed_at > 0);
+
+        // GMRS licenses, in a table of their own: never mixed with the
+        // amateur ones.
+        std::optional<Station> family = db.FindUlsStationByCallsign("WSIP663", LicenseTable::kGmrs);
+        REQUIRE(family.has_value());
+        CHECK_EQ(family->name, std::string("FAMILY, PAT"));
+        CHECK_EQ(family->zip, std::string("37415"));
+        CHECK(family->data_source == StationDataSource::kGmrs);
+        CHECK(!db.FindUlsStationByCallsign("WRAA123", LicenseTable::kGmrs).has_value());
+        CHECK(!db.FindUlsStationByCallsign("WSIP663").has_value());
+        CHECK(!db.FindUlsStationByCallsign("W4KWK", LicenseTable::kGmrs).has_value());
+        CHECK_EQ(db.GetImportRunStatus(kGmrsDataset)->records_imported, std::int64_t{1});
+        CHECK(DescribeStationDataStatus(&db, Now()).find("FCC GMRS license data updated") != std::string::npos);
 
         // ISED: names as "Surname, First", postal codes spaced, the highest
         // qualification as the class, and a club by its own name and address.

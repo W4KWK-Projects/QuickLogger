@@ -115,6 +115,20 @@ CREATE TABLE IF NOT EXISTS uls_stations (
 -- from this index without touching the table (ListNearbyUlsCallsigns).
 CREATE INDEX IF NOT EXISTS idx_uls_stations_zip_callsign ON uls_stations(zip, callsign);
 
+-- The FCC's GMRS licenses (l_gmrs.zip), loaded and searched like
+-- uls_stations, for GMRS nets only.
+CREATE TABLE IF NOT EXISTS gmrs_stations (
+    callsign TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    street_address TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT '',
+    zip TEXT NOT NULL DEFAULT '',
+    license_class TEXT NOT NULL DEFAULT '',
+    last_updated INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_gmrs_stations_zip_callsign ON gmrs_stations(zip, callsign);
+
 CREATE TABLE IF NOT EXISTS ised_stations (
     callsign TEXT PRIMARY KEY,
     name TEXT NOT NULL DEFAULT '',
@@ -1778,13 +1792,32 @@ COMMIT;
     }
 
     void Database::BulkUpsertUlsStations(const std::vector<Station>& stations, std::size_t begin, std::size_t end,
-                                         std::int64_t updated_at)
+                                         std::int64_t updated_at, LicenseTable table)
     {
         // The WHERE on the update skips rows whose data hasn't changed -- on a
         // weekly refresh that's nearly all of them, and an unchanged row then
         // costs a lookup instead of a rewrite of its table and index pages.
         // (So last_updated means "last changed", not "last seen".)
-        Statement statement(&statements_, R"sql(
+        Statement statement(&statements_, table == LicenseTable::kGmrs ? R"sql(
+        INSERT INTO gmrs_stations
+            (callsign, name, street_address, city, state, zip, license_class, last_updated)
+        VALUES (?,?,?,?,?,?,?,?)
+        ON CONFLICT(callsign) DO UPDATE SET
+            name = excluded.name,
+            street_address = excluded.street_address,
+            city = excluded.city,
+            state = excluded.state,
+            zip = excluded.zip,
+            license_class = excluded.license_class,
+            last_updated = excluded.last_updated
+        WHERE gmrs_stations.name IS NOT excluded.name
+           OR gmrs_stations.street_address IS NOT excluded.street_address
+           OR gmrs_stations.city IS NOT excluded.city
+           OR gmrs_stations.state IS NOT excluded.state
+           OR gmrs_stations.zip IS NOT excluded.zip
+           OR gmrs_stations.license_class IS NOT excluded.license_class;
+    )sql"
+                                                                       : R"sql(
         INSERT INTO uls_stations
             (callsign, name, street_address, city, state, zip, license_class, last_updated)
         VALUES (?,?,?,?,?,?,?,?)
@@ -1825,8 +1858,9 @@ COMMIT;
     std::vector<NearbyUlsStation> Database::SearchNearbyUlsStations(const std::string& substring,
                                                                     const std::vector<NearbyZip>& nearby_zips,
                                                                     const std::vector<std::string>& zip3_prefixes,
-                                                                    int limit)
+                                                                    int limit, LicenseTable table)
     {
+        const char* stations = table == LicenseTable::kGmrs ? "gmrs_stations" : "uls_stations";
         std::vector<NearbyUlsStation> results;
         if (nearby_zips.empty())
         {
@@ -1848,13 +1882,14 @@ COMMIT;
         sql +=
             ") SELECT callsign, name, street_address, city, state, zip, license_class, "
             "last_updated, COALESCE(miles, -1.0) FROM ("
-            "SELECT u.*, n.miles AS miles FROM nearby n JOIN uls_stations u ON u.zip = n.zip "
-            "WHERE instr(u.callsign, ?) > 0";
+            "SELECT u.*, n.miles AS miles FROM nearby n JOIN ";
+        sql += stations;
+        sql += " u ON u.zip = n.zip WHERE instr(u.callsign, ?) > 0";
         if (!zip3_prefixes.empty())
         {
-            sql +=
-                " UNION ALL SELECT u.*, NULL AS miles FROM uls_stations u "
-                "WHERE instr(u.callsign, ?) > 0 AND (";
+            sql += " UNION ALL SELECT u.*, NULL AS miles FROM ";
+            sql += stations;
+            sql += " u WHERE instr(u.callsign, ?) > 0 AND (";
             for (std::size_t i = 0; i < zip3_prefixes.size(); ++i)
             {
                 sql += i > 0 ? " OR (u.zip >= ? AND u.zip < ?)" : "(u.zip >= ? AND u.zip < ?)";
@@ -1904,7 +1939,7 @@ COMMIT;
             station.zip = statement.ColumnText(5);
             station.license_class = statement.ColumnText(6);
             station.last_updated = statement.ColumnInt64(7);
-            station.data_source = StationDataSource::kUls;
+            station.data_source = table == LicenseTable::kGmrs ? StationDataSource::kGmrs : StationDataSource::kUls;
             found.miles = statement.ColumnDouble(8);
             results.push_back(std::move(found));
         }
@@ -1945,7 +1980,8 @@ COMMIT;
     }
 
     std::vector<NearbyUlsCallsign> Database::ListNearbyUlsCallsigns(const std::vector<NearbyZip>& nearby_zips,
-                                                                    const std::vector<std::string>& zip3_prefixes)
+                                                                    const std::vector<std::string>& zip3_prefixes,
+                                                                    LicenseTable table)
     {
         std::vector<NearbyUlsCallsign> results;
         if (nearby_zips.empty())
@@ -1956,7 +1992,9 @@ COMMIT;
         // alone, rather than one query joining them all: SQLite would build
         // and hold temporary tables for the join, several megabytes at the
         // widest radius, where these hold nothing.
-        Statement in_zip(&statements_, "SELECT callsign FROM uls_stations WHERE zip = ?;");
+        Statement in_zip(&statements_, table == LicenseTable::kGmrs
+                                           ? "SELECT callsign FROM gmrs_stations WHERE zip = ?;"
+                                           : "SELECT callsign FROM uls_stations WHERE zip = ?;");
         for (const NearbyZip& nearby : nearby_zips)
         {
             in_zip.Reset();
@@ -1966,7 +2004,11 @@ COMMIT;
         // Stations whose ZIP has no centroid (so, no distance), in the
         // nearby ZIPs' first three digits -- see SearchNearbyUlsStations.
         // (A nearby ZIP has a centroid, so none of these is one of them.)
-        Statement no_centroid(&statements_, R"sql(
+        Statement no_centroid(&statements_, table == LicenseTable::kGmrs ? R"sql(
+        SELECT u.callsign FROM gmrs_stations u WHERE u.zip >= ? AND u.zip < ?
+        AND NOT EXISTS (SELECT 1 FROM zip_centroids c WHERE c.zip = u.zip);
+    )sql"
+                                                                         : R"sql(
         SELECT u.callsign FROM uls_stations u WHERE u.zip >= ? AND u.zip < ?
         AND NOT EXISTS (SELECT 1 FROM zip_centroids c WHERE c.zip = u.zip);
     )sql");
@@ -2095,9 +2137,14 @@ COMMIT;
         return station.has_value() ? station : FindIsedStationByCallsign(callsign);
     }
 
-    std::optional<Station> Database::FindUlsStationByCallsign(const std::string& callsign)
+    std::optional<Station> Database::FindUlsStationByCallsign(const std::string& callsign, LicenseTable table)
     {
-        Statement statement(&statements_, R"sql(
+        Statement statement(&statements_, table == LicenseTable::kGmrs ? R"sql(
+        SELECT callsign, name, street_address, city, state, zip, license_class,
+               last_updated
+        FROM gmrs_stations WHERE callsign = ?;
+    )sql"
+                                                                       : R"sql(
         SELECT callsign, name, street_address, city, state, zip, license_class,
                last_updated
         FROM uls_stations WHERE callsign = ?;
@@ -2116,7 +2163,7 @@ COMMIT;
         station.zip = statement.ColumnText(5);
         station.license_class = statement.ColumnText(6);
         station.last_updated = statement.ColumnInt64(7);
-        station.data_source = StationDataSource::kUls;
+        station.data_source = table == LicenseTable::kGmrs ? StationDataSource::kGmrs : StationDataSource::kUls;
         return station;
     }
 
@@ -2263,7 +2310,7 @@ COMMIT;
         return DeleteUlsStationsNotIn(callsigns);
     }
 
-    int Database::DeleteUlsStationsNotIn(const std::vector<std::string_view>& current_callsigns)
+    int Database::DeleteUlsStationsNotIn(const std::vector<std::string_view>& current_callsigns, LicenseTable table)
     {
         WriteTransaction transaction(this);
         sqlite3_exec(db_,
@@ -2280,10 +2327,15 @@ COMMIT;
                 insert.Step();
             }
         }
-        sqlite3_exec(db_,
-                     "DELETE FROM uls_stations WHERE callsign NOT IN "
-                     "(SELECT callsign FROM current_uls_callsigns);",
-                     nullptr, nullptr, nullptr);
+        {
+            Statement remove(&statements_,
+                             table == LicenseTable::kGmrs
+                                 ? "DELETE FROM gmrs_stations WHERE callsign NOT IN "
+                                   "(SELECT callsign FROM current_uls_callsigns);"
+                                 : "DELETE FROM uls_stations WHERE callsign NOT IN "
+                                   "(SELECT callsign FROM current_uls_callsigns);");
+            remove.Step();
+        }
         int deleted = sqlite3_changes(db_);
         sqlite3_exec(db_, "DROP TABLE current_uls_callsigns;", nullptr, nullptr, nullptr);
         transaction.Commit();
@@ -2349,9 +2401,11 @@ COMMIT;
         return results;
     }
 
-    bool Database::HasAnyUlsStations()
+    bool Database::HasAnyUlsStations(LicenseTable table)
     {
-        Statement statement(&statements_, "SELECT EXISTS(SELECT 1 FROM uls_stations LIMIT 1);");
+        Statement statement(&statements_, table == LicenseTable::kGmrs
+                                              ? "SELECT EXISTS(SELECT 1 FROM gmrs_stations LIMIT 1);"
+                                              : "SELECT EXISTS(SELECT 1 FROM uls_stations LIMIT 1);");
         statement.Step();
         return statement.ColumnInt64(0) != 0;
     }

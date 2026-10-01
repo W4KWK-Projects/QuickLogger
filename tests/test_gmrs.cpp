@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "../src/callsign_rules.hpp"
 #include "../src/date_utils.hpp"
 #include "../src/db/database.hpp"
 #include "../src/file_export.hpp"
@@ -54,6 +55,23 @@ namespace ql
         TempDir dir_;
         Database db_;
     };
+
+    QL_TEST(GmrsCallSignsHaveTheirOwnFormat)
+    {
+        CHECK(IsValidGmrsCallsign("WSIP663"));
+        CHECK(IsValidGmrsCallsign("WRAA123"));
+        CHECK(IsValidGmrsCallsign("KAE1234"));
+        CHECK(!IsValidGmrsCallsign("W4KWK"));
+        CHECK(!IsValidGmrsCallsign("WSIP66"));
+        CHECK(!IsValidGmrsCallsign("WSIP6633"));
+        CHECK(!IsValidGmrsCallsign("NSIP663"));
+        CHECK(!IsValidGmrsCallsign("WS1P663"));
+        CHECK(!IsValidGmrsCallsign("WSIPA63"));
+        CHECK(!IsValidGmrsCallsign("wsip663"));
+        CHECK(!IsValidGmrsCallsign("WSIP663/M"));
+        // And the amateur check doesn't take them.
+        CHECK(!IsValidCallsign("WSIP663"));
+    }
 
     QL_TEST(GmrsHasThirtyChannels)
     {
@@ -246,6 +264,31 @@ namespace ql
         CHECK_EQ(ListFilesWithExtension(exports, ".qlsession").size(), std::size_t(1));
         CHECK_EQ(ListFilesWithExtension(exports, "_log.txt").size(), std::size_t(1));
         CHECK(ListFilesWithExtension(exports, ".adi").empty());
+    }
+
+    QL_TEST(GmrsCheckInsTakeGmrsCallSigns)
+    {
+        GmrsFixture f;
+        std::int64_t net_id = f.AddNet("Family Net", NetService::kGmrs);
+        NetInstance instance;
+        instance.net_id = net_id;
+        instance.instance_date = "2026-09-24";
+        instance.started_at = 1000;
+        instance.net_control_callsign = "WSIP663";
+        instance.id = f.db()->CreateNetInstance(instance);
+        f.state.active_instance = instance;
+        f.state.active_net_name = "Family Net";
+        f.state.active_net_service = NetService::kGmrs;
+        f.state.operator_callsign = "WSIP663";
+
+        f.state.modal_station = MakeStation("W4KWK", "Wes");
+        CHECK(!LogStationCheckIn(&f.state));
+        CHECK_EQ(f.state.form_error, std::string("W4KWK isn't a valid GMRS call sign."));
+
+        f.state.form_error.clear();
+        f.state.modal_station = MakeStation("WRAA123", "Pat");
+        CHECK(LogStationCheckIn(&f.state));
+        CHECK_EQ(f.db()->GetCheckInsForNetInstance(instance.id).size(), std::size_t(1));
     }
 
 }  // namespace ql

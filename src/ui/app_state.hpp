@@ -509,6 +509,9 @@ namespace ql
         std::string active_net_zip;
         // The active net's Partial Matching (see Net::partial_match_canada).
         bool active_net_partial_match_canada = false;
+        // The active net's service (see Net::service): which call signs and
+        // licensee data its check-ins use.
+        NetService active_net_service = NetService::kAmateur;
         // The active net's frequency, offset and PL tone as the session page
         // shows them (see DescribeNetRadio).
         std::string active_net_radio;
@@ -1392,6 +1395,10 @@ namespace ql
     // IsValidCallsign). Otherwise sets AppState::form_error and returns
     // false.
     bool CheckCallsign(AppState* state, const std::string& callsign);
+
+    // The same for a call sign on a net of `service`: on a GMRS net, a GMRS
+    // call sign (IsValidGmrsCallsign) instead.
+    bool CheckNetCallsign(AppState* state, const std::string& callsign, NetService service);
 
     // `net`'s frequency, offset and PL tone for the session page, those
     // that are set: "146.940 MHz  -0.6  PL 100.0". Blank if none are.

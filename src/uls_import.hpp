@@ -21,6 +21,8 @@ namespace ql
     // One row per dataset, recording its last load.
     constexpr const char* kUlsDataset = "uls";
     constexpr const char* kIsedDataset = "ised";
+    // The FCC's GMRS licenses (l_gmrs.zip), for GMRS nets.
+    constexpr const char* kGmrsDataset = "gmrs";
     constexpr const char* kZipCentroidsDataset = "zip_centroids";
     // Named "_data" rather than reusing the older "zip_counties" row, which
     // described an earlier, less accurate way of building the same table --
@@ -48,6 +50,10 @@ namespace ql
         // uls_zip_fallback_url (the FCC itself) when there is one.
         std::string uls_zip_url;
         std::string uls_zip_fallback_url;
+        // The FCC's GMRS license file, the same way: the GitHub copy, then
+        // the FCC.
+        std::string gmrs_zip_url;
+        std::string gmrs_zip_fallback_url;
         std::string ised_zip_url;
         std::string zip_gazetteer_url;
         std::string zip_gazetteer_file_name;  // The file inside that zip.
@@ -61,6 +67,7 @@ namespace ql
     struct DataRefreshPlan
     {
         bool uls = false;
+        bool gmrs = false;
         bool ised = false;
         bool zip_centroids = false;
         bool zip_counties = false;
