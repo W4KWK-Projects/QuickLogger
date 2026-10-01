@@ -312,6 +312,13 @@ namespace ql
         // change nothing but their own settings. Belongs to the username:
         // every one of its keys carries the same value.
         bool view_only = false;
+        // The user's own call signs, set in Manage Users: an amateur one, a
+        // GMRS one, or both (never neither). Like view_only, they belong to
+        // the username, every key carrying the same. A net is logged with
+        // the call sign for its service (see Net::service); without one,
+        // that service's nets can only be watched.
+        std::string amateur_callsign;
+        std::string gmrs_callsign;
     };
 
 }  // namespace ql

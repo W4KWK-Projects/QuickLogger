@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include <sqlite3.h>
+
 #include "../src/callsign_rules.hpp"
 #include "../src/date_utils.hpp"
 #include "../src/db/database.hpp"
@@ -289,6 +291,63 @@ namespace ql
         f.state.modal_station = MakeStation("WRAA123", "Pat");
         CHECK(LogStationCheckIn(&f.state));
         CHECK_EQ(f.db()->GetCheckInsForNetInstance(instance.id).size(), std::size_t(1));
+    }
+
+    // A GMRS net on repeater channel 20R.
+    static Net RepeaterNet(const std::string& name)
+    {
+        Net net;
+        net.name = name;
+        net.service = NetService::kGmrs;
+        net.mode = "FM";
+        net.default_frequency = "462.6750";
+        net.repeater_offset = "+5";
+        net.pl_tone = "141.3";
+        return net;
+    }
+
+    QL_TEST(AGmrsNetKeepsItsChannelThroughExportAndImport)
+    {
+        GmrsFixture f;
+        std::int64_t net_id = f.db()->CreateNet(RepeaterNet("Family Net"));
+        std::string file = f.dir().File("Family.qlnet");
+        std::string error;
+        REQUIRE(WriteNetSliceFile(file, GatherNetSlice(f.db(), net_id), &error));
+        std::optional<NetSlice> slice = ReadNetSliceFile(file, &error);
+        REQUIRE(slice.has_value());
+        CHECK_EQ(slice->net.default_frequency, std::string("462.6750"));
+        CHECK(slice->net.comments.empty());
+
+        TempDir other_dir;
+        Database other(other_dir.File("other.db"));
+        std::int64_t imported = ApplyNetSlice(&other, *slice, 1800000000);
+        std::optional<Net> net = other.GetNetById(imported);
+        REQUIRE(net.has_value());
+        CHECK(net->service == NetService::kGmrs);
+        CHECK_EQ(net->default_frequency, std::string("462.6750"));
+        CHECK_EQ(net->repeater_offset, std::string("+5"));
+        CHECK(net->comments.empty());
+    }
+
+    QL_TEST(AnUpgradeLeavesGmrsFrequenciesAlone)
+    {
+        TempDir dir;
+        std::string path = dir.File("q.db");
+        std::int64_t net_id = 0;
+        {
+            Database db(path);
+            net_id = db.CreateNet(RepeaterNet("Family Net"));
+        }
+        // As if it were older, so every upgrade step runs again.
+        sqlite3* raw = nullptr;
+        sqlite3_open(path.c_str(), &raw);
+        sqlite3_exec(raw, "PRAGMA user_version = 10;", nullptr, nullptr, nullptr);
+        sqlite3_close(raw);
+        Database db(path);
+        std::optional<Net> net = db.GetNetById(net_id);
+        REQUIRE(net.has_value());
+        CHECK_EQ(net->default_frequency, std::string("462.6750"));
+        CHECK(net->comments.empty());
     }
 
 }  // namespace ql

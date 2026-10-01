@@ -171,10 +171,9 @@ namespace ql
         // received files go in their own directories, cleaned up after a
         // while (see SessionExportsDir).
         std::string ssh_username;
-        // False when My Callsign is fixed as the SSH user's username (see
-        // UsernameIsCallsign): shown on Settings, but not editable. The
-        // console, and a user from before usernames had to be callsigns,
-        // edit it as always.
+        // False for an SSH user: their call signs are set in Manage Users
+        // (User::amateur_callsign), shown on Settings but not editable
+        // there. The console edits its own.
         bool callsign_editable = true;
 
         int page = kPageNetList;
@@ -346,8 +345,14 @@ namespace ql
         std::string new_key_text;
         std::string rename_username;
         int edit_user_access_index = 0;
+        // The user's call signs in the Edit User window (see
+        // User::amateur_callsign), saved with its F2.
+        std::string edit_user_amateur_callsign;
+        std::string edit_user_gmrs_callsign;
         std::string new_user_username;
         std::string new_user_public_key;
+        std::string new_user_amateur_callsign;
+        std::string new_user_gmrs_callsign;
         // The add-user form's Access choice: 0 full access, 1 view-only.
         int new_user_access_index = 0;
         std::vector<std::string> new_user_access_labels{"Full access", "View-only"};
@@ -1138,9 +1143,10 @@ namespace ql
     // and closes the window. A new username renames them in the users
     // table, and their settings file and export and import directories
     // with it (see MoveSshUserFiles); it's refused, with AppState::form_error
-    // set and nothing saved, if it isn't a call sign (see
-    // UsernameIsCallsign) or is already someone else's. Access applies to
-    // every key of theirs. Both take effect from their next login.
+    // set and nothing saved, if it isn't a valid username (see
+    // IsValidUsername) or is already someone else's. Their access and call
+    // signs (CheckUserCallsigns) apply to every key of theirs. All of it
+    // takes effect from their next login.
     void SaveEditedUser(AppState* state);
 
     // Deletes the highlighted key in the Keys window
@@ -1152,10 +1158,16 @@ namespace ql
     // `terminal_width`-column terminal, with the Menu gutter.
     const std::string& UserKeyListHeader(int terminal_width);
 
-    // True if `username` is a callsign an SSH username can be: a valid US
-    // or Canadian call sign (see IsValidCallsign), with no portable
-    // indicator.
-    bool UsernameIsCallsign(const std::string& username);
+    // True if `username` can be an SSH username: 1 to 32 letters, digits,
+    // dots, hyphens and underscores, starting with a letter or digit. Any
+    // login name, not necessarily a call sign (see User::amateur_callsign).
+    bool IsValidUsername(const std::string& username);
+
+    // Normalizes and checks a user's call signs as Manage Users and Settings
+    // take them: at least one, the amateur one a US or Canadian call sign
+    // without portable indicators, the GMRS one a GMRS call sign. Otherwise
+    // sets AppState::form_error and returns false.
+    bool CheckUserCallsigns(AppState* state, std::string* amateur, std::string* gmrs);
 
     // F2 on the Manage Users page: adds the key in
     // AppState::new_user_public_key to AppState::new_user_username -- a new
@@ -1412,6 +1424,15 @@ namespace ql
 
     // "Amateur Radio" or "GMRS".
     const char* ServiceLabel(NetService service);
+
+    // The operator's own call sign for nets of `service` (Settings, or for
+    // an SSH user Manage Users): AppSettings::callsign or gmrs_callsign.
+    // Blank if they have none.
+    const std::string& OwnCallsign(const AppState* state, NetService service);
+
+    // True, with AppState::form_error saying so, if the operator has no
+    // call sign for `service`: they can watch its nets but not log one.
+    bool RefuseWithoutCallsign(AppState* state, NetService service);
 
     // The Service toggle on New Recurring Net and Ad Hoc Net: shows the
     // radio fields for AppState::new_net_service_index.

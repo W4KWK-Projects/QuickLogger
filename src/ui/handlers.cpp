@@ -785,7 +785,8 @@ namespace ql
         // "Created By" reflects who is running the software (from Settings),
         // which may differ from whichever role-callsign is entered below --
         // falling back to that role-callsign if Settings hasn't been set up yet.
-        instance.created_by = state_->settings.callsign.empty() ? state_->operator_callsign : state_->settings.callsign;
+        const std::string& own = OwnCallsign(state_, net.service);
+        instance.created_by = own.empty() ? state_->operator_callsign : own;
         instance.operator_role = state_->selected_role_index;
         if (state_->selected_role_index == kRoleNetControl)
         {

@@ -813,11 +813,17 @@ namespace ql
                     : PickableRows(state_, PickList::kNets, state_->net_names, state_->selected_net_index, net_menu_) |
                           ftxui::yframe | ftxui::vscroll_indicator;
 
+            // Your call signs: the amateur one, the GMRS one, or both.
+            const std::string& amateur = state_->settings.callsign;
+            const std::string& gmrs = state_->settings.gmrs_callsign;
             ftxui::Element callsign_hint =
-                state_->settings.callsign.empty()
-                    ? ftxui::text("No callsign set -- see Settings (F4)") | ftxui::color(kColorLabel)
+                amateur.empty() && gmrs.empty()
+                    ? ftxui::text("No call sign set -- see Settings (F4)") | ftxui::color(kColorLabel)
                     : ftxui::hbox({ftxui::text("Operating as ") | ftxui::color(kColorLabel),
-                                   ftxui::text(state_->settings.callsign) | ftxui::bold | ftxui::color(kColorData),
+                                   ftxui::text(amateur) | ftxui::bold | ftxui::color(kColorData),
+                                   ftxui::text(gmrs.empty() ? "" : amateur.empty() ? "GMRS " : ", GMRS ") |
+                                       ftxui::color(kColorLabel),
+                                   ftxui::text(gmrs) | ftxui::bold | ftxui::color(kColorData),
                                    state_->view_only_user ? ftxui::text("  (view-only)") | ftxui::color(kColorLabel)
                                                           : ftxui::emptyElement()});
 
@@ -1573,11 +1579,12 @@ namespace ql
     class SettingsRenderer
     {
     public:
-        SettingsRenderer(AppState* state, ftxui::Component input_callsign, ftxui::Component input_location,
-                         ftxui::Component input_radius, ftxui::Component time_format_toggle,
-                         ftxui::Component update_check_toggle)
+        SettingsRenderer(AppState* state, ftxui::Component input_callsign, ftxui::Component input_gmrs,
+                         ftxui::Component input_location, ftxui::Component input_radius,
+                         ftxui::Component time_format_toggle, ftxui::Component update_check_toggle)
             : state_(state),
               input_callsign_(std::move(input_callsign)),
+              input_gmrs_(std::move(input_gmrs)),
               input_location_(std::move(input_location)),
               input_radius_(std::move(input_radius)),
               time_format_toggle_(std::move(time_format_toggle)),
@@ -1618,12 +1625,23 @@ namespace ql
             // Two columns, even at 80 columns, to leave room below: Tab
             // goes across each row (see BuildSettingsPage). Time Format's
             // choices are too wide for a column, so it has a row of its own.
+            // Your call signs: the console's own to set; an SSH user's set in
+            // Manage Users.
+            ftxui::Element amateur_row;
+            ftxui::Element gmrs_row;
+            if (state_->callsign_editable)
+            {
+                amateur_row = ftxui::hbox({FieldLabel("Amateur Call*: "), input_callsign_->Render()});
+                gmrs_row = ftxui::hbox({FieldLabel("GMRS Call*:    "), input_gmrs_->Render()});
+            }
+            else
+            {
+                amateur_row = ftxui::hbox({FieldLabel("Amateur Call:  "), LockedCallsign(state_->settings.callsign)});
+                gmrs_row = ftxui::hbox({FieldLabel("GMRS Call:     "), LockedCallsign(state_->settings.gmrs_callsign)});
+            }
             ftxui::Element left_column = ftxui::vbox({
-                state_->callsign_editable
-                    ? ftxui::hbox({FieldLabel("My Callsign*:  "), input_callsign_->Render()})
-                    : ftxui::hbox({FieldLabel("My Callsign:   "),
-                                   ftxui::text(state_->settings_form.callsign) | ftxui::color(kColorData),
-                                   HintText("  (your username)")}),
+                amateur_row,
+                gmrs_row,
                 ftxui::hbox({FieldLabel("Nearby Radius: "),
                              input_radius_->Render() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 4),
                              ftxui::text("miles")}),
@@ -1635,7 +1653,8 @@ namespace ql
             ftxui::Element content = ftxui::vbox({
                 ftxui::hbox({left_column | ftxui::xflex, ftxui::text("   "), right_column | ftxui::xflex}),
                 ftxui::hbox({FieldLabel("Time Format:   "), time_format_toggle_->Render()}),
-                HintText("* Required"),
+                HintText(state_->callsign_editable ? "* Required: the ZIP code, and one call sign or both"
+                                                   : "* Required. Your call signs are set by the server's operator."),
                 Separator(),
                 HintParagraph("My ZIP Code (5 digits) finds nearby licensed stations for nets without a ZIP."),
                 ftxui::text(""),
@@ -1670,8 +1689,15 @@ namespace ql
         }
 
     private:
+        // An SSH user's call sign, or "(none)".
+        static ftxui::Element LockedCallsign(const std::string& callsign)
+        {
+            return callsign.empty() ? HintText("(none)") : ftxui::text(callsign) | ftxui::color(kColorData);
+        }
+
         AppState* state_;
         ftxui::Component input_callsign_;
+        ftxui::Component input_gmrs_;
         ftxui::Component input_location_;
         ftxui::Component input_radius_;
         ftxui::Component time_format_toggle_;
@@ -1748,7 +1774,11 @@ namespace ql
         // Can't be focused or typed into while the callsign is the SSH
         // user's username (see AppState::callsign_editable).
         ftxui::Component input_callsign = ftxui::Maybe(
-            ftxui::Input(&state->settings_form.callsign, "Your callsign", callsign_option), &state->callsign_editable);
+            ftxui::Input(&state->settings_form.callsign, "e.g. W4KWK", callsign_option), &state->callsign_editable);
+        ftxui::InputOption gmrs_option = SingleLineInputOption();
+        gmrs_option.on_change = UppercaseFieldHandler(&state->settings_form.gmrs_callsign);
+        ftxui::Component input_gmrs = ftxui::Maybe(
+            ftxui::Input(&state->settings_form.gmrs_callsign, "e.g. WSIP663", gmrs_option), &state->callsign_editable);
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->settings_form.location);
         ftxui::Component input_location = ftxui::Input(&state->settings_form.location, "5-digit ZIP", location_option);
@@ -1778,14 +1808,15 @@ namespace ql
         ftxui::Component root = ftxui::Container::Vertical({
             input_callsign,
             input_location,
-            input_radius,
+            input_gmrs,
             update_check_toggle,
+            input_radius,
             time_format_toggle,
         });
 
-        ftxui::Component page = ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_location,
-                                                                       input_radius, time_format_toggle,
-                                                                       update_check_toggle));
+        ftxui::Component page =
+            ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_gmrs, input_location, input_radius,
+                                                   time_format_toggle, update_check_toggle));
         return LayeredModal(page, BuildUpstreamWindow(state), &state->show_upstream_window);
     }
 
@@ -2711,10 +2742,13 @@ namespace ql
     {
     public:
         ManageUsersRenderer(AppState* state, ftxui::Component user_menu, ftxui::Component input_username,
+                            ftxui::Component input_amateur, ftxui::Component input_gmrs,
                             ftxui::Component input_public_key, ftxui::Component access_toggle)
             : state_(state),
               user_menu_(std::move(user_menu)),
               input_username_(std::move(input_username)),
+              input_amateur_(std::move(input_amateur)),
+              input_gmrs_(std::move(input_gmrs)),
               input_public_key_(std::move(input_public_key)),
               access_toggle_(std::move(access_toggle))
         {
@@ -2737,14 +2771,18 @@ namespace ql
                 Framed(user_list) | ftxui::flex,
                 PickPrompt(state_, PickList::kUsers),
                 Separator(),
-                ftxui::hbox({FieldLabel("Username:    "), input_username_->Render()}),
-                ftxui::hbox({FieldLabel("Public Key:  "), input_public_key_->Render()}),
-                ftxui::hbox({FieldLabel("Access:      "), access_toggle_->Render()}),
+                ftxui::hbox({FieldLabel("Username:      "), input_username_->Render()}),
+                ftxui::hbox({FieldLabel("Amateur Call:  "), input_amateur_->Render()}),
+                ftxui::hbox({FieldLabel("GMRS Call:     "), input_gmrs_->Render()}),
+                ftxui::hbox({FieldLabel("Public Key:    "), input_public_key_->Render()}),
+                ftxui::hbox({FieldLabel("Access:        "), access_toggle_->Render()}),
+                HintParagraph("A username is any login name. Give one call sign or both; each service's nets "
+                              "are logged with its own, and watched without one."),
                 HintParagraph("Paste a full authorized_keys-style line, e.g. from "
                               "~/.ssh/id_ed25519.pub -- \"ssh-ed25519 AAAA... comment\"."),
                 HintParagraph("A view-only user can watch open net sessions, look at and "
                               "export history, and change their own settings -- nothing else. "
-                              "F4 (or Enter) edits a user: their username, access and keys."),
+                              "F4 (or Enter) edits a user: their username, call signs, access and keys."),
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
@@ -2766,6 +2804,8 @@ namespace ql
         AppState* state_;
         ftxui::Component user_menu_;
         ftxui::Component input_username_;
+        ftxui::Component input_amateur_;
+        ftxui::Component input_gmrs_;
         ftxui::Component input_public_key_;
         ftxui::Component access_toggle_;
     };
@@ -2776,10 +2816,13 @@ namespace ql
     class UserKeysModalRenderer
     {
     public:
-        UserKeysModalRenderer(AppState* state, ftxui::Component input_username, ftxui::Component access_toggle,
-                              ftxui::Component key_menu, ftxui::Component input_key)
+        UserKeysModalRenderer(AppState* state, ftxui::Component input_username, ftxui::Component input_amateur,
+                              ftxui::Component input_gmrs, ftxui::Component access_toggle, ftxui::Component key_menu,
+                              ftxui::Component input_key)
             : state_(state),
               input_username_(std::move(input_username)),
+              input_amateur_(std::move(input_amateur)),
+              input_gmrs_(std::move(input_gmrs)),
               access_toggle_(std::move(access_toggle)),
               key_menu_(std::move(key_menu)),
               input_key_(std::move(input_key))
@@ -2792,6 +2835,8 @@ namespace ql
             rows.push_back(Heading("Edit User: " + state_->user_keys_username));
             rows.push_back(DialogSeparator());
             rows.push_back(ftxui::hbox({FieldLabel("Username:   "), input_username_->Render()}));
+            rows.push_back(ftxui::hbox({FieldLabel("Amateur:    "), input_amateur_->Render()}));
+            rows.push_back(ftxui::hbox({FieldLabel("GMRS:       "), input_gmrs_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Access:     "), access_toggle_->Render()}));
             rows.push_back(
                 HintParagraph("F2 saves these; they apply from the user's next "
@@ -2824,6 +2869,8 @@ namespace ql
     private:
         AppState* state_;
         ftxui::Component input_username_;
+        ftxui::Component input_amateur_;
+        ftxui::Component input_gmrs_;
         ftxui::Component access_toggle_;
         ftxui::Component key_menu_;
         ftxui::Component input_key_;
@@ -2836,9 +2883,16 @@ namespace ql
         user_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component user_menu = ClickableList(
             state, ftxui::Menu(&state->manage_users_labels, &state->selected_user_index, user_menu_option));
-        ftxui::InputOption username_option = SingleLineInputOption();
-        username_option.on_change = UppercaseFieldHandler(&state->new_user_username);
-        ftxui::Component input_username = ftxui::Input(&state->new_user_username, "Their call sign", username_option);
+        ftxui::Component input_username =
+            ftxui::Input(&state->new_user_username, "Their login name", SingleLineInputOption());
+        ftxui::InputOption amateur_option = SingleLineInputOption();
+        amateur_option.on_change = UppercaseFieldHandler(&state->new_user_amateur_callsign);
+        ftxui::Component input_amateur =
+            ftxui::Input(&state->new_user_amateur_callsign, "e.g. W4KWK (optional)", amateur_option);
+        ftxui::InputOption gmrs_option = SingleLineInputOption();
+        gmrs_option.on_change = UppercaseFieldHandler(&state->new_user_gmrs_callsign);
+        ftxui::Component input_gmrs =
+            ftxui::Input(&state->new_user_gmrs_callsign, "e.g. WSIP663 (optional)", gmrs_option);
         ftxui::Component input_public_key =
             ftxui::Input(&state->new_user_public_key, "ssh-ed25519 AAAA... comment", SingleLineInputOption());
 
@@ -2849,14 +2903,22 @@ namespace ql
         ftxui::Component access_toggle = std::make_shared<IgnoreTab>(
             ftxui::Menu(&state->new_user_access_labels, &state->new_user_access_index, access_option));
 
-        ftxui::Component root =
-            ftxui::Container::Vertical({user_menu, input_username, input_public_key, access_toggle});
-        ftxui::Component main_view = ftxui::Renderer(
-            root, ManageUsersRenderer(state, user_menu, input_username, input_public_key, access_toggle));
+        ftxui::Component root = ftxui::Container::Vertical(
+            {user_menu, input_username, input_amateur, input_gmrs, input_public_key, access_toggle});
+        ftxui::Component main_view =
+            ftxui::Renderer(root, ManageUsersRenderer(state, user_menu, input_username, input_amateur, input_gmrs,
+                                                      input_public_key, access_toggle));
 
-        ftxui::InputOption rename_option = SingleLineInputOption();
-        rename_option.on_change = UppercaseFieldHandler(&state->rename_username);
-        ftxui::Component input_rename = ftxui::Input(&state->rename_username, "Their call sign", rename_option);
+        ftxui::Component input_rename =
+            ftxui::Input(&state->rename_username, "Their login name", SingleLineInputOption());
+        ftxui::InputOption edit_amateur_option = SingleLineInputOption();
+        edit_amateur_option.on_change = UppercaseFieldHandler(&state->edit_user_amateur_callsign);
+        ftxui::Component input_edit_amateur =
+            ftxui::Input(&state->edit_user_amateur_callsign, "e.g. W4KWK (optional)", edit_amateur_option);
+        ftxui::InputOption edit_gmrs_option = SingleLineInputOption();
+        edit_gmrs_option.on_change = UppercaseFieldHandler(&state->edit_user_gmrs_callsign);
+        ftxui::Component input_edit_gmrs =
+            ftxui::Input(&state->edit_user_gmrs_callsign, "e.g. WSIP663 (optional)", edit_gmrs_option);
         ftxui::MenuOption edit_access_option = ftxui::MenuOption::Toggle();
         edit_access_option.entries_option.transform = ToggleEntryTransform;
         edit_access_option.elements_infix = ToggleGap;
@@ -2870,9 +2932,11 @@ namespace ql
         ftxui::InputOption key_option = SingleLineInputOption();
         key_option.on_enter = AddUserKeyHandler(state);
         ftxui::Component input_key = ftxui::Input(&state->new_key_text, "ssh-ed25519 AAAA... comment", key_option);
-        ftxui::Component keys_modal =
-            ftxui::Renderer(ftxui::Container::Vertical({input_rename, edit_access_toggle, key_menu, input_key}),
-                            UserKeysModalRenderer(state, input_rename, edit_access_toggle, key_menu, input_key));
+        ftxui::Component keys_modal = ftxui::Renderer(
+            ftxui::Container::Vertical(
+                {input_rename, input_edit_amateur, input_edit_gmrs, edit_access_toggle, key_menu, input_key}),
+            UserKeysModalRenderer(state, input_rename, input_edit_amateur, input_edit_gmrs, edit_access_toggle,
+                                  key_menu, input_key));
 
         return WithRowDeleteConfirm(state, LayeredModal(main_view, keys_modal, &state->show_user_keys_modal));
     }

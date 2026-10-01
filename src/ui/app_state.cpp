@@ -409,12 +409,18 @@ namespace ql
 
     // -- SSH users and their keys (Manage Users) --
 
+    // What a username may be, as Manage Users says it.
+    static const char* const kUsernameRule =
+        "A username has 1 to 32 letters, digits, dots, hyphens and underscores, starting with a letter or digit.";
+
     // A row per user: their access applies to every key of theirs.
     static const std::vector<ListColumn>& UserColumns()
     {
         static const std::vector<ListColumn> columns = {
-            // Room for 2.0's longer GMRS call signs (e.g. WSIP663) and more.
+            // A login name, which needn't be a call sign.
             {"Username", 16, 16, 0, 0},
+            {"Amateur", 9, 9, 0, 0},
+            {"GMRS", 7, 7, 0, 0},
             {"Access", 9, 9, 0, 0},
             {"Keys", 4, 4, 0, 0},
             {"Last Login", 19, 19, 0, 0},
@@ -434,19 +440,23 @@ namespace ql
         bool view_only = false;
         int count = 0;
         std::int64_t last_login_at = 0;
+        const User* first = nullptr;
         for (const User& key : keys)
         {
             if (key.username != username)
             {
                 continue;
             }
+            first = first == nullptr ? &key : first;
             view_only = view_only || key.view_only;
             ++count;
             last_login_at = std::max(last_login_at, key.last_login_at);
         }
         std::vector<std::string> cells;
-        cells.reserve(4);
+        cells.reserve(6);
         cells.push_back(username);
+        cells.push_back(first != nullptr ? first->amateur_callsign : std::string());
+        cells.push_back(first != nullptr ? first->gmrs_callsign : std::string());
         cells.emplace_back(view_only ? "View-Only" : "Full");
         cells.push_back(std::to_string(count));
         cells.push_back(DescribeLastLogin(last_login_at));
@@ -455,9 +465,9 @@ namespace ql
 
     static ListLayout UserLayout(int terminal_width)
     {
-        // Four short columns: spread out by three spaces even at 80
-        // columns, up to four on a wider terminal.
-        return LayOutList(UserColumns(), ScreenListWidth(terminal_width), kScreenListWidthAt80, 3, 4);
+        // Six short columns: all of them fit at 80 columns two spaces apart,
+        // spread out up to four on a wider terminal.
+        return LayOutList(UserColumns(), ScreenListWidth(terminal_width), kScreenListWidthAt80, 2, 4);
     }
 
     const std::string& UserListHeader(int terminal_width)
@@ -1228,13 +1238,27 @@ namespace ql
             return;
         }
         state->start_net = state->nets[state->selected_net_index];
-        if (state->view_only_user)
+        // Without a call sign for its service, as for a view-only user,
+        // only watching.
+        bool watch_only = state->view_only_user || OwnCallsign(state, state->start_net.service).empty();
+        if (watch_only)
         {
+            std::string why;
+            if (!state->view_only_user)
+            {
+                RefuseWithoutCallsign(state, state->start_net.service);
+                why = state->form_error;
+                state->form_error.clear();
+            }
             // Only ever to watch its open session, if it has one.
             ViewStartNet(state);
             if (!state->form_error.empty())
             {
                 state->form_error = "No session of " + state->start_net.name + " is open to view.";
+                if (!why.empty())
+                {
+                    state->form_error = why;
+                }
             }
             return;
         }
@@ -1296,7 +1320,8 @@ namespace ql
             return;
         }
         Net net;
-        if (!ReadNewNetRadio(state, &net) || !CheckNetZip(state, state->new_net_location))
+        if (!ReadNewNetRadio(state, &net) || !CheckNetZip(state, state->new_net_location) ||
+            RefuseWithoutCallsign(state, net.service))
         {
             return;
         }
@@ -1352,7 +1377,7 @@ namespace ql
         if (viewing)
         {
             state->selected_role_index = kRoleViewer;
-            state->operator_callsign = state->settings.callsign;
+            state->operator_callsign = OwnCallsign(state, state->active_net_service);
         }
         state->show_new_station_modal = false;
         state->show_edit_checkin_modal = false;
@@ -1580,14 +1605,11 @@ namespace ql
     {
         if (!state->callsign_editable)
         {
-            state->settings_form.callsign = state->ssh_username;
+            // An SSH user's are Manage Users' to set.
+            state->settings_form.callsign = state->settings.callsign;
+            state->settings_form.gmrs_callsign = state->settings.gmrs_callsign;
         }
-        if (state->settings_form.callsign.empty())
-        {
-            state->form_error = "Your callsign is required.";
-            return false;
-        }
-        if (!CheckCallsign(state, state->settings_form.callsign))
+        else if (!CheckUserCallsigns(state, &state->settings_form.callsign, &state->settings_form.gmrs_callsign))
         {
             return false;
         }
@@ -1806,12 +1828,31 @@ namespace ql
         state->form_error.clear();
     }
 
+    const std::string& OwnCallsign(const AppState* state, NetService service)
+    {
+        return service == NetService::kGmrs ? state->settings.gmrs_callsign : state->settings.callsign;
+    }
+
+    bool RefuseWithoutCallsign(AppState* state, NetService service)
+    {
+        if (!OwnCallsign(state, service).empty())
+        {
+            return false;
+        }
+        state->status_message.clear();
+        state->form_error = std::string("You have no ") + ServiceLabel(service) + " call sign, so you can only watch " +
+                            ServiceLabel(service) + " nets." +
+                            (state->callsign_editable ? " Add one in Settings (F4)." : "");
+        return true;
+    }
+
     void ResetStartNetFlow(AppState* state)
     {
         state->selected_role_index = kRoleNetControl;
-        // Prefill with the operator's own callsign from Settings; they can
-        // still edit it if a different person is filling this particular role.
-        state->operator_callsign = state->settings.callsign;
+        // Prefill with the operator's own call sign for the net's service;
+        // they can still edit it if a different person is filling this
+        // particular role.
+        state->operator_callsign = OwnCallsign(state, state->start_net.service);
         state->form_error.clear();
     }
 
@@ -3203,6 +3244,9 @@ namespace ql
         state->user_keys_username = state->manage_user_names[index];
         state->rename_username = state->user_keys_username;
         state->edit_user_access_index = state->db->IsUserViewOnly(state->user_keys_username) ? 1 : 0;
+        std::vector<User> keys = state->db->GetUserKeys(state->user_keys_username);
+        state->edit_user_amateur_callsign = keys.empty() ? std::string() : keys[0].amateur_callsign;
+        state->edit_user_gmrs_callsign = keys.empty() ? std::string() : keys[0].gmrs_callsign;
         state->selected_user_key_index = 0;
         state->new_key_text.clear();
         state->form_error.clear();
@@ -3230,17 +3274,19 @@ namespace ql
             return;
         }
         std::string old_username = state->user_keys_username;
-        std::string new_username = NormalizeCallsign(state->rename_username);
+        std::string new_username = Spaceless(state->rename_username);
         state->rename_username = new_username;
         state->status_message.clear();
         bool renaming = new_username != old_username;
-        if (renaming && !UsernameIsCallsign(new_username))
+        if (renaming && !IsValidUsername(new_username))
         {
-            state->form_error = new_username.empty() || new_username.find('/') != std::string::npos
-                                    ? "A username is the user's call sign alone, without /M, "
-                                      "/P or the like."
-                                    : "A username is the user's call sign: " + new_username +
-                                          " isn't a valid US or Canadian call sign.";
+            state->form_error = kUsernameRule;
+            return;
+        }
+        std::string amateur = state->edit_user_amateur_callsign;
+        std::string gmrs = state->edit_user_gmrs_callsign;
+        if (!CheckUserCallsigns(state, &amateur, &gmrs))
+        {
             return;
         }
         if (renaming && !state->db->RenameUser(old_username, new_username))
@@ -3260,6 +3306,14 @@ namespace ql
         {
             state->db->SetUserViewOnly(new_username, view_only);
         }
+        std::vector<User> keys = state->db->GetUserKeys(new_username);
+        bool callsigns_changed =
+            !keys.empty() && (keys[0].amateur_callsign != amateur || keys[0].gmrs_callsign != gmrs);
+        if (callsigns_changed)
+        {
+            state->db->SetUserCallsigns(new_username, amateur, gmrs);
+            access_changed = true;
+        }
 
         CloseUserKeys(state);
         RefreshUsers(state);
@@ -3276,7 +3330,7 @@ namespace ql
         if (renaming && access_changed)
         {
             state->status_message =
-                "Renamed " + old_username + " to " + new_username + ", now " + access + ", from their next login.";
+                "Renamed " + old_username + " to " + new_username + " and saved, from their next login.";
         }
         else if (renaming)
         {
@@ -3284,7 +3338,7 @@ namespace ql
         }
         else if (access_changed)
         {
-            state->status_message = new_username + " is now " + access + ", from their next login.";
+            state->status_message = "Saved " + new_username + " (" + access + "), from their next login.";
         }
         else
         {
@@ -3337,10 +3391,45 @@ namespace ql
                                          : "Removed a key of \"" + key.username + "\" (" + DescribeUserKey(key) + ").";
     }
 
-    bool UsernameIsCallsign(const std::string& username)
+    bool IsValidUsername(const std::string& username)
     {
-        return username.find('/') == std::string::npos && IsValidCallsign(username);
+        if (username.empty() || username.size() > 32 || std::isalnum(static_cast<unsigned char>(username[0])) == 0)
+        {
+            return false;
+        }
+        for (char c : username)
+        {
+            if (std::isalnum(static_cast<unsigned char>(c)) == 0 && c != '.' && c != '_' && c != '-')
+            {
+                return false;
+            }
+        }
+        return true;
     }
+
+    bool CheckUserCallsigns(AppState* state, std::string* amateur, std::string* gmrs)
+    {
+        *amateur = NormalizeCallsign(*amateur);
+        *gmrs = NormalizeCallsign(*gmrs);
+        if (amateur->empty() && gmrs->empty())
+        {
+            state->form_error = "At least one call sign is required: Amateur Radio or GMRS.";
+            return false;
+        }
+        if (!amateur->empty() && (amateur->find('/') != std::string::npos || !IsValidCallsign(*amateur)))
+        {
+            state->form_error =
+                *amateur + " isn't a valid US or Canadian amateur call sign (without /M, /P or the like).";
+            return false;
+        }
+        if (!gmrs->empty() && !IsValidGmrsCallsign(*gmrs))
+        {
+            state->form_error = *gmrs + " isn't a valid GMRS call sign.";
+            return false;
+        }
+        return true;
+    }
+
 
     void AddUserFromForm(AppState* state)
     {
@@ -3348,20 +3437,24 @@ namespace ql
         {
             return;
         }
-        state->new_user_username = NormalizeCallsign(state->new_user_username);
+        state->new_user_username = Spaceless(state->new_user_username);
         if (state->new_user_username.empty() || state->new_user_public_key.empty())
         {
             state->status_message.clear();
             state->form_error = "Username and public key are both required.";
             return;
         }
-        if (!UsernameIsCallsign(state->new_user_username))
+        if (!IsValidUsername(state->new_user_username))
         {
             state->status_message.clear();
-            state->form_error = state->new_user_username.find('/') != std::string::npos
-                                    ? "A username is the user's call sign alone, without /M, /P or the like."
-                                    : "A username is the user's call sign: " + state->new_user_username +
-                                          " isn't a valid US or Canadian call sign.";
+            state->form_error = kUsernameRule;
+            return;
+        }
+        // Another key for a user keeps their call signs.
+        bool existing = !state->db->GetUserKeys(state->new_user_username).empty();
+        if (!existing && !CheckUserCallsigns(state, &state->new_user_amateur_callsign, &state->new_user_gmrs_callsign))
+        {
+            state->status_message.clear();
             return;
         }
         std::string public_key;
@@ -3378,11 +3471,15 @@ namespace ql
         user.public_key = public_key;
         user.created_at = static_cast<std::int64_t>(std::time(nullptr));
         user.view_only = state->new_user_access_index == 1;
-        bool had_keys = CountUserKeys(state, user.username) > 0;
+        user.amateur_callsign = state->new_user_amateur_callsign;
+        user.gmrs_callsign = state->new_user_gmrs_callsign;
+        bool had_keys = existing;
         bool added = state->db->CreateUser(user);
 
         state->new_user_username.clear();
         state->new_user_public_key.clear();
+        state->new_user_amateur_callsign.clear();
+        state->new_user_gmrs_callsign.clear();
         state->new_user_access_index = 0;
         RefreshUsers(state);
         state->form_error.clear();

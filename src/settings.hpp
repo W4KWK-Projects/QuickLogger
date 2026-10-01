@@ -19,7 +19,12 @@ namespace ql
     // exported to share with another user.
     struct AppSettings
     {
+        // The operator's amateur call sign, for Amateur Radio nets.
         std::string callsign;
+        // And GMRS call sign, for GMRS nets. At least one of the two is
+        // needed (see SettingsAreComplete). An SSH user's both come from
+        // Manage Users, not from this file.
+        std::string gmrs_callsign;
         // The operator's own home ZIP code: where nearby-station (ULS)
         // autocomplete measures from when the net has no ZIP of its own (see
         // Net::default_location and geo_utils.hpp) -- not shown or used
@@ -58,7 +63,8 @@ namespace ql
     void SaveSettings(const std::string& path, const AppSettings& settings);
 
     // True if `settings` has every field QuickLogger requires before the
-    // operator can use the rest of the app: a callsign and a well-formed
+    // operator can use the rest of the app: a call sign (amateur or GMRS,
+    // or both) and a well-formed
     // 5-digit home ZIP code (AppSettings::location -- needed for the
     // nearby-station autocomplete). Checked at startup to
     // force a first-run trip to Settings, and again before letting Settings be

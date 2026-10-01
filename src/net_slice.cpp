@@ -75,8 +75,12 @@ namespace ql
         // A net exported by an older version may carry free text here,
         // from before this was a ZIP field (see Database::NormalizeNetZips).
         net.default_location = ExtractZipCode(net.default_location);
-        // Likewise a frequency from before it was checked.
-        MoveBadFrequencyToComments(&net.default_frequency, &net.comments);
+        // Likewise a frequency from before it was checked (an amateur one:
+        // a GMRS net's is one of its channels, never typed in).
+        if (net.service != NetService::kGmrs)
+        {
+            MoveBadFrequencyToComments(&net.default_frequency, &net.comments);
+        }
         // And a mode from before it was a fixed choice.
         net.mode = NormalizeMode(net.mode);
         std::int64_t new_net_id = db->CreateNet(net);
@@ -341,7 +345,10 @@ namespace ql
         net.is_ad_hoc = true;
         net.imported_at = imported_at;
         net.default_location = ExtractZipCode(net.default_location);
-        MoveBadFrequencyToComments(&net.default_frequency, &net.comments);
+        if (net.service != NetService::kGmrs)
+        {
+            MoveBadFrequencyToComments(&net.default_frequency, &net.comments);
+        }
         std::int64_t new_net_id = db->CreateNet(net);
         std::int64_t instance_id = ApplySessionSlice(db, slice, new_net_id, error);
         if (instance_id != 0)

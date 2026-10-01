@@ -165,13 +165,15 @@ CREATE TABLE IF NOT EXISTS users (
     public_key TEXT NOT NULL,
     created_at INTEGER NOT NULL DEFAULT 0,
     last_login_at INTEGER NOT NULL DEFAULT 0,
-    view_only INTEGER NOT NULL DEFAULT 0
+    view_only INTEGER NOT NULL DEFAULT 0,
+    amateur_callsign TEXT NOT NULL DEFAULT '',
+    gmrs_callsign TEXT NOT NULL DEFAULT ''
 );
 )sql";
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 15;
+    static constexpr int kSchemaVersion = 16;
 
     static int ReadUserVersion(sqlite3* db)
     {
@@ -477,6 +479,10 @@ CREATE TABLE IF NOT EXISTS users (
         EnsureColumnExists(db_, "nets", "is_ad_hoc", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(db_, "nets", "repeater_offset", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(db_, "nets", "pl_tone", "TEXT NOT NULL DEFAULT ''");
+        // Since 2.0.0 a net is Amateur Radio or GMRS; every net already
+        // there is Amateur Radio. Added before the fix-ups below, which
+        // leave GMRS nets alone.
+        EnsureColumnExists(db_, "nets", "service", "TEXT NOT NULL DEFAULT 'amateur'");
 
         // One-time migration for databases created before ULS import moved
         // to its own table (uls_stations): any leftover data_source=2 (kUls)
@@ -539,9 +545,16 @@ CREATE TABLE IF NOT EXISTS users (
         // CreateNetInstance never writes it, so exports, imports and merges
         // don't carry it.
         EnsureColumnExists(db_, "net_instances", "pushed_at", "INTEGER NOT NULL DEFAULT 0");
-        // Since 2.0.0 a net is Amateur Radio or GMRS; every net already
-        // there is Amateur Radio.
-        EnsureColumnExists(db_, "nets", "service", "TEXT NOT NULL DEFAULT 'amateur'");
+        // Since 2.0.0 a username is any login name, and a user's call signs
+        // are kept apart from it: an amateur one and a GMRS one. Until now a
+        // username had to be an amateur call sign, so it becomes that.
+        EnsureColumnExists(db_, "users", "amateur_callsign", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(db_, "users", "gmrs_callsign", "TEXT NOT NULL DEFAULT ''");
+        {
+            Statement copy(&statements_, "UPDATE users SET amateur_callsign = upper(username) "
+                                         "WHERE amateur_callsign = '' AND gmrs_callsign = '';");
+            copy.Step();
+        }
 
         std::string set_version = "PRAGMA user_version = " + std::to_string(kSchemaVersion) + ";";
         sqlite3_exec(db_, set_version.c_str(), nullptr, nullptr, nullptr);
@@ -692,7 +705,9 @@ COMMIT;
         };
         std::vector<Fix> fixes;
         {
-            Statement select(&statements_, "SELECT id, default_frequency, notes FROM nets;");
+            // Amateur nets only: a GMRS net's frequency is one of its
+            // channels, never free text.
+            Statement select(&statements_, "SELECT id, default_frequency, notes FROM nets WHERE service != 'gmrs';");
             while (select.Step())
             {
                 Fix fix{select.ColumnInt64(0), select.ColumnText(1), select.ColumnText(2)};
@@ -2419,6 +2434,8 @@ COMMIT;
         user.created_at = row.ColumnInt64(3);
         user.last_login_at = row.ColumnInt64(4);
         user.view_only = row.ColumnInt64(5) != 0;
+        user.amateur_callsign = row.ColumnText(6);
+        user.gmrs_callsign = row.ColumnText(7);
         return user;
     }
 
@@ -2439,16 +2456,23 @@ COMMIT;
             }
         }
         // Another key for an existing username takes that username's
-        // access, whatever `user` says.
+        // access and call signs, whatever `user` says.
         Statement statement(&statements_, R"sql(
-        INSERT INTO users (username, public_key, created_at, last_login_at, view_only)
-        VALUES (?,?,?,0, COALESCE((SELECT view_only FROM users WHERE username = ? LIMIT 1), ?));
+        INSERT INTO users (username, public_key, created_at, last_login_at, view_only, amateur_callsign,
+                           gmrs_callsign)
+        VALUES (?,?,?,0, COALESCE((SELECT view_only FROM users WHERE username = ? LIMIT 1), ?),
+                COALESCE((SELECT amateur_callsign FROM users WHERE username = ? LIMIT 1), ?),
+                COALESCE((SELECT gmrs_callsign FROM users WHERE username = ? LIMIT 1), ?));
     )sql");
         statement.BindText(0, username);
         statement.BindText(1, user.public_key);
         statement.BindInt64(2, user.created_at);
         statement.BindText(3, username);
         statement.BindInt64(4, user.view_only ? 1 : 0);
+        statement.BindText(5, username);
+        statement.BindText(6, ToUpperAscii(user.amateur_callsign));
+        statement.BindText(7, username);
+        statement.BindText(8, ToUpperAscii(user.gmrs_callsign));
         statement.Step();
         return true;
     }
@@ -2458,6 +2482,17 @@ COMMIT;
         Statement statement(&statements_, "UPDATE users SET view_only = ? WHERE username = ? COLLATE NOCASE;");
         statement.BindInt64(0, view_only ? 1 : 0);
         statement.BindText(1, username);
+        statement.Step();
+    }
+
+    void Database::SetUserCallsigns(const std::string& username, const std::string& amateur_callsign,
+                                    const std::string& gmrs_callsign)
+    {
+        Statement statement(&statements_, "UPDATE users SET amateur_callsign = ?, gmrs_callsign = ? "
+                                          "WHERE username = ? COLLATE NOCASE;");
+        statement.BindText(0, ToUpperAscii(amateur_callsign));
+        statement.BindText(1, ToUpperAscii(gmrs_callsign));
+        statement.BindText(2, username);
         statement.Step();
     }
 
@@ -2474,7 +2509,7 @@ COMMIT;
     std::vector<User> Database::GetUserKeys(const std::string& username)
     {
         Statement statement(&statements_, R"sql(
-        SELECT id, username, public_key, created_at, last_login_at, view_only
+        SELECT id, username, public_key, created_at, last_login_at, view_only, amateur_callsign, gmrs_callsign
         FROM users WHERE username = ? COLLATE NOCASE ORDER BY id;
     )sql");
         statement.BindText(0, username);
@@ -2489,7 +2524,7 @@ COMMIT;
     std::vector<User> Database::ListUsers()
     {
         Statement statement(&statements_, R"sql(
-        SELECT id, username, public_key, created_at, last_login_at, view_only
+        SELECT id, username, public_key, created_at, last_login_at, view_only, amateur_callsign, gmrs_callsign
         FROM users ORDER BY username COLLATE NOCASE, username, id;
     )sql");
         std::vector<User> users;

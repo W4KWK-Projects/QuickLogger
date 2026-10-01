@@ -81,6 +81,10 @@ namespace ql
             {
                 settings.callsign = value;
             }
+            else if (key == "gmrs_callsign")
+            {
+                settings.gmrs_callsign = value;
+            }
             else if (key == "location")
             {
                 settings.location = value;
@@ -127,6 +131,7 @@ namespace ql
     {
         std::ofstream file(path, std::ios::trunc);
         file << "callsign=" << settings.callsign << "\n";
+        file << "gmrs_callsign=" << settings.gmrs_callsign << "\n";
         file << "location=" << settings.location << "\n";
         file << "time_format=" << (settings.use_24_hour_clock ? "24h" : "12h") << "\n";
         file << "nearby_radius_miles=" << settings.nearby_radius_miles << "\n";
@@ -138,7 +143,7 @@ namespace ql
 
     bool SettingsAreComplete(const AppSettings& settings)
     {
-        return !settings.callsign.empty() && IsFiveDigitZip(settings.location);
+        return (!settings.callsign.empty() || !settings.gmrs_callsign.empty()) && IsFiveDigitZip(settings.location);
     }
 
 }  // namespace ql

@@ -459,12 +459,17 @@ namespace ql
         state.view_only_user = !is_console_session && !ssh_username.empty() && db.IsUserViewOnly(ssh_username);
         state.settings_path = settings_path;
         state.settings = ql::LoadSettings(state.settings_path);
-        // An SSH user's callsign is their username (usernames are
-        // callsigns), and isn't theirs to change.
-        if (!state.ssh_username.empty() && ql::UsernameIsCallsign(state.ssh_username))
+        // An SSH user's call signs are set in Manage Users, not theirs to
+        // change.
+        if (!state.ssh_username.empty())
         {
-            state.callsign_editable = false;
-            state.settings.callsign = state.ssh_username;
+            std::vector<ql::User> keys = db.GetUserKeys(state.ssh_username);
+            if (!keys.empty())
+            {
+                state.callsign_editable = false;
+                state.settings.callsign = keys[0].amateur_callsign;
+                state.settings.gmrs_callsign = keys[0].gmrs_callsign;
+            }
         }
         ql::SetUse24HourClock(state.settings.use_24_hour_clock);
         // Only the console checks for updates: an SSH user can't install one.

@@ -426,6 +426,10 @@ namespace ql
         bool CreateUser(const User& user);
         // Makes every key of `username` view-only, or full access.
         void SetUserViewOnly(const std::string& username, bool view_only);
+        // Sets `username`'s call signs (see User::amateur_callsign) on
+        // every key; a new username's come from CreateUser's `user`.
+        void SetUserCallsigns(const std::string& username, const std::string& amateur_callsign,
+                              const std::string& gmrs_callsign);
         // True if `username` is view-only (false for an unknown username).
         bool IsUserViewOnly(const std::string& username);
         // Every key `username` may log in with, oldest first.
