@@ -1218,8 +1218,10 @@ namespace ql
         CHECK(f.state.history_instance_labels[0].find("2026-09-23") == 0);
         CHECK(f.state.history_instance_labels[0].substr(net_column).find("Field Day Practice") == 0);
         CHECK(f.state.history_instance_labels[1].substr(net_column).find("Tailgate") == 0);
-        CHECK_EQ(header.find("Net Control") - header.find("Net "), std::size_t{25});
-        CHECK(header.size() <= 78);
+        CHECK_EQ(header.find("Net Control") - header.find("Net "), std::size_t{24});
+        // The "> " gutter plus the 75 columns a list has at 80, so Status
+        // isn't cut.
+        CHECK(header.size() <= 77);
 
         f.state.history_ad_hoc = false;
         RefreshNets(&f.state);
@@ -1911,7 +1913,7 @@ namespace ql
         std::snprintf(expected, sizeof(expected), "  %-11.11s %-9.9s %-9.9s %-12.12s %-13.13s %-9.9s %s", "Date",
                       "Start", "End", "Net Control", "Alternate NC", "Logger", "Status");
         CHECK_EQ(NetInstanceListHeader(80, false), std::string(expected));
-        std::snprintf(expected, sizeof(expected), "  %-11.11s %-9.9s %-9.9s %-24.24s %-12.12s %s", "Date", "Start",
+        std::snprintf(expected, sizeof(expected), "  %-11.11s %-9.9s %-9.9s %-23.23s %-12.12s %s", "Date", "Start",
                       "End", "Net", "Net Control", "Status");
         CHECK_EQ(NetInstanceListHeader(80, true), std::string(expected));
 

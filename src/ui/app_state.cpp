@@ -304,7 +304,7 @@ namespace ql
         // when there's room.
         static const std::vector<ListColumn> every_ad_hoc = {
             {"Date", 11, 11, 0, 0}, {"Start", 9, 9, 0, 0},         {"End", 9, 9, 0, 0},
-            {"Net", 24, 30, 0, 1},  {"Net Control", 12, 12, 0, 0}, {"Alternate NC", 13, 13, 3, 0},
+            {"Net", 23, 30, 0, 1},  {"Net Control", 12, 12, 0, 0}, {"Alternate NC", 13, 13, 3, 0},
             {"Logger", 9, 9, 4, 0}, {"Started by", 11, 11, 5, 0},  {"Check-ins", 10, 10, 1, 0},
             {"Notes", 6, 6, 6, 0},  {"Status", 6, 6, 0, 0},
         };

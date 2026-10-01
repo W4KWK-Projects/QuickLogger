@@ -1561,8 +1561,7 @@ namespace ql
             else
             {
                 rows = {
-                    HintParagraph("Logs a one-off net. Ad hoc nets aren't listed with the "
-                                  "recurring nets; F6 shows their history."),
+                    HintParagraph("Logs an ad hoc (non-recurring) net; F6 shows history."),
                     Separator(),
                     ftxui::hbox({FieldLabel("Name:             "), input_name_->Render()}),
                     ftxui::hbox({FieldLabel("Mode:             "), input_mode_->Render()}),
