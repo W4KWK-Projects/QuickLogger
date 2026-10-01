@@ -2339,8 +2339,10 @@ namespace ql
     // there through the Import page the way the operator would: the same
     // name, so the Import or Merge window offers only Merge (F3), then the
     // summary, then F2. Leaves `to` on the summary's result; returns the
-    // plan the summary showed.
-    static NetMergePlan SyncNet(Database* from, std::int64_t net_id, Fixture* to, bool replace_stations = false)
+    // plan the summary showed, and its rows for the sessions that differ in
+    // `conflict_rows` if given.
+    static NetMergePlan SyncNet(Database* from, std::int64_t net_id, Fixture* to, bool replace_stations = false,
+                                std::vector<MergeConflictText>* conflict_rows = nullptr)
     {
         std::string error;
         std::string file = ImportsDir(to->state.db_path) + "/Tuesday_Night_Net.qlnet";
@@ -2358,6 +2360,21 @@ namespace ql
         CHECK_EQ(to->state.merge_candidates[0].name, std::string("Tuesday Night Net"));
         CHECK(keys(ftxui::Event::F3));
         REQUIRE(to->state.merge_stage == MergeStage::kSummary);
+        // Each session that differs has its row's text, made with the plan:
+        // the file's date and start, and what differs.
+        REQUIRE(to->state.merge_conflict_texts.size() == to->state.merge_conflicts.size());
+        for (std::size_t i = 0; i < to->state.merge_conflicts.size(); ++i)
+        {
+            const MergeSession& session = to->state.merge_plan.sessions[to->state.merge_conflicts[i]];
+            const NetInstance& file = to->state.merge_slice.instances[session.file_index];
+            const MergeConflictText& text = to->state.merge_conflict_texts[i];
+            CHECK_EQ(text.when, file.instance_date + "  " + FormatLocalTimeOfDay(file.started_at));
+            CHECK(!text.what.empty());
+        }
+        if (conflict_rows != nullptr)
+        {
+            *conflict_rows = to->state.merge_conflict_texts;
+        }
         // To replace a station's details: Down to its row (after any
         // sessions that differ), then Right.
         if (replace_stations)
@@ -2602,6 +2619,30 @@ namespace ql
         NetMergePlan to_b = SyncNet(net.a.db(), net.a_net, &net.b);
         CHECK(to_b.station_conflicts.empty());
         CHECK(Sessions(net.a.db(), net.a_net) == Sessions(net.b.db(), net.b_net));
+    }
+
+    QL_TEST(ASessionLoggedDifferentlyOnEachMachineIsListedWithWhatDiffers)
+    {
+        AlternatingWeeks net(SharedStation::kNone);
+        // The first week, which both have: B adds K4NEW to theirs.
+        std::int64_t b_first = 0;
+        for (const NetInstance& session : net.b.db()->GetNetInstancesForNet(net.b_net))
+        {
+            if (session.instance_date == "2026-09-01")
+            {
+                b_first = session.id;
+            }
+        }
+        REQUIRE(b_first != 0);
+        AddTestCheckIn(net.b.db(), b_first, "K4NEW", 3);
+
+        // Its row says when it was and what differs, made with the plan.
+        std::vector<MergeConflictText> rows;
+        NetMergePlan to_a = SyncNet(net.b.db(), net.b_net, &net.a, false, &rows);
+        CHECK_EQ(Count(to_a, MergeSessionKind::kDiffers), 1);
+        REQUIRE(rows.size() == 1);
+        CHECK_EQ(rows[0].when, "2026-09-01  " + FormatLocalTimeOfDay(kFirstTuesday));
+        CHECK_EQ(rows[0].what, std::string("check-ins: K4NEW only in file"));
     }
 
     QL_TEST(ExportingASessionAlsoWritesItsSessionFile)

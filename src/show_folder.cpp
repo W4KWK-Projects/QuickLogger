@@ -26,10 +26,28 @@ namespace ql
         return value != nullptr && value[0] != '\0';
     }
 
+    static bool InsideSshLogin()
+    {
+        return EnvironmentHas("SSH_CONNECTION") || EnvironmentHas("SSH_CLIENT") || EnvironmentHas("SSH_TTY");
+    }
+
+    // InsideSshLogin, read on the first call and not again: pages ask on
+    // every frame, and the environment doesn't change while QuickLogger
+    // runs.
+    static bool& CachedInsideSshLogin()
+    {
+        static bool inside = InsideSshLogin();
+        return inside;
+    }
+
     bool IsLocalTerminal(bool is_console_session)
     {
-        return is_console_session && !EnvironmentHas("SSH_CONNECTION") && !EnvironmentHas("SSH_CLIENT") &&
-               !EnvironmentHas("SSH_TTY");
+        return is_console_session && !CachedInsideSshLogin();
+    }
+
+    void RereadTerminalEnvironment()
+    {
+        CachedInsideSshLogin() = InsideSshLogin();
     }
 
     bool CanShowInFileManager()

@@ -6,9 +6,9 @@
 #include <cstdlib>
 #include <ctime>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <ftxui/component/component_options.hpp>
 #include <ftxui/dom/elements.hpp>
@@ -1034,13 +1034,7 @@ namespace ql
                                    state_->selected_check_in_index, check_in_menu_) |
                           ftxui::yframe | ftxui::vscroll_indicator;
 
-            // The date the net was started, with the time of day next to it.
-            std::string started = state_->active_instance.instance_date;
-            std::string start_time = FormatLocalTimeOfDay(state_->active_instance.started_at);
-            if (!start_time.empty())
-            {
-                started += "  " + start_time;
-            }
+            const std::string& started = StartedText();
 
             ftxui::Elements info = {
                 ftxui::text("Date: ") | ftxui::color(kColorLabel),
@@ -1131,8 +1125,35 @@ namespace ql
         }
 
     private:
+        // The date the net was started, with the time of day next to it:
+        // remade only for another session (or the 12/24-hour setting), not
+        // on every frame. A session's date and start never change.
+        const std::string& StartedText() const
+        {
+            const NetInstance& instance = state_->active_instance;
+            if (instance.id != started_id_ || instance.started_at != started_at_ ||
+                Use24HourClock() != started_24_hour_)
+            {
+                started_id_ = instance.id;
+                started_at_ = instance.started_at;
+                started_24_hour_ = Use24HourClock();
+                started_ = instance.instance_date;
+                std::string start_time = FormatLocalTimeOfDay(instance.started_at);
+                if (!start_time.empty())
+                {
+                    started_.append("  ");
+                    started_.append(start_time);
+                }
+            }
+            return started_;
+        }
+
         AppState* state_;
         ftxui::Component check_in_menu_;
+        mutable std::int64_t started_id_ = -1;
+        mutable std::int64_t started_at_ = -1;
+        mutable bool started_24_hour_ = false;
+        mutable std::string started_;
     };
 
     // The keys in the check-in windows that jump to the fields usually
@@ -1370,6 +1391,36 @@ namespace ql
 
     // ---- Settings page ---------------------------------------------------
 
+    // The station data's status (see DescribeStationDataStatus), a line
+    // each. Read from the database at most once a second, or when the
+    // 12/24-hour setting changes, not on every frame: a read takes a lock,
+    // as for the top bar's notice (StationDataNoticeText in chrome.cpp).
+    static const std::vector<std::string>& StationDataStatusLines(Database* db, std::int64_t now)
+    {
+        static std::int64_t read_at = -1;
+        static bool read_24_hour = false;
+        static std::vector<std::string> lines;
+        if (now != read_at || Use24HourClock() != read_24_hour)
+        {
+            std::string text = DescribeStationDataStatus(db, now);
+            read_at = now;
+            read_24_hour = Use24HourClock();
+            lines.clear();
+            std::size_t start = 0;
+            while (start < text.size())
+            {
+                std::size_t end = text.find('\n', start);
+                if (end == std::string::npos)
+                {
+                    end = text.size();
+                }
+                lines.emplace_back(text, start, end - start);
+                start = end + 1;
+            }
+        }
+        return lines;
+    }
+
     class SettingsRenderer
     {
     public:
@@ -1406,11 +1457,11 @@ namespace ql
                                              std::string(kReleasesPageUrl))});
             }
             // The station data's status: one paragraph per line of it.
+            const std::vector<std::string>& status_text =
+                StationDataStatusLines(state_->db, static_cast<std::int64_t>(std::time(nullptr)));
             ftxui::Elements status_lines;
-            std::istringstream status_text(
-                DescribeStationDataStatus(state_->db, static_cast<std::int64_t>(std::time(nullptr))));
-            std::string status_line;
-            while (std::getline(status_text, status_line))
+            status_lines.reserve(status_text.size());
+            for (const std::string& status_line : status_text)
             {
                 status_lines.push_back(ftxui::paragraph(status_line));
             }
@@ -2218,7 +2269,6 @@ namespace ql
         ftxui::Elements SummaryRows() const
         {
             const NetMergePlan& plan = state_->merge_plan;
-            const NetSlice& slice = state_->merge_slice;
             int added = 0;
             int here = 0;
             int open_added = 0;
@@ -2281,13 +2331,8 @@ namespace ql
                 for (std::size_t i = 0; i < state_->merge_conflicts.size(); ++i)
                 {
                     const MergeSession& session = plan.sessions[state_->merge_conflicts[i]];
-                    const NetInstance& file = slice.instances[session.file_index];
-                    std::string when = file.instance_date;
-                    if (file.started_at > 0)
-                    {
-                        when += "  " + FormatLocalTimeOfDay(file.started_at);
-                    }
-                    std::string what = WhatDiffers(session);
+                    const std::string& when = state_->merge_conflict_texts[i].when;
+                    const std::string& what = state_->merge_conflict_texts[i].what;
                     // The highlighted session, if what differs doesn't fit
                     // beside it, says so in full on a line of its own.
                     bool highlighted = static_cast<int>(i) == state_->selected_merge_conflict;
@@ -2379,58 +2424,6 @@ namespace ql
                 rows.push_back(KeyHintRow({{"Esc", "Back"}}));
             }
             return rows;
-        }
-
-        // `callsigns` joined with ", ", the first three and how many more.
-        static void AppendCallsigns(const std::vector<std::string>& callsigns, std::string* text)
-        {
-            std::size_t shown = std::min<std::size_t>(callsigns.size(), 3);
-            for (std::size_t i = 0; i < shown; ++i)
-            {
-                text->append(i == 0 ? "" : ", ");
-                text->append(callsigns[i]);
-            }
-            if (callsigns.size() > shown)
-            {
-                text->append(" +");
-                text->append(std::to_string(callsigns.size() - shown));
-            }
-        }
-
-        // What differs in a session: "check-ins: K4AAA differs; K4ZZZ only
-        // in file; notes differ".
-        static std::string WhatDiffers(const MergeSession& session)
-        {
-            std::string text;
-            if (session.check_ins_differ)
-            {
-                text.append("check-ins: ");
-                bool first = true;
-                if (!session.callsigns_changed.empty())
-                {
-                    AppendCallsigns(session.callsigns_changed, &text);
-                    text.append(session.callsigns_changed.size() == 1 ? " differs" : " differ");
-                    first = false;
-                }
-                if (!session.callsigns_only_in_file.empty())
-                {
-                    text.append(first ? "" : "; ");
-                    AppendCallsigns(session.callsigns_only_in_file, &text);
-                    text.append(" only in file");
-                    first = false;
-                }
-                if (!session.callsigns_only_here.empty())
-                {
-                    text.append(first ? "" : "; ");
-                    AppendCallsigns(session.callsigns_only_here, &text);
-                    text.append(" only here");
-                }
-            }
-            if (session.notes_differ)
-            {
-                text.append(text.empty() ? "notes differ" : "; notes differ");
-            }
-            return text;
         }
 
         // "1 session", "3 sessions".
