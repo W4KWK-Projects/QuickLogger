@@ -45,8 +45,8 @@ jobs:
           fi
 
       # name, the files it must hold, its smallest believable size in MB.
-      # l_amat is what QuickLogger loads today; l_gmrs (licenses) and a_gmrs
-      # (applications) are for GMRS support to come.
+      # l_amat is what QuickLogger loads today; l_gmrs (GMRS licenses, the
+      # same layout) is for GMRS support to come.
       - name: Download, check and upload
         run: |
           set -eu
@@ -83,6 +83,5 @@ jobs:
           done <<'LIST'
           l_amat HD.dat,EN.dat,AM.dat 100
           l_gmrs HD.dat,EN.dat 20
-          a_gmrs EN.dat,AD.dat 20
           LIST
           exit $status
