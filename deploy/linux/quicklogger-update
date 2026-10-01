@@ -38,6 +38,16 @@ case "$(uname -m)" in
         ;;
 esac
 
+# One run at a time: the timer's and one run by hand (as setup.sh does)
+# would otherwise share $WORK, each deleting the other's download. A run
+# waits for one already going; runs are short, as they never wait for
+# users to log out.
+exec 9> /run/quicklogger-update.lock
+if ! flock -w 600 9; then
+    log "another run has held the lock for 10 minutes; skipping this one"
+    exit 0
+fi
+
 mkdir -p "$WORK" "$DATA/backups"
 
 release=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")
