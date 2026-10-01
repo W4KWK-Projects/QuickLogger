@@ -179,19 +179,44 @@ namespace ql
         return text;
     }
 
-    // The update notice's text ("v1.8.0 available"), or "" if there's none:
-    // read at most once a second, like the station-data notice, not on
-    // every frame. It changes every few hours at most, and a read takes a
-    // lock and a copy.
-    static const std::string& UpdateNoticeText(std::int64_t now)
+    // The newer release found, read at most once a second, not on every
+    // frame: it changes every few hours at most, and a read takes a lock
+    // and a copy.
+    static const std::string& CachedUpdate(std::int64_t now)
     {
         static std::int64_t read_at = -1;
-        static std::string text;
+        static std::string version;
         if (now != read_at)
         {
             read_at = now;
-            std::string version = AvailableUpdate();
-            text = version.empty() ? std::string() : "v" + version + " available";
+            version = AvailableUpdate();
+        }
+        return version;
+    }
+
+    const std::string& AvailableUpdateForDisplay()
+    {
+        return CachedUpdate(static_cast<std::int64_t>(std::time(nullptr)));
+    }
+
+    // The update notice's text ("v1.8.0 available"), or "" if there's none;
+    // remade only when the version found changes.
+    static const std::string& UpdateNoticeText(std::int64_t now)
+    {
+        static std::string shown_version;
+        static std::string text;
+        const std::string& version = CachedUpdate(now);
+        if (version != shown_version)
+        {
+            shown_version = version;
+            text.clear();
+            if (!version.empty())
+            {
+                text.reserve(version.size() + 11);
+                text.push_back('v');
+                text.append(version);
+                text.append(" available");
+            }
         }
         return text;
     }

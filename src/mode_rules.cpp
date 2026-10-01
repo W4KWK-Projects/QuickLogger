@@ -1,6 +1,7 @@
 #include "mode_rules.hpp"
 
 #include <cctype>
+#include <string_view>
 
 namespace ql
 {
@@ -32,15 +33,16 @@ namespace ql
         return key;
     }
 
+    // Lengths known at compile time: comparing against these needs no strlen.
     struct ModeSpelling
     {
-        const char* key;
-        const char* mode;
+        std::string_view key;
+        std::string_view mode;
     };
 
     std::string NormalizeMode(const std::string& text)
     {
-        static const ModeSpelling kSpellings[] = {
+        static constexpr ModeSpelling kSpellings[] = {
             {"FM", "FM"},
             {"NFM", "FM"},
             {"SSB", "SSB"},
@@ -60,7 +62,7 @@ namespace ql
         {
             if (key == spelling.key)
             {
-                return spelling.mode;
+                return std::string(spelling.mode);
             }
         }
         return std::string();
@@ -81,17 +83,22 @@ namespace ql
 
     void AdifMode(const std::string& mode, std::string* adif_mode, std::string* adif_submode)
     {
+        // By position in NetModes(): FM, SSB, AM, CW, D-STAR, DMR, Fusion.
+        static constexpr std::string_view kSubmodes[] = {"DSTAR", "DMR", "C4FM"};
         adif_mode->clear();
         adif_submode->clear();
-        if (mode == "FM" || mode == "SSB" || mode == "AM" || mode == "CW")
+        int index = NetModeIndex(mode);
+        if (index < 0)
+        {
+            return;
+        }
+        if (index < 4)
         {
             *adif_mode = mode;
+            return;
         }
-        else if (mode == "D-STAR" || mode == "DMR" || mode == "Fusion")
-        {
-            *adif_mode = "DIGITALVOICE";
-            *adif_submode = mode == "D-STAR" ? "DSTAR" : mode == "DMR" ? "DMR" : "C4FM";
-        }
+        adif_mode->assign("DIGITALVOICE");
+        adif_submode->assign(kSubmodes[index - 4]);
     }
 
 }  // namespace ql

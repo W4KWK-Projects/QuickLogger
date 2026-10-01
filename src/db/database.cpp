@@ -1322,13 +1322,18 @@ COMMIT;
 
     std::int64_t Database::AddCheckIn(const CheckIn& check_in)
     {
+        return AddCheckIn(check_in, check_in.net_instance_id);
+    }
+
+    std::int64_t Database::AddCheckIn(const CheckIn& check_in, std::int64_t net_instance_id)
+    {
         Statement statement(&statements_, R"sql(
         INSERT INTO check_ins
             (net_instance_id, callsign, sequence_number, signal_report,
              remarks, comment, checked_in_at, designated_role)
         VALUES (?,?,?,?,?,?,?,?);
     )sql");
-        statement.BindInt64(0, check_in.net_instance_id);
+        statement.BindInt64(0, net_instance_id);
         statement.BindText(1, ToUpperAscii(check_in.callsign));
         statement.BindInt64(2, check_in.sequence_number);
         statement.BindText(3, check_in.signal_report);

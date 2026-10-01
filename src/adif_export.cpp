@@ -38,10 +38,10 @@ namespace ql
         }
     }
 
-    std::string FoldToAscii(const std::string& text)
+    // FoldToAscii, appended to `folded`.
+    static void FoldToAsciiInto(std::string_view text, std::string* out)
     {
-        std::string folded;
-        folded.reserve(text.size());
+        std::string& folded = *out;
         std::size_t i = 0;
         while (i < text.size())
         {
@@ -95,16 +95,23 @@ namespace ql
                 folded += ' ';
             }
         }
+    }
+
+    std::string FoldToAscii(std::string_view text)
+    {
+        std::string folded;
+        folded.reserve(text.size());
+        FoldToAsciiInto(text, &folded);
         return folded;
     }
 
     // `text` without spaces at either end.
-    static std::string TrimSpaces(const std::string& text)
+    static std::string_view TrimSpaces(std::string_view text)
     {
-        std::string::size_type first = text.find_first_not_of(' ');
-        if (first == std::string::npos)
+        std::string_view::size_type first = text.find_first_not_of(' ');
+        if (first == std::string_view::npos)
         {
-            return "";
+            return std::string_view();
         }
         return text.substr(first, text.find_last_not_of(' ') - first + 1);
     }
@@ -116,13 +123,18 @@ namespace ql
         {
             return name;
         }
-        std::string last = TrimSpaces(name.substr(0, comma));
-        std::string first = TrimSpaces(name.substr(comma + 1));
-        if (last.empty() || first.empty())
+        std::string_view whole(name);
+        std::string_view last = TrimSpaces(whole.substr(0, comma));
+        std::string_view first = TrimSpaces(whole.substr(comma + 1));
+        std::string flipped;
+        flipped.reserve(name.size());
+        flipped.append(first);
+        if (!first.empty() && !last.empty())
         {
-            return TrimSpaces(last + first);
+            flipped.push_back(' ');
         }
-        return first + " " + last;
+        flipped.append(last);
+        return flipped;
     }
 
     struct AdifBandRange
@@ -167,18 +179,26 @@ namespace ql
         return "";
     }
 
-    // One field, "<NAME:length>value ", or nothing for an empty value. The
-    // length is in bytes, so it's taken after folding to ASCII.
-    static void AppendField(std::string* out, const char* name, const std::string& value)
+    // One field, "<NAME:length>value ", or nothing for an empty value,
+    // appended to `out`. The length is in bytes, so it's taken after
+    // folding to ASCII, which goes through `scratch` (reused, so a field
+    // costs no new string).
+    static void AppendField(std::string* out, std::string_view name, std::string_view value,
+                            std::string* scratch)
     {
-        std::string ascii = FoldToAscii(value);
-        if (ascii.empty())
+        scratch->clear();
+        FoldToAsciiInto(value, scratch);
+        if (scratch->empty())
         {
             return;
         }
-        *out += "<";
-        *out += name;
-        *out += ":" + std::to_string(ascii.size()) + ">" + ascii + " ";
+        out->push_back('<');
+        out->append(name);
+        out->push_back(':');
+        out->append(std::to_string(scratch->size()));
+        out->push_back('>');
+        out->append(*scratch);
+        out->push_back(' ');
     }
 
     static std::string FormatUtc(std::int64_t unix_time, const char* format)
@@ -194,10 +214,13 @@ namespace ql
                           const std::string& session_date, std::int64_t created_at)
     {
         std::string out = "QuickLogger ADIF export\n";
-        AppendField(&out, "ADIF_VER", "3.1.4");
-        AppendField(&out, "PROGRAMID", "QuickLogger");
-        AppendField(&out, "PROGRAMVERSION", QuickLoggerVersion());
-        AppendField(&out, "CREATED_TIMESTAMP", FormatUtc(created_at, "%Y%m%d %H%M%S"));
+        // About what a record takes, so the text grows once or twice.
+        out.reserve(256 + contacts.size() * 256);
+        std::string scratch;
+        AppendField(&out, "ADIF_VER", "3.1.4", &scratch);
+        AppendField(&out, "PROGRAMID", "QuickLogger", &scratch);
+        AppendField(&out, "PROGRAMVERSION", QuickLoggerVersion(), &scratch);
+        AppendField(&out, "CREATED_TIMESTAMP", FormatUtc(created_at, "%Y%m%d %H%M%S"), &scratch);
         out += "<EOH>\n";
 
         std::string adif_mode;
@@ -215,31 +238,43 @@ namespace ql
             }
         }
 
+        static const Station kNoStation;
+        std::string county;
         for (const AdifContact& contact : contacts)
         {
-            const Station& station = contact.station;
-            std::int64_t at = contact.check_in.checked_in_at;
-            std::string record;
-            AppendField(&record, "CALL", contact.check_in.callsign);
-            AppendField(&record, "QSO_DATE", at > 0 ? FormatUtc(at, "%Y%m%d") : fallback_date);
-            AppendField(&record, "TIME_ON", at > 0 ? FormatUtc(at, "%H%M%S") : std::string());
-            AppendField(&record, "FREQ", band.empty() ? std::string() : frequency);
-            AppendField(&record, "BAND", band);
-            AppendField(&record, "MODE", adif_mode);
-            AppendField(&record, "SUBMODE", adif_submode);
-            AppendField(&record, "STATION_CALLSIGN", station_callsign);
-            AppendField(&record, "RST_RCVD", contact.check_in.signal_report);
-            AppendField(&record, "NAME", FirstNameFirst(station.name));
-            AppendField(&record, "QTH", station.city);
-            AppendField(&record, "STATE", station.state);
-            AppendField(&record, "CNTY",
-                        station.state.empty() || station.county.empty()
-                            ? std::string()
-                            : station.state + "," + station.county);
-            AppendField(&record, "GRIDSQUARE", station.grid_square);
-            AppendField(&record, "COMMENT", contact.check_in.remarks);
-            AppendField(&record, "NOTES", contact.check_in.comment);
-            out += record + "<EOR>\n";
+            const CheckIn& check_in = *contact.check_in;
+            const Station& station = contact.station != nullptr ? *contact.station : kNoStation;
+            std::int64_t at = check_in.checked_in_at;
+            AppendField(&out, "CALL", check_in.callsign, &scratch);
+            AppendField(&out, "QSO_DATE", at > 0 ? FormatUtc(at, "%Y%m%d") : fallback_date,
+                        &scratch);
+            if (at > 0)
+            {
+                AppendField(&out, "TIME_ON", FormatUtc(at, "%H%M%S"), &scratch);
+            }
+            if (!band.empty())
+            {
+                AppendField(&out, "FREQ", frequency, &scratch);
+                AppendField(&out, "BAND", band, &scratch);
+            }
+            AppendField(&out, "MODE", adif_mode, &scratch);
+            AppendField(&out, "SUBMODE", adif_submode, &scratch);
+            AppendField(&out, "STATION_CALLSIGN", station_callsign, &scratch);
+            AppendField(&out, "RST_RCVD", check_in.signal_report, &scratch);
+            AppendField(&out, "NAME", FirstNameFirst(station.name), &scratch);
+            AppendField(&out, "QTH", station.city, &scratch);
+            AppendField(&out, "STATE", station.state, &scratch);
+            if (!station.state.empty() && !station.county.empty())
+            {
+                county.assign(station.state);
+                county.push_back(',');
+                county.append(station.county);
+                AppendField(&out, "CNTY", county, &scratch);
+            }
+            AppendField(&out, "GRIDSQUARE", station.grid_square, &scratch);
+            AppendField(&out, "COMMENT", check_in.remarks, &scratch);
+            AppendField(&out, "NOTES", check_in.comment, &scratch);
+            out += "<EOR>\n";
         }
         return out;
     }

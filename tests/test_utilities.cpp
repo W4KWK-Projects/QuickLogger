@@ -92,16 +92,20 @@ namespace ql
         CHECK_EQ(AdifBand("100"), std::string(""));
         CHECK_EQ(AdifBand(""), std::string(""));
 
+        CheckIn check_in;
+        Station station;
+        check_in.callsign = "K4ABC";
+        check_in.checked_in_at = 1790000000;  // 2026-09-21 14:13:20 UTC.
+        check_in.signal_report = "59";
+        check_in.remarks = "Mobile";
+        station.name = "Dupont, Ren\xC3\xA9";
+        station.city = "Chattanooga";
+        station.state = "TN";
+        station.county = "Hamilton";
+        station.grid_square = "EM75";
         AdifContact contact;
-        contact.check_in.callsign = "K4ABC";
-        contact.check_in.checked_in_at = 1790000000;  // 2026-09-21 14:13:20 UTC.
-        contact.check_in.signal_report = "59";
-        contact.check_in.remarks = "Mobile";
-        contact.station.name = "Dupont, Ren\xC3\xA9";
-        contact.station.city = "Chattanooga";
-        contact.station.state = "TN";
-        contact.station.county = "Hamilton";
-        contact.station.grid_square = "EM75";
+        contact.check_in = &check_in;
+        contact.station = &station;
         std::string adif =
             BuildAdif({contact}, "DMR", "443.500", "W4KWK", "2026-09-21", 1790000000);
         CHECK(adif.find("<ADIF_VER:5>3.1.4 ") != std::string::npos);
@@ -118,7 +122,7 @@ namespace ql
 
         // No mode, no frequency and no check-in time: those fields are left
         // out, and the date is the session's.
-        contact.check_in.checked_in_at = 0;
+        check_in.checked_in_at = 0;
         adif = BuildAdif({contact}, "", "", "W4KWK", "2026-09-21", 1790000000);
         CHECK(adif.find("<QSO_DATE:8>20260921 <STATION_CALLSIGN") != std::string::npos);
         CHECK(adif.find("<MODE") == std::string::npos);

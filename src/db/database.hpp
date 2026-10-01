@@ -229,6 +229,10 @@ namespace ql
 
         // Check-ins (one station's check-in during one NetInstance).
         std::int64_t AddCheckIn(const CheckIn& check_in);
+        // The same, into session `net_instance_id` whatever
+        // check_in.net_instance_id says: for copying a check-in from a file
+        // into a session here without copying the CheckIn first.
+        std::int64_t AddCheckIn(const CheckIn& check_in, std::int64_t net_instance_id);
         // Adds `check_in` as the next one in its session: one past the
         // highest sequence number so far (ignoring check_in.sequence_number).
         // The number is worked out inside the INSERT itself, so two people

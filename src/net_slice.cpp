@@ -1,6 +1,7 @@
 #include "net_slice.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
@@ -106,9 +107,7 @@ namespace ql
             {
                 continue;
             }
-            CheckIn copy = check_in;
-            copy.net_instance_id = mapped->second;
-            db->AddCheckIn(copy);
+            db->AddCheckIn(check_in, mapped->second);
         }
 
         transaction.Commit();
@@ -320,9 +319,7 @@ namespace ql
                 db->SaveNetStation(net_id, station, remarks.empty() ? check_in.remarks : remarks,
                                    now);
             }
-            CheckIn copy = check_in;
-            copy.net_instance_id = instance_id;
-            db->AddCheckIn(copy);
+            db->AddCheckIn(check_in, instance_id);
         }
         // Numbered without gaps once closed, as if it had been closed here.
         if (instance.status == NetInstanceStatus::kClosed)
@@ -333,35 +330,55 @@ namespace ql
         return instance_id;
     }
 
-    // A check-in as compared by SameCheckIns.
-    static std::string CheckInKey(const CheckIn& check_in)
+    // A check-in as compared by SameCheckIns, appended to `key` (cleared
+    // first) so one string is reused rather than built from temporaries.
+    static void CheckInKey(const CheckIn& check_in, std::string* key)
     {
-        return ToUpperAscii(check_in.callsign) + '\x1f' + check_in.signal_report + '\x1f' +
-               check_in.remarks + '\x1f' + check_in.comment + '\x1f' +
-               std::to_string(check_in.designated_role);
+        key->clear();
+        key->reserve(check_in.callsign.size() + check_in.signal_report.size() +
+                     check_in.remarks.size() + check_in.comment.size() + 8);
+        key->append(check_in.callsign);
+        for (char& c : *key)
+        {
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        }
+        key->push_back('\x1f');
+        key->append(check_in.signal_report);
+        key->push_back('\x1f');
+        key->append(check_in.remarks);
+        key->push_back('\x1f');
+        key->append(check_in.comment);
+        key->push_back('\x1f');
+        key->append(std::to_string(check_in.designated_role));
+    }
+
+    // The check-ins' keys, sorted, for comparing two sessions' check-ins in
+    // any order.
+    static std::vector<std::string> SortedKeys(const std::vector<CheckIn>& check_ins)
+    {
+        std::vector<std::string> keys(check_ins.size());
+        for (std::size_t i = 0; i < check_ins.size(); ++i)
+        {
+            CheckInKey(check_ins[i], &keys[i]);
+        }
+        std::sort(keys.begin(), keys.end());
+        return keys;
+    }
+
+    static std::vector<std::string> SortedKeys(const std::vector<const CheckIn*>& check_ins)
+    {
+        std::vector<std::string> keys(check_ins.size());
+        for (std::size_t i = 0; i < check_ins.size(); ++i)
+        {
+            CheckInKey(*check_ins[i], &keys[i]);
+        }
+        std::sort(keys.begin(), keys.end());
+        return keys;
     }
 
     bool SameCheckIns(const std::vector<CheckIn>& a, const std::vector<CheckIn>& b)
     {
-        if (a.size() != b.size())
-        {
-            return false;
-        }
-        std::vector<std::string> a_keys;
-        std::vector<std::string> b_keys;
-        a_keys.reserve(a.size());
-        b_keys.reserve(b.size());
-        for (const CheckIn& check_in : a)
-        {
-            a_keys.push_back(CheckInKey(check_in));
-        }
-        for (const CheckIn& check_in : b)
-        {
-            b_keys.push_back(CheckInKey(check_in));
-        }
-        std::sort(a_keys.begin(), a_keys.end());
-        std::sort(b_keys.begin(), b_keys.end());
-        return a_keys == b_keys;
+        return a.size() == b.size() && SortedKeys(a) == SortedKeys(b);
     }
 
     // Starts this far apart or less are the same session, when either one
@@ -373,13 +390,14 @@ namespace ql
         return instance.status == NetInstanceStatus::kClosed && instance.closed_at > 0;
     }
 
-    bool SameSession(const NetInstance& a, const std::vector<CheckIn>& a_check_ins,
-                     const NetInstance& b, const std::vector<CheckIn>& b_check_ins)
+    static bool BothHaveStartTimes(const NetInstance& a, const NetInstance& b)
     {
-        if (a.started_at <= 0 || b.started_at <= 0)
-        {
-            return a.instance_date == b.instance_date && SameCheckIns(a_check_ins, b_check_ins);
-        }
+        return a.started_at > 0 && b.started_at > 0;
+    }
+
+    // For two sessions with start times: whether their times overlap.
+    static bool TimesMatch(const NetInstance& a, const NetInstance& b)
+    {
         if (HasEnd(a) && HasEnd(b))
         {
             return a.started_at <= b.closed_at && b.started_at <= a.closed_at;
@@ -387,16 +405,42 @@ namespace ql
         return std::llabs(a.started_at - b.started_at) <= kSameStartSeconds;
     }
 
-    // The slice's check-ins grouped by the file's session id.
-    static std::unordered_map<std::int64_t, std::vector<CheckIn>> CheckInsBySession(
+    bool SameSession(const NetInstance& a, const std::vector<CheckIn>& a_check_ins,
+                     const NetInstance& b, const std::vector<CheckIn>& b_check_ins)
+    {
+        if (!BothHaveStartTimes(a, b))
+        {
+            return a.instance_date == b.instance_date && SameCheckIns(a_check_ins, b_check_ins);
+        }
+        return TimesMatch(a, b);
+    }
+
+    // The slice's check-ins grouped by the file's session id: pointers into
+    // the slice, not copies.
+    static std::unordered_map<std::int64_t, std::vector<const CheckIn*>> CheckInsBySession(
         const NetSlice& slice)
     {
-        std::unordered_map<std::int64_t, std::vector<CheckIn>> grouped;
+        std::unordered_map<std::int64_t, std::vector<const CheckIn*>> grouped;
         for (const CheckIn& check_in : slice.check_ins)
         {
-            grouped[check_in.net_instance_id].push_back(check_in);
+            grouped[check_in.net_instance_id].push_back(&check_in);
         }
         return grouped;
+    }
+
+    // `id`'s sorted check-in keys from `keys`, worked out the first time
+    // they're needed.
+    template <typename CheckIns>
+    static const std::vector<std::string>& KeysFor(
+        std::int64_t id, const CheckIns& check_ins,
+        std::unordered_map<std::int64_t, std::vector<std::string>>* keys)
+    {
+        std::unordered_map<std::int64_t, std::vector<std::string>>::iterator found = keys->find(id);
+        if (found == keys->end())
+        {
+            found = keys->emplace(id, SortedKeys(check_ins)).first;
+        }
+        return found->second;
     }
 
     NetMergePlan PlanNetMerge(Database* db, const NetSlice& slice, std::int64_t target_net_id)
@@ -424,15 +468,19 @@ namespace ql
             std::int64_t session_id = check_in.net_instance_id;
             local_check_ins[session_id].push_back(std::move(check_in));
         }
-        std::unordered_set<std::int64_t> matched;
-        std::unordered_map<std::int64_t, std::vector<CheckIn>> file_check_ins =
+        std::unordered_map<std::int64_t, std::vector<const CheckIn*>> file_check_ins =
             CheckInsBySession(slice);
+        // Each session's sorted check-in keys, made only when compared.
+        std::unordered_map<std::int64_t, std::vector<std::string>> file_keys;
+        std::unordered_map<std::int64_t, std::vector<std::string>> local_keys;
+        std::unordered_set<std::int64_t> matched;
 
+        plan.sessions.reserve(slice.instances.size());
         for (std::size_t i = 0; i < slice.instances.size(); ++i)
         {
             const NetInstance& file = slice.instances[i];
-            const std::vector<CheckIn>& file_list = file_check_ins[file.id];
-            MergeSession session;
+            const std::vector<const CheckIn*>& file_list = file_check_ins[file.id];
+            MergeSession& session = plan.sessions.emplace_back();
             session.file_index = i;
             session.file_check_ins = static_cast<int>(file_list.size());
             session.file_open = file.status == NetInstanceStatus::kOpen;
@@ -443,7 +491,13 @@ namespace ql
                     continue;
                 }
                 const std::vector<CheckIn>& here_list = local_check_ins[here.id];
-                if (!SameSession(file, file_list, here, here_list))
+                bool same_session = BothHaveStartTimes(file, here)
+                                        ? TimesMatch(file, here)
+                                        : file.instance_date == here.instance_date &&
+                                              file_list.size() == here_list.size() &&
+                                              KeysFor(file.id, file_list, &file_keys) ==
+                                                  KeysFor(here.id, here_list, &local_keys);
+                if (!same_session)
                 {
                     continue;
                 }
@@ -451,14 +505,15 @@ namespace ql
                 session.local_id = here.id;
                 session.local_open = here.status == NetInstanceStatus::kOpen;
                 session.local_check_ins = static_cast<int>(here_list.size());
-                session.check_ins_differ = !SameCheckIns(file_list, here_list);
+                session.check_ins_differ = file_list.size() != here_list.size() ||
+                                           KeysFor(file.id, file_list, &file_keys) !=
+                                               KeysFor(here.id, here_list, &local_keys);
                 session.notes_differ = file.notes != here.notes;
                 bool same = !session.check_ins_differ && !session.notes_differ;
                 session.kind = same || session.local_open ? MergeSessionKind::kAlreadyHere
                                                           : MergeSessionKind::kDiffers;
                 break;
             }
-            plan.sessions.push_back(session);
         }
         return plan;
     }
@@ -492,7 +547,7 @@ namespace ql
                 ++result.saved_stations_added;
             }
         }
-        std::unordered_map<std::int64_t, std::vector<CheckIn>> file_check_ins =
+        std::unordered_map<std::int64_t, std::vector<const CheckIn*>> file_check_ins =
             CheckInsBySession(slice);
         // The other stations' details, for those in sessions being added
         // (the rest would be left with nothing referring to them).
@@ -502,10 +557,10 @@ namespace ql
             if (session.kind == MergeSessionKind::kNew ||
                 (session.kind == MergeSessionKind::kDiffers && session.replace))
             {
-                for (const CheckIn& check_in :
+                for (const CheckIn* check_in :
                      file_check_ins[slice.instances[session.file_index].id])
                 {
-                    callsigns_added.insert(ToUpperAscii(check_in.callsign));
+                    callsigns_added.insert(ToUpperAscii(check_in->callsign));
                 }
             }
         }
@@ -527,33 +582,31 @@ namespace ql
                 continue;
             }
             const NetInstance& file = slice.instances[session.file_index];
-            const std::vector<CheckIn>& check_ins = file_check_ins[file.id];
+            const std::vector<const CheckIn*>& check_ins = file_check_ins[file.id];
             NetInstance instance = file;
             instance.net_id = plan.target_net_id;
             if (session.file_open)
             {
                 std::int64_t last = file.started_at;
-                for (const CheckIn& check_in : check_ins)
+                for (const CheckIn* check_in : check_ins)
                 {
-                    last = std::max(last, check_in.checked_in_at);
+                    last = std::max(last, check_in->checked_in_at);
                 }
                 instance.status = NetInstanceStatus::kClosed;
                 instance.closed_at = last > 0 ? last : now;
             }
             std::int64_t instance_id = db->CreateNetInstance(instance);
-            for (const CheckIn& check_in : check_ins)
+            for (const CheckIn* check_in : check_ins)
             {
                 // Only the callsign, if the file has nothing else on it
                 // (once per station, not per check-in).
-                if (have_station.insert(ToUpperAscii(check_in.callsign)).second)
+                if (have_station.insert(ToUpperAscii(check_in->callsign)).second)
                 {
                     Station bare;
-                    bare.callsign = check_in.callsign;
+                    bare.callsign = check_in->callsign;
                     db->FillStationBlanks(bare, now);
                 }
-                CheckIn copy = check_in;
-                copy.net_instance_id = instance_id;
-                db->AddCheckIn(copy);
+                db->AddCheckIn(*check_in, instance_id);
             }
             if (session.file_open)
             {

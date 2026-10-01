@@ -127,6 +127,9 @@ namespace ql
     // check-in count), shown left of all that. The title is shortened if
     // need be so none of it is pushed off the edge.
     ftxui::Element TopBar(const std::string& page_title, const std::string& status = "");
+    // The newer release found at the console (AvailableUpdate), or "", read
+    // at most once a second: for what's drawn every frame.
+    const std::string& AvailableUpdateForDisplay();
 
     // The terminal's size for the frame being drawn. Read once as each frame
     // starts (SafeAppEventDispatcher::Render calls SetFrameTerminalSize), so

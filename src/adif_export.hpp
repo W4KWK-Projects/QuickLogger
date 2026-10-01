@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "models.hpp"
@@ -9,11 +10,13 @@
 namespace ql
 {
 
-    // One check-in for an ADIF export, with what's known about its station.
+    // One check-in for an ADIF export, with what's known about its station
+    // (null if nothing is): pointers to the caller's, not copies, which
+    // must outlive BuildAdif.
     struct AdifContact
     {
-        CheckIn check_in;
-        Station station;
+        const CheckIn* check_in = nullptr;
+        const Station* station = nullptr;
     };
 
     // One session's contacts as an ADIF 3.1 file (.adi), for loading into a
@@ -45,6 +48,6 @@ namespace ql
     // UTF-8 `text` in plain ASCII: accented Latin letters without their
     // accents ("é" is "e", "ß" is "ss"), curly quotes and dashes as plain
     // ones, and anything else left out.
-    std::string FoldToAscii(const std::string& text);
+    std::string FoldToAscii(std::string_view text);
 
 }  // namespace ql

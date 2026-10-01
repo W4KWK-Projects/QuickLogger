@@ -1476,7 +1476,7 @@ namespace ql
             {
                 update_check_row =
                     ftxui::hbox({FieldLabel("Update Check:  "), update_check_toggle_->Render()});
-                std::string available = AvailableUpdate();
+                const std::string& available = AvailableUpdateForDisplay();
                 update_hint = HintParagraph(
                     available.empty()
                         ? "Update Check looks for a new release on GitHub every 6 hours, and "

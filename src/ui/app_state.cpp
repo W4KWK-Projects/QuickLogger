@@ -3046,7 +3046,10 @@ namespace ql
                                  const std::vector<CheckIn>& check_ins, const std::string& path,
                                  std::string* error)
     {
+        // The contacts point into `check_ins` and `stations`, which outlive
+        // BuildAdif.
         std::vector<AdifContact> contacts;
+        std::vector<Station> stations;
         Net net;
         {
             Database::ReadTransaction reads(state->db);
@@ -3057,7 +3060,7 @@ namespace ql
             }
             const std::string& operator_callsign = OperatorCallsign(instance);
             // The session's stations in one query, as CheckInCells does.
-            std::vector<Station> stations = state->db->GetStationsInNetInstance(instance.id);
+            stations = state->db->GetStationsInNetInstance(instance.id);
             contacts.reserve(check_ins.size());
             for (const CheckIn& check_in : check_ins)
             {
@@ -3066,16 +3069,16 @@ namespace ql
                     continue;
                 }
                 AdifContact& contact = contacts.emplace_back();
-                contact.check_in = check_in;
+                contact.check_in = &check_in;
                 std::vector<Station>::const_iterator found = std::lower_bound(
                     stations.begin(), stations.end(), check_in.callsign, StationCallsignBefore);
                 if (found != stations.end() && found->callsign == check_in.callsign)
                 {
-                    contact.station = *found;
+                    contact.station = &*found;
                 }
             }
         }
-        std::string frequency =
+        const std::string& frequency =
             instance.frequency.empty() ? net.default_frequency : instance.frequency;
         std::string adif =
             BuildAdif(contacts, net.mode, frequency, ToUpperAscii(state->settings.callsign),
@@ -3244,18 +3247,19 @@ namespace ql
         ImportNetSlice(state, true);
     }
 
-    // Orders nets with `name` (NetNamesAreTheSame) before the rest.
+    // Orders nets with `*name` (NetNamesAreTheSame) before the rest. Holds
+    // a pointer, as the sort may copy it many times; the name outlives it.
     class SameNameFirst
     {
     public:
-        explicit SameNameFirst(std::string name) : name_(std::move(name)) {}
+        explicit SameNameFirst(const std::string* name) : name_(name) {}
         bool operator()(const Net& a, const Net& b) const
         {
-            return NetNamesAreTheSame(a.name, name_) && !NetNamesAreTheSame(b.name, name_);
+            return NetNamesAreTheSame(a.name, *name_) && !NetNamesAreTheSame(b.name, *name_);
         }
 
     private:
-        std::string name_;
+        const std::string* name_;
     };
 
     // Opens the Import or Merge window for `slice` (read from the
@@ -3268,7 +3272,7 @@ namespace ql
         state->merge_candidate_labels.clear();
         // Its very name first: the likeliest one.
         std::stable_sort(state->merge_candidates.begin(), state->merge_candidates.end(),
-                         SameNameFirst(state->merge_slice.net.name));
+                         SameNameFirst(&state->merge_slice.net.name));
         for (const Net& net : state->merge_candidates)
         {
             std::size_t sessions = state->db->GetNetInstancesForNet(net.id).size();
@@ -5266,7 +5270,9 @@ namespace ql
             CloseSessionNotes(state);
             return;
         }
-        std::string notes = state->session_notes_text;
+        // The window's working copy isn't needed once saved: moved, not copied.
+        std::string notes = std::move(state->session_notes_text);
+        state->session_notes_text.clear();
         notes.erase(notes.find_last_not_of(" \n\r\t") + 1);
         state->db->SetNetInstanceNotes(state->session_notes_instance_id, notes);
         if (state->active_instance.id == state->session_notes_instance_id)
