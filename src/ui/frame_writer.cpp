@@ -103,17 +103,22 @@ namespace ql
         {
             return;
         }
+        out->append("\x1B[");
         if (pen->y == y && pen->x != kUnknownPosition && x > pen->x)
         {
-            *out += "\x1B[" + std::to_string(x - pen->x) + "C";
-        }
-        else if (x == 0)
-        {
-            *out += "\x1B[" + std::to_string(y + 1) + "H";
+            out->append(std::to_string(x - pen->x));
+            out->push_back('C');
         }
         else
         {
-            *out += "\x1B[" + std::to_string(y + 1) + ";" + std::to_string(x + 1) + "H";
+            // Always row AND column, even for column 1: "ESC[nH" alone
+            // (column left to default) is standard, but Termius on iOS
+            // misreads it, putting every line that starts at the left
+            // edge on the top row.
+            out->append(std::to_string(y + 1));
+            out->push_back(';');
+            out->append(std::to_string(x + 1));
+            out->push_back('H');
         }
         pen->x = x;
         pen->y = y;
