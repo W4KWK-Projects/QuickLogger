@@ -235,7 +235,8 @@ namespace ql
             row.push_back(std::to_string(check_in.sequence_number));
             row.push_back(FormatLocalTimeOfDay(check_in.checked_in_at));
             row.push_back(check_in.callsign);
-            row.push_back(station.name);
+            // On a GMRS net, the person this check-in was logged under.
+            row.push_back(check_in.name.empty() ? station.name : check_in.name);
             row.push_back(station.member_id);
             row.push_back(CityAndState(station));
             row.push_back(station.county);
@@ -418,12 +419,8 @@ namespace ql
     {
         static const std::vector<ListColumn> columns = {
             // A login name, which needn't be a call sign.
-            {"Username", 16, 16, 0, 0},
-            {"Amateur", 9, 9, 0, 0},
-            {"GMRS", 7, 7, 0, 0},
-            {"Access", 9, 9, 0, 0},
-            {"Keys", 4, 4, 0, 0},
-            {"Last Login", 19, 19, 0, 0},
+            {"Username", 16, 16, 0, 0}, {"Amateur", 9, 9, 0, 0}, {"GMRS", 7, 7, 0, 0},
+            {"Access", 9, 9, 0, 0},     {"Keys", 4, 4, 0, 0},    {"Last Login", 19, 19, 0, 0},
         };
         return columns;
     }
@@ -599,6 +596,42 @@ namespace ql
         return is_this_net ? "(this net)" : "(other net)";
     }
 
+    // On a GMRS net, after the last of this net's names for the call sign
+    // typed (one license covers a family), a match with that station's
+    // details and no name, for checking in someone else on it. Dropping
+    // the last match if there's no room.
+    static void OfferNewGmrsName(NetService service, const std::string& typed, std::size_t max_suggestions,
+                                 std::vector<Station>* suggestions, std::vector<std::string>* sources)
+    {
+        if (service != NetService::kGmrs)
+        {
+            return;
+        }
+        std::string callsign = NormalizeCallsign(typed);
+        std::size_t after = 0;
+        for (std::size_t i = 0; i < suggestions->size(); ++i)
+        {
+            if ((*suggestions)[i].callsign == callsign && (*sources)[i] == KnownStationSource(true))
+            {
+                after = i + 1;
+            }
+        }
+        if (after == 0)
+        {
+            return;
+        }
+        Station someone_new = (*suggestions)[after - 1];
+        someone_new.name.clear();
+        if (suggestions->size() >= max_suggestions)
+        {
+            suggestions->pop_back();
+            sources->pop_back();
+        }
+        after = std::min(after, suggestions->size());
+        suggestions->insert(suggestions->begin() + static_cast<std::ptrdiff_t>(after), std::move(someone_new));
+        sources->insert(sources->begin() + static_cast<std::ptrdiff_t>(after), "(new name)");
+    }
+
     // `distance_miles` < 0 means "unknown" (the station's own ZIP has no
     // centroid on file) -- shown as "(ULS, nearby)" rather than a fabricated
     // number, since it only passed the coarser ZIP3-prefix pre-filter.
@@ -676,10 +709,9 @@ namespace ql
     static ListLayout NetListLayout(const AppState* state)
     {
         int available = ScreenListWidth(state->list_width);
-        ListLayout usual = LayOutList(NetListColumns(std::min(state->net_name_width, kNetNameWidthAt80),
-                                                     state->net_name_width),
-                                      available,
-                                      kScreenListWidthAt80, 2);
+        ListLayout usual =
+            LayOutList(NetListColumns(std::min(state->net_name_width, kNetNameWidthAt80), state->net_name_width),
+                       available, kScreenListWidthAt80, 2);
         // Recurrence at full width beside the usual name: nothing to gain.
         if (usual.widths[kNetRecurrenceColumn] >= kNetRecurrenceFullWidth ||
             state->net_name_min_width >= state->net_name_width)
@@ -724,8 +756,8 @@ namespace ql
         cells.push_back(net.mode);
         // A GMRS net by its channel ("Ch 22R"): channel 22 and its repeater
         // pair share a frequency.
-        int channel = net.service == NetService::kGmrs ? FindGmrsChannel(net.default_frequency, net.repeater_offset)
-                                                       : -1;
+        int channel =
+            net.service == NetService::kGmrs ? FindGmrsChannel(net.default_frequency, net.repeater_offset) : -1;
         if (channel >= 0)
         {
             cells.push_back("Ch " + std::string(GmrsChannels()[static_cast<std::size_t>(channel)].name));
@@ -786,17 +818,22 @@ namespace ql
     }
 
     // Appends stations from `candidates` onto `suggestions` that aren't
-    // already present (by callsign), so tier 2 never duplicates a tier 1 hit.
-    // Moves candidates in (they're not used again) and stops once
-    // `suggestions` holds `max_suggestions`.
+    // already present (by callsign), so tier 2 never duplicates a tier 1 hit,
+    // leaving out call signs of the other service (a GMRS one on an Amateur
+    // Radio net, say). Moves candidates in (they're not used again) and
+    // stops once `suggestions` holds `max_suggestions`.
     static void AppendNewSuggestions(std::vector<Station>* suggestions, std::vector<Station>* candidates,
-                                     std::size_t max_suggestions)
+                                     std::size_t max_suggestions, NetService service)
     {
         for (Station& candidate : *candidates)
         {
             if (suggestions->size() >= max_suggestions)
             {
                 return;
+            }
+            if (IsValidGmrsCallsign(candidate.callsign) != (service == NetService::kGmrs))
+            {
+                continue;
             }
             bool already_included = false;
             for (const Station& existing : *suggestions)
@@ -1070,8 +1107,8 @@ namespace ql
         SaveSettings(state->settings_path, state->settings);
         state->show_upstream_window = false;
         state->form_error.clear();
-        state->status_message = host.empty() ? "No upstream server: sessions aren't pushed."
-                                             : "Sessions can be pushed to " + host + ".";
+        state->status_message =
+            host.empty() ? "No upstream server: sessions aren't pushed." : "Sessions can be pushed to " + host + ".";
     }
 
     // The name F7 Export gives a session's files, without the extension:
@@ -1669,8 +1706,8 @@ namespace ql
 
     std::string DescribeNetRadio(const Net& net)
     {
-        int channel = net.service == NetService::kGmrs ? FindGmrsChannel(net.default_frequency, net.repeater_offset)
-                                                       : -1;
+        int channel =
+            net.service == NetService::kGmrs ? FindGmrsChannel(net.default_frequency, net.repeater_offset) : -1;
         if (channel >= 0)
         {
             // "GMRS 20R  462.6750 MHz  PL 141.3": the channel says the rest.
@@ -1828,6 +1865,25 @@ namespace ql
         state->form_error.clear();
     }
 
+    std::string SavedEntryName(NetService service, const std::string& name)
+    {
+        return service == NetService::kGmrs ? Spaceless(name) : std::string();
+    }
+
+    // A check-in's call sign and name as one string, the name compared
+    // without regard to case. A check-in on an Amateur Radio net has no
+    // name, so its key is its call sign.
+    static std::string CheckInKey(const std::string& callsign, const std::string& name)
+    {
+        return name.empty() ? callsign : callsign + '\n' + ToUpperAscii(name);
+    }
+
+    std::optional<Station> FindLicensee(Database* db, const std::string& callsign, NetService service)
+    {
+        return service == NetService::kGmrs ? db->FindUlsStationByCallsign(callsign, LicenseTable::kGmrs)
+                                            : db->FindLicensedStationByCallsign(callsign);
+    }
+
     const std::string& OwnCallsign(const AppState* state, NetService service)
     {
         return service == NetService::kGmrs ? state->settings.gmrs_callsign : state->settings.callsign;
@@ -1910,7 +1966,7 @@ namespace ql
         }
         else
         {
-            std::optional<Station> uls = state->db->FindLicensedStationByCallsign(state->operator_callsign);
+            std::optional<Station> uls = FindLicensee(state->db, state->operator_callsign, state->active_net_service);
             if (uls.has_value())
             {
                 operator_station = *uls;
@@ -1918,6 +1974,8 @@ namespace ql
         }
         operator_station.callsign = state->operator_callsign;
         BackfillCountyFromZip(state, &operator_station);
+        // On a GMRS net, named as every check-in there is.
+        std::string person = SavedEntryName(state->active_net_service, operator_station.name);
 
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
         // SaveNetStation (rather than a bare RecordManualCheckInStation) so
@@ -1927,12 +1985,13 @@ namespace ql
         // check-in history), never in the edit-net page's saved-station
         // list or its export, which both query net_saved_stations only.
         std::string existing_remarks =
-            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, operator_station.callsign);
-        state->db->SaveNetStation(state->active_instance.net_id, operator_station, existing_remarks, now);
+            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, operator_station.callsign, person);
+        state->db->SaveNetStation(state->active_instance.net_id, operator_station, existing_remarks, now, person);
 
         CheckIn check_in;
         check_in.net_instance_id = state->active_instance.id;
         check_in.callsign = state->operator_callsign;
+        check_in.name = person;
         check_in.sequence_number = 1;
         check_in.checked_in_at = now;
         check_in.designated_role = state->selected_role_index;
@@ -2087,7 +2146,7 @@ namespace ql
     // known to some net, or else the FCC data at any distance (or, for a
     // Canadian call sign, ISED's). Returns
     // whether the station was found.
-    static bool FillStationFromKnown(AppState* state, Station* station)
+    static bool FillStationFromKnown(AppState* state, Station* station, NetService service)
     {
         std::string callsign = NormalizeCallsign(station->callsign);
         if (callsign.empty())
@@ -2097,7 +2156,7 @@ namespace ql
         std::optional<Station> known = state->db->FindStationByCallsign(callsign);
         if (!known.has_value())
         {
-            known = state->db->FindLicensedStationByCallsign(callsign);
+            known = FindLicensee(state->db, callsign, service);
         }
         std::string base = BaseCallsign(callsign);
         if (!known.has_value() && base != callsign)
@@ -2105,7 +2164,7 @@ namespace ql
             known = state->db->FindStationByCallsign(base);
             if (!known.has_value())
             {
-                known = state->db->FindLicensedStationByCallsign(base);
+                known = FindLicensee(state->db, base, service);
             }
         }
         if (!known.has_value())
@@ -2129,25 +2188,28 @@ namespace ql
 
     bool FillCheckInFromKnownStation(AppState* state)
     {
-        if (!FillStationFromKnown(state, &state->modal_station))
+        if (!FillStationFromKnown(state, &state->modal_station, state->active_net_service))
         {
             return false;
         }
         FillIfBlank(&state->modal_remarks,
-                    state->db->GetSavedNetStationRemarks(state->active_instance.net_id,
-                                                         NormalizeCallsign(state->modal_station.callsign)));
+                    state->db->GetSavedNetStationRemarks(
+                        state->active_instance.net_id, NormalizeCallsign(state->modal_station.callsign),
+                        SavedEntryName(state->active_net_service, state->modal_station.name)));
         return true;
     }
 
     bool FillSavedStationFromKnownStation(AppState* state)
     {
-        if (!FillStationFromKnown(state, &state->saved_station))
+        NetService service = state->edit_net_gmrs ? NetService::kGmrs : NetService::kAmateur;
+        if (!FillStationFromKnown(state, &state->saved_station, service))
         {
             return false;
         }
         FillIfBlank(
             &state->saved_station_remarks,
-            state->db->GetSavedNetStationRemarks(state->edit_net_id, NormalizeCallsign(state->saved_station.callsign)));
+            state->db->GetSavedNetStationRemarks(state->edit_net_id, NormalizeCallsign(state->saved_station.callsign),
+                                                 SavedEntryName(service, state->saved_station.name)));
         return true;
     }
 
@@ -2174,18 +2236,24 @@ namespace ql
             return false;
         }
         // Once per session, counting W4KWK/M as W4KWK. Read fresh: someone
-        // else sharing the session may have logged it.
+        // else sharing the session may have logged it. On a GMRS net, once
+        // per call sign and name: one license covers a whole family.
+        bool gmrs = state->active_net_service == NetService::kGmrs;
+        std::string person = SavedEntryName(state->active_net_service, state->modal_station.name);
         std::string base = BaseCallsign(state->modal_station.callsign);
         for (const CheckIn& existing : state->db->GetCheckInsForNetInstance(state->active_instance.id))
         {
-            if (BaseCallsign(existing.callsign) == base)
+            if (BaseCallsign(existing.callsign) != base ||
+                (gmrs && ToUpperAscii(existing.name) != ToUpperAscii(person)))
             {
-                state->form_error =
-                    state->modal_station.callsign + " is already in this session's log, as " +
-                    (existing.callsign == state->modal_station.callsign ? std::string() : existing.callsign + " ") +
-                    "#" + std::to_string(existing.sequence_number) + ".";
-                return false;
+                continue;
             }
+            std::string who = state->modal_station.callsign + (gmrs && !person.empty() ? " (" + person + ")" : "");
+            state->form_error =
+                who + " is already in this session's log, as " +
+                (existing.callsign == state->modal_station.callsign ? std::string() : existing.callsign + " ") + "#" +
+                std::to_string(existing.sequence_number) + ".";
+            return false;
         }
 
         BackfillCountyFromZip(state, &state->modal_station);
@@ -2195,11 +2263,13 @@ namespace ql
         // same reasoning as LogOperatorCheckIn above -- and this check-in's
         // own remarks become the saved station's new default remarks,
         // prefilled next time it's picked via autocomplete for this net.
-        state->db->SaveNetStation(state->active_instance.net_id, state->modal_station, state->modal_remarks, now);
+        state->db->SaveNetStation(state->active_instance.net_id, state->modal_station, state->modal_remarks, now,
+                                  person);
 
         CheckIn check_in;
         check_in.net_instance_id = state->active_instance.id;
         check_in.callsign = state->modal_station.callsign;
+        check_in.name = person;
         check_in.signal_report = state->modal_signal_report;
         check_in.remarks = state->modal_remarks;
         check_in.comment = state->modal_comment;
@@ -2231,6 +2301,10 @@ namespace ql
         std::optional<Station> station = state->db->FindStationByCallsign(check_in.callsign);
         state->edit_checkin_station = station.has_value() ? *station : Station();
         state->edit_checkin_station.callsign = check_in.callsign;
+        if (state->active_net_service == NetService::kGmrs)
+        {
+            state->edit_checkin_station.name = check_in.name;
+        }
         state->edit_checkin_signal_report = check_in.signal_report;
         state->edit_checkin_remarks = check_in.remarks;
         state->edit_checkin_comment = check_in.comment;
@@ -2241,15 +2315,45 @@ namespace ql
         state->show_edit_checkin_modal = true;
     }
 
-    void SaveEditCheckInForm(AppState* state)
+    bool SaveEditCheckInForm(AppState* state)
     {
         if (RefuseViewOnly(state, "edit check-ins"))
         {
-            return;
+            return false;
         }
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
-        state->edit_checkin_station.callsign = state->edit_checkin_original.callsign;
-        state->db->UpdateStationFields(state->edit_checkin_station, now);
+        const std::string& callsign = state->edit_checkin_original.callsign;
+        state->edit_checkin_station.callsign = callsign;
+        // On a GMRS net the Name is this check-in's; the station keeps the
+        // licensee's.
+        bool gmrs = state->active_net_service == NetService::kGmrs;
+        std::string person = SavedEntryName(state->active_net_service, state->edit_checkin_station.name);
+        const std::string& old_person = state->edit_checkin_original.name;
+        bool renamed = gmrs && person != old_person;
+        if (renamed && ToUpperAscii(person) != ToUpperAscii(old_person))
+        {
+            std::string base = BaseCallsign(callsign);
+            for (const CheckIn& other : state->db->GetCheckInsForNetInstance(state->active_instance.id))
+            {
+                if (other.id != state->edit_checkin_original.id && BaseCallsign(other.callsign) == base &&
+                    ToUpperAscii(other.name) == ToUpperAscii(person))
+                {
+                    state->form_error = callsign + (person.empty() ? std::string() : " (" + person + ")") +
+                                        " is already in this session's log, as #" +
+                                        std::to_string(other.sequence_number) + ".";
+                    return false;
+                }
+            }
+        }
+
+        Database::WriteTransaction writes(state->db);
+        Station shared = state->edit_checkin_station;
+        if (gmrs)
+        {
+            std::optional<Station> before = state->db->FindStationByCallsign(callsign);
+            shared.name = before.has_value() ? before->name : std::string();
+        }
+        state->db->UpdateStationFields(shared, now);
 
         int old_role = state->edit_checkin_original.designated_role;
         int new_role = RoleFromRoleChoiceIndex(state, state->edit_checkin_role_choice_index);
@@ -2267,10 +2371,21 @@ namespace ql
         check_in.remarks = state->edit_checkin_remarks;
         check_in.comment = state->edit_checkin_comment;
         check_in.designated_role = new_role;
+        if (gmrs)
+        {
+            check_in.name = person;
+        }
         state->db->UpdateCheckIn(check_in);
+        if (renamed)
+        {
+            state->db->RenameNetSavedStationEntry(state->active_instance.net_id, callsign, old_person, person);
+        }
+        writes.Commit();
         ApplyCheckInRoleDesignation(state, check_in.id, old_role, new_role, check_in.callsign);
 
         RefreshActiveCheckIns(state);
+        state->form_error.clear();
+        return true;
     }
 
     void RefreshNetHistory(AppState* state)
@@ -2928,7 +3043,13 @@ namespace ql
                 state->row_delete_lines.emplace_back("Remove " + station.callsign +
                                                      (station.name.empty() ? "" : " (" + station.name + ")") +
                                                      " from this net's saved stations?");
-                if (state->db->IsStationUsedOutsideNet(station.callsign, state->edit_net_id))
+                // On a GMRS net, saved here under another name too?
+                int entries = 0;
+                for (const Station& other : state->edit_net_saved_stations)
+                {
+                    entries += other.callsign == station.callsign ? 1 : 0;
+                }
+                if (entries > 1 || state->db->IsStationUsedOutsideNet(station.callsign, state->edit_net_id))
                 {
                     state->row_delete_lines.emplace_back(
                         "It's saved to another net or has checked in, so its details stay and "
@@ -3116,7 +3237,7 @@ namespace ql
                 return;
             }
             case RowPickAction::kEditSavedStation:
-                LoadSavedStationIntoForm(state, state->edit_net_saved_stations[index]);
+                LoadSavedStationIntoForm(state, index);
                 return;
             case RowPickAction::kEditUser:
                 OpenUserKeys(state, index);
@@ -3429,7 +3550,6 @@ namespace ql
         }
         return true;
     }
-
 
     void AddUserFromForm(AppState* state)
     {
@@ -4216,8 +4336,8 @@ namespace ql
     }
 
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed, const std::string& net_zip,
-                                           bool partial, std::size_t max_suggestions, std::vector<Station>* suggestions,
-                                           std::vector<std::string>* sources);
+                                           bool partial, NetService service, std::size_t max_suggestions,
+                                           std::vector<Station>* suggestions, std::vector<std::string>* sources);
     static void AppendCanadianSuggestions(AppState* state, const std::string& typed, bool partial,
                                           std::size_t max_suggestions, std::vector<Station>* suggestions,
                                           std::vector<std::string>* sources);
@@ -4230,9 +4350,9 @@ namespace ql
     // call sign that didn't make the list (a station beyond the Nearby
     // Radius, say), it's added at the bottom, with where it came from, for
     // the operator to move down to; the ">" stays on the best match.
-    static void MarkTypedCallsignMatch(AppState* state, const std::string& typed, std::size_t max_suggestions,
-                                       std::vector<Station>* suggestions, std::vector<std::string>* sources,
-                                       int* selected)
+    static void MarkTypedCallsignMatch(AppState* state, const std::string& typed, NetService service,
+                                       std::size_t max_suggestions, std::vector<Station>* suggestions,
+                                       std::vector<std::string>* sources, int* selected)
     {
         if (suggestions->empty())
         {
@@ -4256,7 +4376,7 @@ namespace ql
         }
         else
         {
-            known = state->db->FindLicensedStationByCallsign(callsign);
+            known = FindLicensee(state->db, callsign, service);
             if (!known.has_value())
             {
                 return;
@@ -4309,7 +4429,8 @@ namespace ql
         // are dropped as repeats, so enough to fill the rest after those.
         std::vector<Station> other_matches = state->db->SearchStationsByCallsignSubstring(
             state->modal_station.callsign, max_suggestions + static_cast<int>(tier1_count));
-        AppendNewSuggestions(&state->modal_callsign_suggestions, &other_matches, kMaxSuggestions);
+        AppendNewSuggestions(&state->modal_callsign_suggestions, &other_matches, kMaxSuggestions,
+                             state->active_net_service);
 
         if (state->modal_callsign_suggestions.size() > kMaxSuggestions)
         {
@@ -4322,16 +4443,22 @@ namespace ql
             bool is_this_net = i < tier1_count;
             state->modal_callsign_suggestion_sources.push_back(KnownStationSource(is_this_net));
         }
+        OfferNewGmrsName(state->active_net_service, state->modal_station.callsign, kMaxSuggestions,
+                         &state->modal_callsign_suggestions, &state->modal_callsign_suggestion_sources);
 
-        // Tier 3: licensed stations near the net, from the FCC data.
+        // Tier 3: licensed stations near the net, from the FCC data (its
+        // GMRS licensees, on a GMRS net).
         AppendNearbyUlsSuggestions(state, state->modal_station.callsign, state->active_net_zip,
-                                   !state->active_net_partial_match_canada, kMaxSuggestions,
+                                   !state->active_net_partial_match_canada, state->active_net_service, kMaxSuggestions,
                                    &state->modal_callsign_suggestions, &state->modal_callsign_suggestion_sources);
-        // Tier 4: Canadian call signs, from ISED's data.
-        AppendCanadianSuggestions(state, state->modal_station.callsign, state->active_net_partial_match_canada,
-                                  kMaxSuggestions, &state->modal_callsign_suggestions,
-                                  &state->modal_callsign_suggestion_sources);
-        MarkTypedCallsignMatch(state, state->modal_station.callsign, kMaxSuggestions,
+        // Tier 4: Canadian call signs, from ISED's data. Canada has no GMRS.
+        if (state->active_net_service != NetService::kGmrs)
+        {
+            AppendCanadianSuggestions(state, state->modal_station.callsign, state->active_net_partial_match_canada,
+                                      kMaxSuggestions, &state->modal_callsign_suggestions,
+                                      &state->modal_callsign_suggestion_sources);
+        }
+        MarkTypedCallsignMatch(state, state->modal_station.callsign, state->active_net_service, kMaxSuggestions,
                                &state->modal_callsign_suggestions, &state->modal_callsign_suggestion_sources,
                                &state->selected_suggestion_index);
         state->modal_callsign_suggestion_labels = FormatMatches(
@@ -4352,7 +4479,8 @@ namespace ql
         BackfillGridFromZip(state, &state->modal_station);
 
         std::string default_remarks =
-            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, state->modal_station.callsign);
+            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, state->modal_station.callsign,
+                                                 SavedEntryName(state->active_net_service, state->modal_station.name));
         if (!default_remarks.empty())
         {
             state->modal_remarks = std::move(default_remarks);
@@ -4440,13 +4568,21 @@ namespace ql
     {
         // Its reads share one snapshot and one lock.
         Database::ReadTransaction reads(state->db);
-        state->edit_net_saved_stations = state->db->GetSavedStationsForNet(state->edit_net_id);
-
+        std::vector<SavedNetStation> entries = state->db->GetSavedNetEntries(state->edit_net_id);
+        state->edit_net_saved_stations.clear();
+        state->edit_net_saved_entry_names.clear();
+        state->edit_net_saved_remarks.clear();
         state->saved_station_cells.clear();
-        for (const Station& station : state->edit_net_saved_stations)
+        for (SavedNetStation& entry : entries)
         {
-            state->saved_station_cells.push_back(
-                SavedStationCells(station, state->db->GetSavedNetStationRemarks(state->edit_net_id, station.callsign)));
+            if (!entry.name.empty())
+            {
+                entry.station.name = entry.name;
+            }
+            state->saved_station_cells.push_back(SavedStationCells(entry.station, entry.default_remarks));
+            state->edit_net_saved_stations.push_back(std::move(entry.station));
+            state->edit_net_saved_entry_names.push_back(std::move(entry.name));
+            state->edit_net_saved_remarks.push_back(std::move(entry.default_remarks));
         }
         state->edit_net_saved_station_labels =
             FormatRows(state->saved_station_cells, SavedStationLayout(state->list_width));
@@ -4474,14 +4610,34 @@ namespace ql
         {
             return false;
         }
-        bool already_saved = false;
-        for (const Station& existing : state->edit_net_saved_stations)
+        // Already saved: the same call sign, or on a GMRS net the same
+        // call sign and name (one license covers a family).
+        NetService service = state->edit_net_gmrs ? NetService::kGmrs : NetService::kAmateur;
+        bool loaded = CallsignsEqual(state->saved_station_loaded_callsign, state->saved_station.callsign);
+        std::string person = SavedEntryName(service, state->saved_station.name);
+        int found = -1;
+        for (std::size_t i = 0; i < state->edit_net_saved_stations.size() && found < 0; ++i)
         {
-            if (CallsignsEqual(existing.callsign, state->saved_station.callsign))
+            if (CallsignsEqual(state->edit_net_saved_stations[i].callsign, state->saved_station.callsign) &&
+                ToUpperAscii(state->edit_net_saved_entry_names[i]) == ToUpperAscii(person))
             {
-                already_saved = true;
-                break;
+                found = static_cast<int>(i);
             }
+        }
+        std::string old_name;
+        bool already_saved = found >= 0 || (loaded && service == NetService::kGmrs);
+        if (found >= 0)
+        {
+            old_name = state->edit_net_saved_entry_names[static_cast<std::size_t>(found)];
+            if (loaded && ToUpperAscii(old_name) != ToUpperAscii(state->saved_station_loaded_name))
+            {
+                state->form_error = state->saved_station.callsign + " (" + person + ") is already saved to this net.";
+                return false;
+            }
+        }
+        else if (already_saved)
+        {
+            old_name = state->saved_station_loaded_name;  // Renamed.
         }
         // A new one gets what's known about it, even if it wasn't picked
         // from the matches. (One already saved is being edited: a field
@@ -4489,6 +4645,7 @@ namespace ql
         if (!already_saved)
         {
             FillSavedStationFromKnownStation(state);
+            person = SavedEntryName(service, state->saved_station.name);
         }
 
         BackfillCountyFromZip(state, &state->saved_station);
@@ -4496,16 +4653,20 @@ namespace ql
         if (already_saved)
         {
             state->db->UpdateSavedNetStation(state->edit_net_id, state->saved_station, state->saved_station_remarks,
-                                             now);
+                                             now, old_name, person);
         }
         else
         {
-            state->db->SaveNetStation(state->edit_net_id, state->saved_station, state->saved_station_remarks, now);
+            state->db->SaveNetStation(state->edit_net_id, state->saved_station, state->saved_station_remarks, now,
+                                      person);
         }
 
-        state->status_message = "Saved " + state->saved_station.callsign + ".";
+        state->status_message =
+            "Saved " + state->saved_station.callsign + (person.empty() ? "" : " (" + person + ")") + ".";
         state->saved_station = Station();
         state->saved_station_remarks.clear();
+        state->saved_station_loaded_callsign.clear();
+        state->saved_station_loaded_name.clear();
         state->saved_station_suggestions.clear();
         state->saved_station_suggestion_labels.clear();
         state->saved_station_suggestion_sources.clear();
@@ -4523,11 +4684,17 @@ namespace ql
         return true;
     }
 
-    void LoadSavedStationIntoForm(AppState* state, const Station& saved)
+    void LoadSavedStationIntoForm(AppState* state, std::size_t index)
     {
+        if (index >= state->edit_net_saved_stations.size())
+        {
+            return;
+        }
         CloseSavedStationForm(state);
-        state->saved_station = saved;
-        state->saved_station_remarks = state->db->GetSavedNetStationRemarks(state->edit_net_id, saved.callsign);
+        state->saved_station = state->edit_net_saved_stations[index];
+        state->saved_station_remarks = state->edit_net_saved_remarks[index];
+        state->saved_station_loaded_callsign = state->saved_station.callsign;
+        state->saved_station_loaded_name = state->edit_net_saved_entry_names[index];
         state->show_saved_station_modal = true;
         if (state->saved_station_callsign_input)
         {
@@ -4554,6 +4721,8 @@ namespace ql
     {
         state->saved_station = Station();
         state->saved_station_remarks.clear();
+        state->saved_station_loaded_callsign.clear();
+        state->saved_station_loaded_name.clear();
         state->saved_station_suggestions.clear();
         state->saved_station_suggestion_labels.clear();
         state->saved_station_suggestion_sources.clear();
@@ -4573,8 +4742,9 @@ namespace ql
             return;
         }
 
-        std::string callsign = state->edit_net_saved_stations[state->selected_saved_station_index].callsign;
-        state->db->RemoveSavedNetStation(state->edit_net_id, callsign);
+        std::size_t index = static_cast<std::size_t>(state->selected_saved_station_index);
+        std::string callsign = state->edit_net_saved_stations[index].callsign;
+        state->db->RemoveSavedNetStation(state->edit_net_id, callsign, state->edit_net_saved_entry_names[index]);
         state->form_error.clear();
         state->status_message = state->db->FindStationByCallsign(callsign).has_value()
                                     ? "Removed " + callsign + " from this net's saved stations."
@@ -4697,8 +4867,8 @@ namespace ql
     }
 
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed, const std::string& net_zip,
-                                           bool partial, std::size_t max_suggestions, std::vector<Station>* suggestions,
-                                           std::vector<std::string>* sources)
+                                           bool partial, NetService service, std::size_t max_suggestions,
+                                           std::vector<Station>* suggestions, std::vector<std::string>* sources)
     {
         if (suggestions->size() >= max_suggestions)
         {
@@ -4711,13 +4881,15 @@ namespace ql
         }
 
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
-        if (state->nearby_uls_origin != state->nearby_zips_origin ||
+        LicenseTable table = service == NetService::kGmrs ? LicenseTable::kGmrs : LicenseTable::kAmateur;
+        if (state->nearby_uls_origin != state->nearby_zips_origin || state->nearby_uls_table != table ||
             now - state->nearby_uls_loaded_at > kNearbyUlsReloadSeconds)
         {
             state->nearby_uls_callsigns =
-                state->db->ListNearbyUlsCallsigns(state->nearby_zips, state->nearby_zip3_prefixes);
+                state->db->ListNearbyUlsCallsigns(state->nearby_zips, state->nearby_zip3_prefixes, table);
             state->nearby_uls_callsigns.shrink_to_fit();
             state->nearby_uls_origin = state->nearby_zips_origin;
+            state->nearby_uls_table = table;
             state->nearby_uls_loaded_at = now;
         }
 
@@ -4746,7 +4918,7 @@ namespace ql
                 continue;
             }
             // Gone if the station data was refreshed since the list loaded.
-            std::optional<Station> station = state->db->FindUlsStationByCallsign(candidate.callsign);
+            std::optional<Station> station = state->db->FindUlsStationByCallsign(candidate.callsign, table);
             if (!station.has_value())
             {
                 continue;
@@ -4831,7 +5003,8 @@ namespace ql
         // enough to fill the rest after tier 1's repeats.
         std::vector<Station> other_matches = state->db->SearchStationsByCallsignSubstring(
             state->saved_station.callsign, max_suggestions + static_cast<int>(tier1_count));
-        AppendNewSuggestions(&state->saved_station_suggestions, &other_matches, kMaxSuggestions);
+        NetService service = state->edit_net_gmrs ? NetService::kGmrs : NetService::kAmateur;
+        AppendNewSuggestions(&state->saved_station_suggestions, &other_matches, kMaxSuggestions, service);
 
         if (state->saved_station_suggestions.size() > kMaxSuggestions)
         {
@@ -4844,17 +5017,22 @@ namespace ql
             bool is_this_net = i < tier1_count;
             state->saved_station_suggestion_sources.push_back(KnownStationSource(is_this_net));
         }
+        OfferNewGmrsName(service, state->saved_station.callsign, kMaxSuggestions, &state->saved_station_suggestions,
+                         &state->saved_station_suggestion_sources);
 
         // Tier 3: nearby ULS-imported stations.
         AppendNearbyUlsSuggestions(state, state->saved_station.callsign, state->edit_net_location,
-                                   state->edit_net_partial_match_index == 0, kMaxSuggestions,
+                                   state->edit_net_partial_match_index == 0, service, kMaxSuggestions,
                                    &state->saved_station_suggestions, &state->saved_station_suggestion_sources);
         // And Canadian call signs, from ISED's data.
-        AppendCanadianSuggestions(state, state->saved_station.callsign, state->edit_net_partial_match_index == 1,
-                                  kMaxSuggestions, &state->saved_station_suggestions,
-                                  &state->saved_station_suggestion_sources);
-        MarkTypedCallsignMatch(state, state->saved_station.callsign, kMaxSuggestions, &state->saved_station_suggestions,
-                               &state->saved_station_suggestion_sources,
+        if (service != NetService::kGmrs)
+        {
+            AppendCanadianSuggestions(state, state->saved_station.callsign, state->edit_net_partial_match_index == 1,
+                                      kMaxSuggestions, &state->saved_station_suggestions,
+                                      &state->saved_station_suggestion_sources);
+        }
+        MarkTypedCallsignMatch(state, state->saved_station.callsign, service, kMaxSuggestions,
+                               &state->saved_station_suggestions, &state->saved_station_suggestion_sources,
                                &state->selected_saved_station_suggestion_index);
         state->saved_station_suggestion_labels =
             FormatMatches(state->saved_station_suggestions, state->saved_station_suggestion_sources, state->list_width);
@@ -5168,7 +5346,11 @@ namespace ql
         {
             sessions.resize(10);
         }
+        // Each is a call sign, or on a GMRS net a call sign and name (see
+        // CheckInKey), with that check-in's call sign and name alongside.
+        std::vector<std::string> keys;
         std::vector<std::string> callsigns;
+        std::vector<std::string> names;
         std::vector<int> counts;
         std::vector<std::string> last_seen;
         for (const NetInstance& session : sessions)
@@ -5176,22 +5358,24 @@ namespace ql
             std::vector<std::string> in_session;
             for (const CheckIn& check_in : state->db->GetCheckInsForNetInstance(session.id))
             {
-                if (std::find(in_session.begin(), in_session.end(), check_in.callsign) != in_session.end())
+                std::string key = CheckInKey(check_in.callsign, check_in.name);
+                if (std::find(in_session.begin(), in_session.end(), key) != in_session.end())
                 {
                     continue;  // Counted once per session.
                 }
-                in_session.push_back(check_in.callsign);
-                std::vector<std::string>::iterator found =
-                    std::find(callsigns.begin(), callsigns.end(), check_in.callsign);
-                if (found == callsigns.end())
+                in_session.push_back(key);
+                std::vector<std::string>::iterator found = std::find(keys.begin(), keys.end(), key);
+                if (found == keys.end())
                 {
+                    keys.push_back(key);
                     callsigns.push_back(check_in.callsign);
+                    names.push_back(check_in.name);
                     counts.push_back(1);
                     last_seen.push_back(session.instance_date);  // Newest first.
                 }
                 else
                 {
-                    ++counts[static_cast<std::size_t>(found - callsigns.begin())];
+                    ++counts[static_cast<std::size_t>(found - keys.begin())];
                 }
             }
         }
@@ -5199,12 +5383,12 @@ namespace ql
         // Regulars: at least half the sessions looked at, not yet here.
         std::vector<std::size_t> regulars;
         int total = static_cast<int>(sessions.size());
-        for (std::size_t i = 0; i < callsigns.size(); ++i)
+        for (std::size_t i = 0; i < keys.size(); ++i)
         {
             bool here = false;
             for (const CheckIn& check_in : state->active_check_ins)
             {
-                here = here || check_in.callsign == callsigns[i];
+                here = here || CheckInKey(check_in.callsign, check_in.name) == keys[i];
             }
             if (!here && counts[i] * 2 >= total)
             {
@@ -5215,9 +5399,9 @@ namespace ql
         for (std::size_t i = 1; i < regulars.size(); ++i)
         {
             std::size_t j = i;
-            while (j > 0 && (counts[regulars[j]] > counts[regulars[j - 1]] ||
-                             (counts[regulars[j]] == counts[regulars[j - 1]] &&
-                              callsigns[regulars[j]] < callsigns[regulars[j - 1]])))
+            while (j > 0 &&
+                   (counts[regulars[j]] > counts[regulars[j - 1]] ||
+                    (counts[regulars[j]] == counts[regulars[j - 1]] && keys[regulars[j]] < keys[regulars[j - 1]])))
             {
                 std::swap(regulars[j], regulars[j - 1]);
                 --j;
@@ -5231,6 +5415,10 @@ namespace ql
             std::optional<Station> found = state->db->FindStationByCallsign(callsigns[index]);
             Station station = found.has_value() ? *found : Station();
             station.callsign = callsigns[index];
+            if (!names[index].empty())
+            {
+                station.name = names[index];
+            }
             rows.push_back({station.callsign, station.name, OutOf(counts[index], total), last_seen[index]});
             state->info_stations.push_back(station);
         }
@@ -5277,7 +5465,8 @@ namespace ql
         state->modal_station = std::move(station);
         BackfillCountyFromZip(state, &state->modal_station);
         state->modal_remarks =
-            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, state->modal_station.callsign);
+            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, state->modal_station.callsign,
+                                                 SavedEntryName(state->active_net_service, state->modal_station.name));
         state->show_new_station_modal = true;
         if (state->modal_callsign_input)
         {
@@ -5290,7 +5479,9 @@ namespace ql
         // Its reads share one snapshot and one lock.
         Database::ReadTransaction reads(state->db);
         std::optional<Station> known = state->db->FindStationByCallsign(callsign);
-        std::optional<Station> licensed = state->db->FindLicensedStationByCallsign(callsign);
+        bool gmrs = IsValidGmrsCallsign(callsign);
+        std::optional<Station> licensed =
+            FindLicensee(state->db, callsign, gmrs ? NetService::kGmrs : NetService::kAmateur);
         Station station = known.has_value() ? *known : (licensed.has_value() ? *licensed : Station());
         StationActivity activity = state->db->GetStationActivity(callsign);
 
@@ -5306,7 +5497,8 @@ namespace ql
         summary.push_back("County:         " + station.county);
         summary.push_back("Grid Square:    " + station.grid_square);
         summary.push_back("Member ID:      " + station.member_id);
-        summary.push_back("License Class:  " + (licensed.has_value() && !licensed->license_class.empty()
+        summary.push_back("License Class:  " + (licensed.has_value() && gmrs ? std::string("GMRS")
+                                                : licensed.has_value() && !licensed->license_class.empty()
                                                     ? licensed->license_class
                                                     : std::string("(not in the FCC or ISED data)")));
         if (activity.check_ins == 0)
@@ -5529,7 +5721,7 @@ namespace ql
             {
                 continue;
             }
-            rows.push_back({tally.callsign, StationName(state->db, tally.callsign),
+            rows.push_back({tally.callsign, tally.name.empty() ? StationName(state->db, tally.callsign) : tally.name,
                             tally.last_date.empty() ? "never" : tally.last_date, std::to_string(tally.count)});
         }
         std::vector<std::string> summary;

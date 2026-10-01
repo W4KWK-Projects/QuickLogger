@@ -169,6 +169,11 @@ namespace ql
         // most one check-in per NetInstance holds a given role at a time;
         // see ApplyCheckInRoleDesignation.
         int designated_role = kRoleNone;
+        // On a GMRS net, the name this check-in was logged under: one GMRS
+        // license covers a whole family, so a call sign can check in more
+        // than once, each time someone else, told apart by name. Blank on an
+        // Amateur Radio net, where the station's own name stands.
+        std::string name;
     };
 
     // Persisted state of one background data job, keyed by `source`. Two
@@ -235,9 +240,23 @@ namespace ql
     };
 
     // A callsign's check-in count (in some scope) and latest session date.
+    // One station saved to a net: the station as on file, with its
+    // default remarks there and the entry's own name. That name is blank
+    // except on a GMRS net, where one call sign may be saved once for each
+    // person on the license (see Database::SaveNetStation).
+    struct SavedNetStation
+    {
+        Station station;
+        std::string name;
+        std::string default_remarks;
+    };
+
     struct CallsignTally
     {
         std::string callsign;
+        // A saved GMRS entry's own name (see Database::SaveNetStation), or
+        // blank.
+        std::string name;
         int count = 0;
         std::string last_date;
     };

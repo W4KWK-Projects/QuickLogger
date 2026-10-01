@@ -10,14 +10,10 @@
 namespace ql
 {
 
-    // A station explicitly saved to the net being exported, paired with its
-    // per-net default remarks -- mirrors one net_saved_stations row (see
-    // Database::GetSavedStationsForNet/GetSavedNetStationRemarks).
-    struct NetSliceSavedStation
-    {
-        Station station;
-        std::string default_remarks;
-    };
+    // A station explicitly saved to the net being exported, with its
+    // per-net default remarks and, on a GMRS net, its own name -- one
+    // net_saved_stations row (see Database::GetSavedNetEntries).
+    using NetSliceSavedStation = SavedNetStation;
 
     // Everything needed to reconstitute one recurring net -- its own
     // definition, every station that's either saved to it or has ever

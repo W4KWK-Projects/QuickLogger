@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -641,6 +642,10 @@ namespace ql
         bool edit_net_gmrs = false;
         int edit_net_gmrs_channel = 0;
         std::vector<Station> edit_net_saved_stations;
+        // Alongside each: its entry name (see SavedNetStation; it's the
+        // Name shown when not blank) and its default remarks.
+        std::vector<std::string> edit_net_saved_entry_names;
+        std::vector<std::string> edit_net_saved_remarks;
         std::vector<std::string> edit_net_saved_station_labels;  // Kept in sync by RefreshEditNetSavedStations.
         int selected_saved_station_index = 0;
 
@@ -651,6 +656,11 @@ namespace ql
         // autocomplete for this net.
         Station saved_station;
         std::string saved_station_remarks;
+        // The saved station loaded into the form for editing (see
+        // LoadSavedStationIntoForm): its call sign and entry name. Blank for
+        // a new one.
+        std::string saved_station_loaded_callsign;
+        std::string saved_station_loaded_name;
         // The saved-station callsign Input, so LoadSavedStationHandler can
         // TakeFocus() it after loading a row, jumping straight into editing.
         ftxui::Component saved_station_callsign_input;
@@ -694,6 +704,8 @@ namespace ql
         // once, that query was most of the server's CPU. A few hundred KB.
         std::vector<NearbyUlsCallsign> nearby_uls_callsigns;
         std::string nearby_uls_origin;
+        // Which licensees those are: amateur, or GMRS for a GMRS net.
+        LicenseTable nearby_uls_table = LicenseTable::kAmateur;
         std::int64_t nearby_uls_loaded_at = 0;
         // Autocomplete candidates for the saved-station mini-form (see
         // RefreshSavedStationSuggestions), refreshed live as the operator
@@ -890,9 +902,11 @@ namespace ql
     // Persists the Edit Check-in modal's fields: a direct update to the
     // Station's editable fields (blank values are saved as-is, since this is
     // an explicit correction, unlike the New Station modal) and to the
-    // CheckIn's Signal Report/Remarks/Comment. There's no required field, so
-    // this always succeeds.
-    void SaveEditCheckInForm(AppState* state);
+    // CheckIn's Signal Report/Remarks/Comment. On a GMRS net the Name is
+    // the check-in's own (see CheckIn::name), and renaming it to another
+    // check-in's under the same call sign is refused: false, with
+    // form_error set.
+    bool SaveEditCheckInForm(AppState* state);
 
     // ---- Lists laid out for the terminal's width (see list_columns.hpp) ----
 
@@ -1319,8 +1333,10 @@ namespace ql
     // existing saved station (direct-set via Database::UpdateSavedNetStation, so a
     // cleared field actually clears); otherwise it's a new saved station (merge-upsert
     // via Database::SaveNetStation, so a blank field just means "I don't have
-    // that detail yet" rather than "erase it"). Returns false (and sets
-    // AppState::form_error) without changing anything if the callsign is empty.
+    // that detail yet" rather than "erase it"). On a GMRS net an entry is a
+    // call sign and name, and the one loaded can be renamed. Returns false
+    // (and sets AppState::form_error) without changing anything if the
+    // callsign is empty, or is renamed to another entry's name.
     bool SaveNetStationForm(AppState* state);
 
     // Opens the Saved Station window with `saved`'s fields (and its current
@@ -1328,7 +1344,7 @@ namespace ql
     // existing saved station created with only a callsign can have more
     // details filled in and saved via SaveNetStationForm rather than retyped
     // from scratch.
-    void LoadSavedStationIntoForm(AppState* state, const Station& saved);
+    void LoadSavedStationIntoForm(AppState* state, std::size_t index);
 
     // Opens the Saved Station window empty, for a new station (F6).
     void OpenNewSavedStationForm(AppState* state);
@@ -1424,6 +1440,16 @@ namespace ql
 
     // "Amateur Radio" or "GMRS".
     const char* ServiceLabel(NetService service);
+
+    // A saved station's or check-in's own name on a net of `service`: on a
+    // GMRS net `name` (trimmed), which tells family members sharing a call
+    // sign apart; on an Amateur Radio net blank, the station's own name
+    // standing. See Database::SaveNetStation and CheckIn::name.
+    std::string SavedEntryName(NetService service, const std::string& name);
+
+    // A call sign's licensee in the FCC's data for `service`: GMRS
+    // licenses for GMRS, else the amateur ones (FCC, then ISED).
+    std::optional<Station> FindLicensee(Database* db, const std::string& callsign, NetService service);
 
     // The operator's own call sign for nets of `service` (Settings, or for
     // an SSH user Manage Users): AppSettings::callsign or gmrs_callsign.

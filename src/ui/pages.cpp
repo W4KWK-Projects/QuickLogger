@@ -200,8 +200,7 @@ namespace ql
         option.elements_infix = ToggleGap;
         option.focused_entry = &state->new_net_service_index;
         option.on_change = NewNetServiceChangedHandler(state);
-        return std::make_shared<IgnoreTab>(
-            ftxui::Menu(&state->service_labels, &state->new_net_service_index, option));
+        return std::make_shared<IgnoreTab>(ftxui::Menu(&state->service_labels, &state->new_net_service_index, option));
     }
 
     // A GMRS net's channel, one of GmrsChannels(): Left/Right step through
@@ -821,7 +820,9 @@ namespace ql
                     ? ftxui::text("No call sign set -- see Settings (F4)") | ftxui::color(kColorLabel)
                     : ftxui::hbox({ftxui::text("Operating as ") | ftxui::color(kColorLabel),
                                    ftxui::text(amateur) | ftxui::bold | ftxui::color(kColorData),
-                                   ftxui::text(gmrs.empty() ? "" : amateur.empty() ? "GMRS " : ", GMRS ") |
+                                   ftxui::text(gmrs.empty()      ? ""
+                                               : amateur.empty() ? "GMRS "
+                                                                 : ", GMRS ") |
                                        ftxui::color(kColorLabel),
                                    ftxui::text(gmrs) | ftxui::bold | ftxui::color(kColorData),
                                    state_->view_only_user ? ftxui::text("  (view-only)") | ftxui::color(kColorLabel)
@@ -941,9 +942,9 @@ namespace ql
         inputs.frequency = ftxui::Maybe(ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
                                                      FrequencyInputOption(&state->new_net_frequency)),
                                         &state->new_net_amateur);
-        inputs.offset = ftxui::Maybe(ftxui::Input(&state->new_net_offset, "e.g. -0.6 (optional)",
-                                                  OffsetInputOption(&state->new_net_offset)),
-                                     &state->new_net_amateur);
+        inputs.offset = ftxui::Maybe(
+            ftxui::Input(&state->new_net_offset, "e.g. -0.6 (optional)", OffsetInputOption(&state->new_net_offset)),
+            &state->new_net_amateur);
         inputs.channel =
             ftxui::Maybe(std::make_shared<GmrsChannelPicker>(&state->new_net_gmrs_channel), &state->new_net_gmrs);
         inputs.tone =
@@ -962,8 +963,8 @@ namespace ql
         {
             rows->push_back(ftxui::hbox({FieldLabel("Mode:             "), ftxui::text("FM") | ftxui::color(kColorData),
                                          HintText("  (always, on GMRS)")}));
-            rows->push_back(ftxui::hbox({FieldLabel("Channel:          "), channel->Render(),
-                                         HintText("  Left/Right")}));
+            rows->push_back(
+                ftxui::hbox({FieldLabel("Channel:          "), channel->Render(), HintText("  Left/Right")}));
         }
         else
         {
@@ -1435,6 +1436,7 @@ namespace ql
             AppendFormFields(state_, fields, &rows);
             rows.push_back(DialogSeparator());
             AppendCheckInKeyRows(state_, {{"F2", "Save"}, {"Esc", "Cancel"}}, &rows);
+            rows.push_back(ErrorLine(state_->form_error));
 
             return CheckInWindow(state_, ftxui::vbox(std::move(rows)));
         }
@@ -1727,11 +1729,13 @@ namespace ql
             rows.push_back(ftxui::hbox(
                 {FieldLabel("Port:      "), input_port_->Render() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 6)}));
             rows.push_back(DialogSeparator());
-            rows.push_back(HintParagraph("Closed sessions can be pushed to this QuickLogger (F3 when closing a net, "
-                                         "or in History). A blank host means none."));
+            rows.push_back(
+                HintParagraph("Closed sessions can be pushed to this QuickLogger (F3 when closing a net, "
+                              "or in History). A blank host means none."));
             rows.push_back(ftxui::text(""));
-            rows.push_back(HintParagraph("Pushing uses this computer's ssh and your own ssh key. Log in there "
-                                         "once with ssh first. A key with a passphrase must be in ssh-agent."));
+            rows.push_back(
+                HintParagraph("Pushing uses this computer's ssh and your own ssh key. Log in there "
+                              "once with ssh first. A key with a passphrase must be in ssh-agent."));
             if (!state_->upstream_tools_available)
             {
                 rows.push_back(ftxui::text(""));
@@ -1762,9 +1766,8 @@ namespace ql
         port_option.cursor_position = &state->upstream_port_cursor;
         port_option.on_change = DigitsFieldHandler(&state->upstream_port_text, 5);
         ftxui::Component input_port = ftxui::Input(&state->upstream_port_text, "22", port_option);
-        return ftxui::Renderer(
-            ftxui::Container::Vertical({input_host, input_user, input_port}, &state->upstream_focus),
-            UpstreamWindowRenderer(state, input_host, input_user, input_port));
+        return ftxui::Renderer(ftxui::Container::Vertical({input_host, input_user, input_port}, &state->upstream_focus),
+                               UpstreamWindowRenderer(state, input_host, input_user, input_port));
     }
 
     ftxui::Component BuildSettingsPage(AppState* state)
@@ -1840,7 +1843,6 @@ namespace ql
               open_session_menu_(std::move(open_session_menu))
         {
         }
-
 
         ftxui::Element operator()() const
         {
@@ -2163,9 +2165,9 @@ namespace ql
     public:
         EditNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
                         ftxui::Component input_frequency, ftxui::Component input_offset, ftxui::Component channel,
-                        ftxui::Component input_tone, ftxui::Component input_location,
-                        ftxui::Component input_recurrence, ftxui::Component input_comments,
-                        ftxui::Component partial_match, ftxui::Component saved_station_menu)
+                        ftxui::Component input_tone, ftxui::Component input_location, ftxui::Component input_recurrence,
+                        ftxui::Component input_comments, ftxui::Component partial_match,
+                        ftxui::Component saved_station_menu)
             : state_(state),
               input_name_(std::move(input_name)),
               input_mode_(std::move(input_mode)),
@@ -2200,8 +2202,7 @@ namespace ql
             {
                 // A GMRS net: FM, on one of the channels, and the FCC's data.
                 rows.push_back(ftxui::hbox({FieldLabel("Service:          "),
-                                            ftxui::text("GMRS") | ftxui::color(kColorData),
-                                            HintText("   Mode: FM")}));
+                                            ftxui::text("GMRS") | ftxui::color(kColorData), HintText("   Mode: FM")}));
                 fields = {
                     ftxui::hbox({FieldLabel("Channel:          "), channel_->Render()}),
                     ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
@@ -2339,9 +2340,9 @@ namespace ql
         ftxui::Component input_frequency = ftxui::Maybe(ftxui::Input(&state->edit_net_frequency, "MHz, e.g. 146.940",
                                                                      FrequencyInputOption(&state->edit_net_frequency)),
                                                         &state->edit_net_amateur);
-        ftxui::Component input_offset = ftxui::Maybe(ftxui::Input(&state->edit_net_offset, "e.g. -0.6 (optional)",
-                                                                  OffsetInputOption(&state->edit_net_offset)),
-                                                     &state->edit_net_amateur);
+        ftxui::Component input_offset = ftxui::Maybe(
+            ftxui::Input(&state->edit_net_offset, "e.g. -0.6 (optional)", OffsetInputOption(&state->edit_net_offset)),
+            &state->edit_net_amateur);
         ftxui::Component channel =
             ftxui::Maybe(std::make_shared<GmrsChannelPicker>(&state->edit_net_gmrs_channel), &state->edit_net_gmrs);
         ftxui::Component input_tone =
@@ -2381,8 +2382,7 @@ namespace ql
         state->edit_net_name_input = input_name;
         ftxui::Component main_view = ftxui::Renderer(
             root, EditNetRenderer(state, input_name, input_mode, input_frequency, input_offset, channel, input_tone,
-                                  input_location, input_recurrence, input_comments, partial_match,
-                                  saved_station_menu));
+                                  input_location, input_recurrence, input_comments, partial_match, saved_station_menu));
 
         ftxui::InputOption callsign_option = SingleLineInputOption();
         callsign_option.on_change = SavedStationCallsignChangeHandler(state);
@@ -2932,11 +2932,11 @@ namespace ql
         ftxui::InputOption key_option = SingleLineInputOption();
         key_option.on_enter = AddUserKeyHandler(state);
         ftxui::Component input_key = ftxui::Input(&state->new_key_text, "ssh-ed25519 AAAA... comment", key_option);
-        ftxui::Component keys_modal = ftxui::Renderer(
-            ftxui::Container::Vertical(
-                {input_rename, input_edit_amateur, input_edit_gmrs, edit_access_toggle, key_menu, input_key}),
-            UserKeysModalRenderer(state, input_rename, input_edit_amateur, input_edit_gmrs, edit_access_toggle,
-                                  key_menu, input_key));
+        ftxui::Component keys_modal =
+            ftxui::Renderer(ftxui::Container::Vertical({input_rename, input_edit_amateur, input_edit_gmrs,
+                                                        edit_access_toggle, key_menu, input_key}),
+                            UserKeysModalRenderer(state, input_rename, input_edit_amateur, input_edit_gmrs,
+                                                  edit_access_toggle, key_menu, input_key));
 
         return WithRowDeleteConfirm(state, LayeredModal(main_view, keys_modal, &state->show_user_keys_modal));
     }

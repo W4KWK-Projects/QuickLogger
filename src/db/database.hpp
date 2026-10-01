@@ -123,8 +123,9 @@ namespace ql
         // or been explicitly saved to it (see SaveNetStation) -- e.g. imported
         // from another logging program's history. This is autocomplete's first
         // tier: prefer callers already known to this specific net before
-        // broadening to SearchStationsByCallsignSubstring (other nets).
-        // At most `limit` of them (-1: all).
+        // broadening to SearchStationsByCallsignSubstring (other nets). On a
+        // GMRS net each name a call sign checked in or was saved under is a
+        // match of its own, under that name. At most `limit` of them (-1: all).
         std::vector<Station> SearchNetStationsByCallsignSubstring(std::int64_t net_id, const std::string& substring,
                                                                   int limit = -1);
         // Associates `station.callsign` with `net_id` as "known to this net"
@@ -134,20 +135,35 @@ namespace ql
         // `default_remarks` is carried on the net/callsign association (not
         // the Station), and gets copied into the New Station modal's Remarks
         // field when this station is picked via autocomplete for this net.
+        //
+        // Every saved-station method here also takes the entry's own
+        // `name`: on a GMRS net, where a call sign may be saved more than
+        // once (one license covers a family), the person's name, which tells
+        // the entries apart; on an Amateur Radio net blank (the default), the
+        // station's own name standing. See SavedEntryName in app_state.hpp.
         void SaveNetStation(std::int64_t net_id, const Station& station, const std::string& default_remarks,
-                            std::int64_t updated_at);
+                            std::int64_t updated_at, const std::string& name = "");
         // Directly sets an already-saved station's fields and default remarks
         // to exactly what's given in `station`/`default_remarks`, including
         // blanking any of them out. Unlike SaveNetStation, this never preserves
         // a previous value -- it's for explicitly editing a station the
         // operator already saved to this net (e.g. adding details they didn't
         // have when they first saved just the callsign), not adding a new one.
+        // `old_name` names the entry; it's renamed to `new_name`.
         void UpdateSavedNetStation(std::int64_t net_id, const Station& station, const std::string& default_remarks,
-                                   std::int64_t updated_at);
+                                   std::int64_t updated_at, const std::string& old_name = "",
+                                   const std::string& new_name = "");
         // Removes a station's saved association with a net. Never touches
         // check-in history. Like every delete here, it then drops any
         // station record nothing refers to any more (see DeleteUnusedStations).
-        void RemoveSavedNetStation(std::int64_t net_id, const std::string& callsign);
+        void RemoveSavedNetStation(std::int64_t net_id, const std::string& callsign, const std::string& name = "");
+        // After a GMRS check-in's name changed from `old_name` to `new_name`:
+        // `callsign`'s entry on net `net_id` under the old name is renamed,
+        // or, while another check-in to the net still goes by the old name,
+        // copied (default remarks too) under the new one. Nothing if
+        // `callsign` wasn't saved under the old name.
+        void RenameNetSavedStationEntry(std::int64_t net_id, const std::string& callsign, const std::string& old_name,
+                                        const std::string& new_name);
         // Whether `callsign` is saved to some net other than `net_id`, or has
         // checked in anywhere -- i.e. whether its station record would
         // survive being removed from `net_id`'s saved stations.
@@ -161,13 +177,19 @@ namespace ql
         int DeleteUnusedStations();
         // Stations explicitly saved to `net_id` (not those merely known via
         // real check-in history) -- for the edit-net page's saved-station list.
+        // An entry with a name of its own has that as its Station::name.
+        // By call sign, then name.
         std::vector<Station> GetSavedStationsForNet(std::int64_t net_id);
+        // The same, each with its entry name and default remarks (the
+        // station's own name left as on file), in one query.
+        std::vector<SavedNetStation> GetSavedNetEntries(std::int64_t net_id);
         // The default remarks saved for `callsign` on `net_id`, or an empty
         // string if there's no saved row or no default was set. Used to
         // prefill the New Station modal's Remarks field when autocomplete
         // picks a station that was saved (rather than genuinely checked in)
         // for this net.
-        std::string GetSavedNetStationRemarks(std::int64_t net_id, const std::string& callsign);
+        std::string GetSavedNetStationRemarks(std::int64_t net_id, const std::string& callsign,
+                                              const std::string& name = "");
         // Adds `station` to the stations table, or for one already there,
         // fills in only the fields it has blank: what's known here is never
         // replaced. For merging a net from a file (see ApplyNetMerge).
@@ -176,7 +198,7 @@ namespace ql
         // `default_remarks`, unless it's saved there already, in which case
         // nothing changes. True if it was added.
         bool AddNetSavedStationIfMissing(std::int64_t net_id, const std::string& callsign,
-                                         const std::string& default_remarks);
+                                         const std::string& default_remarks, const std::string& name = "");
 
         // Nets (recurring net definitions).
         std::int64_t CreateNet(const Net& net);
@@ -269,7 +291,8 @@ namespace ql
         // The callsigns that have checked in to net `net_id` most often, with
         // how many times and their latest session's date.
         std::vector<CallsignTally> GetTopCallsignsForNet(std::int64_t net_id, int limit);
-        // Each station saved to net `net_id`, with how many times it has
+        // Each station saved to net `net_id` (each entry, on a GMRS net, with
+        // its own name and check-ins), with how many times it has
         // checked in to that net and the date of the latest (empty if never),
         // least recent first.
         std::vector<CallsignTally> GetSavedStationActivity(std::int64_t net_id);
@@ -451,6 +474,10 @@ namespace ql
         // than one key (username was its primary key) in the current shape,
         // keeping every row. Part of CreateSchema's one-time upgrade.
         void UpgradeUsersTable();
+        // Rebuilds net_saved_stations from before a GMRS net could save a
+        // call sign more than once (its key was net and call sign) with a
+        // `name` in its key, keeping every row.
+        void UpgradeSavedStationsTable();
         // Replaces each net's default_location with the ZIP code in it
         // (ExtractZipCode), or blank if it has none. Part of CreateSchema's
         // one-time upgrade.

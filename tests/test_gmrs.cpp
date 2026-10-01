@@ -268,29 +268,227 @@ namespace ql
         CHECK(ListFilesWithExtension(exports, ".adi").empty());
     }
 
-    QL_TEST(GmrsCheckInsTakeGmrsCallSigns)
+    // Opens a session of a new GMRS net, Family Net, in `f`; returns the net.
+    static std::int64_t StartGmrsSession(GmrsFixture* f)
     {
-        GmrsFixture f;
-        std::int64_t net_id = f.AddNet("Family Net", NetService::kGmrs);
+        std::int64_t net_id = f->AddNet("Family Net", NetService::kGmrs);
         NetInstance instance;
         instance.net_id = net_id;
         instance.instance_date = "2026-09-24";
         instance.started_at = 1000;
         instance.net_control_callsign = "WSIP663";
-        instance.id = f.db()->CreateNetInstance(instance);
-        f.state.active_instance = instance;
-        f.state.active_net_name = "Family Net";
-        f.state.active_net_service = NetService::kGmrs;
-        f.state.operator_callsign = "WSIP663";
+        instance.id = f->db()->CreateNetInstance(instance);
+        f->state.active_instance = instance;
+        f->state.active_net_name = "Family Net";
+        f->state.active_net_service = NetService::kGmrs;
+        f->state.operator_callsign = "WSIP663";
+        return net_id;
+    }
 
+    // Logs `callsign` checking in as `name` in `f`'s session.
+    static bool LogGmrs(GmrsFixture* f, const std::string& callsign, const std::string& name)
+    {
+        f->state.form_error.clear();
+        f->state.modal_station = MakeStation(callsign, name);
+        return LogStationCheckIn(&f->state);
+    }
+
+    QL_TEST(GmrsCheckInsTakeGmrsCallSigns)
+    {
+        GmrsFixture f;
+        StartGmrsSession(&f);
         f.state.modal_station = MakeStation("W4KWK", "Wes");
         CHECK(!LogStationCheckIn(&f.state));
         CHECK_EQ(f.state.form_error, std::string("W4KWK isn't a valid GMRS call sign."));
 
-        f.state.form_error.clear();
-        f.state.modal_station = MakeStation("WRAA123", "Pat");
+        CHECK(LogGmrs(&f, "WRAA123", "Pat"));
+        CHECK_EQ(f.db()->GetCheckInsForNetInstance(f.state.active_instance.id).size(), std::size_t(1));
+    }
+
+    QL_TEST(AFamilyChecksInUnderOneCallSign)
+    {
+        GmrsFixture f;
+        std::int64_t net_id = StartGmrsSession(&f);
+        CHECK(LogGmrs(&f, "WRAA123", "Pat"));
+        // Typed again: Pat, or someone new on the license.
+        ClearModalFields(&f.state);
+        f.state.modal_station.callsign = "WRAA123";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 2);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].name, std::string("Pat"));
+        CHECK(f.state.modal_callsign_suggestions[1].name.empty());
+        CHECK(f.state.modal_callsign_suggestion_labels[1].find("(new name)") != std::string::npos);
+        f.state.selected_suggestion_index = 1;
+        ApplySelectedCallsignSuggestion(&f.state);
+        CHECK(f.state.modal_station.name.empty());
+
+        CHECK(LogGmrs(&f, "WRAA123", "Sam"));
+        CHECK(!LogGmrs(&f, "WRAA123", "pat"));
+        CHECK_EQ(f.state.form_error, std::string("WRAA123 (pat) is already in this session's log, as #1."));
+
+        std::vector<CheckIn> check_ins = f.db()->GetCheckInsForNetInstance(f.state.active_instance.id);
+        REQUIRE(check_ins.size() == 2);
+        CHECK_EQ(check_ins[0].name, std::string("Pat"));
+        CHECK_EQ(check_ins[1].name, std::string("Sam"));
+        // Each is saved to the net, and matched, under their own name.
+        std::vector<SavedNetStation> saved = f.db()->GetSavedNetEntries(net_id);
+        REQUIRE(saved.size() == 2);
+        CHECK_EQ(saved[0].name, std::string("Pat"));
+        CHECK_EQ(saved[1].name, std::string("Sam"));
+        std::vector<Station> matches = f.db()->SearchNetStationsByCallsignSubstring(net_id, "RAA", 10);
+        REQUIRE(matches.size() == 2);
+        CHECK_EQ(matches[0].name, std::string("Pat"));
+        CHECK_EQ(matches[1].name, std::string("Sam"));
+        std::vector<CallsignTally> activity = f.db()->GetSavedStationActivity(net_id);
+        REQUIRE(activity.size() == 2);
+        CHECK_EQ(activity[0].count, 1);
+        CHECK_EQ(activity[1].count, 1);
+    }
+
+    QL_TEST(AGmrsNetSuggestsGmrsLicenseesOnly)
+    {
+        GmrsFixture f;
+        f.db()->BulkUpsertZipCentroids({{"37415", 35.10, -85.28}, {"37402", 35.05, -85.31}});
+        f.db()->BulkUpsertUlsStations({MakeStation("WRAA123", "SMITH, PAT", "37402")}, 0, 1, 1, LicenseTable::kGmrs);
+        f.db()->BulkUpsertUlsStations({MakeStation("KR4AAA", "HAM, HANK", "37402")}, 0, 1, 1);
+        std::int64_t other = f.AddNet("Skywarn", NetService::kAmateur);
+        f.db()->SaveNetStation(other, MakeStation("KR4AAB", "Other Net Guy"), "", 1);
+        StartGmrsSession(&f);
+        f.state.active_net_zip = "37415";
+
+        f.state.modal_station.callsign = "R";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 1);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("WRAA123"));
+        CHECK(f.state.modal_callsign_suggestion_labels[0].find("(ULS, ~") != std::string::npos);
+
+        // And an Amateur Radio net, amateur licensees only.
+        f.state.active_net_service = NetService::kAmateur;
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 2);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("KR4AAB"));
+        CHECK_EQ(f.state.modal_callsign_suggestions[1].callsign, std::string("KR4AAA"));
+    }
+
+    QL_TEST(AnAmateurNetStillTakesACallSignOnce)
+    {
+        GmrsFixture f;
+        std::int64_t net_id = f.AddNet("Skywarn", NetService::kAmateur);
+        f.state.active_instance.net_id = net_id;
+        f.state.active_instance.instance_date = "2026-09-24";
+        f.state.active_instance.started_at = 1000;
+        f.state.active_instance.id = f.db()->CreateNetInstance(f.state.active_instance);
+        f.state.active_net_service = NetService::kAmateur;
+        f.state.modal_station = MakeStation("K4AAA", "Ann");
         CHECK(LogStationCheckIn(&f.state));
-        CHECK_EQ(f.db()->GetCheckInsForNetInstance(instance.id).size(), std::size_t(1));
+        f.state.modal_station = MakeStation("K4AAA", "Bob");
+        CHECK(!LogStationCheckIn(&f.state));
+        CHECK(f.db()->GetCheckInsForNetInstance(f.state.active_instance.id)[0].name.empty());
+        REQUIRE(f.db()->GetSavedNetEntries(net_id).size() == 1);
+        CHECK(f.db()->GetSavedNetEntries(net_id)[0].name.empty());
+    }
+
+    QL_TEST(EditingAGmrsCheckInsNameMovesItsSavedEntry)
+    {
+        GmrsFixture f;
+        std::int64_t net_id = StartGmrsSession(&f);
+        REQUIRE(LogGmrs(&f, "WRAA123", "Pat"));
+        REQUIRE(LogGmrs(&f, "WRAA123", "Sam"));
+        std::string licensee = f.db()->FindStationByCallsign("WRAA123")->name;
+
+        OpenEditCheckInForm(&f.state, f.state.active_check_ins[0]);
+        CHECK_EQ(f.state.edit_checkin_station.name, std::string("Pat"));
+        f.state.edit_checkin_station.name = "Patricia";
+        CHECK(SaveEditCheckInForm(&f.state));
+        CHECK_EQ(f.state.active_check_ins[0].name, std::string("Patricia"));
+        CHECK_EQ(f.db()->FindStationByCallsign("WRAA123")->name, licensee);
+        std::vector<SavedNetStation> saved = f.db()->GetSavedNetEntries(net_id);
+        REQUIRE(saved.size() == 2);
+        CHECK_EQ(saved[0].name, std::string("Patricia"));
+
+        OpenEditCheckInForm(&f.state, f.state.active_check_ins[1]);
+        f.state.edit_checkin_station.name = "PATRICIA";
+        CHECK(!SaveEditCheckInForm(&f.state));
+        CHECK_EQ(f.state.form_error, std::string("WRAA123 (PATRICIA) is already in this session's log, as #1."));
+        CHECK_EQ(f.db()->GetCheckInsForNetInstance(f.state.active_instance.id)[1].name, std::string("Sam"));
+    }
+
+    QL_TEST(EntryNamesIgnoreCase)
+    {
+        GmrsFixture f;
+        std::int64_t net_id = f.AddNet("Family Net", NetService::kGmrs);
+        f.db()->SaveNetStation(net_id, MakeStation("WRAA123", "Pat"), "", 1, "Jane");
+        f.db()->SaveNetStation(net_id, MakeStation("WRAA123", "Pat"), "mobile", 2, "JANE");
+        std::vector<SavedNetStation> saved = f.db()->GetSavedNetEntries(net_id);
+        REQUIRE(saved.size() == 1);
+        CHECK_EQ(saved[0].default_remarks, std::string("mobile"));
+    }
+
+    QL_TEST(EditNetSavesOneCallSignOncePerName)
+    {
+        GmrsFixture f;
+        std::int64_t net_id = f.AddNet("Family Net", NetService::kGmrs);
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
+        f.state.saved_station = MakeStation("WRAA123", "Pat");
+        CHECK(SaveNetStationForm(&f.state));
+        CHECK_EQ(f.state.status_message, std::string("Saved WRAA123 (Pat)."));
+        f.state.saved_station = MakeStation("WRAA123", "Sam");
+        CHECK(SaveNetStationForm(&f.state));
+        REQUIRE(f.state.edit_net_saved_stations.size() == 2);
+        CHECK_EQ(f.state.edit_net_saved_stations[1].name, std::string("Sam"));
+
+        // Sam renamed to Pat: taken. To Samuel: fine.
+        LoadSavedStationIntoForm(&f.state, 1);
+        f.state.saved_station.name = "Pat";
+        CHECK(!SaveNetStationForm(&f.state));
+        CHECK_EQ(f.state.form_error, std::string("WRAA123 (Pat) is already saved to this net."));
+        f.state.saved_station.name = "Samuel";
+        f.state.saved_station_remarks = "mobile";
+        CHECK(SaveNetStationForm(&f.state));
+        std::vector<SavedNetStation> saved = f.db()->GetSavedNetEntries(net_id);
+        REQUIRE(saved.size() == 2);
+        CHECK_EQ(saved[1].name, std::string("Samuel"));
+        CHECK_EQ(saved[1].default_remarks, std::string("mobile"));
+        CHECK_EQ(f.db()->FindStationByCallsign("WRAA123")->name, std::string("Pat"));
+
+        // Removing one leaves the other.
+        f.state.selected_saved_station_index = 0;
+        RemoveSelectedSavedNetStation(&f.state);
+        REQUIRE(f.state.edit_net_saved_stations.size() == 1);
+        CHECK_EQ(f.state.edit_net_saved_stations[0].name, std::string("Samuel"));
+    }
+
+    QL_TEST(AFamilyKeepsItsNamesThroughExportImportAndMerge)
+    {
+        GmrsFixture f;
+        std::int64_t net_id = StartGmrsSession(&f);
+        REQUIRE(LogGmrs(&f, "WRAA123", "Pat"));
+        REQUIRE(LogGmrs(&f, "WRAA123", "Sam"));
+        std::string file = f.dir().File("Family.qlnet");
+        std::string error;
+        REQUIRE(WriteNetSliceFile(file, GatherNetSlice(f.db(), net_id), &error));
+        std::optional<NetSlice> slice = ReadNetSliceFile(file, &error);
+        REQUIRE(slice.has_value());
+        REQUIRE(slice->saved_stations.size() == 2);
+
+        TempDir other_dir;
+        Database other(other_dir.File("other.db"));
+        std::int64_t imported = ApplyNetSlice(&other, *slice, 1800000000);
+        std::vector<SavedNetStation> saved = other.GetSavedNetEntries(imported);
+        REQUIRE(saved.size() == 2);
+        CHECK_EQ(saved[0].name, std::string("Pat"));
+        CHECK_EQ(saved[1].name, std::string("Sam"));
+        std::vector<CheckIn> check_ins = other.GetCheckInsForNet(imported);
+        REQUIRE(check_ins.size() == 2);
+        CHECK_EQ(check_ins[1].name, std::string("Sam"));
+
+        // Merged back into itself: nothing new.
+        NetMergePlan plan = PlanNetMerge(f.db(), *slice, net_id);
+        CHECK_EQ(plan.known_saved_stations, 2);
+        CHECK_EQ(plan.new_saved_stations, 0);
+        CHECK(plan.station_conflicts.empty());
+        REQUIRE(plan.sessions.size() == 1);
+        CHECK(plan.sessions[0].kind == MergeSessionKind::kAlreadyHere);
     }
 
     // A GMRS net on repeater channel 20R.

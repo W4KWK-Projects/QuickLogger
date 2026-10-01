@@ -1043,8 +1043,7 @@ namespace ql
         CHECK_EQ(f.db()->GetUserKeys("wes")[0].amateur_callsign, std::string("K4WES"));
         CHECK_EQ(f.db()->GetUserKeys("wes")[0].gmrs_callsign, std::string("WSIP663"));
         CHECK(f.db()->IsUserViewOnly("wes"));
-        CHECK_EQ(f.state.manage_user_names[static_cast<std::size_t>(f.state.selected_user_index)],
-                 std::string("wes"));
+        CHECK_EQ(f.state.manage_user_names[static_cast<std::size_t>(f.state.selected_user_index)], std::string("wes"));
         // Their settings and files moved with them.
         CHECK(!std::filesystem::exists(SshUserSettingsPath(f.state.db_path, "K4WES")));
         CHECK_EQ(ReadTextFile(SshUserSettingsPath(f.state.db_path, "wes")), std::string("location=37402\n"));
@@ -2005,8 +2004,8 @@ namespace ql
         // a session is open.
         RefreshNets(&f.state);
         REQUIRE(f.state.net_names.size() == 1);
-        CHECK_EQ(f.state.net_names[0], "Skywarn" + std::string(30 - 7 + 2, ' ') + "HAM" +
-                                           std::string(1 + 2 + 10 + 2, ' ') + "session open");
+        CHECK_EQ(f.state.net_names[0],
+                 "Skywarn" + std::string(30 - 7 + 2, ' ') + "HAM" + std::string(1 + 2 + 10 + 2, ' ') + "session open");
     }
 
     QL_TEST(AWiderTerminalShowsMoreOfEveryList)
@@ -3012,7 +3011,7 @@ namespace ql
         CloseSavedStationForm(&f.state);
         CHECK(!f.state.show_saved_station_modal);
 
-        LoadSavedStationIntoForm(&f.state, f.state.edit_net_saved_stations[0]);
+        LoadSavedStationIntoForm(&f.state, 0);
         CHECK(f.state.show_saved_station_modal);
         CHECK_EQ(f.state.saved_station.name, std::string("Ann"));
         CHECK_EQ(f.state.saved_station_remarks, std::string("mobile"));

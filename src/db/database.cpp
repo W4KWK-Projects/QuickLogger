@@ -80,16 +80,22 @@ CREATE TABLE IF NOT EXISTS check_ins (
     remarks TEXT NOT NULL DEFAULT '',
     comment TEXT NOT NULL DEFAULT '',
     checked_in_at INTEGER NOT NULL DEFAULT 0,
-    designated_role INTEGER NOT NULL DEFAULT -1
+    designated_role INTEGER NOT NULL DEFAULT -1,
+    name TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_check_ins_net_instance ON check_ins(net_instance_id);
 CREATE INDEX IF NOT EXISTS idx_check_ins_callsign ON check_ins(callsign);
 
+-- On a GMRS net a call sign may be saved more than once, each a different
+-- person (one license covers a family), told apart by `name` ("Jane" and
+-- "JANE" are one). On an
+-- Amateur Radio net `name` is blank and the station's own name stands.
 CREATE TABLE IF NOT EXISTS net_saved_stations (
     net_id INTEGER NOT NULL REFERENCES nets(id),
     callsign TEXT NOT NULL REFERENCES stations(callsign),
     default_remarks TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (net_id, callsign)
+    name TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
+    PRIMARY KEY (net_id, callsign, name)
 );
 
 CREATE TABLE IF NOT EXISTS import_runs (
@@ -289,7 +295,7 @@ CREATE TABLE IF NOT EXISTS users (
         return ReadNetInstanceColumns(row, 0);
     }
 
-    // A CheckIn from the 9 columns starting at `first` (see
+    // A CheckIn from the 10 columns starting at `first` (see
     // QL_CHECK_IN_COLUMNS).
     static CheckIn ReadCheckInColumns(const Statement& row, int first)
     {
@@ -303,6 +309,7 @@ CREATE TABLE IF NOT EXISTS users (
         check_in.comment = row.ColumnText(first + 6);
         check_in.checked_in_at = row.ColumnInt64(first + 7);
         check_in.designated_role = static_cast<int>(row.ColumnInt64(first + 8));
+        check_in.name = row.ColumnText(first + 9);
         return check_in;
     }
 
@@ -321,7 +328,7 @@ CREATE TABLE IF NOT EXISTS users (
     "i.location, i.status, i.closed_at, i.operator_role, i.started_at, i.notes, i.pushed_at"
 #define QL_CHECK_IN_COLUMNS                                                                \
     "c.id, c.net_instance_id, c.callsign, c.sequence_number, c.signal_report, c.remarks, " \
-    "c.comment, c.checked_in_at, c.designated_role"
+    "c.comment, c.checked_in_at, c.designated_role, c.name"
 
     Database::Database(const std::string& path, bool use_wal)
     {
@@ -548,11 +555,17 @@ CREATE TABLE IF NOT EXISTS users (
         // Since 2.0.0 a username is any login name, and a user's call signs
         // are kept apart from it: an amateur one and a GMRS one. Until now a
         // username had to be an amateur call sign, so it becomes that.
+        // On a GMRS net a check-in has a name of its own (family members
+        // share a call sign), and a net's saved stations are kept by call
+        // sign and name.
+        EnsureColumnExists(db_, "check_ins", "name", "TEXT NOT NULL DEFAULT ''");
+        UpgradeSavedStationsTable();
         EnsureColumnExists(db_, "users", "amateur_callsign", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(db_, "users", "gmrs_callsign", "TEXT NOT NULL DEFAULT ''");
         {
-            Statement copy(&statements_, "UPDATE users SET amateur_callsign = upper(username) "
-                                         "WHERE amateur_callsign = '' AND gmrs_callsign = '';");
+            Statement copy(&statements_,
+                           "UPDATE users SET amateur_callsign = upper(username) "
+                           "WHERE amateur_callsign = '' AND gmrs_callsign = '';");
             copy.Step();
         }
 
@@ -597,6 +610,43 @@ COMMIT;
             sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
             throw std::runtime_error("Failed to upgrade the SSH users table: " + message);
         }
+    }
+
+    void Database::UpgradeSavedStationsTable()
+    {
+        {
+            Statement columns(&statements_, "PRAGMA table_info(net_saved_stations);");
+            while (columns.Step())
+            {
+                if (columns.ColumnText(1) == "name")
+                {
+                    return;
+                }
+            }
+        }
+        // A primary key can't be changed in place: rebuilt as kSchemaSql has
+        // it, every row kept (with no name of its own).
+        WriteTransaction transaction(this);
+        Statement rename(&statements_, "ALTER TABLE net_saved_stations RENAME TO net_saved_stations_before_names;");
+        rename.Step();
+        Statement create(&statements_, R"sql(
+        CREATE TABLE net_saved_stations (
+            net_id INTEGER NOT NULL REFERENCES nets(id),
+            callsign TEXT NOT NULL REFERENCES stations(callsign),
+            default_remarks TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
+            PRIMARY KEY (net_id, callsign, name)
+        );
+    )sql");
+        create.Step();
+        Statement copy(&statements_, R"sql(
+        INSERT INTO net_saved_stations (net_id, callsign, default_remarks)
+        SELECT net_id, callsign, default_remarks FROM net_saved_stations_before_names;
+    )sql");
+        copy.Step();
+        Statement drop(&statements_, "DROP TABLE net_saved_stations_before_names;");
+        drop.Step();
+        transaction.Commit();
     }
 
     void Database::DropOldSeedStations()
@@ -839,15 +889,16 @@ COMMIT;
     }
 
     bool Database::AddNetSavedStationIfMissing(std::int64_t net_id, const std::string& callsign,
-                                               const std::string& default_remarks)
+                                               const std::string& default_remarks, const std::string& name)
     {
         Statement statement(&statements_, R"sql(
-        INSERT OR IGNORE INTO net_saved_stations (net_id, callsign, default_remarks)
-        VALUES (?, ?, ?);
+        INSERT OR IGNORE INTO net_saved_stations (net_id, callsign, default_remarks, name)
+        VALUES (?, ?, ?, ?);
     )sql");
         statement.BindInt64(0, net_id);
         statement.BindText(1, ToUpperAscii(callsign));
         statement.BindText(2, default_remarks);
+        statement.BindText(3, name);
         statement.Step();
         return sqlite3_changes(db_) > 0;
     }
@@ -960,25 +1011,23 @@ COMMIT;
                                                                         const std::string& substring, int limit)
     {
         Statement statement(&statements_, R"sql(
-        SELECT s.callsign, s.name, s.member_id, s.street_address, s.city, s.county,
-               s.state, s.zip, s.grid_square, s.license_class, s.email, s.data_source,
+        SELECT s.callsign, CASE WHEN e.name != '' THEN e.name ELSE s.name END, s.member_id, s.street_address,
+               s.city, s.county, s.state, s.zip, s.grid_square, s.license_class, s.email, s.data_source,
                s.last_updated
         FROM stations s
-        WHERE instr(s.callsign, ?) > 0
-          AND (
-            EXISTS (SELECT 1 FROM check_ins c
-                    JOIN net_instances ni ON ni.id = c.net_instance_id
-                    WHERE ni.net_id = ? AND c.callsign = s.callsign)
-            OR EXISTS (SELECT 1 FROM net_saved_stations ns
-                       WHERE ns.net_id = ? AND ns.callsign = s.callsign)
-          )
-        ORDER BY s.callsign
-        LIMIT ?;
+        JOIN (SELECT ns.callsign, ns.name FROM net_saved_stations ns WHERE ns.net_id = ?2
+              UNION
+              SELECT c.callsign, c.name FROM check_ins c
+              JOIN net_instances ni ON ni.id = c.net_instance_id
+              WHERE ni.net_id = ?2) e
+          ON e.callsign = s.callsign
+        WHERE instr(s.callsign, ?1) > 0
+        ORDER BY s.callsign, e.name
+        LIMIT ?3;
     )sql");
         statement.BindText(0, ToUpperAscii(substring));
         statement.BindInt64(1, net_id);
-        statement.BindInt64(2, net_id);
-        statement.BindInt64(3, limit);
+        statement.BindInt64(2, limit);
         std::vector<Station> stations;
         while (statement.Step())
         {
@@ -988,44 +1037,120 @@ COMMIT;
     }
 
     void Database::SaveNetStation(std::int64_t net_id, const Station& station, const std::string& default_remarks,
-                                  std::int64_t updated_at)
+                                  std::int64_t updated_at, const std::string& name)
     {
-        RecordManualCheckInStation(station, updated_at);
+        // A named entry (a GMRS family member) leaves the station's name, the
+        // licensee's, as it was, if it had one.
+        Station shared = station;
+        if (!name.empty())
+        {
+            std::optional<Station> before = FindStationByCallsign(station.callsign);
+            if (before.has_value() && !before->name.empty())
+            {
+                shared.name = before->name;
+            }
+        }
+        RecordManualCheckInStation(shared, updated_at);
 
         Statement statement(&statements_, R"sql(
-        INSERT INTO net_saved_stations (net_id, callsign, default_remarks)
-        VALUES (?, ?, ?)
-        ON CONFLICT(net_id, callsign) DO UPDATE SET default_remarks = excluded.default_remarks;
+        INSERT INTO net_saved_stations (net_id, callsign, default_remarks, name)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(net_id, callsign, name) DO UPDATE SET default_remarks = excluded.default_remarks;
     )sql");
         statement.BindInt64(0, net_id);
         statement.BindText(1, ToUpperAscii(station.callsign));
         statement.BindText(2, default_remarks);
+        statement.BindText(3, name);
         statement.Step();
     }
 
     void Database::UpdateSavedNetStation(std::int64_t net_id, const Station& station,
-                                         const std::string& default_remarks, std::int64_t updated_at)
+                                         const std::string& default_remarks, std::int64_t updated_at,
+                                         const std::string& old_name, const std::string& new_name)
     {
-        UpdateStationFields(station, updated_at);
+        // A named entry (a GMRS family member) keeps its own name; the
+        // station's is the licensee's.
+        if (old_name.empty() && new_name.empty())
+        {
+            UpdateStationFields(station, updated_at);
+        }
+        else
+        {
+            std::optional<Station> before = FindStationByCallsign(station.callsign);
+            Station shared = station;
+            shared.name = before.has_value() ? before->name : std::string();
+            UpdateStationFields(shared, updated_at);
+        }
 
         Statement statement(&statements_, R"sql(
-        UPDATE net_saved_stations SET default_remarks = ? WHERE net_id = ? AND callsign = ?;
+        UPDATE net_saved_stations SET default_remarks = ?, name = ? WHERE net_id = ? AND callsign = ? AND name = ?;
     )sql");
         statement.BindText(0, default_remarks);
-        statement.BindInt64(1, net_id);
-        statement.BindText(2, ToUpperAscii(station.callsign));
+        statement.BindText(1, new_name);
+        statement.BindInt64(2, net_id);
+        statement.BindText(3, ToUpperAscii(station.callsign));
+        statement.BindText(4, old_name);
         statement.Step();
     }
 
-    void Database::RemoveSavedNetStation(std::int64_t net_id, const std::string& callsign)
+    void Database::RemoveSavedNetStation(std::int64_t net_id, const std::string& callsign, const std::string& name)
     {
         Statement statement(&statements_, R"sql(
-        DELETE FROM net_saved_stations WHERE net_id = ? AND callsign = ?;
+        DELETE FROM net_saved_stations WHERE net_id = ? AND callsign = ? AND name = ?;
     )sql");
         statement.BindInt64(0, net_id);
         statement.BindText(1, ToUpperAscii(callsign));
+        statement.BindText(2, name);
         statement.Step();
         DeleteUnusedStations();
+    }
+
+    void Database::RenameNetSavedStationEntry(std::int64_t net_id, const std::string& callsign,
+                                              const std::string& old_name, const std::string& new_name)
+    {
+        std::string upper = ToUpperAscii(callsign);
+        bool in_use = false;
+        {
+            Statement used(&statements_, R"sql(
+            SELECT EXISTS(SELECT 1 FROM check_ins c JOIN net_instances i ON i.id = c.net_instance_id
+                          WHERE i.net_id = ?1 AND c.callsign = ?2 AND c.name = ?3 COLLATE NOCASE);
+        )sql");
+            used.BindInt64(0, net_id);
+            used.BindText(1, upper);
+            used.BindText(2, old_name);
+            used.Step();
+            in_use = used.ColumnInt64(0) != 0;
+        }
+        if (in_use)
+        {
+            Statement copy(&statements_, R"sql(
+            INSERT OR IGNORE INTO net_saved_stations (net_id, callsign, default_remarks, name)
+            SELECT net_id, callsign, default_remarks, ?4 FROM net_saved_stations
+            WHERE net_id = ?1 AND callsign = ?2 AND name = ?3;
+        )sql");
+            copy.BindInt64(0, net_id);
+            copy.BindText(1, upper);
+            copy.BindText(2, old_name);
+            copy.BindText(3, new_name);
+            copy.Step();
+            return;
+        }
+        {
+            Statement rename(&statements_, R"sql(
+            UPDATE OR IGNORE net_saved_stations SET name = ?4 WHERE net_id = ?1 AND callsign = ?2 AND name = ?3;
+        )sql");
+            rename.BindInt64(0, net_id);
+            rename.BindText(1, upper);
+            rename.BindText(2, old_name);
+            rename.BindText(3, new_name);
+            rename.Step();
+            if (sqlite3_changes(db_) > 0)
+            {
+                return;
+            }
+        }
+        // Already saved under the new name too.
+        RemoveSavedNetStation(net_id, callsign, old_name);
     }
 
     bool Database::IsStationUsedOutsideNet(const std::string& callsign, std::int64_t net_id)
@@ -1054,12 +1179,13 @@ COMMIT;
     std::vector<Station> Database::GetSavedStationsForNet(std::int64_t net_id)
     {
         Statement statement(&statements_, R"sql(
-        SELECT s.callsign, s.name, s.member_id, s.street_address, s.city, s.county, s.state,
-               s.zip, s.grid_square, s.license_class, s.email, s.data_source, s.last_updated
+        SELECT s.callsign, CASE WHEN ns.name != '' THEN ns.name ELSE s.name END, s.member_id, s.street_address,
+               s.city, s.county, s.state, s.zip, s.grid_square, s.license_class, s.email, s.data_source,
+               s.last_updated
         FROM stations s
         JOIN net_saved_stations ns ON ns.callsign = s.callsign
         WHERE ns.net_id = ?
-        ORDER BY s.callsign;
+        ORDER BY s.callsign, ns.name;
     )sql");
         statement.BindInt64(0, net_id);
         std::vector<Station> stations;
@@ -1070,13 +1196,38 @@ COMMIT;
         return stations;
     }
 
-    std::string Database::GetSavedNetStationRemarks(std::int64_t net_id, const std::string& callsign)
+    std::vector<SavedNetStation> Database::GetSavedNetEntries(std::int64_t net_id)
     {
         Statement statement(&statements_, R"sql(
-        SELECT default_remarks FROM net_saved_stations WHERE net_id = ? AND callsign = ?;
+        SELECT s.callsign, s.name, s.member_id, s.street_address, s.city, s.county, s.state, s.zip, s.grid_square,
+               s.license_class, s.email, s.data_source, s.last_updated, ns.name, ns.default_remarks
+        FROM stations s
+        JOIN net_saved_stations ns ON ns.callsign = s.callsign
+        WHERE ns.net_id = ?
+        ORDER BY s.callsign, ns.name;
+    )sql");
+        statement.BindInt64(0, net_id);
+        std::vector<SavedNetStation> entries;
+        while (statement.Step())
+        {
+            SavedNetStation entry;
+            entry.station = ReadStationRow(statement);
+            entry.name = statement.ColumnText(13);
+            entry.default_remarks = statement.ColumnText(14);
+            entries.push_back(std::move(entry));
+        }
+        return entries;
+    }
+
+    std::string Database::GetSavedNetStationRemarks(std::int64_t net_id, const std::string& callsign,
+                                                    const std::string& name)
+    {
+        Statement statement(&statements_, R"sql(
+        SELECT default_remarks FROM net_saved_stations WHERE net_id = ? AND callsign = ? AND name = ?;
     )sql");
         statement.BindInt64(0, net_id);
         statement.BindText(1, ToUpperAscii(callsign));
+        statement.BindText(2, name);
         if (!statement.Step())
         {
             return "";
@@ -1436,8 +1587,8 @@ COMMIT;
         Statement statement(&statements_, R"sql(
         INSERT INTO check_ins
             (net_instance_id, callsign, sequence_number, signal_report,
-             remarks, comment, checked_in_at, designated_role)
-        VALUES (?,?,?,?,?,?,?,?);
+             remarks, comment, checked_in_at, designated_role, name)
+        VALUES (?,?,?,?,?,?,?,?,?);
     )sql");
         statement.BindInt64(0, net_instance_id);
         statement.BindText(1, ToUpperAscii(check_in.callsign));
@@ -1447,6 +1598,7 @@ COMMIT;
         statement.BindText(5, check_in.comment);
         statement.BindInt64(6, check_in.checked_in_at);
         statement.BindInt64(7, check_in.designated_role);
+        statement.BindText(8, check_in.name);
         statement.Step();
         return sqlite3_last_insert_rowid(db_);
     }
@@ -1456,11 +1608,11 @@ COMMIT;
         Statement statement(&statements_, R"sql(
         INSERT INTO check_ins
             (net_instance_id, callsign, sequence_number, signal_report,
-             remarks, comment, checked_in_at, designated_role)
+             remarks, comment, checked_in_at, designated_role, name)
         VALUES (?1, ?2,
                 (SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM check_ins
                  WHERE net_instance_id = ?1),
-                ?3, ?4, ?5, ?6, ?7);
+                ?3, ?4, ?5, ?6, ?7, ?8);
     )sql");
         statement.BindInt64(0, check_in.net_instance_id);
         statement.BindText(1, ToUpperAscii(check_in.callsign));
@@ -1469,6 +1621,7 @@ COMMIT;
         statement.BindText(4, check_in.comment);
         statement.BindInt64(5, check_in.checked_in_at);
         statement.BindInt64(6, check_in.designated_role);
+        statement.BindText(7, check_in.name);
         statement.Step();
         return sqlite3_last_insert_rowid(db_);
     }
@@ -1560,13 +1713,13 @@ COMMIT;
     std::vector<CallsignTally> Database::GetSavedStationActivity(std::int64_t net_id)
     {
         Statement statement(&statements_, R"sql(
-        SELECT s.callsign, COUNT(i.id), COALESCE(MAX(i.instance_date), '')
+        SELECT s.callsign, s.name, COUNT(i.id), COALESCE(MAX(i.instance_date), '')
         FROM net_saved_stations s
-        LEFT JOIN check_ins c ON c.callsign = s.callsign
+        LEFT JOIN check_ins c ON c.callsign = s.callsign AND (s.name = '' OR c.name = s.name COLLATE NOCASE)
         LEFT JOIN net_instances i ON i.id = c.net_instance_id AND i.net_id = s.net_id
         WHERE s.net_id = ?
-        GROUP BY s.callsign
-        ORDER BY COALESCE(MAX(i.instance_date), ''), s.callsign;
+        GROUP BY s.callsign, s.name
+        ORDER BY COALESCE(MAX(i.instance_date), ''), s.callsign, s.name;
     )sql");
         statement.BindInt64(0, net_id);
         std::vector<CallsignTally> tallies;
@@ -1574,8 +1727,9 @@ COMMIT;
         {
             CallsignTally tally;
             tally.callsign = statement.ColumnText(0);
-            tally.count = static_cast<int>(statement.ColumnInt64(1));
-            tally.last_date = statement.ColumnText(2);
+            tally.name = statement.ColumnText(1);
+            tally.count = static_cast<int>(statement.ColumnInt64(2));
+            tally.last_date = statement.ColumnText(3);
             tallies.push_back(tally);
         }
         return tallies;
@@ -1613,7 +1767,7 @@ COMMIT;
     {
         Statement statement(&statements_, R"sql(
         SELECT id, net_instance_id, callsign, sequence_number, signal_report,
-               remarks, comment, checked_in_at, designated_role
+               remarks, comment, checked_in_at, designated_role, name
         FROM check_ins WHERE net_instance_id = ? ORDER BY sequence_number;
     )sql");
         statement.BindInt64(0, net_instance_id);
@@ -1644,7 +1798,7 @@ COMMIT;
         Statement statement(&statements_, R"sql(
         UPDATE check_ins
         SET callsign = ?, sequence_number = ?, signal_report = ?,
-            remarks = ?, comment = ?, checked_in_at = ?, designated_role = ?
+            remarks = ?, comment = ?, checked_in_at = ?, designated_role = ?, name = ?
         WHERE id = ?;
     )sql");
         statement.BindText(0, ToUpperAscii(check_in.callsign));
@@ -1654,7 +1808,8 @@ COMMIT;
         statement.BindText(4, check_in.comment);
         statement.BindInt64(5, check_in.checked_in_at);
         statement.BindInt64(6, check_in.designated_role);
-        statement.BindInt64(7, check_in.id);
+        statement.BindText(7, check_in.name);
+        statement.BindInt64(8, check_in.id);
         statement.Step();
     }
 
@@ -2343,12 +2498,11 @@ COMMIT;
             }
         }
         {
-            Statement remove(&statements_,
-                             table == LicenseTable::kGmrs
-                                 ? "DELETE FROM gmrs_stations WHERE callsign NOT IN "
-                                   "(SELECT callsign FROM current_uls_callsigns);"
-                                 : "DELETE FROM uls_stations WHERE callsign NOT IN "
-                                   "(SELECT callsign FROM current_uls_callsigns);");
+            Statement remove(&statements_, table == LicenseTable::kGmrs
+                                               ? "DELETE FROM gmrs_stations WHERE callsign NOT IN "
+                                                 "(SELECT callsign FROM current_uls_callsigns);"
+                                               : "DELETE FROM uls_stations WHERE callsign NOT IN "
+                                                 "(SELECT callsign FROM current_uls_callsigns);");
             remove.Step();
         }
         int deleted = sqlite3_changes(db_);
@@ -2488,8 +2642,9 @@ COMMIT;
     void Database::SetUserCallsigns(const std::string& username, const std::string& amateur_callsign,
                                     const std::string& gmrs_callsign)
     {
-        Statement statement(&statements_, "UPDATE users SET amateur_callsign = ?, gmrs_callsign = ? "
-                                          "WHERE username = ? COLLATE NOCASE;");
+        Statement statement(&statements_,
+                            "UPDATE users SET amateur_callsign = ?, gmrs_callsign = ? "
+                            "WHERE username = ? COLLATE NOCASE;");
         statement.BindText(0, ToUpperAscii(amateur_callsign));
         statement.BindText(1, ToUpperAscii(gmrs_callsign));
         statement.BindText(2, username);

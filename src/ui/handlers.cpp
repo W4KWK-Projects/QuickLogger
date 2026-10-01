@@ -407,7 +407,7 @@ namespace ql
         {
             return;
         }
-        LoadSavedStationIntoForm(state_, state_->edit_net_saved_stations[state_->selected_saved_station_index]);
+        LoadSavedStationIntoForm(state_, static_cast<std::size_t>(state_->selected_saved_station_index));
     }
 
     void AddNewSavedStationHandler::operator()() const
@@ -869,7 +869,7 @@ namespace ql
         std::optional<Station> station = state_->db->FindStationByCallsign(state_->modal_station.callsign);
         if (!station.has_value())
         {
-            station = state_->db->FindLicensedStationByCallsign(state_->modal_station.callsign);
+            station = FindLicensee(state_->db, state_->modal_station.callsign, state_->active_net_service);
         }
         if (station.has_value())
         {
@@ -878,8 +878,9 @@ namespace ql
             BackfillGridFromZip(state_, &state_->modal_station);
         }
 
-        std::string default_remarks =
-            state_->db->GetSavedNetStationRemarks(state_->active_instance.net_id, state_->modal_station.callsign);
+        std::string default_remarks = state_->db->GetSavedNetStationRemarks(
+            state_->active_instance.net_id, state_->modal_station.callsign,
+            SavedEntryName(state_->active_net_service, state_->modal_station.name));
         if (!default_remarks.empty())
         {
             state_->modal_remarks = default_remarks;
@@ -942,8 +943,10 @@ namespace ql
 
     void SaveEditCheckInHandler::operator()() const
     {
-        SaveEditCheckInForm(state_);
-        state_->show_edit_checkin_modal = false;
+        if (SaveEditCheckInForm(state_))
+        {
+            state_->show_edit_checkin_modal = false;
+        }
     }
 
     void CancelEditCheckInHandler::operator()() const
