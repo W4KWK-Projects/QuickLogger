@@ -10,8 +10,10 @@
 #include "../src/date_utils.hpp"
 #include "../src/db/database.hpp"
 #include "../src/file_export.hpp"
+#include "../src/mode_rules.hpp"
 #include "../src/net_slice.hpp"
 #include "../src/show_folder.hpp"
+#include "../src/zmodem_send.hpp"
 #include "../src/ui/app_state.hpp"
 #include "../src/ui/handlers.hpp"
 #include "test_framework.hpp"
@@ -328,6 +330,98 @@ namespace ql
         CHECK_EQ(f.state.selected_check_in_index, 0);  // Clamped to the list.
         FinishRowPick(&f.state);  // Enter with nothing typed: the highlighted row.
         CHECK(f.state.show_edit_checkin_modal);
+    }
+
+    QL_TEST(SessionNotesAreEditedWithF12AndSavedWithF2)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        f.state.page = kPageActiveNet;
+        AppKeyHandler keys(&f.state);
+        CHECK(keys(ftxui::Event::F12));
+        CHECK(f.state.show_session_notes_modal);
+        CHECK(!f.state.session_notes_read_only);
+        CHECK(f.state.session_notes_text.empty());
+
+        // Esc leaves the notes as they were: none.
+        f.state.session_notes_text = "Not kept";
+        CHECK(keys(ftxui::Event::Escape));
+        CHECK(!f.state.show_session_notes_modal);
+        CHECK(f.db()->GetNetInstanceById(f.state.active_instance.id)->notes.empty());
+
+        // F2 saves them, without trailing blank lines; other F-keys do
+        // nothing behind the window.
+        CHECK(keys(ftxui::Event::F12));
+        f.state.session_notes_text = "Tornado touched down.\nMany check-ins.\n\n";
+        CHECK(keys(ftxui::Event::F4));
+        CHECK(!f.state.show_confirm_prompt);
+        CHECK(keys(ftxui::Event::F2));
+        CHECK(!f.state.show_session_notes_modal);
+        CHECK(!f.state.show_new_station_modal);
+        CHECK_EQ(f.db()->GetNetInstanceById(f.state.active_instance.id)->notes,
+                 std::string("Tornado touched down.\nMany check-ins."));
+        CHECK_EQ(f.state.status_message, std::string("Session notes saved."));
+
+        // Opening again shows them, with the cursor at the end.
+        CHECK(keys(ftxui::Event::F12));
+        CHECK_EQ(f.state.session_notes_text, std::string("Tornado touched down.\nMany check-ins."));
+        CHECK_EQ(f.state.session_notes_cursor, static_cast<int>(f.state.session_notes_text.size()));
+        CloseSessionNotes(&f.state);
+
+        // And from History, after the session closes.
+        CloseActiveNet(&f.state);
+        RefreshNetHistory(&f.state);
+        f.state.page = kPageNetHistory;
+        CHECK(keys(ftxui::Event::F12));
+        CHECK(f.state.show_session_notes_modal);
+        CHECK_EQ(f.state.session_notes_text, std::string("Tornado touched down.\nMany check-ins."));
+        f.state.session_notes_text = "Edited later.";
+        SaveSessionNotes(&f.state);
+        CHECK_EQ(f.db()->GetNetInstanceById(f.state.history_instances[0].id)->notes,
+                 std::string("Edited later."));
+    }
+
+    QL_TEST(EditAndDeleteUseTheSameKeysAsTheActiveNet)
+    {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("Skywarn");
+        // History: F5 deletes a check-in, as on the active net; F4 a session.
+        RefreshNetHistory(&f.state);
+        f.state.page = kPageNetHistory;
+        NetHistoryKeyHandler history_keys(&f.state);
+        CHECK(history_keys(ftxui::Event::F5));
+        CHECK(f.state.row_pick_action == RowPickAction::kDeleteHistoryCheckIn);
+        CancelRowPick(&f.state);
+        CHECK(history_keys(ftxui::Event::F4));
+        CHECK(f.state.row_pick_action == RowPickAction::kDeleteNetInstance);
+        CancelRowPick(&f.state);
+
+        // Edit Net: F3 edits a saved station, as F3 edits a check-in; F9
+        // no longer does.
+        f.db()->SaveNetStation(net_id, MakeStation("K4AAA"), "", 1);
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
+        f.state.page = kPageEditNet;
+        EditNetKeyHandler edit_keys(&f.state);
+        CHECK(!edit_keys(ftxui::Event::F9));
+        CHECK(f.state.row_pick_action == RowPickAction::kNone);
+        CHECK(edit_keys(ftxui::Event::F3));
+        CHECK(f.state.row_pick_action == RowPickAction::kEditSavedStation);
+    }
+
+    QL_TEST(AViewersSessionNotesAreReadOnly)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        f.db()->SetNetInstanceNotes(f.state.active_instance.id, "Theirs.");
+        f.state.viewing_only = true;
+        OpenActiveSessionNotes(&f.state);
+        CHECK(f.state.session_notes_read_only);
+        CHECK_EQ(f.state.session_notes_text, std::string("Theirs."));
+        f.state.session_notes_text = "Changed";
+        SaveSessionNotes(&f.state);
+        CHECK(!f.state.show_session_notes_modal);
+        CHECK_EQ(f.db()->GetNetInstanceById(f.state.active_instance.id)->notes,
+                 std::string("Theirs."));
     }
 
     QL_TEST(AnOpenSessionCantBeDeletedFromHistory)
@@ -1566,6 +1660,43 @@ namespace ql
         CHECK(ad_hoc->partial_match_canada);
     }
 
+    QL_TEST(ANetsModeIsPickedFromTheList)
+    {
+        Fixture f;
+        // FM unless another is picked.
+        ResetCreateNetForm(&f.state);
+        CHECK_EQ(f.state.new_net_mode_index, 0);
+        f.state.new_net_name = "Fusion Net";
+        f.state.new_net_mode_index = NetModeIndex("Fusion");
+        CreateNetSubmitHandler create(&f.state);
+        create();
+        REQUIRE(f.state.nets.size() == 1);
+        CHECK_EQ(f.state.nets[0].mode, std::string("Fusion"));
+        CHECK_EQ(f.state.new_net_mode_index, 0);
+
+        // A net with no mode (an old free-text one that wasn't recognized)
+        // opens on FM, saying so, and saves whatever is picked.
+        Net net = f.state.nets[0];
+        net.mode = "";
+        f.db()->UpdateNet(net);
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net.id));
+        CHECK(f.state.edit_net_mode_was_blank);
+        CHECK_EQ(f.state.edit_net_mode_index, 0);
+        f.state.edit_net_mode_index = NetModeIndex("CW");
+        CHECK(SaveEditNetForm(&f.state));
+        CHECK_EQ(f.db()->GetNetById(net.id)->mode, std::string("CW"));
+        OpenEditNetForm(&f.state, *f.db()->GetNetById(net.id));
+        CHECK(!f.state.edit_net_mode_was_blank);
+        CHECK_EQ(f.state.edit_net_mode_index, NetModeIndex("CW"));
+
+        // Ad hoc nets too.
+        f.state.operator_callsign = "W4KWK";
+        f.state.new_net_name = "Tailgate";
+        f.state.new_net_mode_index = NetModeIndex("SSB");
+        StartAdHocNet(&f.state);
+        CHECK_EQ(f.db()->GetNetById(f.state.start_net.id)->mode, std::string("SSB"));
+    }
+
     QL_TEST(AutocompleteShowsAsManyAsTheScreenHasRoomFor)
     {
         Fixture f;
@@ -1938,7 +2069,8 @@ namespace ql
             if (f.state.show_zmodem_confirm_modal)
             {
                 CHECK(f.state.zmodem_action == ZmodemAction::kShowFolder);
-                CHECK_EQ(f.state.zmodem_send_paths.size(), std::size_t{2});
+                // The log, .qlsession and .adi, not zipped.
+                CHECK_EQ(f.state.zmodem_send_paths.size(), std::size_t{3});
                 CancelZmodemAction(&f.state);
                 CHECK(!f.state.show_zmodem_confirm_modal);
                 CHECK(f.state.status_message.find("Saved to") == 0);
@@ -1967,6 +2099,16 @@ namespace ql
         std::string mine = f.dir().File("exports/ssh-users/wes");
         CHECK_EQ(ListFilesWithExtension(mine, ".txt").size(), std::size_t{1});
         CHECK_EQ(ListFilesWithExtension(mine, ".qlsession").size(), std::size_t{1});
+        CHECK_EQ(ListFilesWithExtension(mine, ".adi").size(), std::size_t{1});
+        // Zipped too, when ZMODEM can send it: just the .zip is sent.
+        std::size_t zips = ListFilesWithExtension(mine, ".zip").size();
+        CHECK_EQ(zips, std::size_t{ZmodemSendAvailable() && !NoZmodemOnThisSystem() ? 1U : 0U});
+        if (zips == 1)
+        {
+            REQUIRE(f.state.zmodem_send_paths.size() == 1);
+            CHECK(f.state.zmodem_send_paths[0].find(".zip") != std::string::npos);
+        }
+        f.state.show_zmodem_confirm_modal = false;
         CHECK(ListFilesWithExtension(f.dir().File("exports"), ".txt").empty());
 
         // Only their own received files are offered for import.
@@ -1984,8 +2126,9 @@ namespace ql
         f.state.ssh_username.clear();
         ExportNetLog(&f.state, "Skywarn", f.state.active_instance, f.state.active_check_ins);
         CHECK_EQ(RemoveOldSshUserFiles(f.state.db_path, kSshUserFileMaxAgeSeconds), 0);
-        // Wes's log and .qlsession, and both users' received files.
-        CHECK_EQ(RemoveOldSshUserFiles(f.state.db_path, -60), 4);
+        // Wes's log, .qlsession, .adi (and .zip), and both users' received
+        // files.
+        CHECK_EQ(RemoveOldSshUserFiles(f.state.db_path, -60), static_cast<int>(5 + zips));
         CHECK(!std::filesystem::exists(mine));
         CHECK_EQ(ListFilesWithExtension(f.dir().File("exports"), ".txt").size(), std::size_t{1});
         CHECK_EQ(ListFilesWithExtension(f.dir().File("imports"), ".qlnet").size(), std::size_t{1});

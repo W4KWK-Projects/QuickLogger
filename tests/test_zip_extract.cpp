@@ -4,6 +4,8 @@
 #include <vector>
 
 #include "../src/zip_extract.hpp"
+#include "../src/file_export.hpp"
+#include "../src/zip_write.hpp"
 #include "test_framework.hpp"
 #include "test_helpers.hpp"
 
@@ -113,6 +115,24 @@ namespace ql
         error.clear();
         CHECK(!ExtractZipEntries(dir.File("deflated.zip"), dir.path(), {"b.txt"}, &error));
         CHECK(!error.empty());
+    }
+
+    QL_TEST(AZipWrittenForAnExportReadsBack)
+    {
+        TempDir dir;
+        std::string big = LargeText();
+        WriteTextFile(dir.File("net_log.txt"), big);
+        WriteTextFile(dir.File("net.adi"), "<EOH>\n");
+        std::string error;
+        REQUIRE(WriteZipArchive(dir.File("net.zip"), {dir.File("net_log.txt"), dir.File("net.adi")},
+                                1790000000, &error));
+        CHECK(ReadTextFile(dir.File("net.zip")).size() < big.size() / 4);  // Deflated.
+        EnsureDirectory(dir.File("x"));
+        REQUIRE(ExtractZipEntries(dir.File("net.zip"), dir.File("x"), {"net_log.txt", "net.adi"},
+                                  &error));
+        CHECK_EQ(ReadTextFile(dir.File("x/net_log.txt")), big);
+        CHECK_EQ(ReadTextFile(dir.File("x/net.adi")), std::string("<EOH>\n"));
+        CHECK(!WriteZipArchive(dir.File("bad.zip"), {dir.File("missing.txt")}, 1790000000, &error));
     }
 
 }  // namespace ql

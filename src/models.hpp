@@ -60,6 +60,8 @@ namespace ql
     {
         std::int64_t id = 0;
         std::string name;
+        // One of kNetModes (mode_rules.hpp), or blank for a net whose old
+        // free-text mode wasn't a recognized one.
         std::string mode;
         std::string default_frequency;
         // A repeater's offset, MHz with a sign ("-0.6"), and its CTCSS (PL)
@@ -125,6 +127,10 @@ namespace ql
         // kRoleLogger). A check-in can be designated as one of the *other*
         // two roles (see CheckIn::designated_role) but never this one.
         int operator_role = kRoleNetControl;
+        // Free-form notes about the session as a whole (F12 Session Notes),
+        // e.g. what an emergency net was stood up for. Not in the text log;
+        // travels in .qlsession and .qlnet files.
+        std::string notes;
     };
 
     // One station's check-in during a specific NetInstance. Signal report

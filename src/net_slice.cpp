@@ -10,6 +10,7 @@
 #include "date_utils.hpp"
 #include "file_export.hpp"
 #include "frequency_rules.hpp"
+#include "mode_rules.hpp"
 #include "text_utils.hpp"
 
 namespace ql
@@ -73,6 +74,8 @@ namespace ql
         net.default_location = ExtractZipCode(net.default_location);
         // Likewise a frequency from before it was checked.
         MoveBadFrequencyToComments(&net.default_frequency, &net.comments);
+        // And a mode from before it was a fixed choice.
+        net.mode = NormalizeMode(net.mode);
         std::int64_t new_net_id = db->CreateNet(net);
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
 

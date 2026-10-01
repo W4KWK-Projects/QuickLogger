@@ -9,6 +9,7 @@
 #include <ftxui/component/screen_interactive.hpp>
 
 #include "../db/database.hpp"
+#include "../mode_rules.hpp"
 #include "../models.hpp"
 #include "../settings.hpp"
 #include "list_columns.hpp"
@@ -177,6 +178,21 @@ namespace ql
         ZmodemAction zmodem_action = ZmodemAction::kSend;
         std::vector<std::string> zmodem_send_paths;
 
+        // The Session Notes window (F12, on the active net and in History):
+        // which session's notes, the working copy being edited (saved to the
+        // session only by F2), and the cursor in it (a byte offset; see
+        // NotesEditor). Read-only for a Viewer and a view-only user.
+        // `session_notes_width`/`_height` are the editing area's size, set
+        // as the window is drawn.
+        bool show_session_notes_modal = false;
+        std::int64_t session_notes_instance_id = 0;
+        std::string session_notes_title;
+        std::string session_notes_text;
+        int session_notes_cursor = 0;
+        bool session_notes_read_only = false;
+        int session_notes_width = 60;
+        int session_notes_height = 10;
+
         // Edit Net page: confirmation before Database::DeleteNetCompletely
         // (F8 there) -- this permanently erases the net's whole history
         // (every instance and check-in, plus its saved-station list), unlike
@@ -335,7 +351,9 @@ namespace ql
 
         // Create-net page: fields for a new recurring net.
         std::string new_net_name;
-        std::string new_net_mode;
+        // An index into mode_labels (FM to start with); also used by the Ad
+        // Hoc Net page.
+        int new_net_mode_index = 0;
         std::string new_net_frequency;
         std::string new_net_offset;
         std::string new_net_tone;
@@ -349,6 +367,8 @@ namespace ql
         // The Partial Matching toggle's choices, on New Recurring Net, Ad
         // Hoc Net and Edit Net: 0 is US, 1 is Canada.
         std::vector<std::string> partial_match_labels{"US", "Canada"};
+        // The Mode choice's entries, on the same three pages: NetModes().
+        std::vector<std::string> mode_labels = NetModes();
 
         // The net being started or resumed: set by StartSelectedNet, the Ad
         // Hoc page and the resume prompt, and read by the Select Role and
@@ -495,7 +515,11 @@ namespace ql
         // another logging program's history).
         std::int64_t edit_net_id = 0;
         std::string edit_net_name;
-        std::string edit_net_mode;
+        int edit_net_mode_index = 0;  // As new_net_mode_index.
+        // The net being edited has no mode (its old free-text one wasn't a
+        // recognized mode), so Mode shows FM until one is picked; the page
+        // says so.
+        bool edit_net_mode_was_blank = false;
         std::string edit_net_frequency;
         std::string edit_net_offset;
         std::string edit_net_tone;
@@ -1167,6 +1191,16 @@ namespace ql
     // F1 on any page: the Help window, explaining every key the page has --
     // extra keys included, noting they need a wider terminal.
     void OpenHelp(AppState* state);
+    // F12 on the active net: the session's notes, to read and (unless
+    // viewing, or a view-only user) edit.
+    void OpenActiveSessionNotes(AppState* state);
+    // F12 in History: the highlighted session's notes, open or closed.
+    void OpenHistorySessionNotes(AppState* state);
+    // The Session Notes window's F2: saves the notes to the session (after
+    // trimming trailing blank lines and spaces) and closes the window.
+    void SaveSessionNotes(AppState* state);
+    // Esc: closes the window, leaving the session's notes as they were.
+    void CloseSessionNotes(AppState* state);
     // Up/Down in an InfoWindow, and Esc.
     void MoveInfoSelection(AppState* state, int delta);
     void CloseInfoWindow(AppState* state);

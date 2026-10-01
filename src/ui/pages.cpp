@@ -19,6 +19,7 @@
 #include "chrome.hpp"
 #include "handlers.hpp"
 #include "mouse.hpp"
+#include "notes_editor.hpp"
 
 namespace ql
 {
@@ -161,6 +162,17 @@ namespace ql
         option.focused_entry = index;
         return std::make_shared<IgnoreTab>(
             ftxui::Menu(&state->partial_match_labels, index, option));
+    }
+
+    // A net's Mode choice (one of NetModes()), bound to `index` (an index
+    // into AppState::mode_labels). Left/Right change it.
+    static ftxui::Component ModeToggle(AppState* state, int* index)
+    {
+        ftxui::MenuOption option = ftxui::MenuOption::Toggle();
+        option.entries_option.transform = ToggleEntryTransform;
+        option.elements_infix = ToggleGap;
+        option.focused_entry = index;
+        return std::make_shared<IgnoreTab>(ftxui::Menu(&state->mode_labels, index, option));
     }
 
     static ftxui::Element PartialMatchRow(const std::string& label, const ftxui::Component& toggle)
@@ -438,6 +450,61 @@ namespace ql
     {
         ftxui::Component root = ftxui::Container::Vertical({});
         return ftxui::Renderer(root, ZmodemConfirmModalRenderer(state));
+    }
+
+    // The Session Notes window (F12): as wide as the screen allows up to 100
+    // columns, and tall enough for a good paragraph, the notes scrolling
+    // within it.
+    class SessionNotesModalRenderer
+    {
+    public:
+        SessionNotesModalRenderer(AppState* state, ftxui::Component editor)
+            : state_(state), editor_(std::move(editor))
+        {
+        }
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Dimensions terminal = FrameTerminalSize();
+            int width = std::max(20, std::min(terminal.dimx - 4, 100));
+            // Its border, heading, two separators, the hint and the keys.
+            int height = std::max(3, std::min(terminal.dimy - 10, 16));
+            state_->session_notes_width = width - 2;
+            state_->session_notes_height = height;
+
+            bool read_only = state_->session_notes_read_only;
+            ftxui::Element notes = read_only && state_->session_notes_text.empty()
+                                       ? HintText("No notes for this session.")
+                                       : editor_->Render();
+            return ftxui::vbox({
+                       Heading(state_->session_notes_title),
+                       DialogSeparator(),
+                       notes | ftxui::yframe | ftxui::vscroll_indicator |
+                           ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height),
+                       DialogSeparator(),
+                       HintText(read_only ? "Up/Down scroll."
+                                          : "Enter starts a new line. Not in the text log."),
+                       KeyHintRow(read_only
+                                      ? std::vector<KeyHint>{{"Esc", "Close"}}
+                                      : std::vector<KeyHint>{{"F2", "Save"}, {"Esc", "Cancel"}}),
+                   }) |
+                   ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder) |
+                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
+        }
+
+    private:
+        AppState* state_;
+        ftxui::Component editor_;
+    };
+
+    static ftxui::Component BuildSessionNotesModal(AppState* state)
+    {
+        ftxui::Component editor = std::make_shared<NotesEditor>(
+            &state->session_notes_text, &state->session_notes_cursor,
+            &state->session_notes_read_only, &state->session_notes_width,
+            &state->session_notes_height);
+        ftxui::Component root = ftxui::Container::Vertical({editor});
+        return ftxui::Renderer(root, SessionNotesModalRenderer(state, editor));
     }
 
     // ---- Picking a row by number (see RowPickAction) ------------------------
@@ -847,8 +914,7 @@ namespace ql
     {
         ftxui::Component input_name =
             ftxui::Input(&state->new_net_name, "e.g. Weekly Skywarn Net", SingleLineInputOption());
-        ftxui::Component input_mode =
-            ftxui::Input(&state->new_net_mode, "e.g. FM, SSB, Digital", SingleLineInputOption());
+        ftxui::Component input_mode = ModeToggle(state, &state->new_net_mode_index);
         ftxui::Component input_frequency =
             ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
                          FrequencyInputOption(&state->new_net_frequency));
@@ -1096,7 +1162,8 @@ namespace ql
                                             {{"F6", "Stn History"},
                                              {"F8", "Regulars"},
                                              {"F9", "Stn Card"},
-                                             {"F10", "Summary"}},
+                                             {"F10", "Summary"},
+                                             {"F12", "Notes"}},
                                             1);
             }
             else
@@ -1111,7 +1178,8 @@ namespace ql
                                             {{"F6", "Stn History"},
                                              {"F8", "Regulars"},
                                              {"F9", "Stn Card"},
-                                             {"F10", "Summary"}},
+                                             {"F10", "Summary"},
+                                             {"F12", "Notes"}},
                                             1);
             }
             // The check-in count, in the top bar.
@@ -1375,9 +1443,12 @@ namespace ql
             LayeredModal(main_view, modal_view, &state->show_new_station_modal);
         ftxui::Component with_edit_checkin_modal =
             LayeredModal(with_new_station_modal, edit_modal_view, &state->show_edit_checkin_modal);
+        ftxui::Component with_notes_modal =
+            LayeredModal(with_edit_checkin_modal, BuildSessionNotesModal(state),
+                         &state->show_session_notes_modal);
         return WithConfirmPrompt(
             state, WithRowDeleteConfirm(
-                       state, LayeredModal(with_edit_checkin_modal, BuildZmodemConfirmModal(state),
+                       state, LayeredModal(with_notes_modal, BuildZmodemConfirmModal(state),
                                            &state->show_zmodem_confirm_modal)));
     }
 
@@ -1599,8 +1670,7 @@ namespace ql
     {
         ftxui::Component input_name =
             ftxui::Input(&state->new_net_name, "e.g. Tailgate Net", SingleLineInputOption());
-        ftxui::Component input_mode =
-            ftxui::Input(&state->new_net_mode, "e.g. FM, SSB, Digital", SingleLineInputOption());
+        ftxui::Component input_mode = ModeToggle(state, &state->new_net_mode_index);
         ftxui::Component input_frequency =
             ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
                          FrequencyInputOption(&state->new_net_frequency));
@@ -1740,9 +1810,10 @@ namespace ql
             }
             if (!state_->view_only_user)
             {
-                extras.push_back({"F5", "Del Session"});
+                extras.push_back({"F4", "Del Session"});
             }
             extras.push_back({"F9", "Find Station"});
+            extras.push_back({"F12", "Notes"});
             if (state_->view_only_user)
             {
                 return PageChrome("History: " + net_name, content,
@@ -1752,7 +1823,7 @@ namespace ql
             return PageChrome(
                 "History: " + net_name, content,
                 InKeyOrder(AddExtraKeysThatFit(
-                    {{"F4", "Del Check-In"}, {"F6", "Import"}, {"F7", "Export"}, {"Esc", "Back"}},
+                    {{"F5", "Del Check-In"}, {"F6", "Import"}, {"F7", "Export"}, {"Esc", "Back"}},
                     extras, 1)));
         }
 
@@ -1796,8 +1867,11 @@ namespace ql
         ftxui::Component root = ftxui::Container::Vertical({instance_menu, checkin_menu});
         ftxui::Component main_view =
             ftxui::Renderer(root, NetHistoryRenderer(state, instance_menu, checkin_menu));
-        return WithRowDeleteConfirm(state, LayeredModal(main_view, BuildZmodemConfirmModal(state),
-                                                        &state->show_zmodem_confirm_modal));
+        ftxui::Component with_notes_modal = LayeredModal(main_view, BuildSessionNotesModal(state),
+                                                         &state->show_session_notes_modal);
+        return WithRowDeleteConfirm(state,
+                                    LayeredModal(with_notes_modal, BuildZmodemConfirmModal(state),
+                                                 &state->show_zmodem_confirm_modal));
     }
 
     // ---- Edit net page ---------------------------------------------------
@@ -1874,12 +1948,20 @@ namespace ql
                                    state_->selected_saved_station_index, saved_station_menu_) |
                           ftxui::yframe | ftxui::vscroll_indicator;
 
-            ftxui::Elements rows;
+            // Name and Mode across the whole width, as Mode's choices don't
+            // fit in half of it; the rest in two columns when there's room.
+            ftxui::Elements rows{
+                ftxui::hbox({FieldLabel("Name:             "), input_name_->Render()}),
+                ftxui::hbox({FieldLabel("Mode:             "), input_mode_->Render()}),
+            };
+            if (state_->edit_net_mode_was_blank)
+            {
+                rows.push_back(
+                    HintText("                  The old mode wasn't one of these. Pick one."));
+            }
             AppendFormFields(
                 state_,
                 {
-                    ftxui::hbox({FieldLabel("Name:             "), input_name_->Render()}),
-                    ftxui::hbox({FieldLabel("Mode:             "), input_mode_->Render()}),
                     ftxui::hbox({FieldLabel("Frequency:        "), input_frequency_->Render()}),
                     ftxui::hbox({FieldLabel("Offset:           "), input_offset_->Render()}),
                     ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
@@ -1921,11 +2003,11 @@ namespace ql
                               AddExtraKeysThatFit(
                                   {
                                       {"F2", "Save & Close"},
+                                      {"F3", "Edit Station"},
                                       {"F4", "Remove"},
                                       {"F6", "Add Station"},
                                       {"F7", "Export"},
                                       {"F8", "Del Net"},
-                                      {"F9", "Edit Station"},
                                       {"Esc", "Cancel"},
                                   },
                                   // This bar takes a while to fit on one
@@ -1998,8 +2080,7 @@ namespace ql
     {
         ftxui::Component input_name =
             ftxui::Input(&state->edit_net_name, "e.g. Weekly Skywarn Net", SingleLineInputOption());
-        ftxui::Component input_mode =
-            ftxui::Input(&state->edit_net_mode, "e.g. FM, SSB, Digital", SingleLineInputOption());
+        ftxui::Component input_mode = ModeToggle(state, &state->edit_net_mode_index);
         ftxui::Component input_frequency =
             ftxui::Input(&state->edit_net_frequency, "MHz, e.g. 146.940",
                          FrequencyInputOption(&state->edit_net_frequency));

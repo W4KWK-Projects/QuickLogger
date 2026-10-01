@@ -8,21 +8,25 @@
 #include <cstdio>
 #include <ctime>
 #include <exception>
+#include <fstream>
 #include <optional>
 #include <utility>
 
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/event.hpp>
 
+#include "../adif_export.hpp"
 #include "../callsign_rules.hpp"
 #include "../date_utils.hpp"
 #include "../frequency_rules.hpp"
 #include "../file_export.hpp"
 #include "../geo_utils.hpp"
+#include "../mode_rules.hpp"
 #include "../net_slice.hpp"
 #include "../public_key.hpp"
 #include "../show_folder.hpp"
 #include "../text_utils.hpp"
+#include "../zip_write.hpp"
 #include "../zmodem_send.hpp"
 #include "list_columns.hpp"
 
@@ -960,7 +964,7 @@ namespace ql
 
         Net net;
         net.name = state->new_net_name;
-        net.mode = state->new_net_mode;
+        net.mode = NetModes()[static_cast<std::size_t>(state->new_net_mode_index)];
         net.default_frequency = state->new_net_frequency;
         net.repeater_offset = state->new_net_offset;
         net.pl_tone = state->new_net_tone;
@@ -1349,7 +1353,7 @@ namespace ql
     void ResetCreateNetForm(AppState* state)
     {
         state->new_net_name.clear();
-        state->new_net_mode.clear();
+        state->new_net_mode_index = 0;
         state->new_net_frequency.clear();
         state->new_net_offset.clear();
         state->new_net_tone.clear();
@@ -2983,6 +2987,72 @@ namespace ql
         state->status_message = "Removed \"" + username + "\".";
     }
 
+    // The operator's own callsign on `instance`: the one in the role they
+    // started it in.
+    static const std::string& OperatorCallsign(const NetInstance& instance)
+    {
+        if (instance.operator_role == kRoleAlternateNetControl)
+        {
+            return instance.alternate_net_control_callsign;
+        }
+        if (instance.operator_role == kRoleLogger)
+        {
+            return instance.logger_callsign;
+        }
+        return instance.net_control_callsign;
+    }
+
+    // Writes `instance`'s check-ins, all but the operator's own, to `path`
+    // as ADIF (see BuildAdif), from the exporting user's callsign.
+    static bool WriteSessionAdif(AppState* state, const NetInstance& instance,
+                                 const std::vector<CheckIn>& check_ins, const std::string& path,
+                                 std::string* error)
+    {
+        std::vector<AdifContact> contacts;
+        Net net;
+        {
+            Database::ReadTransaction reads(state->db);
+            std::optional<Net> found = state->db->GetNetById(instance.net_id);
+            if (found.has_value())
+            {
+                net = std::move(*found);
+            }
+            const std::string& operator_callsign = OperatorCallsign(instance);
+            for (const CheckIn& check_in : check_ins)
+            {
+                if (CallsignsEqual(check_in.callsign, operator_callsign))
+                {
+                    continue;
+                }
+                AdifContact contact;
+                contact.check_in = check_in;
+                std::optional<Station> station =
+                    state->db->FindStationByCallsign(check_in.callsign);
+                if (station.has_value())
+                {
+                    contact.station = std::move(*station);
+                }
+                contacts.push_back(std::move(contact));
+            }
+        }
+        std::string frequency =
+            instance.frequency.empty() ? net.default_frequency : instance.frequency;
+        std::string adif =
+            BuildAdif(contacts, net.mode, frequency, ToUpperAscii(state->settings.callsign),
+                      instance.instance_date, static_cast<std::int64_t>(std::time(nullptr)));
+        std::string temp_path = TemporaryPathFor(path);
+        {
+            std::ofstream out(temp_path, std::ios::binary | std::ios::trunc);
+            out.write(adif.data(), static_cast<std::streamsize>(adif.size()));
+            if (!out)
+            {
+                *error = "couldn't write the file";
+                return false;
+            }
+        }
+        return ReplaceWithFile(temp_path, path, error);
+    }
+
     void ExportNetLog(AppState* state, const std::string& net_name, const NetInstance& instance,
                       const std::vector<CheckIn>& check_ins)
     {
@@ -3029,7 +3099,35 @@ namespace ql
             state->form_error = "Saved " + log_path + ", but not " + session_path + ": " + error;
             return;
         }
-        OfferZmodemSendFiles(state, {log_path, session_path});
+        // And for a logging program (see BuildAdif).
+        std::string adif_path = stem + ".adi";
+        if (!WriteSessionAdif(state, instance, check_ins, adif_path, &error))
+        {
+            state->status_message.clear();
+            state->form_error = "Saved " + log_path + " and " + session_path + ", but not " +
+                                adif_path + ": " + error;
+            return;
+        }
+        std::vector<std::string> paths{log_path, session_path, adif_path};
+        // Sent over ZMODEM as one .zip, so there's one file to receive. With
+        // no ZMODEM (at the console, on Windows, or without sz), the files
+        // are all there is.
+        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() ||
+            !ZmodemSendAvailable())
+        {
+            OfferZmodemSendFiles(state, paths);
+            return;
+        }
+        std::string zip_path = stem + ".zip";
+        if (!WriteZipArchive(zip_path, paths, static_cast<std::int64_t>(std::time(nullptr)),
+                             &error))
+        {
+            state->status_message.clear();
+            state->form_error =
+                "Saved " + ListPaths(paths) + ", but not " + zip_path + ": " + error;
+            return;
+        }
+        OfferZmodemSendFiles(state, {zip_path});
     }
 
     void ExportSavedStations(AppState* state, const std::string& net_name,
@@ -3544,7 +3642,9 @@ namespace ql
         }
         state->edit_net_id = net.id;
         state->edit_net_name = net.name;
-        state->edit_net_mode = net.mode;
+        int mode_index = NetModeIndex(net.mode);
+        state->edit_net_mode_index = mode_index < 0 ? 0 : mode_index;
+        state->edit_net_mode_was_blank = mode_index < 0;
         state->edit_net_frequency = net.default_frequency;
         state->edit_net_offset = net.repeater_offset;
         state->edit_net_tone = net.pl_tone;
@@ -3593,7 +3693,7 @@ namespace ql
         Net net;
         net.id = state->edit_net_id;
         net.name = state->edit_net_name;
-        net.mode = state->edit_net_mode;
+        net.mode = NetModes()[static_cast<std::size_t>(state->edit_net_mode_index)];
         net.default_frequency = state->edit_net_frequency;
         net.repeater_offset = state->edit_net_offset;
         net.pl_tone = state->edit_net_tone;
@@ -4805,9 +4905,11 @@ namespace ql
                 case kPageNetHistory:
                     return {
                         {"Up/Down", "Choose a session; its check-ins show below.", false},
-                        {"F7", "Export the highlighted session's log (and .qlsession).", false},
+                        {"F7", "Export the highlighted session: log, .qlsession, ADIF (.adi).",
+                         false},
                         {"F8", "Statistics for this net.", true},
                         {"F9", "Find a station's check-ins to every net.", true},
+                        {"F12", "Read the highlighted session's notes.", true},
                         {"Esc", "Back.", false},
                     };
                 case kPageSettings:
@@ -4841,7 +4943,7 @@ namespace ql
                     {"F2", "Save the new net.", false},
                     {"Esc", "Cancel.", false},
                     {"Tab", "Move to the next field (Up/Down too).", false},
-                    {"Left/Right", "Change Partial Matching: US or Canada.", false},
+                    {"Left/Right", "Change the Mode, or Partial Matching: US or Canada.", false},
                 };
             case kPageSelectRole:
                 return {
@@ -4858,12 +4960,13 @@ namespace ql
                 if (state->viewing_only)
                 {
                     return {
-                        {"F7", "Export this session's log to a file.", false},
+                        {"F7", "Export this session: its log, .qlsession and ADIF (.adi).", false},
                         {"Esc", "Stop watching; back to the net list.", false},
                         {"F6", "A station's other check-ins to this net (by #).", true},
                         {"F8", "Regulars who haven't checked in yet.", true},
                         {"F9", "Everything known about a station (by #).", true},
                         {"F10", "This session so far: first-timers, recent average.", true},
+                        {"F12", "Read the session's notes.", true},
                         {"Up/Down", "Move the highlight.", false},
                     };
                 }
@@ -4872,11 +4975,12 @@ namespace ql
                     {"F3", "Edit a check-in, chosen by its #.", false},
                     {"F4", "Close this session; it moves to History.", false},
                     {"F5", "Delete a check-in, chosen by its #.", false},
-                    {"F7", "Export this session's log to a file.", false},
+                    {"F7", "Export this session: its log, .qlsession and ADIF (.adi).", false},
                     {"F6", "A station's other check-ins to this net (by #).", true},
                     {"F8", "Regulars who haven't checked in yet; Enter logs one.", true},
                     {"F9", "Everything known about a station (by #).", true},
                     {"F10", "This session so far: first-timers, recent average.", true},
+                    {"F12", "Session notes: what this session was about, at length.", true},
                     {"Up/Down", "Move the highlight; Enter edits that check-in.", false},
                 };
             case kPageSettings:
@@ -4898,30 +5002,31 @@ namespace ql
                     {"F3", "Resume an ad hoc session left open (by number).", false},
                     {"F6", "History of every ad hoc net.", false},
                     {"Esc", "Back to the net list.", false},
-                    {"Left/Right", "Change Partial Matching: US or Canada.", false},
+                    {"Left/Right", "Change the Mode, or Partial Matching: US or Canada.", false},
                 };
             case kPageNetHistory:
                 return {
                     {"Up/Down", "Choose a session; its check-ins show below.", false},
-                    {"F4", "Delete a check-in from that session (by #).", false},
+                    {"F5", "Delete a check-in from that session (by #).", false},
                     {"F6", "Import a session exported elsewhere (.qlsession).", false},
-                    {"F7", "Export the highlighted session's log (and .qlsession).", false},
-                    {"F5", "Delete a closed session (by number).", true},
+                    {"F7", "Export the highlighted session: log, .qlsession, ADIF (.adi).", false},
+                    {"F4", "Delete a closed session (by number).", true},
                     {"F8", "Statistics for this net.", true},
                     {"F9", "Find a station's check-ins to every net.", true},
+                    {"F12", "The highlighted session's notes, to read or edit.", true},
                     {"Esc", "Back.", false},
                 };
             case kPageEditNet:
                 return {
                     {"F2", "Save the net's details and return to the list.", false},
+                    {"F3", "Edit a saved station (by number, or Enter).", false},
                     {"F4", "Remove a saved station (by number).", false},
                     {"F6", "Add a saved station.", false},
                     {"F7", "Export this net's saved stations to a file.", false},
                     {"F8", "Delete this net and all its history.", false},
-                    {"F9", "Edit a saved station (by number, or Enter).", false},
                     {"F5", "Saved stations that haven't checked in lately.", true},
                     {"Esc", "Back without saving.", false},
-                    {"Left/Right", "Change Partial Matching: US or Canada.", false},
+                    {"Left/Right", "Change the Mode, or Partial Matching: US or Canada.", false},
                 };
             case kPageImportNet:
                 if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem())
@@ -4956,6 +5061,72 @@ namespace ql
             default:
                 return {};
         }
+    }
+
+    static void OpenSessionNotes(AppState* state, const NetInstance& instance,
+                                 const std::string& net_name, bool read_only)
+    {
+        // Fresh from the database: someone else in a shared session may
+        // have changed them.
+        std::optional<NetInstance> current = state->db->GetNetInstanceById(instance.id);
+        state->session_notes_instance_id = instance.id;
+        state->session_notes_title = "Session Notes: " + net_name + ", " + instance.instance_date;
+        state->session_notes_text = current.has_value() ? current->notes : instance.notes;
+        state->session_notes_cursor = static_cast<int>(state->session_notes_text.size());
+        state->session_notes_read_only = read_only;
+        state->show_session_notes_modal = true;
+    }
+
+    void OpenActiveSessionNotes(AppState* state)
+    {
+        OpenSessionNotes(state, state->active_instance, state->active_net_name,
+                         state->viewing_only || state->view_only_user);
+    }
+
+    void OpenHistorySessionNotes(AppState* state)
+    {
+        if (state->history_instances.empty())
+        {
+            return;
+        }
+        std::size_t index = static_cast<std::size_t>(
+            std::clamp(state->selected_history_index, 0,
+                       static_cast<int>(state->history_instances.size()) - 1));
+        const NetInstance& instance = state->history_instances[index];
+        std::optional<Net> net = state->db->GetNetById(instance.net_id);
+        OpenSessionNotes(state, instance, net.has_value() ? net->name : std::string(),
+                         state->view_only_user);
+    }
+
+    void SaveSessionNotes(AppState* state)
+    {
+        if (state->session_notes_read_only)
+        {
+            CloseSessionNotes(state);
+            return;
+        }
+        std::string notes = state->session_notes_text;
+        notes.erase(notes.find_last_not_of(" \n\r\t") + 1);
+        state->db->SetNetInstanceNotes(state->session_notes_instance_id, notes);
+        if (state->active_instance.id == state->session_notes_instance_id)
+        {
+            state->active_instance.notes = notes;
+        }
+        for (NetInstance& instance : state->history_instances)
+        {
+            if (instance.id == state->session_notes_instance_id)
+            {
+                instance.notes = notes;
+            }
+        }
+        state->show_session_notes_modal = false;
+        state->form_error.clear();
+        state->status_message = "Session notes saved.";
+    }
+
+    void CloseSessionNotes(AppState* state)
+    {
+        state->show_session_notes_modal = false;
     }
 
     void OpenHelp(AppState* state)

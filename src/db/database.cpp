@@ -9,6 +9,7 @@
 
 #include "../frequency_rules.hpp"
 #include "../geo_utils.hpp"
+#include "../mode_rules.hpp"
 #include "../public_key.hpp"
 #include "../text_utils.hpp"
 #include "sqlite_statement.hpp"
@@ -63,7 +64,8 @@ CREATE TABLE IF NOT EXISTS net_instances (
     status INTEGER NOT NULL DEFAULT 0,
     closed_at INTEGER NOT NULL DEFAULT 0,
     operator_role INTEGER NOT NULL DEFAULT 0,
-    started_at INTEGER NOT NULL DEFAULT 0
+    started_at INTEGER NOT NULL DEFAULT 0,
+    notes TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_net_instances_net ON net_instances(net_id);
 
@@ -153,7 +155,7 @@ CREATE TABLE IF NOT EXISTS users (
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 11;
+    static constexpr int kSchemaVersion = 12;
 
     static int ReadUserVersion(sqlite3* db)
     {
@@ -231,7 +233,7 @@ CREATE TABLE IF NOT EXISTS users (
         return net;
     }
 
-    // A NetInstance from the 13 columns starting at `first` (see
+    // A NetInstance from the 14 columns starting at `first` (see
     // QL_NET_INSTANCE_COLUMNS for their order).
     static NetInstance ReadNetInstanceColumns(const Statement& row, int first)
     {
@@ -249,6 +251,7 @@ CREATE TABLE IF NOT EXISTS users (
         instance.closed_at = row.ColumnInt64(first + 10);
         instance.operator_role = static_cast<int>(row.ColumnInt64(first + 11));
         instance.started_at = row.ColumnInt64(first + 12);
+        instance.notes = row.ColumnText(first + 13);
         return instance;
     }
 
@@ -286,7 +289,7 @@ CREATE TABLE IF NOT EXISTS users (
 #define QL_NET_INSTANCE_COLUMNS                                                        \
     "i.id, i.net_id, i.instance_date, i.net_control_callsign, "                        \
     "i.alternate_net_control_callsign, i.logger_callsign, i.created_by, i.frequency, " \
-    "i.location, i.status, i.closed_at, i.operator_role, i.started_at"
+    "i.location, i.status, i.closed_at, i.operator_role, i.started_at, i.notes"
 #define QL_CHECK_IN_COLUMNS                                                                \
     "c.id, c.net_instance_id, c.callsign, c.sequence_number, c.signal_report, c.remarks, " \
     "c.comment, c.checked_in_at, c.designated_role"
@@ -494,6 +497,11 @@ CREATE TABLE IF NOT EXISTS users (
         // Since 1.7.0 partial matching is set per net; every net already
         // there is taken to be a US net.
         EnsureColumnExists(db_, "nets", "partial_match_canada", "INTEGER NOT NULL DEFAULT 0");
+        // Since 1.8.0 a session has notes of its own (F12), and a net's mode
+        // is one of a fixed list: a known spelling of one ("fm", "C4FM") is
+        // converted, anything else blanked (see NormalizeMode).
+        EnsureColumnExists(db_, "net_instances", "notes", "TEXT NOT NULL DEFAULT ''");
+        NormalizeNetModes();
 
         std::string set_version = "PRAGMA user_version = " + std::to_string(kSchemaVersion) + ";";
         sqlite3_exec(db_, set_version.c_str(), nullptr, nullptr, nullptr);
@@ -536,6 +544,37 @@ COMMIT;
             sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
             throw std::runtime_error("Failed to upgrade the SSH users table: " + message);
         }
+    }
+
+    void Database::NormalizeNetModes()
+    {
+        std::vector<std::pair<std::int64_t, std::string>> fixes;
+        {
+            Statement select(&statements_, "SELECT id, mode FROM nets;");
+            while (select.Step())
+            {
+                std::string mode = select.ColumnText(1);
+                std::string normalized = NormalizeMode(mode);
+                if (normalized != mode)
+                {
+                    fixes.emplace_back(select.ColumnInt64(0), normalized);
+                }
+            }
+        }
+        if (fixes.empty())
+        {
+            return;
+        }
+        WriteTransaction transaction(this);
+        Statement update(&statements_, "UPDATE nets SET mode = ? WHERE id = ?;");
+        for (const std::pair<std::int64_t, std::string>& fix : fixes)
+        {
+            update.BindText(0, fix.second);
+            update.BindInt64(1, fix.first);
+            update.Step();
+            update.Reset();
+        }
+        transaction.Commit();
     }
 
     void Database::NormalizeNetZips()
@@ -993,8 +1032,8 @@ COMMIT;
         INSERT INTO net_instances
             (net_id, instance_date, net_control_callsign,
              alternate_net_control_callsign, logger_callsign, created_by,
-             frequency, location, status, closed_at, operator_role, started_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?);
+             frequency, location, status, closed_at, operator_role, started_at, notes)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);
     )sql");
         statement.BindInt64(0, instance.net_id);
         statement.BindText(1, instance.instance_date);
@@ -1008,6 +1047,7 @@ COMMIT;
         statement.BindInt64(9, instance.closed_at);
         statement.BindInt64(10, instance.operator_role);
         statement.BindInt64(11, instance.started_at);
+        statement.BindText(12, instance.notes);
         statement.Step();
         return sqlite3_last_insert_rowid(db_);
     }
@@ -1017,7 +1057,8 @@ COMMIT;
         Statement statement(&statements_, R"sql(
         SELECT i.id, i.net_id, i.instance_date, i.net_control_callsign,
                i.alternate_net_control_callsign, i.logger_callsign, i.created_by,
-               i.frequency, i.location, i.status, i.closed_at, i.operator_role, i.started_at
+               i.frequency, i.location, i.status, i.closed_at, i.operator_role, i.started_at,
+               i.notes
         FROM net_instances i JOIN nets n ON n.id = i.net_id
         WHERE n.is_ad_hoc = 1
         ORDER BY i.instance_date DESC, i.started_at DESC, i.id DESC;
@@ -1035,7 +1076,7 @@ COMMIT;
         Statement statement(&statements_, R"sql(
         SELECT id, net_id, instance_date, net_control_callsign,
                alternate_net_control_callsign, logger_callsign, created_by,
-               frequency, location, status, closed_at, operator_role, started_at
+               frequency, location, status, closed_at, operator_role, started_at, notes
         FROM net_instances WHERE net_id = ?
         ORDER BY instance_date DESC, started_at DESC, id DESC;
     )sql");
@@ -1053,7 +1094,7 @@ COMMIT;
         Statement statement(&statements_, R"sql(
         SELECT id, net_id, instance_date, net_control_callsign,
                alternate_net_control_callsign, logger_callsign, created_by,
-               frequency, location, status, closed_at, operator_role, started_at
+               frequency, location, status, closed_at, operator_role, started_at, notes
         FROM net_instances WHERE id = ?;
     )sql");
         statement.BindInt64(0, instance_id);
@@ -1180,6 +1221,14 @@ COMMIT;
         std::string sql = std::string("UPDATE net_instances SET ") + column + " = ? WHERE id = ?;";
         Statement statement(db_, sql);
         statement.BindText(0, ToUpperAscii(callsign));
+        statement.BindInt64(1, instance_id);
+        statement.Step();
+    }
+
+    void Database::SetNetInstanceNotes(std::int64_t instance_id, const std::string& notes)
+    {
+        Statement statement(&statements_, "UPDATE net_instances SET notes = ? WHERE id = ?;");
+        statement.BindText(0, notes);
         statement.BindInt64(1, instance_id);
         statement.Step();
     }

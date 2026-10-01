@@ -208,6 +208,8 @@ namespace ql
         // `role` isn't one of the three (in particular, kRoleNone).
         void SetNetInstanceRoleCallsign(std::int64_t instance_id, int role,
                                         const std::string& callsign);
+        // Replaces a session's notes (NetInstance::notes).
+        void SetNetInstanceNotes(std::int64_t instance_id, const std::string& notes);
         // Permanently removes one net instance (e.g. logged by mistake, or a
         // test/practice run someone wants gone from history) and all of its
         // check-ins -- check_ins.net_instance_id references net_instances(id)
@@ -418,6 +420,9 @@ namespace ql
         // (ExtractZipCode), or blank if it has none. Part of CreateSchema's
         // one-time upgrade.
         void NormalizeNetZips();
+        // Replaces each net's mode with NormalizeMode's reading of it. Part
+        // of CreateSchema's one-time upgrade.
+        void NormalizeNetModes();
         // Moves each net's frequency that isn't an amateur frequency into
         // its comments (see MoveBadFrequencyToComments). Part of
         // CreateSchema's one-time upgrade.

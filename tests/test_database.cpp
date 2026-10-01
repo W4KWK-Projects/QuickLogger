@@ -56,7 +56,7 @@ namespace ql
                                    table + "'"),
                      std::int64_t{1});
         }
-        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{11});
+        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{12});
         CHECK_EQ(CountRows(dir.File("q.db"),
                            "SELECT COUNT(*) FROM pragma_table_info('import_runs') WHERE name IN "
                            "('phase','percent','heartbeat_at','requested_at')"),
@@ -107,7 +107,9 @@ namespace ql
             CREATE TABLE import_runs (source TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'never_run',
                 started_at INTEGER NOT NULL DEFAULT 0, completed_at INTEGER NOT NULL DEFAULT 0,
                 records_imported INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '');
-            INSERT INTO nets (name) VALUES ('Old Net');
+            INSERT INTO nets (name, mode) VALUES ('Old Net', 'fm');
+            INSERT INTO nets (name, mode) VALUES ('Fusion Net', 'C4FM');
+            INSERT INTO nets (name, mode) VALUES ('Mystery Net', 'Digital');
             INSERT INTO net_instances (net_id, instance_date) VALUES (1, '2025-01-01');
             INSERT INTO stations (callsign, name, data_source) VALUES ('OLDULS', 'From ULS', 2);
             INSERT INTO stations (callsign, name) VALUES ('KEEPME', 'Manual');
@@ -115,9 +117,15 @@ namespace ql
         )sql");
 
         Database db(path);
-        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{11});
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{12});
         std::vector<Net> nets = db.GetAllNets();
-        REQUIRE(nets.size() == 1);
+        REQUIRE(nets.size() == 3);
+        // Sorted by name: Fusion Net, Mystery Net, Old Net. Known spellings
+        // of a mode are converted since 1.8.0; anything else is blanked.
+        CHECK_EQ(nets[0].mode, std::string("Fusion"));
+        CHECK_EQ(nets[1].mode, std::string(""));
+        CHECK_EQ(nets[2].mode, std::string("FM"));
+        nets.erase(nets.begin(), nets.begin() + 2);
         CHECK_EQ(nets[0].created_at, std::int64_t{0});  // Unknown, not guessed.
         CHECK_EQ(nets[0].imported_at, std::int64_t{0});
         CHECK(!nets[0].is_ad_hoc);  // Nothing is guessed to be ad hoc.
@@ -128,6 +136,7 @@ namespace ql
         REQUIRE(instances.size() == 1);
         CHECK_EQ(instances[0].started_at, std::int64_t{0});
         CHECK_EQ(instances[0].operator_role, kRoleNetControl);
+        CHECK_EQ(instances[0].notes, std::string(""));
         CHECK(db.FindStationByCallsign("KEEPME").has_value());
         // The old ULS row moved to its own table; the ZIP+4 was trimmed.
         CHECK(!db.FindStationByCallsign("OLDULS").has_value());

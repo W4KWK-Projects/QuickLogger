@@ -78,4 +78,15 @@ namespace ql
         return result;
     }
 
+    std::tm UtcTime(std::time_t time_value)
+    {
+        std::tm result{};
+#if defined(_WIN32)
+        gmtime_s(&result, &time_value);
+#else
+        gmtime_r(&time_value, &result);
+#endif
+        return result;
+    }
+
 }  // namespace ql

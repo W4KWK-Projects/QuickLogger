@@ -34,6 +34,7 @@ namespace ql
         std::int64_t first = AddTestInstance(db, net_id, "2026-01-06", 1000, "W4KWK");
         std::int64_t second = AddTestInstance(db, net_id, "2026-01-13", 2000, "W4KWK");
         db->CloseNetInstance(first, 1500);
+        db->SetNetInstanceNotes(first, "Tornado damage reports.\nSecond line.");
         AddTestCheckIn(db, first, "K4SAV", 1);
         AddTestCheckIn(db, first, "K4UNS", 2, kRoleLogger);
         AddTestCheckIn(db, second, "K4SAV", 1);
@@ -70,6 +71,21 @@ namespace ql
         std::int64_t net_id = ApplyNetSlice(&dest, slice, 1800000000);
         CHECK_EQ(dest.GetNetById(net_id)->default_frequency, std::string("146.940"));
         CHECK_EQ(dest.GetNetById(net_id)->comments, std::string("Frequency: 146.940 (W4AM)"));
+    }
+
+    QL_TEST(AnOlderNetsFreeTextModeImportsAsAKnownModeOrBlank)
+    {
+        TempDir dir;
+        Database dest(dir.File("dest.db"));
+        NetSlice slice;
+        slice.net.name = "Old Export";
+        slice.net.mode = "ysf";
+        std::int64_t fusion = ApplyNetSlice(&dest, slice, 1800000000);
+        CHECK_EQ(dest.GetNetById(fusion)->mode, std::string("Fusion"));
+        slice.net.name = "Older Export";
+        slice.net.mode = "Digital";
+        std::int64_t unknown = ApplyNetSlice(&dest, slice, 1800000000);
+        CHECK_EQ(dest.GetNetById(unknown)->mode, std::string(""));
     }
 
     QL_TEST(ANetRoundTripsThroughAFile)
@@ -118,6 +134,8 @@ namespace ql
         CHECK_EQ(sessions[0].instance_date, std::string("2026-01-13"));
         CHECK_EQ(sessions[1].started_at, std::int64_t{1000});
         CHECK(sessions[1].status == NetInstanceStatus::kClosed);
+        CHECK_EQ(sessions[1].notes, std::string("Tornado damage reports.\nSecond line."));
+        CHECK_EQ(sessions[0].notes, std::string(""));
         std::vector<CheckIn> check_ins = dest.GetCheckInsForNetInstance(sessions[1].id);
         REQUIRE(check_ins.size() == 2);
         CHECK_EQ(check_ins[1].callsign, std::string("K4UNS"));

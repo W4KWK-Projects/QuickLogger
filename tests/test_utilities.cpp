@@ -7,11 +7,13 @@
 #include <string>
 #include <vector>
 
+#include "../src/adif_export.hpp"
 #include "../src/callsign_rules.hpp"
 #include "../src/date_utils.hpp"
 #include "../src/file_export.hpp"
 #include "../src/frequency_rules.hpp"
 #include "../src/geo_utils.hpp"
+#include "../src/mode_rules.hpp"
 #include "../src/public_key.hpp"
 #include "../src/settings.hpp"
 #include "../src/text_utils.hpp"
@@ -22,6 +24,100 @@
 
 namespace ql
 {
+
+    // ---- modes -----------------------------------------------------------------
+
+    QL_TEST(OldFreeTextModesBecomeAKnownModeOrBlank)
+    {
+        CHECK_EQ(NormalizeMode("fm"), std::string("FM"));
+        CHECK_EQ(NormalizeMode(" FM "), std::string("FM"));
+        CHECK_EQ(NormalizeMode("usb"), std::string("SSB"));
+        CHECK_EQ(NormalizeMode("D-Star"), std::string("D-STAR"));
+        CHECK_EQ(NormalizeMode("dstar"), std::string("D-STAR"));
+        CHECK_EQ(NormalizeMode("YSF"), std::string("Fusion"));
+        CHECK_EQ(NormalizeMode("C4FM"), std::string("Fusion"));
+        CHECK_EQ(NormalizeMode("System Fusion"), std::string("Fusion"));
+        CHECK_EQ(NormalizeMode("dmr"), std::string("DMR"));
+        CHECK_EQ(NormalizeMode("Digital"), std::string(""));
+        CHECK_EQ(NormalizeMode("FM & DMR"), std::string(""));
+        CHECK_EQ(NormalizeMode("FM, SSB"), std::string(""));
+        CHECK_EQ(NormalizeMode(""), std::string(""));
+        for (const std::string& mode : NetModes())
+        {
+            CHECK_EQ(NormalizeMode(mode), mode);
+        }
+    }
+
+    QL_TEST(ModesMapToAdifModeAndSubmode)
+    {
+        std::string mode;
+        std::string submode;
+        AdifMode("SSB", &mode, &submode);
+        CHECK_EQ(mode, std::string("SSB"));
+        CHECK_EQ(submode, std::string(""));
+        AdifMode("D-STAR", &mode, &submode);
+        CHECK_EQ(mode, std::string("DIGITALVOICE"));
+        CHECK_EQ(submode, std::string("DSTAR"));
+        AdifMode("DMR", &mode, &submode);
+        CHECK_EQ(submode, std::string("DMR"));
+        AdifMode("Fusion", &mode, &submode);
+        CHECK_EQ(submode, std::string("C4FM"));
+        AdifMode("", &mode, &submode);
+        CHECK_EQ(mode, std::string(""));
+        CHECK_EQ(submode, std::string(""));
+    }
+
+    // ---- ADIF ------------------------------------------------------------------
+
+    QL_TEST(AdifFieldsAreAsciiWithByteLengths)
+    {
+        CHECK_EQ(FoldToAscii("Jos\xC3\xA9 Mu\xC3\xB1oz"), std::string("Jose Munoz"));
+        CHECK_EQ(FoldToAscii("Stra\xC3\x9F"
+                             "e \xC5\x81\xC3\xB3"
+                             "d\xC5\xBA"),
+                 std::string("Strasse Lodz"));
+        CHECK_EQ(FoldToAscii("It\xE2\x80\x99s \xE2\x80\x9Cok\xE2\x80\x9D"),
+                 std::string("It's \"ok\""));
+        CHECK_EQ(FoldToAscii("snow \xE2\x9D\x84"), std::string("snow "));
+
+        CHECK_EQ(AdifBand("146.940"), std::string("2m"));
+        CHECK_EQ(AdifBand("7.235"), std::string("40m"));
+        CHECK_EQ(AdifBand("443.500"), std::string("70cm"));
+        CHECK_EQ(AdifBand("100"), std::string(""));
+        CHECK_EQ(AdifBand(""), std::string(""));
+
+        AdifContact contact;
+        contact.check_in.callsign = "K4ABC";
+        contact.check_in.checked_in_at = 1790000000;  // 2026-09-21 14:13:20 UTC.
+        contact.check_in.signal_report = "59";
+        contact.check_in.remarks = "Mobile";
+        contact.station.name = "Ren\xC3\xA9";
+        contact.station.city = "Chattanooga";
+        contact.station.state = "TN";
+        contact.station.county = "Hamilton";
+        contact.station.grid_square = "EM75";
+        std::string adif =
+            BuildAdif({contact}, "DMR", "443.500", "W4KWK", "2026-09-21", 1790000000);
+        CHECK(adif.find("<ADIF_VER:5>3.1.4 ") != std::string::npos);
+        CHECK(adif.find("<EOH>") != std::string::npos);
+        CHECK(adif.find("<CALL:5>K4ABC <QSO_DATE:8>20260921 <TIME_ON:6>141320 ") !=
+              std::string::npos);
+        CHECK(adif.find("<FREQ:7>443.500 <BAND:4>70cm <MODE:12>DIGITALVOICE <SUBMODE:3>DMR ") !=
+              std::string::npos);
+        CHECK(adif.find("<STATION_CALLSIGN:5>W4KWK <RST_RCVD:2>59 <NAME:4>Rene ") !=
+              std::string::npos);
+        CHECK(adif.find("<CNTY:11>TN,Hamilton <GRIDSQUARE:4>EM75 <COMMENT:6>Mobile <EOR>") !=
+              std::string::npos);
+        CHECK(adif.find("NOTES") == std::string::npos);  // Empty fields are left out.
+
+        // No mode, no frequency and no check-in time: those fields are left
+        // out, and the date is the session's.
+        contact.check_in.checked_in_at = 0;
+        adif = BuildAdif({contact}, "", "", "W4KWK", "2026-09-21", 1790000000);
+        CHECK(adif.find("<QSO_DATE:8>20260921 <STATION_CALLSIGN") != std::string::npos);
+        CHECK(adif.find("<MODE") == std::string::npos);
+        CHECK(adif.find("<FREQ") == std::string::npos);
+    }
 
     // ---- version ---------------------------------------------------------------
 

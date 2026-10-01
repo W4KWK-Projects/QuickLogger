@@ -10,6 +10,7 @@
 #include <ftxui/screen/terminal.hpp>
 
 #include "../date_utils.hpp"
+#include "../mode_rules.hpp"
 #include "../text_utils.hpp"
 #include "../uls_import.hpp"
 #include "chrome.hpp"
@@ -127,7 +128,7 @@ namespace ql
 
         Net net;
         net.name = state_->new_net_name;
-        net.mode = state_->new_net_mode;
+        net.mode = NetModes()[static_cast<std::size_t>(state_->new_net_mode_index)];
         net.default_frequency = state_->new_net_frequency;
         net.repeater_offset = state_->new_net_offset;
         net.pl_tone = state_->new_net_tone;
@@ -311,6 +312,11 @@ namespace ql
             export_log();
             return true;
         }
+        if (event == ftxui::Event::F12)
+        {
+            OpenHistorySessionNotes(state_);
+            return true;
+        }
         // Nothing in History can be deleted or imported by a view-only
         // user.
         if (state_->view_only_user &&
@@ -323,14 +329,15 @@ namespace ql
             OpenSessionImport(state_);
             return true;
         }
+        // F5 deletes a check-in, as on the active net.
         if (event == ftxui::Event::F5)
         {
-            StartRowPick(state_, RowPickAction::kDeleteNetInstance);
+            StartRowPick(state_, RowPickAction::kDeleteHistoryCheckIn);
             return true;
         }
         if (event == ftxui::Event::F4)
         {
-            StartRowPick(state_, RowPickAction::kDeleteHistoryCheckIn);
+            StartRowPick(state_, RowPickAction::kDeleteNetInstance);
             return true;
         }
         return false;
@@ -527,7 +534,8 @@ namespace ql
             StartRowPick(state_, RowPickAction::kRemoveSavedStation);
             return true;
         }
-        if (event == ftxui::Event::F9)
+        // F3 edits, as on the active net.
+        if (event == ftxui::Event::F3)
         {
             StartRowPick(state_, RowPickAction::kEditSavedStation);
             return true;
@@ -1010,6 +1018,11 @@ namespace ql
                 OpenSessionSummary(state_);
                 return true;
             }
+            if (event == ftxui::Event::F12)
+            {
+                OpenActiveSessionNotes(state_);
+                return true;
+            }
             return event == ftxui::Event::F2 || event == ftxui::Event::F3 ||
                    event == ftxui::Event::F4 || event == ftxui::Event::F5 ||
                    event == ftxui::Event::Return;
@@ -1145,6 +1158,11 @@ namespace ql
         if (event == ftxui::Event::F10 && !modal_open)
         {
             OpenSessionSummary(state_);
+            return true;
+        }
+        if (event == ftxui::Event::F12 && !modal_open)
+        {
+            OpenActiveSessionNotes(state_);
             return true;
         }
         if (event == ftxui::Event::Escape)
@@ -1483,7 +1501,31 @@ namespace ql
     {
         return state->show_new_station_modal || state->show_edit_checkin_modal ||
                state->show_saved_station_modal || state->show_zmodem_confirm_modal ||
-               state->show_delete_net_confirm_modal;
+               state->show_delete_net_confirm_modal || state->show_session_notes_modal;
+    }
+
+    // Keys while the Session Notes window is open: F2 saves, Esc cancels,
+    // and every other F-key is swallowed so nothing happens behind it;
+    // everything else goes to the notes (see NotesEditor).
+    static bool HandleSessionNotesKey(AppState* state, const ftxui::Event& event)
+    {
+        if (event == ftxui::Event::F2)
+        {
+            SaveSessionNotes(state);
+            return true;
+        }
+        if (event == ftxui::Event::Escape)
+        {
+            CloseSessionNotes(state);
+            return true;
+        }
+        return event == ftxui::Event::F1 || event == ftxui::Event::F3 ||
+               event == ftxui::Event::F4 || event == ftxui::Event::F5 ||
+               event == ftxui::Event::F6 || event == ftxui::Event::F7 ||
+               event == ftxui::Event::F8 || event == ftxui::Event::F9 ||
+               event == ftxui::Event::F10 || event == ftxui::Event::F11 ||
+               event == ftxui::Event::F12 || event == ftxui::Event::Tab ||
+               event == ftxui::Event::TabReverse;
     }
 
     bool AppKeyHandler::operator()(const ftxui::Event& event) const
@@ -1513,6 +1555,10 @@ namespace ql
         if (state_->show_confirm_prompt)
         {
             return HandleConfirmPromptKey(state_, event);
+        }
+        if (state_->show_session_notes_modal)
+        {
+            return HandleSessionNotesKey(state_, event);
         }
         if (event == ftxui::Event::F1 && !AnyPageDialogOpen(state_))
         {

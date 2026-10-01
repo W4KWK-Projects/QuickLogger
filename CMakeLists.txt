@@ -114,6 +114,7 @@ set(quicklogger_sources
     src/text_utils.cpp
     src/callsign_rules.cpp
     src/frequency_rules.cpp
+    src/mode_rules.cpp
     src/version.cpp
     src/geo_utils.cpp
     src/file_export.cpp
@@ -122,6 +123,8 @@ set(quicklogger_sources
     src/zmodem_send.cpp
     src/show_folder.cpp
     src/zip_extract.cpp
+    src/zip_write.cpp
+    src/adif_export.cpp
     src/uls_import.cpp
     src/data_updater.cpp
     src/db/database.cpp
@@ -134,6 +137,7 @@ set(quicklogger_sources
     src/ui/list_columns.cpp
     src/ui/mouse.cpp
     src/ui/frame_writer.cpp
+    src/ui/notes_editor.cpp
 )
 
 if(QUICKLOGGER_ENABLE_SSH)
@@ -230,6 +234,7 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_list_columns.cpp
         tests/test_mouse.cpp
         tests/test_frame_writer.cpp
+        tests/test_notes_editor.cpp
         tests/test_zip_extract.cpp
         tests/test_database.cpp
         tests/test_station_data.cpp
