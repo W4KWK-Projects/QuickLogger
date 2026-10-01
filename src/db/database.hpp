@@ -196,6 +196,9 @@ namespace ql
         std::optional<NetInstance> FindAdHocSession(const std::string& net_name, const std::string& instance_date,
                                                     std::int64_t started_at);
         std::optional<NetInstance> GetNetInstanceById(std::int64_t instance_id);
+        // Records that the session was pushed upstream at `pushed_at`
+        // (see NetInstance::pushed_at).
+        void SetNetInstancePushedAt(std::int64_t instance_id, std::int64_t pushed_at);
         // Closes an open instance as of `closed_at`. Returns false, changing
         // nothing, if it's already closed (someone else got there first, and
         // their end time stands) or no longer exists.

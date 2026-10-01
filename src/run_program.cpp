@@ -106,11 +106,10 @@ namespace ql
         {
             return std::string();
         }
-        int size = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr,
-                                       nullptr);
+        int size =
+            WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
         std::string narrow(static_cast<std::size_t>(size), '\0');
-        WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), &narrow[0], size, nullptr,
-                            nullptr);
+        WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), &narrow[0], size, nullptr, nullptr);
         return narrow;
     }
 
@@ -275,7 +274,10 @@ namespace ql
     // Where systems keep ssh when PATH doesn't name them (a service started
     // at boot gets a short PATH).
     static const char* const kSystemDirectories[] = {
-        "/usr/bin", "/bin", "/usr/local/bin", "/opt/homebrew/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
     };
 
     std::string FindProgramOnPath(const std::string& name)

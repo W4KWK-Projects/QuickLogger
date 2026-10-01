@@ -19,6 +19,10 @@ namespace ql
     ftxui::Component BuildImportNetPage(AppState* state);
     ftxui::Component BuildManageUsersPage(AppState* state);
 
+    // A ConfirmPrompt (AppState::confirm_prompt), shown over whichever page
+    // is up: a push's question can come while any page is.
+    ftxui::Component BuildConfirmPrompt(AppState* state);
+
     // The window for AppState::info_window (Help and the seldom-used
     // windows), shown over whichever page is up.
     ftxui::Component BuildInfoWindow(AppState* state);

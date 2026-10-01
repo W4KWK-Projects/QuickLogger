@@ -31,6 +31,7 @@
 #include "../zip_write.hpp"
 #include "../zmodem_send.hpp"
 #include "list_columns.hpp"
+#include "push_runner.hpp"
 
 namespace ql
 {
@@ -329,7 +330,9 @@ namespace ql
         cells.push_back(instance.created_by);
         cells.push_back(std::to_string(check_ins));
         cells.emplace_back(instance.notes.empty() ? "" : "yes");
-        cells.emplace_back(instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed");
+        cells.emplace_back(instance.status == NetInstanceStatus::kOpen ? "OPEN"
+                           : instance.pushed_at > 0                    ? "pushed"
+                                                                       : "closed");
         return cells;
     }
 
@@ -943,6 +946,256 @@ namespace ql
 #endif
     }
 
+    bool CanPushUpstream(const AppState* state)
+    {
+        return state->is_console_session && state->push_runner != nullptr && !state->settings.upstream_host.empty();
+    }
+
+    void OpenUpstreamWindow(AppState* state)
+    {
+        if (!state->is_console_session)
+        {
+            return;
+        }
+        state->upstream_host_text = state->settings.upstream_host;
+        state->upstream_user_text = state->settings.upstream_user;
+        state->upstream_port_text = std::to_string(state->settings.upstream_port);
+        state->upstream_host_cursor = static_cast<int>(state->upstream_host_text.size());
+        state->upstream_user_cursor = static_cast<int>(state->upstream_user_text.size());
+        state->upstream_port_cursor = static_cast<int>(state->upstream_port_text.size());
+        state->upstream_focus = 0;
+        // Looked for once here, not on every frame.
+        state->upstream_tools_available = UpstreamToolsAvailable();
+        state->form_error.clear();
+        state->status_message.clear();
+        state->show_upstream_window = true;
+    }
+
+    void CloseUpstreamWindow(AppState* state)
+    {
+        state->show_upstream_window = false;
+        state->form_error.clear();
+    }
+
+    // `text` without spaces or tabs around it.
+    static std::string Spaceless(const std::string& text)
+    {
+        std::string::size_type start = text.find_first_not_of(" \t");
+        if (start == std::string::npos)
+        {
+            return std::string();
+        }
+        std::string::size_type end = text.find_last_not_of(" \t");
+        return text.substr(start, end - start + 1);
+    }
+
+    void SaveUpstreamWindow(AppState* state)
+    {
+        std::string host = Spaceless(state->upstream_host_text);
+        std::string user = Spaceless(state->upstream_user_text);
+        std::string port_text = Spaceless(state->upstream_port_text);
+        int port = kDefaultUpstreamPort;
+        if (!host.empty())
+        {
+            if (!IsValidUpstreamHost(host))
+            {
+                state->form_error = "A host name has only letters, digits, dots, hyphens and underscores.";
+                return;
+            }
+            if (user.empty())
+            {
+                state->form_error = "Your username on the upstream is required.";
+                return;
+            }
+            if (!IsValidUpstreamUser(user))
+            {
+                state->form_error = "A username has only letters, digits, dots, hyphens and underscores.";
+                return;
+            }
+            if (!port_text.empty())
+            {
+                port = port_text.size() > 5 ? 0 : std::stoi(port_text);
+                if (port < 1 || port > 65535)
+                {
+                    state->form_error = "The port must be 1 to 65535.";
+                    return;
+                }
+            }
+        }
+        else
+        {
+            user.clear();
+        }
+        // Into the saved settings and the Settings page's working copy
+        // alike, so the page's own F2 doesn't put the old upstream back.
+        state->settings.upstream_host = host;
+        state->settings.upstream_user = user;
+        state->settings.upstream_port = port;
+        state->settings_form.upstream_host = host;
+        state->settings_form.upstream_user = user;
+        state->settings_form.upstream_port = port;
+        SaveSettings(state->settings_path, state->settings);
+        state->show_upstream_window = false;
+        state->form_error.clear();
+        state->status_message = host.empty() ? "No upstream server: sessions aren't pushed."
+                                             : "Sessions can be pushed to " + host + ".";
+    }
+
+    // The name F7 Export gives a session's files, without the extension:
+    // the net's name and the session's date.
+    static std::string SessionFileStem(const std::string& net_name, const NetInstance& instance)
+    {
+        return SanitizeFilenameComponent(net_name) + "_" + SanitizeFilenameComponent(instance.instance_date);
+    }
+
+    static void RemovePushFile(AppState* state)
+    {
+        if (!state->push_local_path.empty())
+        {
+            std::error_code ignored;
+            std::filesystem::remove(state->push_local_path, ignored);
+            state->push_local_path.clear();
+        }
+    }
+
+    bool StartPush(AppState* state, std::int64_t instance_id, const std::string& confirm_net)
+    {
+        if (!CanPushUpstream(state))
+        {
+            state->form_error = "Set up an upstream server in Settings (F5) first.";
+            return false;
+        }
+        if (state->push_running)
+        {
+            state->form_error = "A push is already running.";
+            return false;
+        }
+        if (!UpstreamToolsAvailable())
+        {
+            state->form_error = kNoSshMessage;
+            return false;
+        }
+        std::optional<NetInstance> instance = state->db->GetNetInstanceById(instance_id);
+        std::optional<Net> net = instance.has_value() ? state->db->GetNetById(instance->net_id) : std::nullopt;
+        if (!net.has_value())
+        {
+            state->form_error = "That session no longer exists.";
+            return false;
+        }
+        if (instance->status != NetInstanceStatus::kClosed)
+        {
+            state->form_error = "Only a closed session can be pushed.";
+            return false;
+        }
+
+        // Uploaded under F7's name, so pushing it again replaces the
+        // earlier upload; made here under a name of its own, so it never
+        // replaces an F7 export.
+        std::string remote_name = SessionFileStem(net->name, *instance) + ".qlsession";
+        std::string exports = ExportsDir(state->db_path);
+        std::string local_path = TemporaryPathFor(exports + "/" + remote_name);
+        std::string error;
+        if (!EnsureDirectory(exports) ||
+            !WriteNetSliceFile(local_path, GatherSessionSlice(state->db, instance_id), &error))
+        {
+            std::error_code ignored;
+            std::filesystem::remove(local_path, ignored);
+            state->form_error = "Couldn't write the session to push: " + (error.empty() ? exports : error);
+            return false;
+        }
+
+        RemovePushFile(state);
+        state->push_running = true;
+        state->push_instance_id = instance_id;
+        state->push_local_path = local_path;
+        state->push_remote_name = remote_name;
+        state->push_session_net = net->name;
+        Upstream upstream;
+        upstream.host = state->settings.upstream_host;
+        upstream.user = state->settings.upstream_user;
+        upstream.port = state->settings.upstream_port;
+        state->push_runner->Start(upstream, local_path, remote_name, confirm_net, net->name);
+        state->form_error.clear();
+        state->status_message = "Pushing to " + upstream.host + "...";
+        return true;
+    }
+
+    void PushSelectedHistorySession(AppState* state)
+    {
+        if (!CanPushUpstream(state))
+        {
+            return;
+        }
+        if (state->history_instances.empty())
+        {
+            state->form_error = "No session to push.";
+            return;
+        }
+        const NetInstance& selected = state->history_instances[state->selected_history_index];
+        if (selected.status != NetInstanceStatus::kClosed)
+        {
+            state->form_error = "Only a closed session can be pushed.";
+            return;
+        }
+        if (selected.pushed_at > 0)
+        {
+            state->status_message.clear();
+            state->form_error = "That session has been pushed already.";
+            return;
+        }
+        StartPush(state, selected.id, "");
+    }
+
+    void FinishPush(AppState* state, const PushResult& result)
+    {
+        state->push_running = false;
+        RemovePushFile(state);
+        if (result.kind == PushResultKind::kPushed)
+        {
+            state->db->SetNetInstancePushedAt(state->push_instance_id, static_cast<std::int64_t>(std::time(nullptr)));
+            if (state->page == kPageNetHistory)
+            {
+                RefreshNetHistory(state);
+            }
+            state->form_error.clear();
+            state->status_message = result.message;
+            return;
+        }
+        if (result.kind == PushResultKind::kNeedsConfirmation)
+        {
+            // Something else is being asked right now: don't stack a second
+            // question on it.
+            if (state->show_confirm_prompt)
+            {
+                state->status_message.clear();
+                state->form_error = "Not pushed: " + state->settings.upstream_host + " has no net named " +
+                                    state->push_session_net + ". Push it from History (F3) to choose.";
+                return;
+            }
+            state->push_upstream_net = result.upstream_net;
+            ShowConfirmPrompt(state, ConfirmPrompt::kPushToNet, "Push to " + result.upstream_net + "?",
+                              {state->settings.upstream_host + " has no net named " + state->push_session_net +
+                                   ". Its net " + result.upstream_net + " looks like it.",
+                               "Push this session to " + result.upstream_net + "?"});
+            return;
+        }
+        state->status_message.clear();
+        state->form_error = result.message;
+    }
+
+    void ConfirmPushToNet(AppState* state)
+    {
+        CancelConfirmPrompt(state);
+        StartPush(state, state->push_instance_id, state->push_upstream_net);
+    }
+
+    void DeclinePushToNet(AppState* state)
+    {
+        CancelConfirmPrompt(state);
+        state->form_error.clear();
+        state->status_message = "Not pushed. Push it from History (F3) later.";
+    }
+
     void StartSelectedNet(AppState* state)
     {
         if (state->nets.empty())
@@ -1189,12 +1442,12 @@ namespace ql
         state->page = kPageNetList;
     }
 
-    void CloseActiveNet(AppState* state)
+    bool CloseActiveNet(AppState* state)
     {
         CancelConfirmPrompt(state);
         if (RefuseViewOnly(state, "close net sessions"))
         {
-            return;
+            return false;
         }
         std::string closed_name = state->active_net_name;
         bool closed_here =
@@ -1206,12 +1459,27 @@ namespace ql
             // Someone sharing the session closed (or deleted) it first.
             // (Their end time is the one that stands -- see CloseNetInstance.)
             ShowSessionClosedPrompt(state, "");
-            return;
+            return false;
         }
         LeaveActiveNet(state);
         state->form_error.clear();
         state->status_message =
             "Closed " + closed_name + " (" + CountCheckIns(check_ins) + "). It's in History (" + history + ").";
+        return true;
+    }
+
+    void CloseActiveNetAndPush(AppState* state)
+    {
+        std::int64_t instance_id = state->active_instance.id;
+        if (!CloseActiveNet(state))
+        {
+            return;
+        }
+        std::string closed = state->status_message;
+        if (StartPush(state, instance_id, ""))
+        {
+            state->status_message = closed + " " + state->status_message;
+        }
     }
 
     bool EnsureActiveSessionOpen(AppState* state, const std::string& unlogged_callsign)
@@ -3124,9 +3392,8 @@ namespace ql
         std::vector<std::string> rows = FormatRows(cells, layout);
         lines.insert(lines.end(), rows.begin(), rows.end());
 
-        std::string stem = SessionExportsDir(state->db_path, state->ssh_username) + "/" +
-                           SanitizeFilenameComponent(net_name) + "_" +
-                           SanitizeFilenameComponent(instance.instance_date);
+        std::string stem =
+            SessionExportsDir(state->db_path, state->ssh_username) + "/" + SessionFileStem(net_name, instance);
         std::string log_path = stem + "_log.txt";
         if (!WriteExportLines(state, log_path, lines))
         {
@@ -5125,7 +5392,10 @@ namespace ql
                 return {
                     {"F2", "Check in a station (the New Check-In window).", false},
                     {"F3", "Edit a check-in, chosen by its #.", false},
-                    {"F4", "Close this session; it moves to History.", false},
+                    {"F4",
+                     CanPushUpstream(state) ? "Close this session (F3 there also pushes it upstream)."
+                                            : "Close this session; it moves to History.",
+                     false},
                     {"F5", "Delete a check-in, chosen by its #.", false},
                     {"F7", "Export this session: its log, .qlsession and ADIF (.adi).", false},
                     {"F6", "A station's other check-ins to this net (by #).", true},
@@ -5145,6 +5415,7 @@ namespace ql
 #if defined(QUICKLOGGER_WITH_SSH)
                 lines.push_back({"F4", "Manage SSH users (console only).", false});
 #endif
+                lines.push_back({"F5", "Upstream Server: where closed sessions are pushed (console only).", false});
                 lines.push_back(
                     {"Left/Right",
                      state->is_console_session ? "Change the time format or Update Check." : "Change the time format.",
@@ -5160,7 +5431,8 @@ namespace ql
                     {"Left/Right", "Change the Mode, or Partial Matching: US or Canada.", false},
                 };
             case kPageNetHistory:
-                return {
+            {
+                std::vector<HelpLine> lines = {
                     {"Up/Down", "Choose a session; its check-ins show below.", false},
                     {"F5", "Delete a check-in from that session (by #).", false},
                     {"F6", "Import a session exported elsewhere (.qlsession).", false},
@@ -5171,6 +5443,13 @@ namespace ql
                     {"F12", "The highlighted session's notes, to read or edit.", true},
                     {"Esc", "Back.", false},
                 };
+                if (CanPushUpstream(state))
+                {
+                    lines.insert(lines.begin() + 1,
+                                 {"F3", "Push the highlighted closed session upstream (\"pushed\" once done).", false});
+                }
+                return lines;
+            }
             case kPageEditNet:
                 return {
                     {"F2", "Save the net's details and return to the list.", false},

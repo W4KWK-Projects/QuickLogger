@@ -144,6 +144,7 @@ set(quicklogger_sources
     src/ui/mouse.cpp
     src/ui/frame_writer.cpp
     src/ui/notes_editor.cpp
+    src/ui/push_runner.cpp
 )
 
 if(QUICKLOGGER_ENABLE_SSH)
@@ -249,6 +250,7 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_remote_command.cpp
         tests/test_scp_server.cpp
         tests/test_upstream_push.cpp
+        tests/test_push_ui.cpp
         tests/test_app_state.cpp
     )
     target_link_libraries(quicklogger_tests PRIVATE quicklogger_core)

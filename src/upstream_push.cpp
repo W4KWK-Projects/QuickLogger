@@ -181,10 +181,10 @@ namespace ql
             }
             else if (key == "net-id")
             {
-                reply.net_id = value.empty() || value.size() > 18 ||
-                                       value.find_first_not_of("0123456789") != std::string::npos
-                                   ? 0
-                                   : std::stoll(value);
+                reply.net_id =
+                    value.empty() || value.size() > 18 || value.find_first_not_of("0123456789") != std::string::npos
+                        ? 0
+                        : std::stoll(value);
             }
             else if (key == "session")
             {

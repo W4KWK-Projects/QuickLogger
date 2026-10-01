@@ -240,8 +240,8 @@ namespace ql
                 Warn("Folders can't be copied, only files.");
                 return 1;
             }
-            real_path = std::filesystem::path(source.area == SftpArea::kExports ? exports_dir_ : imports_dir_) /
-                        source.name;
+            real_path =
+                std::filesystem::path(source.area == SftpArea::kExports ? exports_dir_ : imports_dir_) / source.name;
             std::error_code error;
             std::filesystem::file_status status = std::filesystem::symlink_status(real_path, error);
             std::ifstream file(real_path, std::ios::binary);

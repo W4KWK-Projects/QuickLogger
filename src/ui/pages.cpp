@@ -682,6 +682,15 @@ namespace ql
             {
                 rows.push_back(KeyHintRow({{"F2/Enter", "Import Anyway"}, {"Esc", "Cancel"}}));
             }
+            else if (state_->confirm_prompt == ConfirmPrompt::kPushToNet)
+            {
+                rows.push_back(KeyHintRow({{"F2/Enter", "Push"}, {"Esc", "Don't Push"}}));
+            }
+            else if (CanPushUpstream(state_))
+            {
+                rows.push_back(
+                    KeyHintRow({{"F2/Enter", "Close Net"}, {"F3", "Close & Push"}, {"Esc", "Keep Logging"}}));
+            }
             else
             {
                 rows.push_back(KeyHintRow({{"F2/Enter", "Close Net"}, {"Esc", "Keep Logging"}}));
@@ -694,11 +703,9 @@ namespace ql
         AppState* state_;
     };
 
-    // Wraps `page` so a ConfirmPrompt can pop up over it.
-    static ftxui::Component WithConfirmPrompt(AppState* state, ftxui::Component page)
+    ftxui::Component BuildConfirmPrompt(AppState* state)
     {
-        ftxui::Component modal = ftxui::Renderer(ftxui::Container::Vertical({}), ConfirmPromptRenderer(state));
-        return LayeredModal(std::move(page), modal, &state->show_confirm_prompt);
+        return ftxui::Renderer(ftxui::Container::Vertical({}), ConfirmPromptRenderer(state));
     }
 
     // ---- Net list page ---------------------------------------------------
@@ -815,8 +822,7 @@ namespace ql
 
         ftxui::Component root = ftxui::Container::Vertical({net_menu});
         ftxui::Component main_view = ftxui::Renderer(root, NetListRenderer(state, net_menu));
-        return WithConfirmPrompt(
-            state, LayeredModal(main_view, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal));
+        return LayeredModal(main_view, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal);
     }
 
     // ---- Create-net page ---------------------------------------------------
@@ -1384,9 +1390,8 @@ namespace ql
             LayeredModal(with_new_station_modal, edit_modal_view, &state->show_edit_checkin_modal);
         ftxui::Component with_notes_modal =
             LayeredModal(with_edit_checkin_modal, BuildSessionNotesModal(state), &state->show_session_notes_modal);
-        return WithConfirmPrompt(
-            state, WithRowDeleteConfirm(state, LayeredModal(with_notes_modal, BuildZmodemConfirmModal(state),
-                                                            &state->show_zmodem_confirm_modal)));
+        return WithRowDeleteConfirm(
+            state, LayeredModal(with_notes_modal, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal));
     }
 
     // ---- Settings page ---------------------------------------------------
@@ -1512,6 +1517,10 @@ namespace ql
             {
                 hints.push_back({"F4", "Manage Users"});
             }
+            if (state_->is_console_session)
+            {
+                hints.push_back({"F5", "Upstream"});
+            }
             hints.push_back({"Esc", "Cancel"});
             return PageChrome("Settings", content, hints);
         }
@@ -1524,6 +1533,69 @@ namespace ql
         ftxui::Component time_format_toggle_;
         ftxui::Component update_check_toggle_;
     };
+
+    // The Upstream Server window over Settings (F5, console only).
+    class UpstreamWindowRenderer
+    {
+    public:
+        UpstreamWindowRenderer(AppState* state, ftxui::Component input_host, ftxui::Component input_user,
+                               ftxui::Component input_port)
+            : state_(state),
+              input_host_(std::move(input_host)),
+              input_user_(std::move(input_user)),
+              input_port_(std::move(input_port))
+        {
+        }
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Elements rows;
+            rows.push_back(Heading("Upstream Server"));
+            rows.push_back(DialogSeparator());
+            rows.push_back(ftxui::hbox({FieldLabel("Host:      "), input_host_->Render()}));
+            rows.push_back(ftxui::hbox({FieldLabel("Username:  "), input_user_->Render()}));
+            rows.push_back(ftxui::hbox(
+                {FieldLabel("Port:      "), input_port_->Render() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 6)}));
+            rows.push_back(DialogSeparator());
+            rows.push_back(HintParagraph("Closed sessions can be pushed to this QuickLogger (F3 when closing a net, "
+                                         "or in History). A blank host means none."));
+            rows.push_back(ftxui::text(""));
+            rows.push_back(HintParagraph("Pushing uses this computer's ssh and your own ssh key. Log in there "
+                                         "once with ssh first. A key with a passphrase must be in ssh-agent."));
+            if (!state_->upstream_tools_available)
+            {
+                rows.push_back(ftxui::text(""));
+                rows.push_back(ErrorLine(kNoSshMessage));
+            }
+            rows.push_back(DialogSeparator());
+            rows.push_back(KeyHintRow({{"F2", "Save"}, {"Esc", "Cancel"}}));
+            rows.push_back(ErrorLine(state_->form_error));
+            return CheckInWindow(state_, ftxui::vbox(std::move(rows)));
+        }
+
+    private:
+        AppState* state_;
+        ftxui::Component input_host_;
+        ftxui::Component input_user_;
+        ftxui::Component input_port_;
+    };
+
+    static ftxui::Component BuildUpstreamWindow(AppState* state)
+    {
+        ftxui::InputOption host_option = SingleLineInputOption();
+        host_option.cursor_position = &state->upstream_host_cursor;
+        ftxui::Component input_host = ftxui::Input(&state->upstream_host_text, "upstream.example.org", host_option);
+        ftxui::InputOption user_option = SingleLineInputOption();
+        user_option.cursor_position = &state->upstream_user_cursor;
+        ftxui::Component input_user = ftxui::Input(&state->upstream_user_text, "Your username there", user_option);
+        ftxui::InputOption port_option = SingleLineInputOption();
+        port_option.cursor_position = &state->upstream_port_cursor;
+        port_option.on_change = DigitsFieldHandler(&state->upstream_port_text, 5);
+        ftxui::Component input_port = ftxui::Input(&state->upstream_port_text, "22", port_option);
+        return ftxui::Renderer(
+            ftxui::Container::Vertical({input_host, input_user, input_port}, &state->upstream_focus),
+            UpstreamWindowRenderer(state, input_host, input_user, input_port));
+    }
 
     ftxui::Component BuildSettingsPage(AppState* state)
     {
@@ -1567,8 +1639,10 @@ namespace ql
             time_format_toggle,
         });
 
-        return ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_location, input_radius,
-                                                      time_format_toggle, update_check_toggle));
+        ftxui::Component page = ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_location,
+                                                                       input_radius, time_format_toggle,
+                                                                       update_check_toggle));
+        return LayeredModal(page, BuildUpstreamWindow(state), &state->show_upstream_window);
     }
 
     // ---- Ad hoc net page ---------------------------------------------------
@@ -1711,10 +1785,8 @@ namespace ql
             state,
             ftxui::Menu(&state->open_ad_hoc_labels, &state->selected_open_ad_hoc_index, open_session_menu_option));
 
-        return WithConfirmPrompt(
-            state,
-            ftxui::Renderer(root, AdHocNetRenderer(state, input_name, input_mode, input_frequency, input_offset,
-                                                   input_tone, input_location, partial_match, open_session_menu)));
+        return ftxui::Renderer(root, AdHocNetRenderer(state, input_name, input_mode, input_frequency, input_offset,
+                                                      input_tone, input_location, partial_match, open_session_menu));
     }
 
     // ---- Net history page ---------------------------------------------------
@@ -1815,10 +1887,16 @@ namespace ql
                 return PageChrome("History: " + net_name, content,
                                   InKeyOrder(AddExtraKeysThatFit({{"F7", "Export"}, {"Esc", "Back"}}, extras, 1)));
             }
-            return PageChrome(
-                "History: " + net_name, content,
-                InKeyOrder(AddExtraKeysThatFit(
-                    {{"F5", "Del Check-In"}, {"F6", "Import"}, {"F7", "Export"}, {"Esc", "Back"}}, extras, 1)));
+            std::vector<KeyHint> hints;
+            if (CanPushUpstream(state_))
+            {
+                hints.push_back({"F3", "Push"});
+            }
+            hints.push_back({"F5", "Del Check-In"});
+            hints.push_back({"F6", "Import"});
+            hints.push_back({"F7", "Export"});
+            hints.push_back({"Esc", "Back"});
+            return PageChrome("History: " + net_name, content, InKeyOrder(AddExtraKeysThatFit(hints, extras, 1)));
         }
 
     private:
@@ -2447,8 +2525,7 @@ namespace ql
         ftxui::Component main_view = ftxui::Renderer(root, ImportNetRenderer(state, file_menu));
         ftxui::Component merge_modal = ftxui::Renderer(ftxui::Container::Vertical({}), NetMergeModalRenderer(state));
         ftxui::Component with_merge = LayeredModal(main_view, merge_modal, &state->show_merge_modal);
-        return WithConfirmPrompt(
-            state, LayeredModal(with_merge, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal));
+        return LayeredModal(with_merge, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal);
     }
 
     // ---- Manage users page --------------------------------------------------

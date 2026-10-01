@@ -30,6 +30,7 @@
 #include "ui/handlers.hpp"
 #include "ui/mouse.hpp"
 #include "ui/pages.hpp"
+#include "ui/push_runner.hpp"
 
 namespace ql
 {
@@ -522,7 +523,10 @@ namespace ql
         // because another connection -- another session, or the station data
         // updater -- is mid-transaction) taking down the whole session.
         // Help and the seldom-used windows open over whichever page is up.
-        ftxui::Component with_info_window = ql::LayeredModal(tab, ql::BuildInfoWindow(&state), &state.show_info_window);
+        ftxui::Component with_confirm_prompt =
+            ql::LayeredModal(tab, ql::BuildConfirmPrompt(&state), &state.show_confirm_prompt);
+        ftxui::Component with_info_window =
+            ql::LayeredModal(with_confirm_prompt, ql::BuildInfoWindow(&state), &state.show_info_window);
         ftxui::Component ui = ftxui::Make<ql::SafeAppEventDispatcher>(with_info_window, &state);
 
         // The top bar's station-data notice reads this session's database.
@@ -535,6 +539,13 @@ namespace ql
         if (is_console_session)
         {
             update_checker = std::make_unique<UpdateChecker>(&screen);
+        }
+        // At the console: pushing sessions upstream, off this thread.
+        std::unique_ptr<PushRunner> push_runner;
+        if (is_console_session)
+        {
+            push_runner = std::make_unique<PushRunner>(&screen, &state);
+            state.push_runner = push_runner.get();
         }
 
         screen.Loop(ui);

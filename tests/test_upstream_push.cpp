@@ -53,10 +53,11 @@ namespace ql
     QL_TEST(UpstreamArgumentsNeedNoShell)
     {
         Upstream upstream = TestUpstream();
-        CHECK_EQ(Joined(UpstreamScpArguments(upstream, "./exports/Sky_2026-09-14.qlsession", "Sky_2026-09-14.qlsession")),
-                 std::string("[-o][BatchMode=yes][-o][ConnectTimeout=15][-P][2222][--]"
-                             "[./exports/Sky_2026-09-14.qlsession]"
-                             "[W4KWK@upstream.example.org:/imports/Sky_2026-09-14.qlsession]"));
+        std::vector<std::string> scp =
+            UpstreamScpArguments(upstream, "./exports/Sky_2026-09-14.qlsession", "Sky_2026-09-14.qlsession");
+        CHECK_EQ(Joined(scp), std::string("[-o][BatchMode=yes][-o][ConnectTimeout=15][-P][2222][--]"
+                                          "[./exports/Sky_2026-09-14.qlsession]"
+                                          "[W4KWK@upstream.example.org:/imports/Sky_2026-09-14.qlsession]"));
         CHECK_EQ(Joined(UpstreamImportArguments(upstream, "Sky.qlsession", "")),
                  std::string("[-o][BatchMode=yes][-o][ConnectTimeout=15][-p][2222][-l][W4KWK][--]"
                              "[upstream.example.org][import-session Sky.qlsession]"));
@@ -68,8 +69,9 @@ namespace ql
 
     QL_TEST(ImportRepliesAreRead)
     {
-        ImportReply reply = ParseImportReply("QUICKLOGGER-RESULT 1\nstatus: imported\nnet: Sky Warn\nnet-id: 2\n"
-                                             "session: 2026-09-14 23:30 UTC\nmessage: Imported.\n");
+        ImportReply reply = ParseImportReply(
+            "QUICKLOGGER-RESULT 1\nstatus: imported\nnet: Sky Warn\nnet-id: 2\n"
+            "session: 2026-09-14 23:30 UTC\nmessage: Imported.\n");
         CHECK(reply.status == ImportReplyStatus::kImported);
         CHECK_EQ(reply.net, std::string("Sky Warn"));
         CHECK_EQ(reply.net_id, std::int64_t{2});
@@ -90,13 +92,10 @@ namespace ql
     QL_TEST(ImportRepliesFromAnythingElseAreUnreadable)
     {
         CHECK(ParseImportReply("").status == ImportReplyStatus::kUnreadable);
-        CHECK(ParseImportReply("bash: import-session: command not found\n").status ==
-              ImportReplyStatus::kUnreadable);
+        CHECK(ParseImportReply("bash: import-session: command not found\n").status == ImportReplyStatus::kUnreadable);
         CHECK(ParseImportReply("QUICKLOGGER-RESULT 2\nstatus: imported\n").status == ImportReplyStatus::kUnreadable);
-        CHECK(ParseImportReply(" QUICKLOGGER-RESULT 1\nstatus: imported\n").status ==
-              ImportReplyStatus::kUnreadable);
-        CHECK(ParseImportReply("QUICKLOGGER-RESULT 1\nmessage: no status\n").status ==
-              ImportReplyStatus::kUnreadable);
+        CHECK(ParseImportReply(" QUICKLOGGER-RESULT 1\nstatus: imported\n").status == ImportReplyStatus::kUnreadable);
+        CHECK(ParseImportReply("QUICKLOGGER-RESULT 1\nmessage: no status\n").status == ImportReplyStatus::kUnreadable);
         CHECK(ParseImportReply("QUICKLOGGER-RESULT 1\nstatus: done\n").status == ImportReplyStatus::kUnreadable);
         // Nothing to confirm.
         CHECK(ParseImportReply("QUICKLOGGER-RESULT 1\nstatus: needs-confirmation\n").status ==
@@ -173,8 +172,9 @@ namespace ql
         CHECK_EQ(Decide(copied, stopped).message, std::string("Couldn't reach upstream.example.org."));
         CHECK_EQ(Decide(copied, Ran(3, "QUICKLOGGER-RESULT 1\nstatus: no-match\n", "")).message,
                  std::string("No net named like TAG Skywarn on upstream.example.org."));
-        CHECK_EQ(Decide(copied, Ran(4, "QUICKLOGGER-RESULT 1\nstatus: refused\n"
-                                       "message: View-only users can't run commands.\n",
+        CHECK_EQ(Decide(copied, Ran(4,
+                                    "QUICKLOGGER-RESULT 1\nstatus: refused\n"
+                                    "message: View-only users can't run commands.\n",
                                     ""))
                      .message,
                  std::string("Your user on upstream.example.org is view-only."));

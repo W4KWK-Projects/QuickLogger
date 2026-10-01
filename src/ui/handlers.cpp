@@ -316,6 +316,11 @@ namespace ql
             OpenHistorySessionNotes(state_);
             return true;
         }
+        if (event == ftxui::Event::F3 && CanPushUpstream(state_))
+        {
+            PushSelectedHistorySession(state_);
+            return true;
+        }
         // Nothing in History can be deleted or imported by a view-only
         // user.
         if (state_->view_only_user &&
@@ -1300,6 +1305,30 @@ namespace ql
 
     bool SettingsKeyHandler::operator()(const ftxui::Event& event) const
     {
+        // The Upstream Server window takes its own keys; typing goes to its
+        // fields, and every other F-key is swallowed.
+        if (state_->show_upstream_window)
+        {
+            if (event == ftxui::Event::F2)
+            {
+                SaveUpstreamWindow(state_);
+                return true;
+            }
+            if (event == ftxui::Event::Escape)
+            {
+                CloseUpstreamWindow(state_);
+                return true;
+            }
+            return event == ftxui::Event::F1 || event == ftxui::Event::F3 || event == ftxui::Event::F4 ||
+                   event == ftxui::Event::F5 || event == ftxui::Event::F6 || event == ftxui::Event::F7 ||
+                   event == ftxui::Event::F8 || event == ftxui::Event::F9 || event == ftxui::Event::F10 ||
+                   event == ftxui::Event::F11 || event == ftxui::Event::F12;
+        }
+        if (event == ftxui::Event::F5 && state_->is_console_session)
+        {
+            OpenUpstreamWindow(state_);
+            return true;
+        }
         if (event == ftxui::Event::F2)
         {
             SaveSettingsHandler save(state_);
@@ -1405,6 +1434,17 @@ namespace ql
                 LeaveClosedSession(state);
             }
         }
+        else if (state->confirm_prompt == ConfirmPrompt::kPushToNet)
+        {
+            if (yes)
+            {
+                ConfirmPushToNet(state);
+            }
+            else if (event == ftxui::Event::Escape)
+            {
+                DeclinePushToNet(state);
+            }
+        }
         else if (event == ftxui::Event::Escape)
         {
             CancelConfirmPrompt(state);
@@ -1427,6 +1467,11 @@ namespace ql
         else if (state->confirm_prompt == ConfirmPrompt::kCloseNet && yes)
         {
             CloseActiveNet(state);
+        }
+        else if (state->confirm_prompt == ConfirmPrompt::kCloseNet && event == ftxui::Event::F3 &&
+                 CanPushUpstream(state))
+        {
+            CloseActiveNetAndPush(state);
         }
         else if (state->confirm_prompt == ConfirmPrompt::kImportOtherNet && yes)
         {
@@ -1478,7 +1523,7 @@ namespace ql
     {
         return state->show_new_station_modal || state->show_edit_checkin_modal || state->show_saved_station_modal ||
                state->show_zmodem_confirm_modal || state->show_delete_net_confirm_modal ||
-               state->show_session_notes_modal || state->show_merge_modal;
+               state->show_session_notes_modal || state->show_merge_modal || state->show_upstream_window;
     }
 
     // Keys in the Import or Merge window (see MergeStage); it takes them

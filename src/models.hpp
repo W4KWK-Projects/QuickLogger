@@ -131,6 +131,11 @@ namespace ql
         // e.g. what an emergency net was stood up for. Not in the text log;
         // travels in .qlsession and .qlnet files.
         std::string notes;
+        // Unix timestamp of the last time it was pushed to the upstream
+        // QuickLogger (Federated Logging); 0 if never. This database's own
+        // record: CreateNetInstance doesn't write it, so it never travels in
+        // a .qlsession or .qlnet file.
+        std::int64_t pushed_at = 0;
     };
 
     // One station's check-in during a specific NetInstance. Signal report

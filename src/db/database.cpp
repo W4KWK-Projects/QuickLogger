@@ -243,7 +243,7 @@ CREATE TABLE IF NOT EXISTS users (
         return net;
     }
 
-    // A NetInstance from the 14 columns starting at `first` (see
+    // A NetInstance from the 15 columns starting at `first` (see
     // QL_NET_INSTANCE_COLUMNS for their order).
     static NetInstance ReadNetInstanceColumns(const Statement& row, int first)
     {
@@ -262,6 +262,7 @@ CREATE TABLE IF NOT EXISTS users (
         instance.operator_role = static_cast<int>(row.ColumnInt64(first + 11));
         instance.started_at = row.ColumnInt64(first + 12);
         instance.notes = row.ColumnText(first + 13);
+        instance.pushed_at = row.ColumnInt64(first + 14);
         return instance;
     }
 
@@ -299,7 +300,7 @@ CREATE TABLE IF NOT EXISTS users (
 #define QL_NET_INSTANCE_COLUMNS                                                        \
     "i.id, i.net_id, i.instance_date, i.net_control_callsign, "                        \
     "i.alternate_net_control_callsign, i.logger_callsign, i.created_by, i.frequency, " \
-    "i.location, i.status, i.closed_at, i.operator_role, i.started_at, i.notes"
+    "i.location, i.status, i.closed_at, i.operator_role, i.started_at, i.notes, i.pushed_at"
 #define QL_CHECK_IN_COLUMNS                                                                \
     "c.id, c.net_instance_id, c.callsign, c.sequence_number, c.signal_report, c.remarks, " \
     "c.comment, c.checked_in_at, c.designated_role"
@@ -518,8 +519,9 @@ CREATE TABLE IF NOT EXISTS users (
         // already a saved station becomes one first.
         DropOldSeedStations();
         // Since 2.0.0 a session records when it was last pushed upstream
-        // (Federated Logging); 0 is never. Only this database's own: it
-        // isn't part of a NetInstance, so exports and merges don't carry it.
+        // (Federated Logging); 0 is never. Only this database's own:
+        // CreateNetInstance never writes it, so exports, imports and merges
+        // don't carry it.
         EnsureColumnExists(db_, "net_instances", "pushed_at", "INTEGER NOT NULL DEFAULT 0");
 
         std::string set_version = "PRAGMA user_version = " + std::to_string(kSchemaVersion) + ";";
@@ -1187,7 +1189,7 @@ COMMIT;
         SELECT i.id, i.net_id, i.instance_date, i.net_control_callsign,
                i.alternate_net_control_callsign, i.logger_callsign, i.created_by,
                i.frequency, i.location, i.status, i.closed_at, i.operator_role, i.started_at,
-               i.notes
+               i.notes, i.pushed_at
         FROM net_instances i JOIN nets n ON n.id = i.net_id
         WHERE n.is_ad_hoc = 1
         ORDER BY i.instance_date DESC, i.started_at DESC, i.id DESC;
@@ -1207,7 +1209,7 @@ COMMIT;
         SELECT i.id, i.net_id, i.instance_date, i.net_control_callsign,
                i.alternate_net_control_callsign, i.logger_callsign, i.created_by,
                i.frequency, i.location, i.status, i.closed_at, i.operator_role, i.started_at,
-               i.notes
+               i.notes, i.pushed_at
         FROM net_instances i JOIN nets n ON n.id = i.net_id
         WHERE n.is_ad_hoc = 1 AND n.name = ? AND i.instance_date = ? AND i.started_at = ?
         ORDER BY i.id LIMIT 1;
@@ -1227,7 +1229,7 @@ COMMIT;
         Statement statement(&statements_, R"sql(
         SELECT id, net_id, instance_date, net_control_callsign,
                alternate_net_control_callsign, logger_callsign, created_by,
-               frequency, location, status, closed_at, operator_role, started_at, notes
+               frequency, location, status, closed_at, operator_role, started_at, notes, pushed_at
         FROM net_instances WHERE net_id = ?
         ORDER BY instance_date DESC, started_at DESC, id DESC;
     )sql");
@@ -1245,7 +1247,7 @@ COMMIT;
         Statement statement(&statements_, R"sql(
         SELECT id, net_id, instance_date, net_control_callsign,
                alternate_net_control_callsign, logger_callsign, created_by,
-               frequency, location, status, closed_at, operator_role, started_at, notes
+               frequency, location, status, closed_at, operator_role, started_at, notes, pushed_at
         FROM net_instances WHERE id = ?;
     )sql");
         statement.BindInt64(0, instance_id);
@@ -1254,6 +1256,14 @@ COMMIT;
             return std::nullopt;
         }
         return ReadNetInstanceRow(statement);
+    }
+
+    void Database::SetNetInstancePushedAt(std::int64_t instance_id, std::int64_t pushed_at)
+    {
+        Statement statement(&statements_, "UPDATE net_instances SET pushed_at = ? WHERE id = ?;");
+        statement.BindInt64(0, pushed_at);
+        statement.BindInt64(1, instance_id);
+        statement.Step();
     }
 
     std::vector<std::int64_t> Database::GetNetIdsWithOpenInstances()
@@ -1452,7 +1462,7 @@ COMMIT;
             record.net_name = statement->ColumnText(0);
             record.net_is_ad_hoc = statement->ColumnInt64(1) != 0;
             record.instance = ReadNetInstanceColumns(*statement, 2);
-            record.check_in = ReadCheckInColumns(*statement, 15);
+            record.check_in = ReadCheckInColumns(*statement, 16);
             records.push_back(record);
         }
         return records;

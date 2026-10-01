@@ -13,6 +13,7 @@
 #include "../models.hpp"
 #include "../net_slice.hpp"
 #include "../settings.hpp"
+#include "../upstream_push.hpp"
 #include "list_columns.hpp"
 
 namespace ql
@@ -100,7 +101,14 @@ namespace ql
         // Importing a session logged under a net name nothing like the
         // History it's going into (see NetNamesLookAlike).
         kImportOtherNet,
+        // The upstream has no net of the pushed session's name, but one that
+        // looks like it (AppState::push_upstream_net): push it there?
+        kPushToNet,
     };
+
+    // Runs a push (PushSessionFile) on a thread of its own and hands the
+    // result back to the UI thread (FinishPush); see push_runner.hpp.
+    class PushRunner;
 
     // Importing a .qlnet that looks like a net already here (see
     // OpenNetMergeChoice): first which net, and whether to import it as a
@@ -364,6 +372,38 @@ namespace ql
         // The Settings page's Nearby Radius field, in miles (digits only);
         // copied into settings_form.nearby_radius_miles on save.
         std::string settings_radius_text;
+
+        // The Upstream Server window over Settings (F5, console only): the
+        // upstream QuickLogger sessions are pushed to (Federated Logging,
+        // see upstream_push.hpp). Its fields, saved into `settings` (and
+        // settings_form) with its own F2.
+        bool show_upstream_window = false;
+        std::string upstream_host_text;
+        std::string upstream_user_text;
+        std::string upstream_port_text;
+        // Where each field's cursor is: put at the end of what's there when
+        // the window opens.
+        int upstream_host_cursor = 0;
+        int upstream_user_cursor = 0;
+        int upstream_port_cursor = 0;
+        // Which field has the focus: Host (0) when the window opens.
+        int upstream_focus = 0;
+        // Whether ssh and scp were found when the window opened.
+        bool upstream_tools_available = true;
+
+        // Pushing a session upstream (console only). `push_runner` is the
+        // console session's, null elsewhere. While `push_running`, another
+        // push is refused. The push's session, the .qlsession made for it
+        // (removed once the push is over), the name it's uploaded as, the
+        // session's own net name, and for kPushToNet the upstream's net to
+        // confirm.
+        PushRunner* push_runner = nullptr;
+        bool push_running = false;
+        std::int64_t push_instance_id = 0;
+        std::string push_local_path;
+        std::string push_remote_name;
+        std::string push_session_net;
+        std::string push_upstream_net;
 
         // Net list page: the recurring nets a user can select and start (never
         // ad hoc ones -- see Net::is_ad_hoc).
@@ -710,8 +750,13 @@ namespace ql
 
     // Closes the active session and returns to the net list. If someone
     // else closed it in the meantime, their end time is kept, and it says
-    // so (ShowSessionClosedPrompt).
-    void CloseActiveNet(AppState* state);
+    // so (ShowSessionClosedPrompt). Returns true if it was closed here.
+    bool CloseActiveNet(AppState* state);
+
+    // F3 on the Close Net prompt, when there's an upstream (CanPushUpstream):
+    // closes the session as F2 does, then pushes it (StartPush). It's closed
+    // whatever becomes of the push.
+    void CloseActiveNetAndPush(AppState* state);
 
     // True if AppState::active_instance is still open for logging. If
     // someone else has closed or deleted it (it may be shared -- see
@@ -1120,6 +1165,41 @@ namespace ql
     // and only in a build with the SSH server (so never on Windows), since
     // the users it manages exist only to log in over SSH.
     bool CanManageUsers(const AppState* state);
+
+    // Whether this session can push sessions upstream: only the local
+    // console (the push runs as the account QuickLogger runs under, with
+    // its ~/.ssh), and only once an upstream is set (Settings, F5).
+    bool CanPushUpstream(const AppState* state);
+
+    // F5 on Settings, at the console: opens the Upstream Server window with
+    // the saved upstream.
+    void OpenUpstreamWindow(AppState* state);
+    // F2 in it: checks and saves the upstream (a blank host is none) and
+    // closes it.
+    void SaveUpstreamWindow(AppState* state);
+    // Esc in it: closes it, saving nothing.
+    void CloseUpstreamWindow(AppState* state);
+
+    // Pushes closed session `instance_id` upstream on PushRunner's thread,
+    // confirming `confirm_net` if it isn't blank: writes its .qlsession
+    // under the console's exports/, and says "Pushing to <host>...". Says
+    // why not instead if it can't (no upstream, no ssh, a push already
+    // running).
+    bool StartPush(AppState* state, std::int64_t instance_id, const std::string& confirm_net);
+
+    // F3 in History: pushes the highlighted session, if it's closed and
+    // not pushed yet.
+    void PushSelectedHistorySession(AppState* state);
+
+    // On the UI thread once a push has ended: records pushed_at, or asks
+    // about the upstream's look-alike net (ConfirmPrompt::kPushToNet), or
+    // says why it failed; then removes the .qlsession unless it's needed
+    // for the confirmation.
+    void FinishPush(AppState* state, const PushResult& result);
+
+    // F2/Enter and Esc on ConfirmPrompt::kPushToNet.
+    void ConfirmPushToNet(AppState* state);
+    void DeclinePushToNet(AppState* state);
 
     // Reloads AppState::modal_callsign_suggestions/_labels from
     // AppState::modal_station.callsign: tier 1 (SearchNetStationsByCallsignSubstring
