@@ -55,6 +55,9 @@ if ! grep -q '^Include /etc/ssh/sshd_config.d/' /etc/ssh/sshd_config; then
     sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config
 fi
 sed -i -e 's/^Port 22$/#Port 22/' /etc/ssh/sshd_config
+# The config check needs the directory the SSH service makes when it
+# starts, which a socket-started sshd (Ubuntu 24.04) may not have yet.
+install -d -m 755 /run/sshd
 sshd -t
 # Ubuntu 22.10 and newer start sshd from ssh.socket. From 24.04 a
 # generator builds its port from sshd_config, so the change above is
