@@ -84,13 +84,13 @@ QuickLogger does **not** need `unzip`, `mkdir`, or any other command-line tool t
 
 ### Optional: `lrzsz` (ZMODEM file transfer)
 
-The net-log/database-slice export and import features can push and pull files over the terminal connection using the ZMODEM protocol, via the `sz`/`rz` command-line tools (the `lrzsz` package). It's needed only on the machine running QuickLogger, only for that one feature, and only where someone is connected through a ZMODEM-capable terminal (typically over SSH). If it's missing, QuickLogger still runs fine; it just skips the ZMODEM offer and tells you so.
+The net-log/database-slice export and import features can push and pull files over the terminal connection using the ZMODEM protocol, via the `sz`/`rz` command-line tools (the `lrzsz` package). It's needed only on the machine running QuickLogger, only for that one feature, and only where someone is connected through a ZMODEM-capable terminal (typically over SSH). If it's missing, QuickLogger still runs fine; it just skips the ZMODEM offer and tells you so. SSH users can copy files with `scp` or `sftp` instead, with or without it (see the [User Guide](docs/USER_GUIDE.md)).
 
 - macOS: `brew install lrzsz`
 - Debian/Ubuntu: `sudo apt install lrzsz`
 - Fedora: `sudo dnf install lrzsz`
 - FreeBSD: `sudo pkg install lrzsz` (it installs them as `lsz`/`lrz`, which QuickLogger finds too)
-- Alpine: not supported (Alpine has no `lrzsz` package). Everything else works, SSH included; exports are saved in `exports/` and imports are read from `imports/`, but not sent or received over ZMODEM.
+- Alpine: not supported (Alpine has no `lrzsz` package). Everything else works, SSH included; exports are saved in `exports/` and imports are read from `imports/`, but not sent or received over ZMODEM. SSH users can use `scp` or `sftp` instead.
 - Windows: not supported
 
 ## Starting it
@@ -112,7 +112,7 @@ QuickLogger creates and uses these files/directories, all as siblings of whereve
 - `quicklogger.db` — the shared SQLite database (nets, stations, check-in history, the SSH user roster — everything except personal settings)
 - `settings.txt` — your own callsign and home ZIP (local console session only; never included in any export)
 - `settings/` — one settings file per SSH login user (see below)
-- `exports/`, `imports/` — where "download"/"upload" style features (net-slice export/import, ZMODEM) read and write files. The local console's files go directly in them and are kept for good. Each SSH user's go in their own `ssh-users/<username>/` folder inside them, where only that user sees them, and are deleted after 7 days; for an SSH user they're only a stop on the way to or from their own computer.
+- `exports/`, `imports/` — where "download"/"upload" style features (net-slice export/import, ZMODEM, SFTP) read and write files. The local console's files go directly in them and are kept for good. Each SSH user's go in their own `ssh-users/<username>/` folder inside them, where only that user sees them, and are deleted after 7 days; for an SSH user they're only a stop on the way to or from their own computer.
 - `uls_cache/` — downloaded FCC, ISED and Census files (see [Station data](#station-data)); safe to delete while QuickLogger isn't running
 - `ssh_host_ed25519_key` — the SSH server's host key (see below)
 
@@ -311,6 +311,8 @@ ssh -p 2222 <username>@<host>
 ```
 
 Public-key authentication only — there's no password option.
+
+The same address, port and key work for `scp` and `sftp`, which reach only that user's own exports and imports (see the [User Guide](docs/USER_GUIDE.md)).
 
 ### Creating your SSH key
 

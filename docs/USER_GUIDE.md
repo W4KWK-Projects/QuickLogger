@@ -216,6 +216,14 @@ It all happens at once, or not at all if something goes wrong. It can't be undon
 
 **Over SSH (ZMODEM):** after an export, QuickLogger offers to send the file to your terminal. Open your terminal's receive window, then press **Enter**; **Esc** skips it and the file stays in `exports/`. To upload a `.qlnet` or `.qlsession`, press **F3** on the Import page (F9 on Recurring Nets for a net, F6 in History for a session), then send the file from your terminal. A session's export sends one `.zip` holding its log, `.qlsession` and `.adi`. The three files stay in `exports/`; the `.zip` is removed once the transfer is over (or skipped), and **F7** makes a fresh one. This needs a terminal that supports ZMODEM (such as ZOC or SecureCRT) and `lrzsz` installed where QuickLogger runs, so there's no ZMODEM on Alpine Linux, which has no `lrzsz` package, or on Windows, which has no SSH server.
 
+**Over SSH (SFTP):** without ZMODEM, copy files with `scp` or `sftp`, using the address, port and key you log in with. You see two folders: `/exports`, your exports (read-only), and `/imports`, for files to import.
+
+To download an export: `scp -P 2222 you@server:/exports/Skywarn_2026-01-06.qlsession .`
+
+To upload a net for **F9** on Recurring Nets (or a session for **F6** in History): `scp -P 2222 Skywarn.qlnet you@server:/imports/`
+
+Uploads must be `.qlnet` or `.qlsession` files of up to 25 MB. A view-only user can't upload. `sftp`'s `rm` removes your own uploads. `scp` needs OpenSSH 9.0 or newer (8.7 to 8.9 with `-s`); with an older one, use `sftp`.
+
 **ADIF (`.adi`):** one record per check-in, except your own #1, in ADIF 3.1 for importing into a logging program (Log4OM, N1MM, LoTW's TQSL and the like). Each has the station's call sign; the date and time it checked in, in UTC; the frequency (the session's, or the net's) and band; the mode (D-STAR, DMR and Fusion as DIGITALVOICE with their submode); your callsign from Settings as the station callsign; the signal report as RST received; and whatever is known of the station's name (first name first: the FCC's "Shults, Roger D" becomes "Roger D Shults"), city, state, county, grid square, remarks (as COMMENT) and comment (as NOTES). Anything blank is left out. ADIF is plain ASCII, so accents are dropped there ("José" becomes "Jose"); the log and `.qlsession` keep them.
 
 **File format:** exported logs and saved-station lists are plain text in a fixed format, the same whatever terminal they came from, so a program can read them by column position. A few header lines come first (the net's name and, for a log, its date, times, roles and status), then a blank line, a column-heading line and one line per check-in or station. Each column starts two spaces after the one before; longer values are cut to fit, and trailing spaces are dropped.

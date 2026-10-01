@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <ctime>
 #include <sstream>
+#include <string_view>
 
 #include <poll.h>
 #include <sys/ioctl.h>
@@ -32,6 +33,7 @@
 
 #include "db/database.hpp"
 #include "interactive_session.hpp"
+#include "sftp_server.hpp"
 
 namespace ql
 {
@@ -144,6 +146,8 @@ namespace ql
 
         bool authenticated = false;
         std::string username;
+        // From the key the user logged in with (see User::view_only).
+        bool view_only = false;
 
         ssh_channel channel = nullptr;
 
@@ -151,6 +155,10 @@ namespace ql
         int pty_slave_fd = -1;
         bool shell_started = false;
         pid_t child_pid = -1;
+
+        // The client asked for the SFTP subsystem instead of a shell (see
+        // SubsystemRequestCallback).
+        bool sftp_requested = false;
     };
 
     static int AuthPubkeyCallback(ssh_session session, const char* user, ssh_key pubkey, char signature_state,
@@ -162,6 +170,7 @@ namespace ql
         // Any of the username's keys will do.
         std::int64_t matched_key_id = 0;
         std::string matched_username;
+        bool matched_view_only = false;
         for (const User& key : state->db->GetUserKeys(user))
         {
             ssh_key stored_key = ParsePublicKeyLine(key.public_key);
@@ -175,6 +184,7 @@ namespace ql
             {
                 matched_key_id = key.id;
                 matched_username = key.username;
+                matched_view_only = key.view_only;
                 break;
             }
         }
@@ -192,6 +202,7 @@ namespace ql
             state->authenticated = true;
             // As Manage Users has it, whatever case it was typed in.
             state->username = matched_username;
+            state->view_only = matched_view_only;
             state->db->UpdateUserLastLogin(matched_key_id, static_cast<std::int64_t>(std::time(nullptr)));
         }
         return SSH_AUTH_SUCCESS;
@@ -298,6 +309,22 @@ namespace ql
         return 0;
     }
 
+    // Accepts the "sftp" subsystem (OpenSSH's sftp, and its scp from 9.0
+    // on) on a channel that hasn't started a shell; HandleConnection then
+    // serves it with RunSftpSession. Any other subsystem is refused.
+    static int SubsystemRequestCallback(ssh_session session, ssh_channel channel, const char* subsystem, void* userdata)
+    {
+        (void)session;
+        (void)channel;
+        ConnectionState* state = static_cast<ConnectionState*>(userdata);
+        if (state->shell_started || state->sftp_requested || std::string_view(subsystem) != "sftp")
+        {
+            return -1;
+        }
+        state->sftp_requested = true;
+        return 0;
+    }
+
     static int ChannelDataCallback(ssh_session session, ssh_channel channel, void* data, uint32_t len, int is_stderr,
                                    void* userdata)
     {
@@ -305,6 +332,12 @@ namespace ql
         (void)channel;
         (void)is_stderr;
         ConnectionState* state = static_cast<ConnectionState*>(userdata);
+        // SFTP reads the channel itself (RunSftpSession): leave its data in
+        // the channel's buffer.
+        if (state->sftp_requested)
+        {
+            return 0;
+        }
         if (state->pty_master_fd < 0)
         {
             return static_cast<int>(len);
@@ -457,17 +490,19 @@ namespace ql
 
         // Poll until a channel exists (the client opens one once it
         // sees auth succeeded) and, once channel callbacks are wired up
-        // below, until a pty+shell has actually been started.
+        // below, until a pty+shell or SFTP has actually been started.
         struct ssh_channel_callbacks_struct channel_callbacks{};
         channel_callbacks.userdata = &state;
         channel_callbacks.channel_pty_request_function = PtyRequestCallback;
         channel_callbacks.channel_pty_window_change_function = PtyWindowChangeCallback;
         channel_callbacks.channel_shell_request_function = ShellRequestCallback;
+        channel_callbacks.channel_subsystem_request_function = SubsystemRequestCallback;
         channel_callbacks.channel_data_function = ChannelDataCallback;
         ssh_callbacks_init(&channel_callbacks);
         bool channel_callbacks_registered = false;
 
-        while (!state.shell_started && ssh_is_connected(session) && std::time(nullptr) < deadline)
+        while (!state.shell_started && !state.sftp_requested && ssh_is_connected(session) &&
+               std::time(nullptr) < deadline)
         {
             ssh_event_dopoll(event, 200);
             if (state.channel != nullptr && !channel_callbacks_registered)
@@ -475,6 +510,45 @@ namespace ql
                 ssh_set_channel_callbacks(state.channel, &channel_callbacks);
                 channel_callbacks_registered = true;
             }
+        }
+
+        if (state.sftp_requested)
+        {
+            ::alarm(0);
+            // A pty asked for before the subsystem has no use.
+            if (state.pty_master_fd >= 0)
+            {
+                ::close(state.pty_master_fd);
+                ::close(state.pty_slave_fd);
+            }
+            // RunSftpSession reads the channel with libssh's blocking
+            // calls, which poll the session themselves: take it back out
+            // of the event loop and the callbacks first.
+            ssh_remove_channel_callbacks(state.channel, &channel_callbacks);
+            ssh_event_remove_session(event, session);
+            ssh_event_free(event);
+            RunSftpSession(session, state.channel, db_path, state.username, state.view_only);
+
+            // scp counts a copy as failed unless ssh exits 0, which takes an
+            // exit status and the client closing the connection itself: a
+            // disconnect from this end is "closed by remote host" (exit
+            // 255). So close the channel and give the client a few seconds
+            // to go.
+            ssh_channel_request_send_exit_status(state.channel, 0);
+            ssh_channel_send_eof(state.channel);
+            ssh_channel_close(state.channel);
+            ssh_event closing = ssh_event_new();
+            ssh_event_add_session(closing, session);
+            std::time_t closing_deadline = std::time(nullptr) + 5;
+            while (ssh_is_connected(session) && std::time(nullptr) < closing_deadline)
+            {
+                ssh_event_dopoll(closing, 200);
+            }
+            ssh_event_free(closing);
+            ssh_channel_free(state.channel);
+            ssh_disconnect(session);
+            ssh_free(session);
+            return;
         }
 
         if (!state.shell_started)
