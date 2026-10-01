@@ -529,7 +529,7 @@ namespace ql
         std::int64_t now = Now();
         db.UpsertImportRunStatus(MakeStatus(kUlsDataset, "complete", now, now, 812345));
         std::string status = DescribeStationDataStatus(&db, now, true);
-        CHECK(status.find("FCC license data last updated") != std::string::npos);
+        CHECK(status.find("FCC license data updated") != std::string::npos);
         CHECK(status.find("(812345 records)") != std::string::npos);
         CHECK(status.find("Press F3 to refresh now.") != std::string::npos);
         CHECK(DescribeStationDataStatus(&db, now, false).find("F3") == std::string::npos);

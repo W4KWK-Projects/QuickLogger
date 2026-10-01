@@ -1389,8 +1389,8 @@ namespace ql
         std::optional<ImportRunStatus> uls = db->GetImportRunStatus(kUlsDataset);
         if (uls.has_value() && UlsDataLoaded(uls))
         {
-            message += "FCC license data last updated " + FormatLocalDateTime(uls->completed_at) +
-                       " (" + std::to_string(uls->records_imported) + " records).";
+            message += "FCC license data updated " + FormatLocalDateTime(uls->completed_at) + " (" +
+                       std::to_string(uls->records_imported) + " records).";
         }
         else if (!job.has_value())
         {
@@ -1398,21 +1398,31 @@ namespace ql
         }
         if (uls.has_value() && uls->status == "failed")
         {
-            message += " The last attempt (" + FormatLocalDateTime(uls->started_at) +
+            message += " Last attempt (" + FormatLocalDateTime(uls->started_at) +
                        ") failed: " + uls->last_error + " It will be retried automatically.";
         }
 
+        // The Canadian (ISED) data's status starts a line of its own.
         std::optional<ImportRunStatus> ised = db->GetImportRunStatus(kIsedDataset);
+        std::string ised_message;
         if (UlsDataLoaded(ised))
         {
-            message += " Canadian (ISED) call sign data last updated " +
-                       FormatLocalDateTime(ised->completed_at) + " (" +
-                       std::to_string(ised->records_imported) + " records).";
+            ised_message = "Canadian (ISED) call sign data updated " +
+                           FormatLocalDateTime(ised->completed_at) + " (" +
+                           std::to_string(ised->records_imported) + " records).";
         }
         if (ised.has_value() && ised->status == "failed")
         {
-            message += " Canadian call sign data failed to load (" + ised->last_error +
-                       "); it will be retried automatically.";
+            if (!ised_message.empty())
+            {
+                ised_message += " ";
+            }
+            ised_message += "Canadian call sign data failed to load (" + ised->last_error +
+                            "); it will be retried automatically.";
+        }
+        if (!ised_message.empty())
+        {
+            message += "\n" + ised_message;
         }
 
         std::optional<ImportRunStatus> centroids = db->GetImportRunStatus(kZipCentroidsDataset);

@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <ctime>
 #include <memory>
+#include <sstream>
+#include <string>
 #include <utility>
 
 #include <ftxui/component/component_options.hpp>
@@ -1481,15 +1483,29 @@ namespace ql
                 update_check_row =
                     ftxui::hbox({FieldLabel("Update Check:  "), update_check_toggle_->Render()});
                 const std::string& available = AvailableUpdateForDisplay();
-                update_hint = HintParagraph(
-                    available.empty()
-                        ? "Update Check looks for a new release on GitHub every 6 hours, and "
-                          "says so in the top bar. It downloads nothing."
-                        : "QuickLogger " + available +
-                              " is out. Click the notice in the top bar to open its download "
-                              "page: " +
-                              std::string(kReleasesPageUrl));
+                update_hint = ftxui::vbox(
+                    {ftxui::text(""),
+                     HintParagraph(
+                         available.empty()
+                             ? "Update Check notifies you about new releases. It checks GitHub "
+                               "every 6 hours."
+                             : "QuickLogger " + available +
+                                   " is out. Click the notice in the top bar to open its download "
+                                   "page: " +
+                                   std::string(kReleasesPageUrl))});
             }
+            // The station data's status: one paragraph per line of it.
+            ftxui::Elements status_lines;
+            std::istringstream status_text(
+                DescribeStationDataStatus(state_->db, static_cast<std::int64_t>(std::time(nullptr)),
+                                          state_->is_console_session));
+            std::string status_line;
+            while (std::getline(status_text, status_line))
+            {
+                status_lines.push_back(ftxui::paragraph(status_line));
+            }
+            ftxui::Element station_status =
+                ftxui::vbox(std::move(status_lines)) | ftxui::color(kColorHeading);
             ftxui::Element content = ftxui::vbox({
                 state_->callsign_editable
                     ? ftxui::hbox({FieldLabel("My Callsign*:  "), input_callsign_->Render()})
@@ -1505,22 +1521,20 @@ namespace ql
                 update_check_row,
                 HintText("* Required"),
                 Separator(),
-                HintParagraph("My ZIP Code is a plain 5-digit US ZIP code (digits only), used "
-                              "to find nearby licensed stations for nets that have no ZIP "
-                              "code of their own. Never included when the database is "
-                              "exported. Nearby Radius (1-250, 70 if left blank) is how far "
-                              "from the net's ZIP, or yours, a station can be and still "
-                              "be suggested."),
-                HintParagraph("Time Format (Left/Right to change) sets how every time is shown "
+                HintParagraph(
+                    "My ZIP Code is a plain 5-digit US ZIP code (digits only), used "
+                    "to find nearby licensed stations for nets that have no ZIP "
+                    "code of their own. Nearby Radius (1-250, 70 if left blank) is how far "
+                    "from the net's ZIP, or yours, a station can be and still "
+                    "be suggested."),
+                ftxui::text(""),
+                HintParagraph("Time Format (Left/Right to change) sets how times are shown "
                               "and exported. Times are shown in the time zone of the computer "
                               "QuickLogger runs on."),
                 update_hint,
                 Separator(),
-                Heading("Station data (shared by everyone, kept up to date automatically):"),
-                ftxui::paragraph(DescribeStationDataStatus(
-                    state_->db, static_cast<std::int64_t>(std::time(nullptr)),
-                    state_->is_console_session)) |
-                    ftxui::color(kColorHeading),
+                Heading("Station data (shared globally, kept up to date automatically):"),
+                station_status,
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
