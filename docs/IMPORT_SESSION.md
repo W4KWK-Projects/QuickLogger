@@ -4,12 +4,12 @@ QuickLogger's built-in SSH server runs two commands of its own, for Federated Lo
 
 A push takes two steps, both as an SSH user added in Manage Users who isn't view-only:
 
-1. Upload the session's `.qlsession` file (F7 Export) into your `/imports` over SFTP: `scp -P 2222 Skywarn_2026-09-14.qlsession you@upstream:/imports/`
+1. Upload the session's `.qlsession` file (F7 Export) into your `/imports` with scp or sftp: `scp -P 2222 Skywarn_2026-09-14.qlsession you@upstream:/imports/`
 2. Import it: `ssh -p 2222 you@upstream import-session Skywarn_2026-09-14.qlsession`
 
 ## Commands
 
-The SSH server runs only these two. It never starts a shell or another program: anything else is answered with `status: error` and exit status 1, and nothing runs.
+Apart from copying files with scp, the SSH server runs only these two. It never starts a shell or another program: anything else is answered with `status: error` and exit status 1, and nothing runs.
 
 ```
 version

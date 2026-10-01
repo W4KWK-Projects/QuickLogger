@@ -314,7 +314,7 @@ Public-key authentication only — there's no password option.
 
 The same address, port and key work for `scp` and `sftp`, which reach only that user's own exports and imports (see the [User Guide](docs/USER_GUIDE.md)).
 
-The server also runs two commands of its own, `import-session` (for another QuickLogger pushing a session to it) and `version`; it never runs a shell or any other program. See [import-session](docs/IMPORT_SESSION.md).
+Besides copying files with scp, the server runs two commands of its own, `import-session` (for another QuickLogger pushing a session to it) and `version`; it never runs a shell or any other program. See [import-session](docs/IMPORT_SESSION.md).
 
 ### Creating your SSH key
 

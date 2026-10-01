@@ -34,6 +34,7 @@
 #include "db/database.hpp"
 #include "interactive_session.hpp"
 #include "remote_command.hpp"
+#include "scp_server.hpp"
 #include "sftp_server.hpp"
 
 namespace ql
@@ -336,8 +337,9 @@ namespace ql
 
     // Accepts a command (`ssh user@host <command>`) on a channel that
     // hasn't started anything else. It's never given to a shell or run as
-    // a program: HandleConnection hands it to RunRemoteCommand, which knows
-    // only QuickLogger's own commands and refuses everything else.
+    // a program: HandleConnection hands it to RunScpCommand (an scp client
+    // that doesn't speak SFTP) or RunRemoteCommand, which knows only
+    // QuickLogger's own commands and refuses everything else.
     static int ExecRequestCallback(ssh_session session, ssh_channel channel, const char* command, void* userdata)
     {
         (void)session;
@@ -356,8 +358,57 @@ namespace ql
     // writes its result to the channel and returns its exit status. Opens
     // the database itself: this process closed its own before the channel
     // was set up, and forks nothing after this (THE FORK RULE).
+    // An SSH channel as RunScpCommand reads and writes it, with libssh's
+    // blocking calls.
+    class SshScpChannel : public ScpChannel
+    {
+    public:
+        explicit SshScpChannel(ssh_channel channel) : channel_(channel)
+        {
+        }
+
+        bool Read(char* data, std::size_t size) override
+        {
+            std::size_t done = 0;
+            while (done < size)
+            {
+                int count = ssh_channel_read(channel_, data + done, static_cast<uint32_t>(size - done), 0);
+                if (count <= 0)
+                {
+                    return false;
+                }
+                done += static_cast<std::size_t>(count);
+            }
+            return true;
+        }
+
+        bool Write(const char* data, std::size_t size) override
+        {
+            return ssh_channel_write(channel_, data, static_cast<uint32_t>(size)) == static_cast<int>(size);
+        }
+
+    private:
+        ssh_channel channel_;
+    };
+
     static int RunExecCommand(ssh_channel channel, const std::string& db_path, const ConnectionState& state)
     {
+        // An scp client that doesn't speak SFTP. Never the database: the
+        // files are all it needs.
+        if (IsScpCommandLine(state.exec_command))
+        {
+            ScpCommand scp;
+            std::string scp_error;
+            if (!ParseScpCommand(state.exec_command, &scp, &scp_error))
+            {
+                std::string message = "\x02scp: " + scp_error + "\n";
+                ssh_channel_write(channel, message.data(), static_cast<uint32_t>(message.size()));
+                return 1;
+            }
+            SshScpChannel scp_channel(channel);
+            return RunScpCommand(scp, &scp_channel, db_path, state.username, state.view_only);
+        }
+
         RemoteCommandResult result;
         RemoteCommand command;
         std::string error;
@@ -416,9 +467,9 @@ namespace ql
         (void)channel;
         (void)is_stderr;
         ConnectionState* state = static_cast<ConnectionState*>(userdata);
-        // SFTP reads the channel itself (RunSftpSession): leave its data in
-        // the channel's buffer.
-        if (state->sftp_requested)
+        // SFTP and scp read the channel themselves (RunSftpSession,
+        // RunScpCommand): leave their data in the channel's buffer.
+        if (state->sftp_requested || state->exec_requested)
         {
             return 0;
         }

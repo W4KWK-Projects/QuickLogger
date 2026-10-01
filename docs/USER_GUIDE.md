@@ -222,7 +222,7 @@ To download an export: `scp -P 2222 you@server:/exports/Skywarn_2026-01-06.qlses
 
 To upload a net for **F9** on Recurring Nets (or a session for **F6** in History): `scp -P 2222 Skywarn.qlnet you@server:/imports/`
 
-Uploads must be `.qlnet` or `.qlsession` files of up to 25 MB, and `/imports` holds up to 100 MB in all. A view-only user can't upload. `sftp`'s `rm` removes your own uploads. `scp` needs OpenSSH 9.0 or newer (8.7 to 8.9 with `-s`); with an older one, use `sftp`.
+Uploads must be `.qlnet` or `.qlsession` files of up to 25 MB, and `/imports` holds up to 100 MB in all. A view-only user can't upload. `sftp`'s `rm` removes your own uploads. Any `scp` works, including the one built into Windows 10 and 11; it copies single files, not folders.
 
 **Pushing sessions to this server:** another QuickLogger, or an app, can send a closed session here over SSH: it uploads the `.qlsession` to its user's `/imports`, then runs `import-session`. The session goes into the net with the same name, as **F6** in History would put it; when only a similar name matches, nothing is imported until the sender confirms that net. A session from an ad hoc net becomes a new ad hoc net. The sender has to be an SSH user who isn't view-only. The commands and their answers are in [import-session](IMPORT_SESSION.md).
 
