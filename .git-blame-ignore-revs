@@ -1,0 +1,5 @@
+# Formatting-only commits for git blame to skip.
+# Locally: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Reformat at 120 columns
+a2ab6dcd19051c1241f7a6e569a49c26a118ca8a
