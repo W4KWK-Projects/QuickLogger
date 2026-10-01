@@ -2255,13 +2255,18 @@ namespace ql
         {
             ftxui::Elements rows =
                 state_->merge_stage == MergeStage::kSummary ? SummaryRows() : ChoiceRows();
-            // Wider on a wide terminal, so more of each difference shows.
-            int width = std::max(40, std::min(FrameTerminalSize().dimx - 4, 100));
+            int width = WindowWidth();
             return ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) |
                    ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder);
         }
 
     private:
+        // Wider on a wide terminal, so more of each difference shows.
+        static int WindowWidth()
+        {
+            return std::max(40, std::min(FrameTerminalSize().dimx - 4, 100));
+        }
+
         // A list in the window, the highlighted row marked and kept in view.
         // "Keep" or "Replace", always its full width: a long row is cut at
         // its end, never here.
@@ -2394,22 +2399,50 @@ namespace ql
                                                "with the file's:") |
                     ftxui::color(kColorLabel));
                 std::vector<ftxui::Element> lines;
-                for (std::size_t index : state_->merge_conflicts)
+                // A row's room: the window less its border, the list's
+                // frame and the "> " marker.
+                int row_room = WindowWidth() - 6;
+                int line_count = 0;
+                lines.reserve(state_->merge_conflicts.size());
+                for (std::size_t i = 0; i < state_->merge_conflicts.size(); ++i)
                 {
-                    const MergeSession& session = plan.sessions[index];
+                    const MergeSession& session = plan.sessions[state_->merge_conflicts[i]];
                     const NetInstance& file = slice.instances[session.file_index];
                     std::string when = file.instance_date;
                     if (file.started_at > 0)
                     {
                         when += "  " + FormatLocalTimeOfDay(file.started_at);
                     }
+                    std::string what = WhatDiffers(session);
+                    // The highlighted session, if what differs doesn't fit
+                    // beside it, says so in full on a line of its own.
+                    bool highlighted = static_cast<int>(i) == state_->selected_merge_conflict;
+                    int row_width = 7 + 2 + static_cast<int>(when.size()) + 3 + TextWidth(what);
+                    if (highlighted && row_width > row_room)
+                    {
+                        lines.push_back(ftxui::vbox({
+                            ftxui::hbox({
+                                ReplaceLabel(session.replace),
+                                ftxui::text("  " + when) | ftxui::color(kColorListRow),
+                            }),
+                            ftxui::hbox({
+                                ftxui::text("         "),
+                                ftxui::paragraph(what) | ftxui::color(kColorListRow) | ftxui::flex,
+                            }),
+                        }));
+                        // The paragraph's lines, at the room it has.
+                        int text_room = std::max(1, row_room - 9);
+                        line_count += 1 + (TextWidth(what) + text_room - 1) / text_room;
+                        continue;
+                    }
                     lines.push_back(ftxui::hbox({
                         ReplaceLabel(session.replace),
-                        ftxui::text("  " + when + "   " + WhatDiffers(session)) |
-                            ftxui::color(kColorListRow),
+                        ftxui::text("  " + when + "   " + what) | ftxui::color(kColorListRow),
                     }));
+                    ++line_count;
                 }
-                rows.push_back(List(lines, state_->selected_merge_conflict, list_count));
+                rows.push_back(
+                    List(lines, state_->selected_merge_conflict, list_count, line_count));
             }
             // Then the stations whose details differ; one highlight moves
             // through both lists.
