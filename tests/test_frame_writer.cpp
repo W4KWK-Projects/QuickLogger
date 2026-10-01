@@ -392,6 +392,16 @@ namespace ql
         CHECK_EQ(writer.Write(screen, false), std::string("\x1B[3;5HX"));
     }
 
+    QL_TEST(FrameWriterAlwaysGivesRowAndColumn)
+    {
+        // Termius (iOS) misreads "ESC[3H", so even the left edge is "3;1".
+        FrameWriter writer;
+        ftxui::Screen screen = MakeScreen(80, 24);
+        writer.Write(screen, true);
+        screen.PixelAt(0, 2).character = "X";
+        CHECK_EQ(writer.Write(screen, false), std::string("\x1B[3;1HX"));
+    }
+
     QL_TEST(FrameWriterRepaintsWhenAskedAndOnResize)
     {
         FrameWriter writer;
