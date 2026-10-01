@@ -376,7 +376,10 @@ namespace ql
         // callsign window has room for (see MaxCallsignMatches).
         int screen_height = 24;
         std::vector<std::vector<std::string>> net_cells;
+        // The net list's Net column: its usual width, and the narrowest it
+        // goes to keep Recurrence on a middling terminal (see NetListLayout).
         int net_name_width = 0;
+        int net_name_min_width = 0;
         std::vector<std::vector<std::string>> active_check_in_cells;
         std::vector<std::vector<std::string>> history_instance_cells;
         std::vector<std::vector<std::string>> history_check_in_cells;

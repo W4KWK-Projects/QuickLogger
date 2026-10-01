@@ -71,12 +71,14 @@ namespace ql
     static constexpr int kMenuEntryIndicatorWidth = 2;
 
     // The room a full-width list's rows get: the terminal less the list's
-    // border and the Menu's gutter. Never less than at 80 columns.
+    // border, the Menu's gutter and the scroll bar every page list has
+    // inside its right edge (missing that last one cut a wide terminal's
+    // last column by a character). Never less than at 80 columns.
     static int ScreenListWidth(int terminal_width)
     {
-        return std::max(80, terminal_width) - 4;
+        return std::max(80, terminal_width) - 5;
     }
-    static constexpr int kScreenListWidthAt80 = 76;
+    static constexpr int kScreenListWidthAt80 = 75;
 
     // The same for the autocomplete matches, which sit inside a window.
     int CheckInWindowWidth(int terminal_width)
@@ -85,12 +87,12 @@ namespace ql
     }
 
     // The match list inside that window: less its border, the list's own
-    // border and the "> " gutter.
+    // border, the "> " gutter and the scroll bar (see ScreenListWidth).
     static int MatchListWidth(int terminal_width)
     {
-        return CheckInWindowWidth(terminal_width) - 6;
+        return CheckInWindowWidth(terminal_width) - 7;
     }
-    static constexpr int kMatchListWidthAt80 = 64;
+    static constexpr int kMatchListWidthAt80 = 63;
 
     std::size_t MaxCallsignMatches(const AppState* state)
     {
@@ -264,19 +266,30 @@ namespace ql
 
     static const std::vector<ListColumn>& NetInstanceColumns(bool ad_hoc)
     {
+        // Each column leaves a space after its heading, so headings never
+        // run together where the gap is one space ("Alternate NC" filled
+        // its column at 80 and ran into "Logger"); the role columns fit a
+        // callsign with a portable suffix. Date, Start and End are a column
+        // wider than their text, so at 80 columns (one-space gaps) each is
+        // followed by two spaces; see NetInstanceLayout for Date once the
+        // gaps widen.
         // A recurring net's own history; its name is in the page title.
+        // Started by (who opened the session) and Notes (whether it has
+        // Session Notes, F12) come on wide terminals, after Check-ins.
         static const std::vector<ListColumn> recurring = {
-            {"Date", 10, 10, 0, 0},        {"Start", 8, 8, 0, 0},          {"End", 8, 8, 0, 0},
-            {"Net Control", 12, 12, 0, 0}, {"Alternate NC", 12, 12, 0, 0}, {"Logger", 12, 12, 0, 0},
-            {"Check-ins", 9, 9, 1, 0},     {"Status", 6, 6, 0, 0},
+            {"Date", 11, 11, 0, 0},        {"Start", 9, 9, 0, 0},          {"End", 9, 9, 0, 0},
+            {"Net Control", 12, 12, 0, 0}, {"Alternate NC", 13, 13, 0, 0}, {"Logger", 9, 9, 0, 0},
+            {"Started by", 11, 11, 2, 0},  {"Check-ins", 10, 10, 1, 0},    {"Notes", 6, 6, 3, 0},
+            {"Status", 6, 6, 0, 0},
         };
         // Every ad hoc net's sessions in one list: at 80 columns the net's
         // name takes the place of Alternate NC and Logger, which come back
         // when there's room.
         static const std::vector<ListColumn> every_ad_hoc = {
-            {"Date", 10, 10, 0, 0},   {"Start", 8, 8, 0, 0},         {"End", 8, 8, 0, 0},
-            {"Net", 24, 30, 0, 1},    {"Net Control", 12, 12, 0, 0}, {"Alternate NC", 12, 12, 3, 0},
-            {"Logger", 12, 12, 4, 0}, {"Check-ins", 9, 9, 1, 0},     {"Status", 6, 6, 0, 0},
+            {"Date", 11, 11, 0, 0}, {"Start", 9, 9, 0, 0},         {"End", 9, 9, 0, 0},
+            {"Net", 24, 30, 0, 1},  {"Net Control", 12, 12, 0, 0}, {"Alternate NC", 13, 13, 3, 0},
+            {"Logger", 9, 9, 4, 0}, {"Started by", 11, 11, 5, 0},  {"Check-ins", 10, 10, 1, 0},
+            {"Notes", 6, 6, 6, 0},  {"Status", 6, 6, 0, 0},
         };
         return ad_hoc ? every_ad_hoc : recurring;
     }
@@ -286,7 +299,7 @@ namespace ql
                                                      std::int64_t check_ins, bool ad_hoc)
     {
         std::vector<std::string> cells;
-        cells.reserve(ad_hoc ? 9 : 8);
+        cells.reserve(ad_hoc ? 11 : 10);
         cells.push_back(instance.instance_date);
         cells.push_back(FormatLocalTimeOfDay(instance.started_at));
         cells.push_back(FormatLocalTimeOfDay(instance.closed_at));
@@ -297,15 +310,26 @@ namespace ql
         cells.push_back(instance.net_control_callsign);
         cells.push_back(instance.alternate_net_control_callsign);
         cells.push_back(instance.logger_callsign);
+        cells.push_back(instance.created_by);
         cells.push_back(std::to_string(check_ins));
+        cells.emplace_back(instance.notes.empty() ? "" : "yes");
         cells.emplace_back(instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed");
         return cells;
     }
 
     static ListLayout NetInstanceLayout(int terminal_width, bool ad_hoc)
     {
-        return LayOutList(NetInstanceColumns(ad_hoc), ScreenListWidth(terminal_width),
-                          kScreenListWidthAt80, 1);
+        // Once everything is shown, the gaps keep widening, up to 4, so a
+        // wide terminal's row spreads out rather than bunching at the left.
+        ListLayout layout = LayOutList(NetInstanceColumns(ad_hoc), ScreenListWidth(terminal_width),
+                                       kScreenListWidthAt80, 1, 4);
+        // Date's extra column is only for one-space gaps; with wider ones
+        // it would sit further from Start than the other columns are apart.
+        if (layout.gap > 1)
+        {
+            layout.widths[0] = 10;
+        }
+        return layout;
     }
 
     const std::string& NetInstanceListHeader(int terminal_width, bool ad_hoc)
@@ -578,32 +602,71 @@ namespace ql
     // Net-list names are padded to the longest (up to this) so the columns
     // after them line up.
     static constexpr int kMaxNetNameColumnWidth = 40;
+    static constexpr int kMinNetNameColumnWidth = 30;
+    // Columns kept clear after the longest name; and the fewest, when the
+    // name narrows to make room for more columns.
+    static constexpr int kNetNameBreathingRoom = 4;
+    static constexpr int kNetNameNarrowRoom = 2;
 
     // The when-created/imported column (and "session open") comes last, as
     // it always has.
-    static std::vector<ListColumn> NetListColumns(int name_width)
+    // The Recurrence column's index in NetListColumns, and its full width:
+    // a typical recurrence ("Wednesdays at 8pm ET") is about 20; more
+    // than 24 would take room Offset and PL can use.
+    static constexpr std::size_t kNetRecurrenceColumn = 5;
+    static constexpr int kNetRecurrenceFullWidth = 24;
+
+    // `name_width` widens toward `name_max_width` only after everything
+    // else has been added and widened.
+    static std::vector<ListColumn> NetListColumns(int name_width, int name_max_width)
     {
         return {
-            {"Net", name_width, name_width, 0, 0},
-            {"Mode", 6, 8, 1, 5},
-            {"Frequency", 10, 12, 2, 6},
-            {"Recurrence", 20, 30, 3, 4},
-            {"Notes", 12, 12, 0, 0},
+            {"Net", name_width, name_max_width, 0, 99},
+            {"Mode", 6, 8, 1, 6},
+            // Always shown: at 80 columns it fits beside the name and the
+            // notes, whose longest text ("imported 2026-09-30") is known.
+            {"Frequency", 10, 12, 0, 7},
+            // A repeater's offset and PL tone, beside the frequency: added
+            // together once Recurrence is at full width, before Mode and
+            // Frequency widen (from 117 columns).
+            {"Offset", 6, 6, 5, 0, 0, true},
+            {"PL", 5, 5, 5, 0},
+            {"Recurrence", 20, kNetRecurrenceFullWidth, 3, 4},
+            // As wide as its longest text, "imported 2026-09-30", so it's
+            // never cut (QuickLogger writes it; it's not typed in).
+            {"Notes", 19, 19, 0, 0},
         };
     }
 
+    // The Net column at its usual width, with columns dropped as the
+    // terminal narrows; or, from about 101 columns down to where Recurrence
+    // has to go anyway, a narrower name (net_name_min_width) so Recurrence
+    // keeps its room, the name getting back whatever is left over.
     static ListLayout NetListLayout(const AppState* state)
     {
-        return LayOutList(NetListColumns(state->net_name_width), ScreenListWidth(state->list_width),
-                          kScreenListWidthAt80, 2);
+        int available = ScreenListWidth(state->list_width);
+        ListLayout usual = LayOutList(NetListColumns(state->net_name_width, state->net_name_width),
+                                      available, kScreenListWidthAt80, 2);
+        // Recurrence at full width beside the usual name: nothing to gain.
+        if (usual.widths[kNetRecurrenceColumn] >= kNetRecurrenceFullWidth ||
+            state->net_name_min_width >= state->net_name_width)
+        {
+            return usual;
+        }
+        ListLayout narrow =
+            LayOutList(NetListColumns(state->net_name_min_width, state->net_name_width), available,
+                       kScreenListWidthAt80, 2);
+        return narrow.widths[kNetRecurrenceColumn] > 0 ? narrow : usual;
     }
 
     const std::string& NetListHeader(const AppState* state)
     {
         static HeadingCache cache;
-        if (HeadingNeedsBuilding(&cache, state->list_width, state->net_name_width))
+        if (HeadingNeedsBuilding(&cache, state->list_width,
+                                 state->net_name_width * 1000 + state->net_name_min_width))
         {
-            cache.text = MenuGutter() + FormatListHeading(NetListColumns(state->net_name_width),
+            cache.text = MenuGutter() + FormatListHeading(NetListColumns(state->net_name_width,
+                                                                         state->net_name_width),
                                                           NetListLayout(state));
         }
         return cache.text;
@@ -625,10 +688,12 @@ namespace ql
             when += when.empty() ? "session open" : ", session open";
         }
         std::vector<std::string> cells;
-        cells.reserve(5);
+        cells.reserve(7);
         cells.push_back(net.name);
         cells.push_back(net.mode);
         cells.push_back(net.default_frequency);
+        cells.push_back(net.repeater_offset);
+        cells.push_back(net.pl_tone);
         cells.push_back(net.recurrence_description);
         cells.push_back(std::move(when));
         return cells;
@@ -731,13 +796,18 @@ namespace ql
         state->open_net_ids = state->db->GetNetIdsWithOpenInstances();
         const std::vector<std::int64_t>& open_net_ids = state->open_net_ids;
 
-        // At least as wide as its heading.
-        int name_width = 3;
+        // The longest name, with room to breathe after it: at least
+        // kMinNetNameColumnWidth, and a few columns past the longest name.
+        int name_width = 0;
         for (const Net& net : state->nets)
         {
             name_width = std::max(name_width, TextWidth(net.name));
         }
-        state->net_name_width = std::min(name_width, kMaxNetNameColumnWidth);
+        state->net_name_width =
+            std::min(std::max(name_width + kNetNameBreathingRoom, kMinNetNameColumnWidth),
+                     kMaxNetNameColumnWidth);
+        state->net_name_min_width =
+            std::min(std::max(name_width + kNetNameNarrowRoom, 3), state->net_name_width);
 
         state->net_cells.clear();
         for (const Net& net : state->nets)

@@ -47,6 +47,45 @@ namespace ql
         CHECK_EQ(layout.gap, 2);
     }
 
+    QL_TEST(PairedColumnsAreShownTogetherOrNotAtAll)
+    {
+        // Offset (6) goes only with PL (5): together they need 6 + 5 and a
+        // gap before each.
+        std::vector<ListColumn> columns = {
+            {"Net", 10, 10, 0, 0},
+            {"Offset", 6, 6, 1, 0, 0, true},
+            {"PL", 5, 5, 1, 0},
+            {"Notes", 10, 10, 0, 0},
+        };
+        // Room for Offset alone, or PL alone, but not both: neither.
+        ListLayout narrow = LayOutList(columns, 21 + 9, 21, 1);
+        CHECK_EQ(narrow.widths[1], 0);
+        CHECK_EQ(narrow.widths[2], 0);
+        // Room for both: both.
+        ListLayout wide = LayOutList(columns, 21 + 13, 21, 1);
+        CHECK_EQ(wide.widths[1], 6);
+        CHECK_EQ(wide.widths[2], 5);
+    }
+
+    QL_TEST(ANarrowerListNeverGainsAColumnADroppedOneMadeRoomFor)
+    {
+        // Wide (20) comes before Small (5): with room for Small but not
+        // Wide, neither is added; a narrower terminal costs columns, it
+        // doesn't bring in later ones.
+        std::vector<ListColumn> columns = {
+            {"Net", 10, 10, 0, 0},
+            {"Wide", 20, 20, 1, 0},
+            {"Small", 5, 5, 2, 0},
+            {"Notes", 10, 10, 0, 0},
+        };
+        ListLayout layout = LayOutList(columns, 21 + 15, 21, 1);
+        CHECK_EQ(layout.widths[1], 0);
+        CHECK_EQ(layout.widths[2], 0);
+        layout = LayOutList(columns, 21 + 27, 21, 1);
+        CHECK_EQ(layout.widths[1], 20);
+        CHECK_EQ(layout.widths[2], 5);
+    }
+
     QL_TEST(ListRowsPadCutAndLeaveTheLastColumnWhole)
     {
         ListLayout layout;

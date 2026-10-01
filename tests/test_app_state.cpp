@@ -654,7 +654,8 @@ namespace ql
         RefreshNetHistory(&f.state);
         CHECK_EQ(f.state.history_instance_labels[0].substr(end_column, 8),
                  FormatLocalTimeOfDay(ended));
-        CHECK_EQ(header.find("Net Control") - header.find("End"), std::size_t{9});
+        // End is 9 wide (a time and a space), then the one-space gap.
+        CHECK_EQ(header.find("Net Control") - header.find("End"), std::size_t{10});
     }
 
     QL_TEST(ExportedLogIncludesTheEndTime)
@@ -1266,8 +1267,13 @@ namespace ql
         RefreshNets(&f.state);
         REQUIRE(f.state.net_names.size() == 3);
         CHECK_EQ(f.state.net_names[0], std::string("Old"));
-        CHECK(f.state.net_names[1].find("Skywarn  created " + FormatLocalDate(1790000000)) == 0);
-        CHECK(f.state.net_names[2].find("Skywarn  imported " + FormatLocalDate(1790100000)) == 0);
+        // The names get a 30-column Net column (see RefreshNets), then the
+        // Frequency column (blank here) and the two-space gaps.
+        std::string gap(30 - 7 + 2 + 10 + 2, ' ');
+        CHECK(f.state.net_names[1].find("Skywarn" + gap + "created " +
+                                        FormatLocalDate(1790000000)) == 0);
+        CHECK(f.state.net_names[2].find("Skywarn" + gap + "imported " +
+                                        FormatLocalDate(1790100000)) == 0);
     }
 
     // ---- Autocomplete --------------------------------------------------------------
@@ -1941,10 +1947,10 @@ namespace ql
 
         // History sessions.
         std::snprintf(expected, sizeof(expected),
-                      "  %-10.10s %-8.8s %-8.8s %-12.12s %-12.12s %-12.12s %s", "Date", "Start",
+                      "  %-11.11s %-9.9s %-9.9s %-12.12s %-13.13s %-9.9s %s", "Date", "Start",
                       "End", "Net Control", "Alternate NC", "Logger", "Status");
         CHECK_EQ(NetInstanceListHeader(80, false), std::string(expected));
-        std::snprintf(expected, sizeof(expected), "  %-10.10s %-8.8s %-8.8s %-24.24s %-12.12s %s",
+        std::snprintf(expected, sizeof(expected), "  %-11.11s %-9.9s %-9.9s %-24.24s %-12.12s %s",
                       "Date", "Start", "End", "Net", "Net Control", "Status");
         CHECK_EQ(NetInstanceListHeader(80, true), std::string(expected));
 
@@ -1963,10 +1969,13 @@ namespace ql
                       "(this net)");
         CHECK_EQ(f.state.modal_callsign_suggestion_labels[0], std::string(expected));
 
-        // The net list: the name padded to the longest, then when it was made.
+        // The net list: the name padded to 30 columns (or 4 past the
+        // longest name), the frequency (none here), then whether a session
+        // is open.
         RefreshNets(&f.state);
         REQUIRE(f.state.net_names.size() == 1);
-        CHECK_EQ(f.state.net_names[0], std::string("Skywarn  session open"));
+        CHECK_EQ(f.state.net_names[0],
+                 "Skywarn" + std::string(30 - 7 + 2 + 10 + 2, ' ') + "session open");
     }
 
     QL_TEST(AWiderTerminalShowsMoreOfEveryList)
@@ -1982,7 +1991,10 @@ namespace ql
                                "mobile", 1);
         RefreshNets(&f.state);
         OpenEditNetForm(&f.state, *f.db()->GetNetById(net_id));
-        CHECK(f.state.net_names[0].find("146.940") == std::string::npos);
+        // At 80 the net list has the frequency (since 1.8.0) but not the
+        // mode or recurrence.
+        CHECK(f.state.net_names[0].find("146.940") != std::string::npos);
+        CHECK(f.state.net_names[0].find("Tuesdays 8pm") == std::string::npos);
         CHECK(f.state.edit_net_saved_station_labels[0].find("mobile") == std::string::npos);
 
         UpdateListWidths(&f.state, 130);
@@ -1996,7 +2008,7 @@ namespace ql
         // Narrower than 80 lays out as at 80.
         UpdateListWidths(&f.state, 60);
         CHECK_EQ(f.state.list_width, 80);
-        CHECK(f.state.net_names[0].find("146.940") == std::string::npos);
+        CHECK(f.state.net_names[0].find("Tuesdays 8pm") == std::string::npos);
     }
 
     QL_TEST(ExportedLogsHaveEveryColumnWhateverTheTerminal)

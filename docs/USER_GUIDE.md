@@ -116,7 +116,7 @@ Several operators can log the same session at once (over SSH), for example a Net
 
 ## History
 
-**F6** on Recurring Nets shows the highlighted net's past sessions: when each started and ended, its roles, its number of check-ins (on a wide enough terminal) and whether it's still open. The bottom list shows the check-ins of the highlighted session.
+**F6** on Recurring Nets shows the highlighted net's past sessions: when each started and ended, its roles and whether it's still open, and on a wide enough terminal its number of check-ins, who started it (**Started by**, which can differ from Net Control) and whether it has session notes (**Notes**: *yes*; **F12** opens them). The bottom list shows the check-ins of the highlighted session.
 
 - **Up/Down** choose a session.
 - **F7** exports the highlighted session: its log, a `.qlsession` file for importing elsewhere and an ADIF file (see [Exporting and importing](#exporting-and-importing)).
