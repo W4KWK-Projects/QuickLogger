@@ -65,7 +65,7 @@ Check the download in PowerShell with `Get-FileHash QuickLogger-<version>-window
 On every platform:
 
 - **A terminal that handles UTF-8 and colors** — any modern terminal emulator. (On Windows: Windows Terminal, or the console in Windows 10 or later.) QuickLogger takes over the whole terminal window.
-- **Internet access** for the first launch, which downloads the FCC's amateur license database (about 200 MB), Canada's (ISED's, about 2 MB) and some Census ZIP-code and county files (about 30 MB, once), and refreshes the FCC and ISED data about weekly. Without it the rest of QuickLogger still works, but callsign, ZIP and county lookups have no data to draw on.
+- **Internet access** for the first launch, which downloads the FCC's amateur license database (about 200 MB), Canada's (ISED's, about 2 MB) and some Census ZIP-code and county files (about 30 MB, once), and refreshes the FCC and ISED data about weekly. The FCC file comes from a weekly copy in this repository's [`fcc-data` release](https://github.com/W4KWK-Projects/QuickLogger/releases/tag/fcc-data), since fcc.gov refuses downloads from some cloud servers, and straight from the FCC if that copy can't be had. Without it the rest of QuickLogger still works, but callsign, ZIP and county lookups have no data to draw on.
 - **Write access to the directory you launch it from** — it keeps its data there (see [Files it creates](#files-it-creates)).
 
 The runtime libraries QuickLogger is linked against, by platform (installing the [build packages](#what-you-need-to-build-it) instead also covers these):

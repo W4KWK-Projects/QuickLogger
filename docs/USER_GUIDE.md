@@ -250,6 +250,7 @@ QuickLogger keeps its own copy of the FCC's amateur license database and Canada'
 
 - The first download starts when QuickLogger first runs and takes a minute or two. Until it's done, a yellow **Loading station data NN%** notice shows at the top of every screen and callsign lookups find no one; everything else works.
 - After that, the FCC and ISED data are refreshed about weekly (**Updating station data** shows meanwhile; lookups keep working). A failed download is retried hourly.
+- The FCC data comes from a weekly copy on QuickLogger's GitHub page, because fcc.gov turns away downloads from some cloud servers. If that copy can't be reached, QuickLogger downloads it from the FCC instead.
 - **Settings** shows when the data was last updated.
 
 **County:** FCC records have no county, so QuickLogger uses the station's ZIP. For a ZIP that crosses a county line, the station's city decides when it names a town inside that ZIP; otherwise the ZIP counts as being in whichever county most of its residents live in.

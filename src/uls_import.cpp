@@ -33,7 +33,13 @@ namespace ql
     DataSources DefaultDataSources()
     {
         DataSources sources;
-        sources.uls_zip_url = "https://data.fcc.gov/download/pub/uls/complete/l_amat.zip";
+        // The FCC's weekly file of every amateur license, copied each week to
+        // the repository's "fcc-data" release (.github/workflows/
+        // fcc-mirror.yml): Akamai blocks fcc.gov from some cloud networks
+        // (403 Access Denied), where a QuickLogger server is likely to run,
+        // but not from GitHub's. The FCC itself is the fallback.
+        sources.uls_zip_url = "https://github.com/W4KWK-Projects/QuickLogger/releases/download/fcc-data/l_amat.zip";
+        sources.uls_zip_fallback_url = "https://data.fcc.gov/download/pub/uls/complete/l_amat.zip";
         // ISED's amateur call sign database, republished daily: one
         // semicolon-delimited file of every Canadian amateur and club call
         // sign (see LoadIsed).
@@ -622,6 +628,19 @@ namespace ql
         return true;
     }
 
+    static bool DownloadAndExtractUls(const std::string& url, const std::string& cache_dir, const std::string& zip_path,
+                                      ProgressReporter* reporter, int base, int download_span, int extract_span,
+                                      std::string* error)
+    {
+        reporter->BeginStep("Downloading FCC license data", base, download_span);
+        if (!DownloadFile(url, zip_path, 1800L, reporter, error))
+        {
+            return false;
+        }
+        reporter->BeginStep("Unpacking FCC license data", base + download_span, extract_span);
+        return ExtractUlsZip(cache_dir, zip_path, error);
+    }
+
     static bool LoadUls(const DataSources& sources, const std::string& cache_dir, Database* db,
                         ProgressReporter* reporter, int base, int span, std::int64_t* out_records, std::string* error)
     {
@@ -631,16 +650,26 @@ namespace ql
         int extract_span = span * 5 / 100;
         std::string zip_path = cache_dir + "/l_amat.zip";
 
-        reporter->BeginStep("Downloading FCC license data", base, download_span);
-        if (!DownloadFile(sources.uls_zip_url, zip_path, 1800L, reporter, error))
+        // The GitHub copy, then the FCC's own if the copy can't be had (or
+        // turns out damaged: unpacking checks every file's CRC).
+        std::string first_error;
+        bool fetched = DownloadAndExtractUls(sources.uls_zip_url, cache_dir, zip_path, reporter, base, download_span,
+                                             extract_span, &first_error);
+        if (!fetched)
         {
-            return false;
-        }
-
-        reporter->BeginStep("Unpacking FCC license data", base + download_span, extract_span);
-        if (!ExtractUlsZip(cache_dir, zip_path, error))
-        {
-            return false;
+            if (sources.uls_zip_fallback_url.empty() || reporter->StopRequested())
+            {
+                *error = first_error;
+                return false;
+            }
+            std::string fallback_error;
+            fetched = DownloadAndExtractUls(sources.uls_zip_fallback_url, cache_dir, zip_path, reporter, base,
+                                            download_span, extract_span, &fallback_error);
+            if (!fetched)
+            {
+                *error = "GitHub copy: " + first_error + "; FCC: " + fallback_error;
+                return false;
+            }
         }
 
         reporter->BeginStep("Importing FCC license data", base + download_span + extract_span,

@@ -1,0 +1,88 @@
+name: FCC data mirror
+
+# Copies the FCC's weekly ULS license files to the "fcc-data" release, where
+# every QuickLogger downloads them (see DefaultDataSources in
+# src/uls_import.cpp). Akamai blocks fcc.gov from some cloud networks
+# (Vultr's, for one: 403 Access Denied), but not from GitHub's, and GitHub
+# serves the copy to anyone. QuickLogger falls back to the FCC itself if the
+# copy can't be had.
+#
+# The FCC replaces its complete files on Sundays, so this runs on Mondays.
+# A file that hasn't changed isn't uploaded again. Each one is checked first
+# (a zip with the files QuickLogger reads, and a sensible size), so a broken
+# download never replaces a good copy. "fcc-data" is a pre-release, so it's
+# never GitHub's "latest release", which the updaters and the update notice
+# read.
+#
+# GitHub turns off a public repository's scheduled workflows after 60 days
+# without a commit; if that happens, re-enable this one on the Actions tab
+# (QuickLogger keeps using the last copy meanwhile).
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fcc-mirror
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: fcc-data
+    steps:
+      - name: Have the release
+        run: |
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --prerelease --latest=false --target "${{ github.sha }}" \
+              --title "FCC license data (mirror)" \
+              --notes "A weekly copy of the FCC's ULS license files (https://www.fcc.gov/uls/transactions/daily-weekly), for QuickLogger, which downloads them from here. Updated by the FCC data mirror workflow. Not a QuickLogger release."
+          fi
+
+      # name, the files it must hold, its smallest believable size in MB.
+      # l_amat is what QuickLogger loads today; l_gmrs (licenses) and a_gmrs
+      # (applications) are for GMRS support to come.
+      - name: Download, check and upload
+        run: |
+          set -eu
+          mkdir -p work && cd work
+          gh release download "$TAG" -p '*.sha256' --clobber 2> /dev/null || true
+          status=0
+          while read -r name needs min_mb; do
+            url="https://data.fcc.gov/download/pub/uls/complete/$name.zip"
+            if ! curl -fsSL --retry 3 --retry-delay 30 -o "$name.zip.new" "$url"; then
+              echo "::error::$name: download failed"; status=1; continue
+            fi
+            size=$(stat -c %s "$name.zip.new")
+            if [ "$size" -lt $((min_mb * 1000000)) ]; then
+              echo "::error::$name: only $size bytes"; status=1; continue
+            fi
+            if ! unzip -tq "$name.zip.new" > /dev/null; then
+              echo "::error::$name: not a sound zip"; status=1; continue
+            fi
+            listing=$(unzip -Z1 "$name.zip.new")
+            for file in $(echo "$needs" | tr , ' '); do
+              if ! echo "$listing" | grep -qx "$file"; then
+                echo "::error::$name: no $file in it"; status=1; continue 2
+              fi
+            done
+            mv "$name.zip.new" "$name.zip"
+            sha256sum "$name.zip" > "$name.zip.sha256.new"
+            if [ -f "$name.zip.sha256" ] && cmp -s "$name.zip.sha256" "$name.zip.sha256.new"; then
+              echo "$name: unchanged"
+              continue
+            fi
+            mv "$name.zip.sha256.new" "$name.zip.sha256"
+            gh release upload "$TAG" "$name.zip" "$name.zip.sha256" --clobber
+            echo "$name: uploaded ($size bytes)"
+          done <<'LIST'
+          l_amat HD.dat,EN.dat,AM.dat 100
+          l_gmrs HD.dat,EN.dat 20
+          a_gmrs EN.dat,AD.dat 20
+          LIST
+          exit $status

@@ -384,6 +384,46 @@ namespace ql
         CHECK(db.FindUlsStationByCallsign("W4KWK").has_value());
     }
 
+    // The FCC's file comes from QuickLogger's GitHub copy, and from the FCC
+    // itself when the copy can't be downloaded or is damaged.
+    QL_TEST(TheFccFileFallsBackToTheFccWhenTheCopyFails)
+    {
+        TempDir dir;
+        DataSources sources = WriteFixtures(dir);
+        std::string db_path = dir.File("q.db");
+        DataRefreshPlan plan;
+        plan.uls = true;
+
+        // The copy missing.
+        {
+            Database db(db_path);
+            sources.uls_zip_fallback_url = sources.uls_zip_url;
+            sources.uls_zip_url = FileUrl(dir.File("missing.zip"));
+            CHECK_EQ(RunDataRefresh(&db, db_path, plan, nullptr, sources), std::string("complete"));
+            CHECK(db.FindUlsStationByCallsign("W4KWK").has_value());
+        }
+
+        // The copy damaged: not a zip at all.
+        WriteTextFile(dir.File("damaged.zip"), "<html>not a zip</html>");
+        {
+            Database db(db_path);
+            sources.uls_zip_url = FileUrl(dir.File("damaged.zip"));
+            CHECK_EQ(RunDataRefresh(&db, db_path, plan, nullptr, sources), std::string("complete"));
+            CHECK(db.FindUlsStationByCallsign("AA4FA").has_value());
+        }
+
+        // Neither to be had: both errors are kept.
+        {
+            Database db(db_path);
+            sources.uls_zip_fallback_url = FileUrl(dir.File("also-missing.zip"));
+            CHECK_EQ(RunDataRefresh(&db, db_path, plan, nullptr, sources), std::string("failed"));
+            std::optional<ImportRunStatus> uls = db.GetImportRunStatus(kUlsDataset);
+            REQUIRE(uls.has_value());
+            CHECK(uls->last_error.find("GitHub copy: ") == 0);
+            CHECK(uls->last_error.find("; FCC: ") != std::string::npos);
+        }
+    }
+
     QL_TEST(AFailedDownloadIsRecordedAndOthersStillLoad)
     {
         TempDir dir;

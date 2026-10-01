@@ -39,11 +39,15 @@ namespace ql
     constexpr std::int64_t kJobStaleAfterSeconds = 120;
 
     // Where each dataset is downloaded from. DefaultDataSources() is the real
-    // FCC and Census addresses; tests substitute file:// URLs to local
-    // fixtures, which libcurl reads the same way.
+    // addresses; tests substitute file:// URLs to local fixtures, which
+    // libcurl reads the same way.
     struct DataSources
     {
+        // The FCC's license file: first from uls_zip_url (QuickLogger's
+        // GitHub copy), then, if that can't be downloaded or unpacked, from
+        // uls_zip_fallback_url (the FCC itself) when there is one.
         std::string uls_zip_url;
+        std::string uls_zip_fallback_url;
         std::string ised_zip_url;
         std::string zip_gazetteer_url;
         std::string zip_gazetteer_file_name;  // The file inside that zip.
