@@ -195,6 +195,21 @@ namespace ql
         return columns;
     }
 
+    // `columns` with the Time column a column wider (see
+    // ScreenCheckInColumns).
+    static std::vector<ListColumn> RoomyTimeColumns(std::vector<ListColumn> columns)
+    {
+        for (ListColumn& column : columns)
+        {
+            if (column.heading == "Time")
+            {
+                column.width = 9;
+                column.max_width = 9;
+            }
+        }
+        return columns;
+    }
+
     // Orders stations by callsign, for looking one up in a sorted list.
     static bool StationCallsignBefore(const Station& station, const std::string& callsign)
     {
@@ -239,10 +254,22 @@ namespace ql
         return rows;
     }
 
+    // From this terminal width, Time is a column wider than its text, so
+    // the times stand clear of the callsigns.
+    static constexpr int kRoomyCheckInTimeWidth = 100;
+
+    // The check-in columns on screen: CheckInColumns, but with Time 9 wide
+    // from kRoomyCheckInTimeWidth columns.
+    static const std::vector<ListColumn>& ScreenCheckInColumns(int terminal_width)
+    {
+        static const std::vector<ListColumn> roomy = RoomyTimeColumns(CheckInColumns());
+        return terminal_width >= kRoomyCheckInTimeWidth ? roomy : CheckInColumns();
+    }
+
     static ListLayout CheckInLayout(int terminal_width)
     {
-        return LayOutList(CheckInColumns(), ScreenListWidth(terminal_width), kScreenListWidthAt80,
-                          1);
+        return LayOutList(ScreenCheckInColumns(terminal_width), ScreenListWidth(terminal_width),
+                          kScreenListWidthAt80, 1);
     }
 
     std::vector<std::string> FormatCheckInList(const std::vector<std::vector<std::string>>& cells,
@@ -256,8 +283,8 @@ namespace ql
         static HeadingCache cache;
         if (HeadingNeedsBuilding(&cache, terminal_width, 0))
         {
-            cache.text =
-                MenuGutter() + FormatListHeading(CheckInColumns(), CheckInLayout(terminal_width));
+            cache.text = MenuGutter() + FormatListHeading(ScreenCheckInColumns(terminal_width),
+                                                          CheckInLayout(terminal_width));
         }
         return cache.text;
     }
