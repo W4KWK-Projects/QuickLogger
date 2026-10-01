@@ -1948,9 +1948,10 @@ namespace ql
                       "Date", "Start", "End", "Net", "Net Control", "Status");
         CHECK_EQ(NetInstanceListHeader(80, true), std::string(expected));
 
-        // Saved stations and autocomplete matches.
-        std::snprintf(expected, sizeof(expected), "  %-10.10s %-20.20s %s", "Callsign", "Name",
-                      "Member ID");
+        // Saved stations (since 1.8.0, a wider Name and City, State at 80
+        // too, using the width) and autocomplete matches.
+        std::snprintf(expected, sizeof(expected), "  %-10.10s %-24.24s %-10.10s %s", "Callsign",
+                      "Name", "Member ID", "City, State");
         CHECK_EQ(SavedStationListHeader(80), std::string(expected));
         std::snprintf(expected, sizeof(expected), "  %-10.10s %-20.20s %s", "Callsign", "Name",
                       "Source");

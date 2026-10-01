@@ -325,8 +325,11 @@ namespace ql
     static const std::vector<ListColumn>& SavedStationColumns()
     {
         static const std::vector<ListColumn> columns = {
-            {"Callsign", 10, 13, 0, 99, 13},       {"Name", 20, 24, 0, 7, 30},
-            {"Member ID", 10, 10, 0, 0, 10},       {"City, State", 16, 24, 2, 6, 30},
+            // At 80 columns: Name 24 wide and City, State shown, making use
+            // of the width (user, 2026-10-01) rather than leaving a third
+            // of it blank.
+            {"Callsign", 10, 13, 0, 99, 13},       {"Name", 24, 24, 0, 7, 30},
+            {"Member ID", 10, 10, 0, 0, 10},       {"City, State", 16, 24, 0, 6, 30},
             {"County", 14, 14, 3, 0, 20},          {"Grid", 6, 8, 4, 0, 8},
             {"Default Remarks", 15, 40, 5, 0, 40},
         };
