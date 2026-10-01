@@ -1415,18 +1415,26 @@ namespace ql
                 status_lines.push_back(ftxui::paragraph(status_line));
             }
             ftxui::Element station_status = ftxui::vbox(std::move(status_lines)) | ftxui::color(kColorHeading);
-            ftxui::Element content = ftxui::vbox({
+            // Two columns, even at 80 columns, to leave room below: Tab
+            // goes across each row (see BuildSettingsPage). Time Format's
+            // choices are too wide for a column, so it has a row of its own.
+            ftxui::Element left_column = ftxui::vbox({
                 state_->callsign_editable
                     ? ftxui::hbox({FieldLabel("My Callsign*:  "), input_callsign_->Render()})
                     : ftxui::hbox({FieldLabel("My Callsign:   "),
                                    ftxui::text(state_->settings_form.callsign) | ftxui::color(kColorData),
                                    HintText("  (your username)")}),
-                ftxui::hbox({FieldLabel("My ZIP Code*:  "), input_location_->Render()}),
                 ftxui::hbox({FieldLabel("Nearby Radius: "),
                              input_radius_->Render() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 4),
                              ftxui::text("miles")}),
-                ftxui::hbox({FieldLabel("Time Format:   "), time_format_toggle_->Render()}),
+            });
+            ftxui::Element right_column = ftxui::vbox({
+                ftxui::hbox({FieldLabel("My ZIP Code*:  "), input_location_->Render()}),
                 update_check_row,
+            });
+            ftxui::Element content = ftxui::vbox({
+                ftxui::hbox({left_column | ftxui::xflex, ftxui::text("   "), right_column | ftxui::xflex}),
+                ftxui::hbox({FieldLabel("Time Format:   "), time_format_toggle_->Render()}),
                 HintText("* Required"),
                 Separator(),
                 HintParagraph("My ZIP Code (5 digits) finds nearby licensed stations for nets without a ZIP."),
@@ -1498,12 +1506,14 @@ namespace ql
                                                     &state->settings_update_check_index, update_check_option)),
             &state->is_console_session);
 
+        // In the order they're drawn: across each row of the two columns,
+        // then Time Format below them.
         ftxui::Component root = ftxui::Container::Vertical({
             input_callsign,
             input_location,
             input_radius,
-            time_format_toggle,
             update_check_toggle,
+            time_format_toggle,
         });
 
         return ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_location, input_radius,
