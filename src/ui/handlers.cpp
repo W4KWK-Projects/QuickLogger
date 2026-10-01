@@ -1450,10 +1450,6 @@ namespace ql
         {
             ImportSelectedSessionAnyway(state);
         }
-        else if (state->confirm_prompt == ConfirmPrompt::kImportLookAlikeNet && yes)
-        {
-            ImportSelectedNetSliceAnyway(state);
-        }
         return event != ftxui::Event::Custom;
     }
 
@@ -1501,7 +1497,43 @@ namespace ql
     {
         return state->show_new_station_modal || state->show_edit_checkin_modal ||
                state->show_saved_station_modal || state->show_zmodem_confirm_modal ||
-               state->show_delete_net_confirm_modal || state->show_session_notes_modal;
+               state->show_delete_net_confirm_modal || state->show_session_notes_modal ||
+               state->show_merge_modal;
+    }
+
+    // Keys in the Import or Merge window (see MergeStage); it takes them
+    // all.
+    static bool HandleNetMergeKey(AppState* state, const ftxui::Event& event)
+    {
+        if (event == ftxui::Event::Escape)
+        {
+            BackOutOfNetMerge(state);
+        }
+        else if (event == ftxui::Event::ArrowUp || event == ftxui::Event::ArrowDown)
+        {
+            MoveMergeHighlight(state, event == ftxui::Event::ArrowUp ? -1 : 1);
+        }
+        else if (state->merge_stage == MergeStage::kChooseNet)
+        {
+            if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
+            {
+                ImportSelectedNetSliceAnyway(state);
+            }
+            else if (event == ftxui::Event::F3)
+            {
+                ChooseMergeTarget(state);
+            }
+        }
+        else if (event == ftxui::Event::F2)
+        {
+            ConfirmNetMerge(state);
+        }
+        else if (event == ftxui::Event::ArrowLeft || event == ftxui::Event::ArrowRight ||
+                 event == ftxui::Event::Return || event == ftxui::Event::Character(' '))
+        {
+            ToggleMergeReplace(state);
+        }
+        return event != ftxui::Event::Custom;
     }
 
     // Keys while the Session Notes window is open: F2 saves, Esc cancels,
@@ -1565,6 +1597,10 @@ namespace ql
         if (state_->show_session_notes_modal)
         {
             return HandleSessionNotesKey(state_, event);
+        }
+        if (state_->merge_stage != MergeStage::kNone)
+        {
+            return HandleNetMergeKey(state_, event);
         }
         if (event == ftxui::Event::F1 && !AnyPageDialogOpen(state_))
         {

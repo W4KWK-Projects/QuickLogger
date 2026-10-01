@@ -3233,23 +3233,152 @@ namespace ql
 
     void ImportSelectedNetSliceAnyway(AppState* state)
     {
-        CancelConfirmPrompt(state);
+        if (state->merge_name_taken)
+        {
+            return;
+        }
+        state->merge_stage = MergeStage::kNone;
+        state->show_merge_modal = false;
         ImportNetSlice(state, true);
     }
 
-    // `names`, quoted and joined: "A", "B" and "C".
-    static std::string QuotedList(const std::vector<std::string>& names)
+    // Orders nets with `name` (NetNamesAreTheSame) before the rest.
+    class SameNameFirst
     {
-        std::string list;
-        for (std::size_t i = 0; i < names.size(); ++i)
+    public:
+        explicit SameNameFirst(std::string name) : name_(std::move(name)) {}
+        bool operator()(const Net& a, const Net& b) const
         {
-            if (i > 0)
-            {
-                list += i + 1 == names.size() ? " and " : ", ";
-            }
-            list += "\"" + names[i] + "\"";
+            return NetNamesAreTheSame(a.name, name_) && !NetNamesAreTheSame(b.name, name_);
         }
-        return list;
+
+    private:
+        std::string name_;
+    };
+
+    // Opens the Import or Merge window for `slice` (read from the
+    // highlighted file), offering the nets here in `alike`.
+    static void OpenNetMergeChoice(AppState* state, NetSlice slice, std::vector<Net> alike,
+                                   bool name_taken)
+    {
+        state->merge_slice = std::move(slice);
+        state->merge_candidates = std::move(alike);
+        state->merge_candidate_labels.clear();
+        // Its very name first: the likeliest one.
+        std::stable_sort(state->merge_candidates.begin(), state->merge_candidates.end(),
+                         SameNameFirst(state->merge_slice.net.name));
+        for (const Net& net : state->merge_candidates)
+        {
+            std::size_t sessions = state->db->GetNetInstancesForNet(net.id).size();
+            state->merge_candidate_labels.push_back(net.name + "  (" + std::to_string(sessions) +
+                                                    (sessions == 1 ? " session" : " sessions") +
+                                                    ")");
+        }
+        state->selected_merge_candidate = 0;
+        state->merge_name_taken = name_taken;
+        state->merge_stage = MergeStage::kChooseNet;
+        state->show_merge_modal = true;
+        state->form_error.clear();
+        state->status_message.clear();
+    }
+
+    void MoveMergeHighlight(AppState* state, int delta)
+    {
+        bool summary = state->merge_stage == MergeStage::kSummary;
+        int* index = summary ? &state->selected_merge_conflict : &state->selected_merge_candidate;
+        int count = static_cast<int>(summary ? state->merge_conflicts.size()
+                                             : state->merge_candidates.size());
+        if (count > 0)
+        {
+            *index = std::clamp(*index + delta, 0, count - 1);
+        }
+    }
+
+    void ChooseMergeTarget(AppState* state)
+    {
+        if (state->merge_stage != MergeStage::kChooseNet || state->merge_candidates.empty())
+        {
+            return;
+        }
+        const Net& target =
+            state->merge_candidates[static_cast<std::size_t>(state->selected_merge_candidate)];
+        state->merge_target_name = target.name;
+        state->merge_plan = PlanNetMerge(state->db, state->merge_slice, target.id);
+        state->merge_conflicts.clear();
+        for (std::size_t i = 0; i < state->merge_plan.sessions.size(); ++i)
+        {
+            if (state->merge_plan.sessions[i].kind == MergeSessionKind::kDiffers)
+            {
+                state->merge_conflicts.push_back(i);
+            }
+        }
+        state->selected_merge_conflict = 0;
+        state->merge_stage = MergeStage::kSummary;
+    }
+
+    void ToggleMergeReplace(AppState* state)
+    {
+        if (state->merge_stage != MergeStage::kSummary || state->merge_conflicts.empty())
+        {
+            return;
+        }
+        MergeSession& session =
+            state->merge_plan.sessions[state->merge_conflicts[static_cast<std::size_t>(
+                state->selected_merge_conflict)]];
+        session.replace = !session.replace;
+    }
+
+    // "3 sessions", "1 saved station".
+    static std::string Count(int count, const char* singular, const char* plural)
+    {
+        return std::to_string(count) + " " + (count == 1 ? singular : plural);
+    }
+
+    void ConfirmNetMerge(AppState* state)
+    {
+        if (state->merge_stage != MergeStage::kSummary || RefuseViewOnly(state, "import nets"))
+        {
+            return;
+        }
+        NetMergeResult result;
+        try
+        {
+            result = ApplyNetMerge(state->db, state->merge_slice, state->merge_plan);
+        }
+        catch (const std::exception& e)
+        {
+            BackOutOfNetMerge(state);
+            BackOutOfNetMerge(state);
+            state->status_message.clear();
+            state->form_error = std::string("Merge failed, so nothing was changed: ") + e.what();
+            return;
+        }
+        std::string target = state->merge_target_name;
+        state->merge_stage = MergeStage::kNone;
+        state->show_merge_modal = false;
+        state->merge_slice = NetSlice();
+        RefreshNets(state);
+        state->form_error.clear();
+        state->status_message =
+            "Merged into " + target + ": " + Count(result.sessions_added, "session", "sessions") +
+            " and " + Count(result.saved_stations_added, "saved station", "saved stations") +
+            " added" +
+            (result.sessions_replaced > 0
+                 ? ", " + Count(result.sessions_replaced, "session", "sessions") + " replaced."
+                 : ".");
+        state->page = kPageNetList;
+    }
+
+    void BackOutOfNetMerge(AppState* state)
+    {
+        if (state->merge_stage == MergeStage::kSummary)
+        {
+            state->merge_stage = MergeStage::kChooseNet;
+            return;
+        }
+        state->merge_stage = MergeStage::kNone;
+        state->show_merge_modal = false;
+        state->merge_slice = NetSlice();
     }
 
     static void ImportNetSlice(AppState* state, bool names_checked)
@@ -3276,39 +3405,25 @@ namespace ql
             return;
         }
 
-        // No two recurring nets may share a name.
-        std::string taken = ExistingNetNamed(state, slice->net.name);
-        if (!taken.empty())
+        // No two recurring nets may share a name, so one with the same name
+        // can only be merged into; and a net that only looks like it is
+        // probably the same one (imported before, or set up by hand), so
+        // the operator chooses: merge, or import it as a new net anyway.
+        bool taken = !ExistingNetNamed(state, slice->net.name).empty();
+        if (taken || !names_checked)
         {
-            state->status_message.clear();
-            state->form_error = "You already have a net named \"" + taken +
-                                "\", so this file can't be imported as a new net. To import "
-                                "it anyway, rename yours first (F7 on Recurring Nets).";
-            return;
-        }
-
-        // Probably a net that's already here (imported before, or set up
-        // by hand): ask before adding a second one.
-        if (!names_checked)
-        {
-            std::vector<std::string> alike;
+            std::vector<Net> alike;
             for (const Net& net : state->nets)
             {
-                if (NetNamesLookAlike(slice->net.name, net.name, false))
+                if (NetNamesAreTheSame(slice->net.name, net.name) ||
+                    NetNamesLookAlike(slice->net.name, net.name, false))
                 {
-                    alike.push_back(net.name);
+                    alike.push_back(net);
                 }
             }
             if (!alike.empty())
             {
-                std::string first_line = "This file's net, \"" + slice->net.name +
-                                         "\", looks like " + QuotedList(alike) +
-                                         ", which you already have.";
-                ShowConfirmPrompt(
-                    state, ConfirmPrompt::kImportLookAlikeNet, "Import As a New Net?",
-                    {first_line, "Importing adds it as a separate net, next to the existing " +
-                                     std::string(alike.size() == 1 ? "one" : "ones") +
-                                     ". Press Esc to cancel."});
+                OpenNetMergeChoice(state, std::move(*slice), std::move(alike), taken);
                 return;
             }
         }

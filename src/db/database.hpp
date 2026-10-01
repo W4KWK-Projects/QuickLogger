@@ -159,6 +159,15 @@ namespace ql
         // picks a station that was saved (rather than genuinely checked in)
         // for this net.
         std::string GetSavedNetStationRemarks(std::int64_t net_id, const std::string& callsign);
+        // Adds `station` to the stations table, or for one already there,
+        // fills in only the fields it has blank: what's known here is never
+        // replaced. For merging a net from a file (see ApplyNetMerge).
+        void FillStationBlanks(const Station& station, std::int64_t updated_at);
+        // Saves `callsign` (already in stations) to `net_id` with
+        // `default_remarks`, unless it's saved there already, in which case
+        // nothing changes. True if it was added.
+        bool AddNetSavedStationIfMissing(std::int64_t net_id, const std::string& callsign,
+                                         const std::string& default_remarks);
 
         // Nets (recurring net definitions).
         std::int64_t CreateNet(const Net& net);

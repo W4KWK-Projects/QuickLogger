@@ -1,5 +1,7 @@
 #include "net_slice.hpp"
 
+#include <algorithm>
+#include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <iterator>
@@ -329,6 +331,237 @@ namespace ql
         }
         transaction.Commit();
         return instance_id;
+    }
+
+    // A check-in as compared by SameCheckIns.
+    static std::string CheckInKey(const CheckIn& check_in)
+    {
+        return ToUpperAscii(check_in.callsign) + '\x1f' + check_in.signal_report + '\x1f' +
+               check_in.remarks + '\x1f' + check_in.comment + '\x1f' +
+               std::to_string(check_in.designated_role);
+    }
+
+    bool SameCheckIns(const std::vector<CheckIn>& a, const std::vector<CheckIn>& b)
+    {
+        if (a.size() != b.size())
+        {
+            return false;
+        }
+        std::vector<std::string> a_keys;
+        std::vector<std::string> b_keys;
+        a_keys.reserve(a.size());
+        b_keys.reserve(b.size());
+        for (const CheckIn& check_in : a)
+        {
+            a_keys.push_back(CheckInKey(check_in));
+        }
+        for (const CheckIn& check_in : b)
+        {
+            b_keys.push_back(CheckInKey(check_in));
+        }
+        std::sort(a_keys.begin(), a_keys.end());
+        std::sort(b_keys.begin(), b_keys.end());
+        return a_keys == b_keys;
+    }
+
+    // Starts this far apart or less are the same session, when either one
+    // has no end.
+    static constexpr std::int64_t kSameStartSeconds = 30 * 60;
+
+    static bool HasEnd(const NetInstance& instance)
+    {
+        return instance.status == NetInstanceStatus::kClosed && instance.closed_at > 0;
+    }
+
+    bool SameSession(const NetInstance& a, const std::vector<CheckIn>& a_check_ins,
+                     const NetInstance& b, const std::vector<CheckIn>& b_check_ins)
+    {
+        if (a.started_at <= 0 || b.started_at <= 0)
+        {
+            return a.instance_date == b.instance_date && SameCheckIns(a_check_ins, b_check_ins);
+        }
+        if (HasEnd(a) && HasEnd(b))
+        {
+            return a.started_at <= b.closed_at && b.started_at <= a.closed_at;
+        }
+        return std::llabs(a.started_at - b.started_at) <= kSameStartSeconds;
+    }
+
+    // The slice's check-ins grouped by the file's session id.
+    static std::unordered_map<std::int64_t, std::vector<CheckIn>> CheckInsBySession(
+        const NetSlice& slice)
+    {
+        std::unordered_map<std::int64_t, std::vector<CheckIn>> grouped;
+        for (const CheckIn& check_in : slice.check_ins)
+        {
+            grouped[check_in.net_instance_id].push_back(check_in);
+        }
+        return grouped;
+    }
+
+    NetMergePlan PlanNetMerge(Database* db, const NetSlice& slice, std::int64_t target_net_id)
+    {
+        Database::ReadTransaction reads(db);
+        NetMergePlan plan;
+        plan.target_net_id = target_net_id;
+
+        std::unordered_set<std::string> saved_here;
+        for (const Station& here : db->GetSavedStationsForNet(target_net_id))
+        {
+            saved_here.insert(ToUpperAscii(here.callsign));
+        }
+        for (const NetSliceSavedStation& saved : slice.saved_stations)
+        {
+            bool known = saved_here.count(ToUpperAscii(saved.station.callsign)) != 0;
+            (known ? plan.known_saved_stations : plan.new_saved_stations) += 1;
+        }
+
+        std::vector<NetInstance> local = db->GetNetInstancesForNet(target_net_id);
+        // Check-ins here, read only for sessions that might match.
+        std::unordered_map<std::int64_t, std::vector<CheckIn>> local_check_ins;
+        std::unordered_set<std::int64_t> matched;
+        std::unordered_map<std::int64_t, std::vector<CheckIn>> file_check_ins =
+            CheckInsBySession(slice);
+
+        for (std::size_t i = 0; i < slice.instances.size(); ++i)
+        {
+            const NetInstance& file = slice.instances[i];
+            const std::vector<CheckIn>& file_list = file_check_ins[file.id];
+            MergeSession session;
+            session.file_index = i;
+            session.file_check_ins = static_cast<int>(file_list.size());
+            session.file_open = file.status == NetInstanceStatus::kOpen;
+            for (const NetInstance& here : local)
+            {
+                if (matched.count(here.id) != 0)
+                {
+                    continue;
+                }
+                // Sessions days apart can't be the same; spare reading
+                // their check-ins.
+                if (file.started_at > 0 && here.started_at > 0 &&
+                    std::llabs(file.started_at - here.started_at) > 2 * 24 * 60 * 60)
+                {
+                    continue;
+                }
+                if (local_check_ins.count(here.id) == 0)
+                {
+                    local_check_ins[here.id] = db->GetCheckInsForNetInstance(here.id);
+                }
+                const std::vector<CheckIn>& here_list = local_check_ins[here.id];
+                if (!SameSession(file, file_list, here, here_list))
+                {
+                    continue;
+                }
+                matched.insert(here.id);
+                session.local_id = here.id;
+                session.local_open = here.status == NetInstanceStatus::kOpen;
+                session.local_check_ins = static_cast<int>(here_list.size());
+                session.check_ins_differ = !SameCheckIns(file_list, here_list);
+                session.notes_differ = file.notes != here.notes;
+                bool same = !session.check_ins_differ && !session.notes_differ;
+                session.kind = same || session.local_open ? MergeSessionKind::kAlreadyHere
+                                                          : MergeSessionKind::kDiffers;
+                break;
+            }
+            plan.sessions.push_back(session);
+        }
+        return plan;
+    }
+
+    NetMergeResult ApplyNetMerge(Database* db, const NetSlice& slice, const NetMergePlan& plan)
+    {
+        NetMergeResult result;
+        std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+        Database::WriteTransaction transaction(db);
+
+        // The sessions being replaced go first, so a station only they used
+        // isn't left behind, nor removed after it's needed again.
+        for (const MergeSession& session : plan.sessions)
+        {
+            if (session.kind == MergeSessionKind::kDiffers && session.replace)
+            {
+                db->DeleteNetInstance(session.local_id);
+            }
+        }
+
+        for (const NetSliceSavedStation& saved : slice.saved_stations)
+        {
+            db->FillStationBlanks(saved.station, now);
+            if (db->AddNetSavedStationIfMissing(plan.target_net_id, saved.station.callsign,
+                                                saved.default_remarks))
+            {
+                ++result.saved_stations_added;
+            }
+        }
+        std::unordered_map<std::int64_t, std::vector<CheckIn>> file_check_ins =
+            CheckInsBySession(slice);
+        // The other stations' details, for those in sessions being added
+        // (the rest would be left with nothing referring to them).
+        std::unordered_set<std::string> callsigns_added;
+        for (const MergeSession& session : plan.sessions)
+        {
+            if (session.kind == MergeSessionKind::kNew ||
+                (session.kind == MergeSessionKind::kDiffers && session.replace))
+            {
+                for (const CheckIn& check_in :
+                     file_check_ins[slice.instances[session.file_index].id])
+                {
+                    callsigns_added.insert(ToUpperAscii(check_in.callsign));
+                }
+            }
+        }
+        for (const Station& station : slice.other_stations)
+        {
+            if (callsigns_added.count(ToUpperAscii(station.callsign)) != 0)
+            {
+                db->FillStationBlanks(station, now);
+            }
+        }
+
+        for (const MergeSession& session : plan.sessions)
+        {
+            bool add = session.kind == MergeSessionKind::kNew ||
+                       (session.kind == MergeSessionKind::kDiffers && session.replace);
+            if (!add)
+            {
+                continue;
+            }
+            const NetInstance& file = slice.instances[session.file_index];
+            const std::vector<CheckIn>& check_ins = file_check_ins[file.id];
+            NetInstance instance = file;
+            instance.net_id = plan.target_net_id;
+            if (session.file_open)
+            {
+                std::int64_t last = file.started_at;
+                for (const CheckIn& check_in : check_ins)
+                {
+                    last = std::max(last, check_in.checked_in_at);
+                }
+                instance.status = NetInstanceStatus::kClosed;
+                instance.closed_at = last > 0 ? last : now;
+            }
+            std::int64_t instance_id = db->CreateNetInstance(instance);
+            for (const CheckIn& check_in : check_ins)
+            {
+                // Only the callsign, if the file has nothing else on it.
+                Station bare;
+                bare.callsign = check_in.callsign;
+                db->FillStationBlanks(bare, now);
+                CheckIn copy = check_in;
+                copy.net_instance_id = instance_id;
+                db->AddCheckIn(copy);
+            }
+            if (session.file_open)
+            {
+                db->RenumberCheckIns(instance_id);
+            }
+            ++(session.kind == MergeSessionKind::kNew ? result.sessions_added
+                                                      : result.sessions_replaced);
+        }
+
+        transaction.Commit();
+        return result;
     }
 
 }  // namespace ql

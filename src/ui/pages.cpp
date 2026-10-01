@@ -709,10 +709,6 @@ namespace ql
             {
                 rows.push_back(KeyHintRow({{"F2/Enter", "Import Anyway"}, {"Esc", "Cancel"}}));
             }
-            else if (state_->confirm_prompt == ConfirmPrompt::kImportLookAlikeNet)
-            {
-                rows.push_back(KeyHintRow({{"F2/Enter", "Import New"}, {"Esc", "Cancel"}}));
-            }
             else
             {
                 rows.push_back(KeyHintRow({{"F2/Enter", "Close Net"}, {"Esc", "Keep Logging"}}));
@@ -2248,6 +2244,184 @@ namespace ql
         ftxui::Component file_menu_;
     };
 
+    // The Import or Merge window (see MergeStage): first the nets here that
+    // the file's looks like, then what merging into the chosen one would do.
+    class NetMergeModalRenderer
+    {
+    public:
+        explicit NetMergeModalRenderer(AppState* state) : state_(state) {}
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Elements rows =
+                state_->merge_stage == MergeStage::kSummary ? SummaryRows() : ChoiceRows();
+            int width = std::max(40, std::min(FrameTerminalSize().dimx - 4, 76));
+            return ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) |
+                   ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder);
+        }
+
+    private:
+        // A list in the window, the highlighted row marked and kept in view.
+        ftxui::Element List(const std::vector<ftxui::Element>& lines, int selected) const
+        {
+            ftxui::Elements rows;
+            for (std::size_t i = 0; i < lines.size(); ++i)
+            {
+                bool marked = static_cast<int>(i) == selected;
+                ftxui::Element row = ftxui::hbox({ftxui::text(marked ? "> " : "  "), lines[i]});
+                rows.push_back(marked ? row | ftxui::inverted | ftxui::focus : row);
+            }
+            int room = std::max(2, FrameTerminalSize().dimy - 16);
+            int height = std::min(static_cast<int>(lines.size()), room);
+            return DialogFramed(ftxui::vbox(std::move(rows)) | ftxui::yframe |
+                                ftxui::vscroll_indicator |
+                                ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height));
+        }
+
+        ftxui::Elements ChoiceRows() const
+        {
+            const std::string& name = state_->merge_slice.net.name;
+            ftxui::Elements rows;
+            rows.push_back(Heading("Import or Merge?"));
+            rows.push_back(DialogSeparator());
+            rows.push_back(
+                ftxui::paragraph(state_->merge_name_taken
+                                     ? "You already have a net named \"" + name +
+                                           "\", so this file can't be added as a new net."
+                                     : "This file's net, \"" + name +
+                                           "\", looks like one you already have.") |
+                ftxui::bold | ftxui::color(kColorLabel));
+            rows.push_back(
+                ftxui::paragraph("Merge adds the file's sessions and saved stations that the "
+                                 "highlighted net doesn't have yet, and shows what it will do "
+                                 "first.") |
+                ftxui::color(kColorHint));
+            std::vector<ftxui::Element> lines;
+            for (const std::string& label : state_->merge_candidate_labels)
+            {
+                lines.push_back(ftxui::text(label) | ftxui::color(kColorListRow));
+            }
+            rows.push_back(List(lines, state_->selected_merge_candidate));
+            rows.push_back(DialogSeparator());
+            if (state_->merge_name_taken)
+            {
+                rows.push_back(KeyHintRow({{"F3", "Merge"}, {"Esc", "Cancel"}}));
+            }
+            else
+            {
+                rows.push_back(
+                    KeyHintRow({{"F2/Enter", "Import New"}, {"F3", "Merge"}, {"Esc", "Cancel"}}));
+            }
+            return rows;
+        }
+
+        ftxui::Elements SummaryRows() const
+        {
+            const NetMergePlan& plan = state_->merge_plan;
+            const NetSlice& slice = state_->merge_slice;
+            int added = 0;
+            int here = 0;
+            int open_added = 0;
+            for (const MergeSession& session : plan.sessions)
+            {
+                if (session.kind == MergeSessionKind::kNew)
+                {
+                    ++added;
+                    open_added += session.file_open ? 1 : 0;
+                }
+                here += session.kind == MergeSessionKind::kAlreadyHere ? 1 : 0;
+            }
+            int total = static_cast<int>(plan.sessions.size());
+
+            ftxui::Elements rows;
+            rows.push_back(Heading("Merge into " + state_->merge_target_name + "?"));
+            rows.push_back(DialogSeparator());
+            rows.push_back(ftxui::paragraph(
+                               "Adds " + std::to_string(added) + " of the file's " +
+                               Plural(total, "session", "sessions") + " and " +
+                               Plural(plan.new_saved_stations, "saved station", "saved stations") +
+                               ".") |
+                           ftxui::bold | ftxui::color(kColorLabel));
+            std::string details;
+            if (here > 0)
+            {
+                details += Plural(here, "session is", "sessions are") + " here already. ";
+            }
+            if (open_added > 0)
+            {
+                details += Plural(open_added, "session was", "sessions were") +
+                           " still open in the file; they come in closed. ";
+            }
+            details +=
+                "Stations already here keep their details and remarks; only blanks are "
+                "filled in. This net's own settings don't change.";
+            rows.push_back(ftxui::paragraph(details) | ftxui::color(kColorHint));
+
+            if (!state_->merge_conflicts.empty())
+            {
+                rows.push_back(
+                    ftxui::paragraph(Plural(static_cast<int>(state_->merge_conflicts.size()),
+                                            "session is here but differs",
+                                            "sessions are here but differ") +
+                                     ". Keep yours, or Replace it with the file's (Left/Right):") |
+                    ftxui::color(kColorLabel));
+                std::vector<ftxui::Element> lines;
+                for (std::size_t index : state_->merge_conflicts)
+                {
+                    const MergeSession& session = plan.sessions[index];
+                    const NetInstance& file = slice.instances[session.file_index];
+                    std::string when = file.instance_date;
+                    if (file.started_at > 0)
+                    {
+                        when += "  " + FormatLocalTimeOfDay(file.started_at);
+                    }
+                    lines.push_back(ftxui::hbox({
+                        ftxui::text(session.replace ? "Replace" : "Keep   ") |
+                            ftxui::color(session.replace ? ftxui::Color(kColorDanger)
+                                                         : ftxui::Color(kColorData)),
+                        ftxui::text("  " + when + "   " + WhatDiffers(session)) |
+                            ftxui::color(kColorListRow),
+                    }));
+                }
+                rows.push_back(List(lines, state_->selected_merge_conflict));
+            }
+            rows.push_back(DialogSeparator());
+            bool anything = added > 0 || plan.new_saved_stations > 0 ||
+                            !state_->merge_conflicts.empty() || plan.known_saved_stations > 0;
+            if (anything)
+            {
+                rows.push_back(HintText("A merge can't be undone."));
+                rows.push_back(KeyHintRow({{"F2", "Merge"}, {"Esc", "Back"}}));
+            }
+            else
+            {
+                rows.push_back(HintText("Nothing to merge: this net has everything in the file."));
+                rows.push_back(KeyHintRow({{"Esc", "Back"}}));
+            }
+            return rows;
+        }
+
+        // "check-ins differ (here 4, file 5)", "notes differ".
+        static std::string WhatDiffers(const MergeSession& session)
+        {
+            std::string counts = "(here " + std::to_string(session.local_check_ins) + ", file " +
+                                 std::to_string(session.file_check_ins) + ")";
+            if (session.check_ins_differ && session.notes_differ)
+            {
+                return "check-ins and notes differ " + counts;
+            }
+            return session.check_ins_differ ? "check-ins differ " + counts : "notes differ";
+        }
+
+        // "1 session", "3 sessions".
+        static std::string Plural(int count, const char* singular, const char* plural)
+        {
+            return std::to_string(count) + " " + (count == 1 ? singular : plural);
+        }
+
+        AppState* state_;
+    };
+
     ftxui::Component BuildImportNetPage(AppState* state)
     {
         ftxui::MenuOption file_menu_option;
@@ -2259,7 +2433,11 @@ namespace ql
 
         ftxui::Component root = ftxui::Container::Vertical({file_menu});
         ftxui::Component main_view = ftxui::Renderer(root, ImportNetRenderer(state, file_menu));
-        return WithConfirmPrompt(state, LayeredModal(main_view, BuildZmodemConfirmModal(state),
+        ftxui::Component merge_modal =
+            ftxui::Renderer(ftxui::Container::Vertical({}), NetMergeModalRenderer(state));
+        ftxui::Component with_merge =
+            LayeredModal(main_view, merge_modal, &state->show_merge_modal);
+        return WithConfirmPrompt(state, LayeredModal(with_merge, BuildZmodemConfirmModal(state),
                                                      &state->show_zmodem_confirm_modal));
     }
 

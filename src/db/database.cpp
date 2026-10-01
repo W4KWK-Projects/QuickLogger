@@ -755,6 +755,53 @@ COMMIT;
         statement.Step();
     }
 
+    void Database::FillStationBlanks(const Station& station, std::int64_t updated_at)
+    {
+        Statement statement(&statements_, R"sql(
+        INSERT INTO stations
+            (callsign, name, member_id, street_address, city, county, state, zip,
+             grid_square, last_updated)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(callsign) DO UPDATE SET
+            name = CASE WHEN stations.name = '' THEN excluded.name ELSE stations.name END,
+            member_id = CASE WHEN stations.member_id = '' THEN excluded.member_id
+                        ELSE stations.member_id END,
+            street_address = CASE WHEN stations.street_address = '' THEN excluded.street_address
+                             ELSE stations.street_address END,
+            city = CASE WHEN stations.city = '' THEN excluded.city ELSE stations.city END,
+            county = CASE WHEN stations.county = '' THEN excluded.county ELSE stations.county END,
+            state = CASE WHEN stations.state = '' THEN excluded.state ELSE stations.state END,
+            zip = CASE WHEN stations.zip = '' THEN excluded.zip ELSE stations.zip END,
+            grid_square = CASE WHEN stations.grid_square = '' THEN excluded.grid_square
+                          ELSE stations.grid_square END;
+    )sql");
+        statement.BindText(0, ToUpperAscii(station.callsign));
+        statement.BindText(1, station.name);
+        statement.BindText(2, station.member_id);
+        statement.BindText(3, station.street_address);
+        statement.BindText(4, station.city);
+        statement.BindText(5, station.county);
+        statement.BindText(6, station.state);
+        statement.BindText(7, station.zip);
+        statement.BindText(8, station.grid_square);
+        statement.BindInt64(9, updated_at);
+        statement.Step();
+    }
+
+    bool Database::AddNetSavedStationIfMissing(std::int64_t net_id, const std::string& callsign,
+                                               const std::string& default_remarks)
+    {
+        Statement statement(&statements_, R"sql(
+        INSERT OR IGNORE INTO net_saved_stations (net_id, callsign, default_remarks)
+        VALUES (?, ?, ?);
+    )sql");
+        statement.BindInt64(0, net_id);
+        statement.BindText(1, ToUpperAscii(callsign));
+        statement.BindText(2, default_remarks);
+        statement.Step();
+        return sqlite3_changes(db_) > 0;
+    }
+
     void Database::UpdateStationFields(const Station& station, std::int64_t updated_at)
     {
         Statement statement(&statements_, R"sql(

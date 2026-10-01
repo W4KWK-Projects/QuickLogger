@@ -190,4 +190,182 @@ namespace ql
         CHECK(error.find("more than one") != std::string::npos);
     }
 
+    // ---- Merging a .qlnet into a net here --------------------------------
+
+    QL_TEST(SessionsAreTheSameWhenTheirTimesOverlap)
+    {
+        NetInstance a;
+        a.instance_date = "2026-09-24";
+        a.started_at = 10000;
+        a.status = NetInstanceStatus::kClosed;
+        a.closed_at = 13600;
+        NetInstance b = a;
+        b.started_at = 13000;  // Starts before the first ends.
+        b.closed_at = 15000;
+        CHECK(SameSession(a, {}, b, {}));
+        b.started_at = 14000;  // Starts after it ends.
+        CHECK(!SameSession(a, {}, b, {}));
+        // Without an end, starts within 30 minutes.
+        b.status = NetInstanceStatus::kOpen;
+        b.closed_at = 0;
+        b.started_at = 10000 + 29 * 60;
+        CHECK(SameSession(a, {}, b, {}));
+        b.started_at = 10000 + 31 * 60;
+        CHECK(!SameSession(a, {}, b, {}));
+        // Without start times: the same date and check-ins.
+        CheckIn one;
+        one.callsign = "k4aaa";
+        CheckIn other = one;
+        other.callsign = "K4AAA";
+        a.started_at = 0;
+        b.started_at = 0;
+        CHECK(SameSession(a, {one}, b, {other}));
+        other.remarks = "mobile";
+        CHECK(!SameSession(a, {one}, b, {other}));
+        CHECK(!SameSession(a, {}, b, {other}));
+    }
+
+    QL_TEST(AMergeAddsOnlyWhatTheNetDoesntHave)
+    {
+        TempDir dir;
+        // The master: a net with one session and two saved stations.
+        Database master(dir.File("master.db"));
+        std::int64_t net_id = BuildSourceNet(&master);  // Two sessions, K4SAV saved.
+        std::string file = dir.File("Skywarn.qlnet");
+        std::string error;
+        REQUIRE(WriteNetSliceFile(file, GatherNetSlice(&master, net_id), &error));
+
+        // A local copy, logged during an outage: a new session, a new saved
+        // station, a detail the master doesn't have, and a remark changed.
+        {
+            Database local(dir.File("local.db"));
+            std::int64_t local_net = ApplyNetSlice(&local, *ReadNetSliceFile(file, &error), 1);
+            Station sam = MakeStation("K4SAV", "Someone Else", "37415", "Chattanooga");
+            sam.grid_square = "EM75";
+            local.UpdateSavedNetStation(local_net, sam, "changed remark", 2);
+            local.SaveNetStation(local_net, MakeStation("K4NEW", "Nell New"), "new here", 2);
+            // A week after the last one (BuildSourceNet's start at 1000 and 2000).
+            std::int64_t outage =
+                AddTestInstance(&local, local_net, "2026-01-20", 2000 + 7 * 24 * 3600, "W4KWK");
+            AddTestCheckIn(&local, outage, "K4NEW", 1);
+            AddTestCheckIn(&local, outage, "K4SAV", 2);
+            local.SetNetInstanceNotes(outage, "Logged during the outage.");
+            REQUIRE(WriteNetSliceFile(dir.File("back.qlnet"), GatherNetSlice(&local, local_net),
+                                      &error));
+        }
+
+        // Back on the master.
+        std::optional<NetSlice> back = ReadNetSliceFile(dir.File("back.qlnet"), &error);
+        REQUIRE(back.has_value());
+        NetMergePlan plan = PlanNetMerge(&master, *back, net_id);
+        REQUIRE(plan.sessions.size() == 3);
+        int added = 0;
+        int here = 0;
+        for (const MergeSession& session : plan.sessions)
+        {
+            added += session.kind == MergeSessionKind::kNew ? 1 : 0;
+            here += session.kind == MergeSessionKind::kAlreadyHere ? 1 : 0;
+        }
+        CHECK_EQ(added, 1);
+        CHECK_EQ(here, 2);
+        CHECK_EQ(plan.new_saved_stations, 1);
+        CHECK_EQ(plan.known_saved_stations, 1);
+
+        NetMergeResult result = ApplyNetMerge(&master, *back, plan);
+        CHECK_EQ(result.sessions_added, 1);
+        CHECK_EQ(result.sessions_replaced, 0);
+        CHECK_EQ(result.saved_stations_added, 1);
+        std::vector<NetInstance> sessions = master.GetNetInstancesForNet(net_id);
+        REQUIRE(sessions.size() == 3);
+        CHECK_EQ(sessions[0].instance_date, std::string("2026-01-20"));
+        CHECK_EQ(sessions[0].notes, std::string("Logged during the outage."));
+        CHECK_EQ(master.GetCheckInsForNetInstance(sessions[0].id).size(), std::size_t{2});
+        // The new station comes with its remarks; the master's own station
+        // keeps its details and remarks, gaining only the grid it lacked.
+        CHECK_EQ(master.GetSavedNetStationRemarks(net_id, "K4NEW"), std::string("new here"));
+        CHECK_EQ(master.GetSavedNetStationRemarks(net_id, "K4SAV"), std::string("mobile"));
+        std::optional<Station> sam = master.FindStationByCallsign("K4SAV");
+        REQUIRE(sam.has_value());
+        CHECK_EQ(sam->name, std::string("Sam Saved"));
+        CHECK_EQ(sam->grid_square, std::string("EM75"));
+
+        // Merging the same file again adds nothing.
+        NetMergePlan again = PlanNetMerge(&master, *back, net_id);
+        NetMergeResult nothing = ApplyNetMerge(&master, *back, again);
+        CHECK_EQ(nothing.sessions_added + nothing.saved_stations_added, 0);
+        CHECK_EQ(master.GetNetInstancesForNet(net_id).size(), std::size_t{3});
+    }
+
+    QL_TEST(ASessionThatDiffersIsKeptUnlessReplaced)
+    {
+        TempDir dir;
+        Database master(dir.File("master.db"));
+        std::int64_t net_id = BuildSourceNet(&master);
+        NetSlice slice = GatherNetSlice(&master, net_id);
+        // The file's copy of the closed session has another check-in, and
+        // its open one is open there too.
+        std::int64_t closed_id = slice.instances[1].id;
+        CheckIn extra;
+        extra.net_instance_id = closed_id;
+        extra.callsign = "K4XTR";
+        extra.sequence_number = 3;
+        extra.checked_in_at = 1400;
+        slice.check_ins.push_back(extra);
+
+        NetMergePlan plan = PlanNetMerge(&master, slice, net_id);
+        REQUIRE(plan.sessions.size() == 2);
+        CHECK(plan.sessions[1].kind == MergeSessionKind::kDiffers);
+        CHECK_EQ(plan.sessions[1].file_check_ins, 3);
+        CHECK_EQ(plan.sessions[1].local_check_ins, 2);
+        CHECK(plan.sessions[1].check_ins_differ);
+        CHECK(!plan.sessions[1].notes_differ);
+        CHECK(!plan.sessions[1].replace);  // Keep, unless chosen.
+        // An open session here is never replaced.
+        CHECK(plan.sessions[0].kind == MergeSessionKind::kAlreadyHere);
+        CHECK(plan.sessions[0].local_open);
+
+        // Kept: nothing changes.
+        ApplyNetMerge(&master, slice, plan);
+        std::vector<NetInstance> sessions = master.GetNetInstancesForNet(net_id);
+        REQUIRE(sessions.size() == 2);
+        CHECK_EQ(master.GetCheckInsForNetInstance(sessions[1].id).size(), std::size_t{2});
+
+        // Replaced: the file's copy takes its place.
+        plan = PlanNetMerge(&master, slice, net_id);
+        plan.sessions[1].replace = true;
+        NetMergeResult result = ApplyNetMerge(&master, slice, plan);
+        CHECK_EQ(result.sessions_replaced, 1);
+        sessions = master.GetNetInstancesForNet(net_id);
+        REQUIRE(sessions.size() == 2);
+        CHECK_EQ(master.GetCheckInsForNetInstance(sessions[1].id).size(), std::size_t{3});
+        CHECK(master.FindStationByCallsign("K4XTR").has_value());
+    }
+
+    QL_TEST(ASessionOpenInTheFileIsMergedClosed)
+    {
+        TempDir dir;
+        Database master(dir.File("master.db"));
+        std::int64_t net_id = AddTestNet(&master, "Skywarn");
+
+        Database other(dir.File("other.db"));
+        std::int64_t other_net = AddTestNet(&other, "Skywarn");
+        // Started just before its check-ins (AddTestCheckIn times them 1000 + #).
+        std::int64_t open = AddTestInstance(&other, other_net, "2026-02-03", 900, "W4KWK");
+        AddTestCheckIn(&other, open, "K4AAA", 1);
+        AddTestCheckIn(&other, open, "K4BBB", 4);  // A gap from deletions.
+        NetSlice slice = GatherNetSlice(&other, other_net);
+
+        NetMergePlan plan = PlanNetMerge(&master, slice, net_id);
+        REQUIRE(plan.sessions.size() == 1);
+        CHECK(plan.sessions[0].file_open);
+        ApplyNetMerge(&master, slice, plan);
+        std::vector<NetInstance> sessions = master.GetNetInstancesForNet(net_id);
+        REQUIRE(sessions.size() == 1);
+        CHECK(sessions[0].status == NetInstanceStatus::kClosed);
+        CHECK_EQ(sessions[0].closed_at, std::int64_t{1004});  // Its last check-in.
+        std::vector<CheckIn> check_ins = master.GetCheckInsForNetInstance(sessions[0].id);
+        REQUIRE(check_ins.size() == 2);
+        CHECK_EQ(check_ins[1].sequence_number, 2);  // Renumbered.
+    }
+
 }  // namespace ql

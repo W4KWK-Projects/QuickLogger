@@ -199,7 +199,17 @@ Exports are written to the `exports/` folder next to QuickLogger's database; imp
 | A net's saved stations | F7 on Edit Net | `NetName_saved_stations.txt` |
 | A whole net, to share | F8 on Recurring Nets | `NetName.qlnet`: the net, its saved stations and its full history |
 
-**Importing a net:** put the `.qlnet` file in `imports/` (or receive it with **F3**, below), press **F9** on Recurring Nets, highlight the file and press **F2**. It's added as a new net marked *imported*, so it can't overwrite one of yours. If you already have a net with the same name, it can't be imported as a new net; rename yours first (**F7**) if you want both. If you have one with a similar name, QuickLogger asks first, in case it's one you already have: **F2/Enter** imports it as a new net anyway, **Esc** cancels.
+**Importing a net:** put the `.qlnet` file in `imports/` (or receive it with **F3**, below), press **F9** on Recurring Nets, highlight the file and press **F2**. It's added as a new net marked *imported*, so it can't overwrite one of yours. If you have a net with the same or a similar name, the **Import or Merge?** window lists them instead: **F2/Enter** imports the file as a new net anyway (not offered when a net has its very name, since no two nets may share one), **F3** merges it into the highlighted net, and **Esc** cancels.
+
+**Merging a net** is for a net that went somewhere else and came back: say you exported it to a laptop, logged on the laptop during an outage, and exported it again to bring back. Before anything changes, a summary says what the merge will do, and **F2** carries it out (**Esc** goes back):
+
+- The file's sessions this net doesn't have are added, with their check-ins and notes. A session that was still open in the file comes in closed, as of its last check-in, and renumbered.
+- A session counts as one this net already has when their times overlap (from start to close), or, if either is still open, when they started within 30 minutes of each other. Without start times, it's the same date and the same check-ins.
+- A session that's here but differs (different check-ins or notes) is listed. **Left/Right** (or Enter) chooses, for each one, to **Keep** yours (the default) or **Replace** it with the file's. A session still open here is never replaced.
+- The file's saved stations that this net doesn't have are added, with their remarks. Stations already here keep their details and remarks; only details missing here are filled in from the file.
+- The net's own settings (name, frequency, notes, Partial Matching, ZIP) don't change.
+
+It all happens at once, or not at all if something goes wrong. It can't be undone, so look at the summary first. Merging the same file twice adds nothing the second time.
 
 **At your own computer:** after an export, QuickLogger offers to show you the file: **F2/Enter** opens the `exports/` folder in Finder, File Explorer or your Linux/FreeBSD desktop's file manager, with the new files selected (a session export makes three) where the file manager supports it; **Esc** closes the window. Without a desktop (a text-only console), it just says where the file was saved.
 

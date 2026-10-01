@@ -2230,7 +2230,7 @@ namespace ql
         CHECK(SaveEditNetForm(&f.state));
     }
 
-    QL_TEST(ImportingANetFileNamedLikeOneHereIsRefused)
+    QL_TEST(ANetFileNamedLikeOneHereCanOnlyBeMerged)
     {
         Fixture f;
         {
@@ -2245,10 +2245,14 @@ namespace ql
         RefreshImportNetFiles(&f.state);
         REQUIRE(f.state.import_net_files.size() == 1);
 
-        // Not asked about: refused outright, nothing imported.
+        // Never as a new net ("TAG SKYWARN" is the same name): only merged,
+        // into the net with that name.
         ImportSelectedNetSlice(&f.state);
-        CHECK(!f.state.show_confirm_prompt);
-        CHECK(f.state.form_error.find("\"TAG Skywarn\"") != std::string::npos);
+        CHECK(f.state.merge_stage == MergeStage::kChooseNet);
+        CHECK(f.state.merge_name_taken);
+        REQUIRE(f.state.merge_candidates.size() == 1);
+        CHECK_EQ(f.state.merge_candidates[0].name, std::string("TAG Skywarn"));
+        ImportSelectedNetSliceAnyway(&f.state);
         CHECK_EQ(f.db()->GetAllNets().size(), std::size_t{1});
     }
 
@@ -2268,25 +2272,75 @@ namespace ql
         RefreshImportNetFiles(&f.state);
         REQUIRE(f.state.import_net_files.size() == 1);
 
-        // Asked first, naming only the net that looks like it; Esc imports
+        // Asked first, offering only the net that looks like it; Esc imports
         // nothing.
         ImportSelectedNetSlice(&f.state);
-        CHECK(f.state.show_confirm_prompt);
-        CHECK(f.state.confirm_prompt == ConfirmPrompt::kImportLookAlikeNet);
-        REQUIRE(!f.state.confirm_prompt_lines.empty());
-        CHECK(f.state.confirm_prompt_lines[0].find("\"Hamilton Co. ARES Net\"") !=
-              std::string::npos);
-        CHECK(f.state.confirm_prompt_lines[0].find("TAG") == std::string::npos);
-        CancelConfirmPrompt(&f.state);
+        CHECK(f.state.merge_stage == MergeStage::kChooseNet);
+        CHECK(f.state.show_merge_modal);
+        CHECK(!f.state.merge_name_taken);
+        REQUIRE(f.state.merge_candidates.size() == 1);
+        CHECK_EQ(f.state.merge_candidates[0].name, std::string("Hamilton Co. ARES Net"));
+        AppKeyHandler keys(&f.state);
+        f.state.page = kPageImportNet;
+        CHECK(keys(ftxui::Event::Escape));
+        CHECK(f.state.merge_stage == MergeStage::kNone);
         CHECK_EQ(f.state.nets.size(), std::size_t{2});
 
         // Imported as a new net anyway.
         ImportSelectedNetSlice(&f.state);
-        REQUIRE(f.state.show_confirm_prompt);
-        ImportSelectedNetSliceAnyway(&f.state);
-        CHECK(!f.state.show_confirm_prompt);
+        CHECK(keys(ftxui::Event::F2));
+        CHECK(f.state.merge_stage == MergeStage::kNone);
         CHECK_EQ(f.state.nets.size(), std::size_t{3});
         CHECK_EQ(f.state.page, kPageNetList);
+    }
+
+    QL_TEST(ANetFileCanBeMergedIntoTheNetItCameFrom)
+    {
+        Fixture f;
+        std::int64_t net_id = f.StartNet("TAG Skywarn");
+        f.Log("K4AAA");
+        CloseActiveNet(&f.state);
+        // The same net, logged elsewhere: its session, plus one more.
+        std::string file = ImportsDir(f.state.db_path) + "/skywarn.qlnet";
+        {
+            std::string error;
+            NetSlice slice = GatherNetSlice(f.db(), net_id);
+            Database other(f.dir().File("other.db"));
+            std::int64_t other_net = ApplyNetSlice(&other, slice, 0);
+            std::int64_t later =
+                AddTestInstance(&other, other_net, "2026-10-01", 1000 + 8 * 24 * 3600, "W4KWK");
+            AddTestCheckIn(&other, later, "K4ZZZ", 1);
+            REQUIRE(WriteNetSliceFile(file, GatherNetSlice(&other, other_net), &error));
+        }
+        RefreshNets(&f.state);
+        RefreshImportNetFiles(&f.state);
+        f.state.page = kPageImportNet;
+        AppKeyHandler keys(&f.state);
+
+        // The same name: it can only be merged.
+        ImportSelectedNetSlice(&f.state);
+        REQUIRE(f.state.merge_stage == MergeStage::kChooseNet);
+        CHECK(f.state.merge_name_taken);
+        CHECK(keys(ftxui::Event::F2));  // Import New isn't offered.
+        CHECK(f.state.merge_stage == MergeStage::kChooseNet);
+        CHECK_EQ(f.state.nets.size(), std::size_t{1});
+
+        // F3: the summary. Esc goes back to choosing.
+        CHECK(keys(ftxui::Event::F3));
+        REQUIRE(f.state.merge_stage == MergeStage::kSummary);
+        CHECK_EQ(f.state.merge_target_name, std::string("TAG Skywarn"));
+        CHECK(f.state.merge_conflicts.empty());
+        CHECK(keys(ftxui::Event::Escape));
+        CHECK(f.state.merge_stage == MergeStage::kChooseNet);
+        CHECK(keys(ftxui::Event::F3));
+
+        // F2 merges: one session added, nothing else changed.
+        CHECK(keys(ftxui::Event::F2));
+        CHECK(f.state.merge_stage == MergeStage::kNone);
+        CHECK_EQ(f.state.page, kPageNetList);
+        CHECK_EQ(f.state.nets.size(), std::size_t{1});
+        CHECK_EQ(f.db()->GetNetInstancesForNet(net_id).size(), std::size_t{2});
+        CHECK(f.state.status_message.find("Merged into TAG Skywarn: 1 session") == 0);
     }
 
     QL_TEST(ExportingASessionAlsoWritesItsSessionFile)

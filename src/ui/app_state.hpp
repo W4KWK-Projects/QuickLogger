@@ -11,6 +11,7 @@
 #include "../db/database.hpp"
 #include "../mode_rules.hpp"
 #include "../models.hpp"
+#include "../net_slice.hpp"
 #include "../settings.hpp"
 #include "list_columns.hpp"
 
@@ -99,8 +100,16 @@ namespace ql
         // Importing a session logged under a net name nothing like the
         // History it's going into (see NetNamesLookAlike).
         kImportOtherNet,
-        // Importing a .qlnet whose name looks like a net already here.
-        kImportLookAlikeNet,
+    };
+
+    // Importing a .qlnet that looks like a net already here (see
+    // OpenNetMergeChoice): first which net, and whether to import it as a
+    // new one instead; then what merging into that net would do.
+    enum class MergeStage
+    {
+        kNone,
+        kChooseNet,
+        kSummary,
     };
 
     // The on-screen lists a RowPickAction picks from.
@@ -271,6 +280,25 @@ namespace ql
         bool import_session_ad_hoc = false;
         std::int64_t import_session_net_id = 0;
         std::string import_session_net_name;
+
+        // The Import or Merge window over the import page (see MergeStage):
+        // the file's net, the nets here it looks like (labels kept in step),
+        // which is highlighted, and whether one has the very same name, so
+        // it can't be imported as a new net at all. Then, for the chosen
+        // net, the plan (see PlanNetMerge), the plan's sessions that differ
+        // here (indexes into merge_plan.sessions) and which is highlighted.
+        // show_merge_modal is merge_stage != kNone, for LayeredModal.
+        MergeStage merge_stage = MergeStage::kNone;
+        bool show_merge_modal = false;
+        NetSlice merge_slice;
+        bool merge_name_taken = false;
+        std::vector<Net> merge_candidates;
+        std::vector<std::string> merge_candidate_labels;
+        int selected_merge_candidate = 0;
+        std::string merge_target_name;
+        NetMergePlan merge_plan;
+        std::vector<std::size_t> merge_conflicts;
+        int selected_merge_conflict = 0;
 
         // Manage Users page (console-only -- see kPageManageUsers and
         // AppState::is_console_session), refreshed by RefreshUsers:
@@ -918,11 +946,27 @@ namespace ql
     // net via ApplyNetSlice, refreshes AppState::nets, and returns to the
     // net list. Sets AppState::form_error instead (leaving the page open)
     // if there's nothing highlighted or the file can't be read.
-    // If nets already here look like the file's (NetNamesLookAlike), it
-    // asks first (ConfirmPrompt::kImportLookAlikeNet) instead of importing.
+    // If nets already here look like the file's (NetNamesLookAlike), or
+    // one has its very name, it opens the Import or Merge window instead
+    // (see MergeStage).
     void ImportSelectedNetSlice(AppState* state);
-    // F2/Enter on that question: imports it as a new net anyway.
+    // The Import or Merge window. F2/Enter: imports the file as a new net
+    // after all (not when a net here has its name).
     void ImportSelectedNetSliceAnyway(AppState* state);
+    // Up/Down: the net to merge into, or in the summary, the session that
+    // differs.
+    void MoveMergeHighlight(AppState* state, int delta);
+    // F3: what merging into the highlighted net would do (MergeStage::
+    // kSummary).
+    void ChooseMergeTarget(AppState* state);
+    // In the summary, Left/Right/Space/Enter: Keep or Replace the
+    // highlighted session that differs.
+    void ToggleMergeReplace(AppState* state);
+    // In the summary, F2: merges (ApplyNetMerge) and returns to the net
+    // list, saying what was added.
+    void ConfirmNetMerge(AppState* state);
+    // Esc: from the summary back to choosing; from choosing, closes it.
+    void BackOutOfNetMerge(AppState* state);
 
     // F3 on the import-net page: opens the ZMODEM confirmation modal with
     // zmodem_action = kReceive, so ConfirmZmodemAction runs
