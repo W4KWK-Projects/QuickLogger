@@ -10,6 +10,9 @@ namespace ql
     constexpr int kMinNearbyRadiusMiles = 1;
     constexpr int kMaxNearbyRadiusMiles = 250;
 
+    // ssh's own port, the Upstream Server window's default.
+    constexpr int kDefaultUpstreamPort = 22;
+
     // The operator's own persistent settings: their callsign and home ZIP.
     // Deliberately kept in its own file rather than the shared SQLite
     // database, since this data must never be included when that database is
@@ -35,6 +38,14 @@ namespace ql
         // and say so in the top bar (see update_check.hpp). Stored as
         // update_check=on/off; on if absent.
         bool check_for_updates = true;
+        // At the console: the upstream QuickLogger closed sessions are
+        // pushed to (Federated Logging; see upstream_push.hpp), set in the
+        // Upstream Server window. A blank host is no upstream. Stored as
+        // upstream_host, upstream_user and upstream_port (22 if absent or
+        // not a port number).
+        std::string upstream_host;
+        std::string upstream_user;
+        int upstream_port = kDefaultUpstreamPort;
     };
 
     // Reads settings from `path`. Returns a default (empty) AppSettings if the

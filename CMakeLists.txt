@@ -123,6 +123,8 @@ set(quicklogger_sources
     src/sftp_paths.cpp
     src/remote_command.cpp
     src/scp_server.cpp
+    src/run_program.cpp
+    src/upstream_push.cpp
     src/zmodem_send.cpp
     src/show_folder.cpp
     src/zip_extract.cpp
@@ -246,6 +248,7 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_sftp_paths.cpp
         tests/test_remote_command.cpp
         tests/test_scp_server.cpp
+        tests/test_upstream_push.cpp
         tests/test_app_state.cpp
     )
     target_link_libraries(quicklogger_tests PRIVATE quicklogger_core)
