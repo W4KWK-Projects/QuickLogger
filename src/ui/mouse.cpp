@@ -104,6 +104,19 @@ namespace ql
         return AddTarget(std::move(target));
     }
 
+    ftxui::Decorator ClickTargetEvent(const ftxui::Event& event)
+    {
+        KeyTarget target;
+        target.key = event;
+        return AddTarget(std::move(target));
+    }
+
+    const ftxui::Event& OpenUpdatePageEvent()
+    {
+        static const ftxui::Event event = ftxui::Event::Special("QuickLogger:open-update-page");
+        return event;
+    }
+
     ftxui::Decorator ClickableRow(int index)
     {
         KeyTarget target;

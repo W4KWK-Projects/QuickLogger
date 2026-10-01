@@ -26,6 +26,7 @@
 #include "../public_key.hpp"
 #include "../show_folder.hpp"
 #include "../text_utils.hpp"
+#include "../update_check.hpp"
 #include "../zip_write.hpp"
 #include "../zmodem_send.hpp"
 #include "list_columns.hpp"
@@ -1231,6 +1232,7 @@ namespace ql
     {
         state->settings_form = state->settings;
         state->settings_time_format_index = state->settings.use_24_hour_clock ? 1 : 0;
+        state->settings_update_check_index = state->settings.check_for_updates ? 0 : 1;
         state->settings_radius_text = std::to_string(state->settings.nearby_radius_miles);
     }
 
@@ -1270,10 +1272,12 @@ namespace ql
         }
 
         state->settings_form.use_24_hour_clock = state->settings_time_format_index == 1;
+        state->settings_form.check_for_updates = state->settings_update_check_index == 0;
         state->settings_form.nearby_radius_miles = radius;
         SaveSettings(state->settings_path, state->settings_form);
         state->settings = state->settings_form;
         SetUse24HourClock(state->settings.use_24_hour_clock);
+        SetUpdateCheckEnabled(state->is_console_session && state->settings.check_for_updates);
         state->form_error.clear();
         return true;
     }
@@ -4993,7 +4997,11 @@ namespace ql
 #if defined(QUICKLOGGER_WITH_SSH)
                 lines.push_back({"F4", "Manage SSH users (console only).", false});
 #endif
-                lines.push_back({"Left/Right", "Change the time format.", false});
+                lines.push_back({"Left/Right",
+                                 state->is_console_session
+                                     ? "Change the time format or Update Check."
+                                     : "Change the time format.",
+                                 false});
                 return lines;
             }
             case kPageAdHocNet:
@@ -5127,6 +5135,32 @@ namespace ql
     void CloseSessionNotes(AppState* state)
     {
         state->show_session_notes_modal = false;
+    }
+
+    void OpenUpdatePage(AppState* state)
+    {
+        std::string version = AvailableUpdate();
+        if (version.empty())
+        {
+            return;
+        }
+        if (IsLocalTerminal(state->is_console_session) && CanShowInFileManager())
+        {
+            std::string error;
+            if (!OpenInBrowser(kReleasesPageUrl, &error))
+            {
+                state->status_message.clear();
+                state->form_error =
+                    "Couldn't open " + std::string(kReleasesPageUrl) + " (" + error + ").";
+                return;
+            }
+            state->form_error.clear();
+            state->status_message = "Opened QuickLogger " + version + "'s download page.";
+            return;
+        }
+        state->form_error.clear();
+        state->status_message =
+            "QuickLogger " + version + " is out: " + std::string(kReleasesPageUrl);
     }
 
     void OpenHelp(AppState* state)

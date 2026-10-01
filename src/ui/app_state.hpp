@@ -312,6 +312,11 @@ namespace ql
         std::vector<std::string> settings_time_format_labels{"12-hour (3:42 PM)",
                                                              "24-hour (15:42)"};
         int settings_time_format_index = 0;
+        // The Settings page's Update Check choice (0 = on, 1 = off), shown
+        // only at the console; copied into settings_form.check_for_updates
+        // on save.
+        std::vector<std::string> settings_update_check_labels{"On", "Off"};
+        int settings_update_check_index = 0;
         // The Settings page's Nearby Radius field, in miles (digits only);
         // copied into settings_form.nearby_radius_miles on save.
         std::string settings_radius_text;
@@ -1191,6 +1196,10 @@ namespace ql
     // F1 on any page: the Help window, explaining every key the page has --
     // extra keys included, noting they need a wider terminal.
     void OpenHelp(AppState* state);
+    // A click on the top bar's update notice: opens the
+    // newer release's download page in the browser at a desktop console,
+    // and otherwise says where it is. Nothing if no newer one's been found.
+    void OpenUpdatePage(AppState* state);
     // F12 on the active net: the session's notes, to read and (unless
     // viewing, or a view-only user) edit.
     void OpenActiveSessionNotes(AppState* state);

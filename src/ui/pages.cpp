@@ -20,6 +20,7 @@
 #include "handlers.hpp"
 #include "mouse.hpp"
 #include "notes_editor.hpp"
+#include "../update_check.hpp"
 
 namespace ql
 {
@@ -1459,17 +1460,36 @@ namespace ql
     public:
         SettingsRenderer(AppState* state, ftxui::Component input_callsign,
                          ftxui::Component input_location, ftxui::Component input_radius,
-                         ftxui::Component time_format_toggle)
+                         ftxui::Component time_format_toggle, ftxui::Component update_check_toggle)
             : state_(state),
               input_callsign_(std::move(input_callsign)),
               input_location_(std::move(input_location)),
               input_radius_(std::move(input_radius)),
-              time_format_toggle_(std::move(time_format_toggle))
+              time_format_toggle_(std::move(time_format_toggle)),
+              update_check_toggle_(std::move(update_check_toggle))
         {
         }
 
         ftxui::Element operator()() const
         {
+            // At the console: Update Check, and the newer version if one's
+            // been found.
+            ftxui::Element update_check_row = ftxui::text("");
+            ftxui::Element update_hint = ftxui::text("");
+            if (state_->is_console_session)
+            {
+                update_check_row =
+                    ftxui::hbox({FieldLabel("Update Check:  "), update_check_toggle_->Render()});
+                std::string available = AvailableUpdate();
+                update_hint = HintParagraph(
+                    available.empty()
+                        ? "Update Check looks for a new release on GitHub every 6 hours, and "
+                          "says so in the top bar. It downloads nothing."
+                        : "QuickLogger " + available +
+                              " is out. Click the notice in the top bar to open its download "
+                              "page: " +
+                              std::string(kReleasesPageUrl));
+            }
             ftxui::Element content = ftxui::vbox({
                 state_->callsign_editable
                     ? ftxui::hbox({FieldLabel("My Callsign*:  "), input_callsign_->Render()})
@@ -1482,6 +1502,7 @@ namespace ql
                              input_radius_->Render() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 4),
                              ftxui::text("miles")}),
                 ftxui::hbox({FieldLabel("Time Format:   "), time_format_toggle_->Render()}),
+                update_check_row,
                 HintText("* Required"),
                 Separator(),
                 HintParagraph("My ZIP Code is a plain 5-digit US ZIP code (digits only), used "
@@ -1493,6 +1514,7 @@ namespace ql
                 HintParagraph("Time Format (Left/Right to change) sets how every time is shown "
                               "and exported. Times are shown in the time zone of the computer "
                               "QuickLogger runs on."),
+                update_hint,
                 Separator(),
                 Heading("Station data (shared by everyone, kept up to date automatically):"),
                 ftxui::paragraph(DescribeStationDataStatus(
@@ -1522,6 +1544,7 @@ namespace ql
         ftxui::Component input_location_;
         ftxui::Component input_radius_;
         ftxui::Component time_format_toggle_;
+        ftxui::Component update_check_toggle_;
     };
 
     ftxui::Component BuildSettingsPage(AppState* state)
@@ -1550,15 +1573,28 @@ namespace ql
             ftxui::Menu(&state->settings_time_format_labels, &state->settings_time_format_index,
                         time_format_option));
 
+        // Only at the console: an SSH user can't update the server.
+        ftxui::MenuOption update_check_option = ftxui::MenuOption::Toggle();
+        update_check_option.entries_option.transform = ToggleEntryTransform;
+        update_check_option.elements_infix = ToggleGap;
+        update_check_option.focused_entry = &state->settings_update_check_index;
+        ftxui::Component update_check_toggle =
+            ftxui::Maybe(std::make_shared<IgnoreTab>(
+                             ftxui::Menu(&state->settings_update_check_labels,
+                                         &state->settings_update_check_index, update_check_option)),
+                         &state->is_console_session);
+
         ftxui::Component root = ftxui::Container::Vertical({
             input_callsign,
             input_location,
             input_radius,
             time_format_toggle,
+            update_check_toggle,
         });
 
-        return ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_location,
-                                                      input_radius, time_format_toggle));
+        return ftxui::Renderer(root,
+                               SettingsRenderer(state, input_callsign, input_location, input_radius,
+                                                time_format_toggle, update_check_toggle));
     }
 
     // ---- Ad hoc net page ---------------------------------------------------

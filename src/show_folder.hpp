@@ -26,4 +26,9 @@ namespace ql
     // says why in `error`.
     bool ShowInFileManager(const std::vector<std::string>& paths, std::string* error);
 
+    // Opens `url` (http or https only) in the desktop's web browser, without
+    // waiting for it; where CanShowInFileManager, the same desktops. On
+    // failure to start it, says why in `error`.
+    bool OpenInBrowser(const std::string& url, std::string* error);
+
 }  // namespace ql

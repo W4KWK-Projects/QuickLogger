@@ -78,6 +78,10 @@ namespace ql
             {
                 settings.use_24_hour_clock = value == "24h";
             }
+            else if (key == "update_check")
+            {
+                settings.check_for_updates = value != "off";
+            }
             else if (key == "nearby_radius_miles")
             {
                 settings.nearby_radius_miles = ParseNearbyRadius(value);
@@ -103,6 +107,7 @@ namespace ql
         file << "location=" << settings.location << "\n";
         file << "time_format=" << (settings.use_24_hour_clock ? "24h" : "12h") << "\n";
         file << "nearby_radius_miles=" << settings.nearby_radius_miles << "\n";
+        file << "update_check=" << (settings.check_for_updates ? "on" : "off") << "\n";
     }
 
     bool SettingsAreComplete(const AppSettings& settings)

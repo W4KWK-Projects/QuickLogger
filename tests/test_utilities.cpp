@@ -17,6 +17,7 @@
 #include "../src/public_key.hpp"
 #include "../src/settings.hpp"
 #include "../src/text_utils.hpp"
+#include "../src/update_check.hpp"
 #include "../src/version.hpp"
 #include "../src/zmodem_send.hpp"
 #include "test_framework.hpp"
@@ -117,6 +118,44 @@ namespace ql
         CHECK(adif.find("<QSO_DATE:8>20260921 <STATION_CALLSIGN") != std::string::npos);
         CHECK(adif.find("<MODE") == std::string::npos);
         CHECK(adif.find("<FREQ") == std::string::npos);
+    }
+
+    // ---- update check ----------------------------------------------------------
+
+    QL_TEST(TheLatestReleasesVersionIsReadFromGitHubsReply)
+    {
+        CHECK_EQ(ReleaseVersionFromJson(
+                     "{\"url\": \"x\", \"tag_name\": \"v1.8.0\", \"name\": \"QuickLogger 1.8.0\"}"),
+                 std::string("1.8.0"));
+        CHECK_EQ(ReleaseVersionFromJson("{\"tag_name\":\"1.7.10\"}"), std::string("1.7.10"));
+        CHECK_EQ(ReleaseVersionFromJson("{\"message\": \"Not Found\"}"), std::string(""));
+        CHECK_EQ(ReleaseVersionFromJson("{\"tag_name\": "), std::string(""));
+    }
+
+    QL_TEST(VersionsCompareByNumberNotText)
+    {
+        CHECK(IsNewerVersion("1.7.10", "1.7.9"));
+        CHECK(!IsNewerVersion("1.7.9", "1.7.10"));
+        CHECK(IsNewerVersion("1.8.0", "1.7.9"));
+        CHECK(IsNewerVersion("2.0.0", "1.9.9"));
+        CHECK(IsNewerVersion("1.8.1", "1.8"));
+        CHECK(!IsNewerVersion("1.8", "1.8.0"));
+        CHECK(!IsNewerVersion("1.7.9", "1.7.9"));
+        // Anything that isn't a plain version is never newer.
+        CHECK(!IsNewerVersion("1.8.0-beta", "1.7.9"));
+        CHECK(!IsNewerVersion("", "1.7.9"));
+        CHECK(!IsNewerVersion("1..8", "1.7.9"));
+    }
+
+    QL_TEST(TurningTheUpdateCheckOffHidesWhatItFound)
+    {
+        SetUpdateCheckEnabled(true);
+        SetAvailableUpdate("9.9.9");
+        CHECK_EQ(AvailableUpdate(), std::string("9.9.9"));
+        SetUpdateCheckEnabled(false);
+        CHECK_EQ(AvailableUpdate(), std::string(""));
+        SetAvailableUpdate("");
+        SetUpdateCheckEnabled(true);
     }
 
     // ---- version ---------------------------------------------------------------
@@ -639,14 +678,18 @@ namespace ql
         CHECK_EQ(loaded.location, std::string("37415"));
         CHECK(!loaded.use_24_hour_clock);  // 12-hour unless chosen.
         CHECK_EQ(loaded.nearby_radius_miles, 70);
+        CHECK(loaded.check_for_updates);  // On unless turned off.
 
         settings.use_24_hour_clock = true;
         settings.nearby_radius_miles = 120;
+        settings.check_for_updates = false;
         SaveSettings(dir.File("settings.txt"), settings);
         CHECK(ReadTextFile(dir.File("settings.txt")).find("time_format=24h") != std::string::npos);
         loaded = LoadSettings(dir.File("settings.txt"));
         CHECK(loaded.use_24_hour_clock);
         CHECK_EQ(loaded.nearby_radius_miles, 120);
+        CHECK(!loaded.check_for_updates);
+        CHECK(ReadTextFile(dir.File("settings.txt")).find("update_check=off") != std::string::npos);
     }
 
     QL_TEST(ANearbyRadiusOutOfRangeIsClampedWhenRead)

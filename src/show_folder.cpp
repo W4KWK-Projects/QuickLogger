@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <objbase.h>
 #include <shlobj.h>
+#include <shellapi.h>
 #else
 #include <fcntl.h>
 #include <sys/wait.h>
@@ -139,6 +140,23 @@ namespace ql
         return true;
     }
 
+    bool OpenInBrowser(const std::string& url, std::string* error)
+    {
+        if (url.rfind("https://", 0) != 0 && url.rfind("http://", 0) != 0)
+        {
+            *error = "not a web address";
+            return false;
+        }
+        HINSTANCE result =
+            ShellExecuteW(nullptr, L"open", Widen(url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        if (reinterpret_cast<INT_PTR>(result) <= 32)
+        {
+            *error = "couldn't start the web browser";
+            return false;
+        }
+        return true;
+    }
+
 #else
 
 #if !defined(__APPLE__)
@@ -260,6 +278,26 @@ namespace ql
         if (!SpawnDetached(args))
         {
             *error = "couldn't start the file manager";
+            return false;
+        }
+        return true;
+    }
+
+    bool OpenInBrowser(const std::string& url, std::string* error)
+    {
+        if (url.rfind("https://", 0) != 0 && url.rfind("http://", 0) != 0)
+        {
+            *error = "not a web address";
+            return false;
+        }
+#if defined(__APPLE__)
+        std::vector<std::string> args = {"open", url};
+#else
+        std::vector<std::string> args = {"xdg-open", url};
+#endif
+        if (!SpawnDetached(args))
+        {
+            *error = "couldn't start the web browser";
             return false;
         }
         return true;

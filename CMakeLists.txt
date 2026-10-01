@@ -124,6 +124,7 @@ set(quicklogger_sources
     src/show_folder.cpp
     src/zip_extract.cpp
     src/zip_write.cpp
+    src/update_check.cpp
     src/adif_export.cpp
     src/uls_import.cpp
     src/data_updater.cpp

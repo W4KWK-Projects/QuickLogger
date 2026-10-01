@@ -1530,6 +1530,12 @@ namespace ql
 
     bool AppKeyHandler::operator()(const ftxui::Event& event) const
     {
+        // A click on the top bar's update notice, on any page.
+        if (event == OpenUpdatePageEvent())
+        {
+            OpenUpdatePage(state_);
+            return true;
+        }
         if (state_->info_window != InfoWindow::kNone)
         {
             return HandleInfoWindowKey(state_, event);

@@ -41,6 +41,7 @@ On first run you're taken straight to Settings, since a callsign and home ZIP ar
 | My ZIP Code | Your home ZIP. Nearby-station autocomplete measures distance from it when a net has no ZIP of its own. |
 | Nearby Radius | How far, in miles, a licensed station can be from the net's ZIP (or your home ZIP) and still be suggested by autocomplete. 1 to 250; the default is 70, which is also used if you leave it blank. Raise it for a net that covers a wide area, or lower it in a crowded city to keep suggestions local. |
 | Time Format | 12-hour (3:42 PM, the default) or 24-hour (15:42), for every time shown or exported. **Left/Right** change it. |
+| Update Check | At the local console only: **On** (the default) or **Off**. While on, QuickLogger asks GitHub for its latest release shortly after it starts and every 6 hours after that, and when there's a newer one the top bar says so (*v1.8.0 available*) and Settings shows where to get it. Clicking that notice opens the download page in your web browser (on a computer with a desktop; elsewhere it shows the address). It only looks; it never downloads or installs anything. SSH users never see it, since they can't update the server; a server set up with `deploy/freebsd` updates itself. |
 
 **F2** saves. Each SSH user has their own settings. Times are shown in the time zone of the computer QuickLogger runs on. At the local console only, **F3** refreshes the station data now and **F4** opens Manage Users (see the README's SSH section); Windows has no SSH server, so no Manage Users either.
 

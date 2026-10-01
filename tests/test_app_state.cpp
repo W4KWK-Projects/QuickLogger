@@ -13,6 +13,8 @@
 #include "../src/mode_rules.hpp"
 #include "../src/net_slice.hpp"
 #include "../src/show_folder.hpp"
+#include "../src/update_check.hpp"
+#include "../src/ui/mouse.hpp"
 #include "../src/zmodem_send.hpp"
 #include "../src/ui/app_state.hpp"
 #include "../src/ui/handlers.hpp"
@@ -406,6 +408,26 @@ namespace ql
         CHECK(f.state.row_pick_action == RowPickAction::kNone);
         CHECK(edit_keys(ftxui::Event::F3));
         CHECK(f.state.row_pick_action == RowPickAction::kEditSavedStation);
+    }
+
+    QL_TEST(ClickingTheUpdateNoticeSaysWhereTheNewVersionIs)
+    {
+        Fixture f;
+        // Never a desktop console, so no browser opens during the tests.
+        f.state.is_console_session = false;
+        AppKeyHandler keys(&f.state);
+        // Nothing found: nothing happens.
+        SetAvailableUpdate("");
+        CHECK(keys(OpenUpdatePageEvent()));
+        CHECK(f.state.status_message.empty());
+        // Found, but not at a desktop console here (an SSH session): the
+        // link, on whatever page.
+        SetAvailableUpdate("9.9.9");
+        f.state.page = kPageNetHistory;
+        CHECK(keys(OpenUpdatePageEvent()));
+        CHECK_EQ(f.state.status_message,
+                 "QuickLogger 9.9.9 is out: " + std::string(kReleasesPageUrl));
+        SetAvailableUpdate("");
     }
 
     QL_TEST(AViewersSessionNotesAreReadOnly)

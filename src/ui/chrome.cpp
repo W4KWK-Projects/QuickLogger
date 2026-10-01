@@ -12,6 +12,7 @@
 
 #include "../date_utils.hpp"
 #include "../uls_import.hpp"
+#include "../update_check.hpp"
 #include "../version.hpp"
 #include "list_columns.hpp"
 #include "mouse.hpp"
@@ -220,6 +221,12 @@ namespace ql
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
         bool is_problem = false;
         const std::string& notice = StationDataNoticeText(&is_problem, now);
+        // A newer release, found at the console (see update_check.hpp).
+        std::string update = AvailableUpdate();
+        if (!update.empty())
+        {
+            update = "v" + update + " available";
+        }
         // Local time, to the minute. ScreenTicker (interactive_session.cpp)
         // is what makes a redraw happen when the minute changes.
         const std::string& clock = ClockText(now);
@@ -233,6 +240,7 @@ namespace ql
         static const std::string status_gap = "   ";
         int left = 12 + static_cast<int>(version.size()) + 2;
         int right = (notice.empty() ? 0 : TextWidth(notice) + 3) +
+                    (update.empty() ? 0 : TextWidth(update) + 3) +
                     (status.empty() ? 0 : TextWidth(status) + static_cast<int>(status_gap.size())) +
                     static_cast<int>(help_key.size() + help_label.size() + clock.size());
         // A trailing space after the title, and a wider gap before a status.
@@ -252,6 +260,7 @@ namespace ql
                    ftxui::filler(),
                    status.empty() ? ftxui::text("")
                                   : ftxui::text(status + status_gap) | ftxui::color(kColorData),
+                   NoticeBadge(update, false) | ClickTargetEvent(OpenUpdatePageEvent()),
                    NoticeBadge(notice, is_problem),
                    ftxui::hbox({
                        ftxui::text(help_key) | ftxui::bgcolor(ftxui::Color::YellowLight) |
