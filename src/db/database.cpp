@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS users (
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 12;
+    static constexpr int kSchemaVersion = 13;
 
     static int ReadUserVersion(sqlite3* db)
     {
@@ -502,6 +502,12 @@ CREATE TABLE IF NOT EXISTS users (
         // converted, anything else blanked (see NormalizeMode).
         EnsureColumnExists(db_, "net_instances", "notes", "TEXT NOT NULL DEFAULT ''");
         NormalizeNetModes();
+        // A table from QuickLogger's earliest builds, before a net's saved
+        // stations had their present name. Nothing reads it, but it still
+        // refers to nets and stations, so deleting a net it names failed
+        // ("FOREIGN KEY constraint failed"). Anything in it that isn't
+        // already a saved station becomes one first.
+        DropOldSeedStations();
 
         std::string set_version = "PRAGMA user_version = " + std::to_string(kSchemaVersion) + ";";
         sqlite3_exec(db_, set_version.c_str(), nullptr, nullptr, nullptr);
@@ -544,6 +550,38 @@ COMMIT;
             sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
             throw std::runtime_error("Failed to upgrade the SSH users table: " + message);
         }
+    }
+
+    void Database::DropOldSeedStations()
+    {
+        {
+            Statement exists(&statements_,
+                             "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND "
+                             "name = 'net_seed_stations';");
+            if (!exists.Step())
+            {
+                return;
+            }
+        }
+        // Read through a pragma, as the table may predate default_remarks.
+        bool has_remarks = false;
+        {
+            Statement columns(&statements_, "PRAGMA table_info(net_seed_stations);");
+            while (columns.Step())
+            {
+                has_remarks = has_remarks || columns.ColumnText(1) == "default_remarks";
+            }
+        }
+        std::string copy_sql = std::string(
+                                   "INSERT OR IGNORE INTO net_saved_stations (net_id, callsign, "
+                                   "default_remarks) SELECT s.net_id, s.callsign, ") +
+                               (has_remarks ? "s.default_remarks" : "''") +
+                               " FROM net_seed_stations s JOIN nets n ON n.id = s.net_id "
+                               "JOIN stations t ON t.callsign = s.callsign;";
+        WriteTransaction transaction(this);
+        sqlite3_exec(db_, copy_sql.c_str(), nullptr, nullptr, nullptr);
+        sqlite3_exec(db_, "DROP TABLE net_seed_stations;", nullptr, nullptr, nullptr);
+        transaction.Commit();
     }
 
     void Database::NormalizeNetModes()

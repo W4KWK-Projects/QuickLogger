@@ -423,6 +423,10 @@ namespace ql
         // Replaces each net's mode with NormalizeMode's reading of it. Part
         // of CreateSchema's one-time upgrade.
         void NormalizeNetModes();
+        // Moves anything in net_seed_stations, a table from before the
+        // repository's first commit, into net_saved_stations and drops it.
+        // Part of CreateSchema's one-time upgrade.
+        void DropOldSeedStations();
         // Moves each net's frequency that isn't an amateur frequency into
         // its comments (see MoveBadFrequencyToComments). Part of
         // CreateSchema's one-time upgrade.
