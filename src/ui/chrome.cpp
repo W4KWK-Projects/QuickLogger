@@ -67,6 +67,11 @@ namespace ql
         return ftxui::text(text) | ftxui::color(kColorHint);
     }
 
+    ftxui::Element NoticeText(const std::string& text)
+    {
+        return ftxui::text(text) | ftxui::color(kColorNotice);
+    }
+
     ftxui::Element HintParagraph(const std::string& text)
     {
         return ftxui::paragraph(text) | ftxui::color(kColorHint);

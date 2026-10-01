@@ -35,6 +35,9 @@ namespace ql
     //                     otherwise; the colored header and frame around
     //                     them carry the color
     //   Hints / help      cyan                     (HintText, HintParagraph)
+    //   Notices           light yellow -- a note that wants attention more
+    //                     than a hint does, e.g. that the highlighted net
+    //                     has an open session (NoticeText)
     //   Success messages  light green; errors bright red (256-color)
     //   Frames, lines     light blue               (Framed, Separator)
     //   Row numbers       bright red -- the numbers beside a list's rows while
@@ -50,6 +53,7 @@ namespace ql
     constexpr ftxui::Color::Palette16 kColorData = ftxui::Color::GreenLight;
     constexpr ftxui::Color::Palette16 kColorListRow = ftxui::Color::White;
     constexpr ftxui::Color::Palette16 kColorHint = ftxui::Color::Cyan;
+    constexpr ftxui::Color::Palette16 kColorNotice = ftxui::Color::YellowLight;
     constexpr ftxui::Color::Palette16 kColorSuccess = ftxui::Color::GreenLight;
     constexpr ftxui::Color::Palette16 kColorFrame = ftxui::Color::BlueLight;
     // A 256-color blue, brighter than the 16-color light blue the page
@@ -76,6 +80,9 @@ namespace ql
     // empty-list message; HintParagraph wraps to the available width.
     ftxui::Element HintText(const std::string& text);
     ftxui::Element HintParagraph(const std::string& text);
+    // The same, in the notice color: a note that should stand out from the
+    // hints around it (the highlighted net has an open session).
+    ftxui::Element NoticeText(const std::string& text);
 
     // A horizontal rule between sections.
     ftxui::Element Separator();

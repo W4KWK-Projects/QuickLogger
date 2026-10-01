@@ -770,13 +770,17 @@ namespace ql
             bool open_session = SelectedNetHasOpenSession(state_);
             ftxui::Element open_session_hint =
                 open_session
+                    // In the notice color, so it stands out from the usual
+                    // hint and messages under the list.
                     ? (state_->view_only_user
-                           ? HintText("Session open: F3/Enter to view it.")
-                           : HintText(
+                           ? NoticeText("Session open: F3/Enter to view it.")
+                           : NoticeText(
                                  "Session open: F3/Enter to join it, view it, or start a new one."))
-                : state_->view_only_user || state_->nets.empty()
-                    ? ftxui::emptyElement()
-                    : HintText("Choose your net with Up/Down, then press F3 (or Enter) to log it.");
+                    : state_->view_only_user || state_->nets.empty()
+                          ? ftxui::emptyElement()
+                          : HintText(
+                                "Choose your net with Up/Down, then press F3 (or Enter) to log "
+                                "it.");
 
             ftxui::Element content = ftxui::vbox({
                 callsign_hint,
