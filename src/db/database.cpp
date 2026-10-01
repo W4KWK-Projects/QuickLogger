@@ -579,8 +579,10 @@ COMMIT;
                                " FROM net_seed_stations s JOIN nets n ON n.id = s.net_id "
                                "JOIN stations t ON t.callsign = s.callsign;";
         WriteTransaction transaction(this);
-        sqlite3_exec(db_, copy_sql.c_str(), nullptr, nullptr, nullptr);
-        sqlite3_exec(db_, "DROP TABLE net_seed_stations;", nullptr, nullptr, nullptr);
+        Statement copy(db_, copy_sql);
+        copy.Step();
+        Statement drop(db_, std::string("DROP TABLE net_seed_stations;"));
+        drop.Step();
         transaction.Commit();
     }
 
@@ -1509,6 +1511,21 @@ COMMIT;
         FROM check_ins WHERE net_instance_id = ? ORDER BY sequence_number;
     )sql");
         statement.BindInt64(0, net_instance_id);
+        std::vector<CheckIn> check_ins;
+        while (statement.Step())
+        {
+            check_ins.push_back(ReadCheckInRow(statement));
+        }
+        return check_ins;
+    }
+
+    std::vector<CheckIn> Database::GetCheckInsForNet(std::int64_t net_id)
+    {
+        Statement statement(&statements_,
+                            "SELECT " QL_CHECK_IN_COLUMNS
+                            " FROM check_ins c JOIN net_instances i ON i.id = c.net_instance_id"
+                            " WHERE i.net_id = ? ORDER BY c.net_instance_id, c.sequence_number;");
+        statement.BindInt64(0, net_id);
         std::vector<CheckIn> check_ins;
         while (statement.Step())
         {

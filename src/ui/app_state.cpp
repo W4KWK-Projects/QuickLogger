@@ -3056,21 +3056,23 @@ namespace ql
                 net = std::move(*found);
             }
             const std::string& operator_callsign = OperatorCallsign(instance);
+            // The session's stations in one query, as CheckInCells does.
+            std::vector<Station> stations = state->db->GetStationsInNetInstance(instance.id);
+            contacts.reserve(check_ins.size());
             for (const CheckIn& check_in : check_ins)
             {
                 if (CallsignsEqual(check_in.callsign, operator_callsign))
                 {
                     continue;
                 }
-                AdifContact contact;
+                AdifContact& contact = contacts.emplace_back();
                 contact.check_in = check_in;
-                std::optional<Station> station =
-                    state->db->FindStationByCallsign(check_in.callsign);
-                if (station.has_value())
+                std::vector<Station>::const_iterator found = std::lower_bound(
+                    stations.begin(), stations.end(), check_in.callsign, StationCallsignBefore);
+                if (found != stations.end() && found->callsign == check_in.callsign)
                 {
-                    contact.station = std::move(*station);
+                    contact.station = *found;
                 }
-                contacts.push_back(std::move(contact));
             }
         }
         std::string frequency =

@@ -235,6 +235,9 @@ namespace ql
         // logging the same session at the same moment can't both get it.
         std::int64_t AddCheckInAtNextSequence(const CheckIn& check_in);
         std::vector<CheckIn> GetCheckInsForNetInstance(std::int64_t net_instance_id);
+        // Every check-in to every session of `net_id`, in one query, by
+        // session then number (for comparing a whole net; see PlanNetMerge).
+        std::vector<CheckIn> GetCheckInsForNet(std::int64_t net_id);
 
         // Every check-in `callsign` made to net `net_id`, newest session
         // first, each with its session and the net's name.

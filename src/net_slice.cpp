@@ -417,8 +417,13 @@ namespace ql
         }
 
         std::vector<NetInstance> local = db->GetNetInstancesForNet(target_net_id);
-        // Check-ins here, read only for sessions that might match.
+        // Every check-in here, in one query, by session.
         std::unordered_map<std::int64_t, std::vector<CheckIn>> local_check_ins;
+        for (CheckIn& check_in : db->GetCheckInsForNet(target_net_id))
+        {
+            std::int64_t session_id = check_in.net_instance_id;
+            local_check_ins[session_id].push_back(std::move(check_in));
+        }
         std::unordered_set<std::int64_t> matched;
         std::unordered_map<std::int64_t, std::vector<CheckIn>> file_check_ins =
             CheckInsBySession(slice);
@@ -436,17 +441,6 @@ namespace ql
                 if (matched.count(here.id) != 0)
                 {
                     continue;
-                }
-                // Sessions days apart can't be the same; spare reading
-                // their check-ins.
-                if (file.started_at > 0 && here.started_at > 0 &&
-                    std::llabs(file.started_at - here.started_at) > 2 * 24 * 60 * 60)
-                {
-                    continue;
-                }
-                if (local_check_ins.count(here.id) == 0)
-                {
-                    local_check_ins[here.id] = db->GetCheckInsForNetInstance(here.id);
                 }
                 const std::vector<CheckIn>& here_list = local_check_ins[here.id];
                 if (!SameSession(file, file_list, here, here_list))
@@ -485,9 +479,13 @@ namespace ql
             }
         }
 
+        // Stations already written (below), so the check-ins don't write
+        // them again.
+        std::unordered_set<std::string> have_station;
         for (const NetSliceSavedStation& saved : slice.saved_stations)
         {
             db->FillStationBlanks(saved.station, now);
+            have_station.insert(ToUpperAscii(saved.station.callsign));
             if (db->AddNetSavedStationIfMissing(plan.target_net_id, saved.station.callsign,
                                                 saved.default_remarks))
             {
@@ -516,6 +514,7 @@ namespace ql
             if (callsigns_added.count(ToUpperAscii(station.callsign)) != 0)
             {
                 db->FillStationBlanks(station, now);
+                have_station.insert(ToUpperAscii(station.callsign));
             }
         }
 
@@ -544,10 +543,14 @@ namespace ql
             std::int64_t instance_id = db->CreateNetInstance(instance);
             for (const CheckIn& check_in : check_ins)
             {
-                // Only the callsign, if the file has nothing else on it.
-                Station bare;
-                bare.callsign = check_in.callsign;
-                db->FillStationBlanks(bare, now);
+                // Only the callsign, if the file has nothing else on it
+                // (once per station, not per check-in).
+                if (have_station.insert(ToUpperAscii(check_in.callsign)).second)
+                {
+                    Station bare;
+                    bare.callsign = check_in.callsign;
+                    db->FillStationBlanks(bare, now);
+                }
                 CheckIn copy = check_in;
                 copy.net_instance_id = instance_id;
                 db->AddCheckIn(copy);

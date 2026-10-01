@@ -179,6 +179,23 @@ namespace ql
         return text;
     }
 
+    // The update notice's text ("v1.8.0 available"), or "" if there's none:
+    // read at most once a second, like the station-data notice, not on
+    // every frame. It changes every few hours at most, and a read takes a
+    // lock and a copy.
+    static const std::string& UpdateNoticeText(std::int64_t now)
+    {
+        static std::int64_t read_at = -1;
+        static std::string text;
+        if (now != read_at)
+        {
+            read_at = now;
+            std::string version = AvailableUpdate();
+            text = version.empty() ? std::string() : "v" + version + " available";
+        }
+        return text;
+    }
+
     // The clock's text, "03:42 PM " or "15:42 ": remade only when the minute
     // (or the 12/24-hour setting) changes, not on every frame.
     static const std::string& ClockText(std::int64_t now)
@@ -222,11 +239,7 @@ namespace ql
         bool is_problem = false;
         const std::string& notice = StationDataNoticeText(&is_problem, now);
         // A newer release, found at the console (see update_check.hpp).
-        std::string update = AvailableUpdate();
-        if (!update.empty())
-        {
-            update = "v" + update + " available";
-        }
+        const std::string& update = UpdateNoticeText(now);
         // Local time, to the minute. ScreenTicker (interactive_session.cpp)
         // is what makes a redraw happen when the minute changes.
         const std::string& clock = ClockText(now);
