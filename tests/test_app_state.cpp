@@ -789,10 +789,10 @@ namespace ql
         REQUIRE(f.state.show_user_keys_modal);
         CHECK_EQ(f.state.user_keys_username, std::string("K4WES"));
         REQUIRE(f.state.user_keys_labels.size() == 2);
-        CHECK(f.state.user_keys_labels[0].find("ED25519 SHA256:zSpp/") != std::string::npos);
+        CHECK(f.state.user_keys_labels[0].find("ED25519  SHA256:zSpp/") != std::string::npos);
         CHECK(f.state.user_keys_labels[0].find("test@quicklogger") != std::string::npos);
         CHECK(f.state.user_keys_labels[0].find("never") != std::string::npos);
-        CHECK(f.state.user_keys_labels[1].find("ECDSA   SHA256:19j6m") != std::string::npos);
+        CHECK(f.state.user_keys_labels[1].find("ECDSA    SHA256:19j6m") != std::string::npos);
         CHECK(UserKeyListHeader(80).find("Fingerprint") != std::string::npos);
 
         // The same key again doesn't add one; a bad one is explained.

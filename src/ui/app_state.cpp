@@ -409,7 +409,8 @@ namespace ql
     static const std::vector<ListColumn>& UserColumns()
     {
         static const std::vector<ListColumn> columns = {
-            {"Username", 12, 24, 0, 1},
+            // Room for 2.0's longer GMRS call signs (e.g. WSIP663) and more.
+            {"Username", 16, 16, 0, 0},
             {"Access", 9, 9, 0, 0},
             {"Keys", 4, 4, 0, 0},
             {"Last Login", 19, 19, 0, 0},
@@ -450,7 +451,9 @@ namespace ql
 
     static ListLayout UserLayout(int terminal_width)
     {
-        return LayOutList(UserColumns(), ScreenListWidth(terminal_width), kScreenListWidthAt80, 1);
+        // Four short columns: spread out by three spaces even at 80
+        // columns, up to four on a wider terminal.
+        return LayOutList(UserColumns(), ScreenListWidth(terminal_width), kScreenListWidthAt80, 3, 4);
     }
 
     const std::string& UserListHeader(int terminal_width)
@@ -498,7 +501,9 @@ namespace ql
 
     static ListLayout UserKeyLayout(int terminal_width)
     {
-        return LayOutList(UserKeyColumns(), UserKeyListWidth(terminal_width), UserKeyListWidth(80), 1);
+        // Two spaces apart even at 80 columns (Comment, last, still gets
+        // 16), up to three on a wider terminal.
+        return LayOutList(UserKeyColumns(), UserKeyListWidth(terminal_width), UserKeyListWidth(80), 2, 3);
     }
 
     const std::string& UserKeyListHeader(int terminal_width)
