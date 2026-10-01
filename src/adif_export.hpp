@@ -32,6 +32,12 @@ namespace ql
                           const std::string& frequency, const std::string& station_callsign,
                           const std::string& session_date, std::int64_t created_at);
 
+    // `name` as first name first, for ADIF's NAME: the FCC's "Last, First
+    // Middle" ("Shults, Roger D", "Stansberry Jr, Roger L") becomes "Roger
+    // D Shults" and "Roger L Stansberry Jr". A name with no comma, or more
+    // than one, is left as it is.
+    std::string FirstNameFirst(const std::string& name);
+
     // ADIF's BAND for a frequency in MHz ("146.940" is "2m"), or "" if it's
     // in none of them.
     std::string AdifBand(const std::string& frequency);

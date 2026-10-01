@@ -177,6 +177,11 @@ namespace ql
         bool show_zmodem_confirm_modal = false;
         ZmodemAction zmodem_action = ZmodemAction::kSend;
         std::vector<std::string> zmodem_send_paths;
+        // When zmodem_send_paths is a session export's .zip: the files in
+        // it, which stay in exports/. The .zip is only for the transfer, so
+        // it's removed once ZMODEM is done with it (sent, failed or
+        // skipped); F7 makes a fresh one.
+        std::vector<std::string> zmodem_zip_contents;
 
         // The Session Notes window (F12, on the active net and in History):
         // which session's notes, the working copy being edited (saved to the

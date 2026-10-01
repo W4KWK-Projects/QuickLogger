@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <ctime>
 #include <exception>
+#include <filesystem>
 #include <fstream>
 #include <optional>
 #include <utility>
@@ -1931,6 +1932,7 @@ namespace ql
 
     void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths)
     {
+        state->zmodem_zip_contents.clear();
         // The files are already on this computer: nothing to send, but the
         // folder can be opened for the operator.
         if (IsLocalTerminal(state->is_console_session))
@@ -2001,6 +2003,32 @@ namespace ql
         }
     }
 
+    // A path's file name alone.
+    static std::string BaseFileName(const std::string& path)
+    {
+        std::string::size_type slash = path.find_last_of("/\\");
+        return slash == std::string::npos ? path : path.substr(slash + 1);
+    }
+
+    // Once ZMODEM is done with a session export's .zip, removes it and
+    // returns the files that stay (see AppState::zmodem_zip_contents);
+    // otherwise the files that were offered.
+    static std::vector<std::string> SavedAfterZmodem(AppState* state)
+    {
+        if (state->zmodem_zip_contents.empty())
+        {
+            return state->zmodem_send_paths;
+        }
+        std::error_code ignored;
+        for (const std::string& path : state->zmodem_send_paths)
+        {
+            std::filesystem::remove(path, ignored);
+        }
+        std::vector<std::string> saved = std::move(state->zmodem_zip_contents);
+        state->zmodem_zip_contents.clear();
+        return saved;
+    }
+
     void ConfirmZmodemAction(AppState* state)
     {
         state->show_zmodem_confirm_modal = false;
@@ -2017,15 +2045,21 @@ namespace ql
         }
         if (state->zmodem_action == ZmodemAction::kSend)
         {
-            if (SendFilesViaZmodem(state->screen, state->zmodem_send_paths, &error))
+            bool sent = SendFilesViaZmodem(state->screen, state->zmodem_send_paths, &error);
+            // What's left in exports/ to name: without the .zip, once it's
+            // removed.
+            std::vector<std::string> saved = SavedAfterZmodem(state);
+            if (sent)
             {
                 state->status_message =
-                    "Saved to " + ListPaths(state->zmodem_send_paths) + " and sent via ZMODEM.";
+                    state->zmodem_send_paths.size() == 1 && saved != state->zmodem_send_paths
+                        ? "Sent " + BaseFileName(state->zmodem_send_paths[0]) +
+                              " via ZMODEM; saved to " + ListPaths(saved) + "."
+                        : "Saved to " + ListPaths(saved) + " and sent via ZMODEM.";
             }
             else
             {
-                state->status_message =
-                    "Saved to " + ListPaths(state->zmodem_send_paths) + " (" + error + ")";
+                state->status_message = "Saved to " + ListPaths(saved) + " (" + error + ")";
             }
             return;
         }
@@ -2060,7 +2094,7 @@ namespace ql
         if (state->zmodem_action == ZmodemAction::kSend)
         {
             state->status_message =
-                "Saved to " + ListPaths(state->zmodem_send_paths) + " (ZMODEM skipped).";
+                "Saved to " + ListPaths(SavedAfterZmodem(state)) + " (ZMODEM skipped).";
         }
         else
         {
@@ -3132,6 +3166,8 @@ namespace ql
             return;
         }
         OfferZmodemSendFiles(state, {zip_path});
+        state->zmodem_zip_contents = paths;
+        state->status_message = "Saved to " + ListPaths(paths) + ".";
     }
 
     void ExportSavedStations(AppState* state, const std::string& net_name,

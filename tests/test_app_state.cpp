@@ -2129,6 +2129,15 @@ namespace ql
         {
             REQUIRE(f.state.zmodem_send_paths.size() == 1);
             CHECK(f.state.zmodem_send_paths[0].find(".zip") != std::string::npos);
+            // Once ZMODEM is done with it (here, skipped), the .zip goes;
+            // the files in it stay, and the message names them.
+            CancelZmodemAction(&f.state);
+            CHECK(ListFilesWithExtension(mine, ".zip").empty());
+            CHECK_EQ(ListFilesWithExtension(mine, ".adi").size(), std::size_t{1});
+            CHECK(f.state.status_message.find(".qlsession") != std::string::npos);
+            CHECK(f.state.status_message.find(".zip") == std::string::npos);
+            CHECK(f.state.zmodem_zip_contents.empty());
+            zips = 0;
         }
         f.state.show_zmodem_confirm_modal = false;
         CHECK(ListFilesWithExtension(f.dir().File("exports"), ".txt").empty());

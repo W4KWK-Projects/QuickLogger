@@ -81,6 +81,11 @@ namespace ql
                  std::string("It's \"ok\""));
         CHECK_EQ(FoldToAscii("snow \xE2\x9D\x84"), std::string("snow "));
 
+        CHECK_EQ(FirstNameFirst("Shults, Roger D"), std::string("Roger D Shults"));
+        CHECK_EQ(FirstNameFirst("Stansberry Jr, Roger L"), std::string("Roger L Stansberry Jr"));
+        CHECK_EQ(FirstNameFirst("Wes Keene"), std::string("Wes Keene"));
+        CHECK_EQ(FirstNameFirst("Smith, John, Jr"), std::string("Smith, John, Jr"));
+        CHECK_EQ(FirstNameFirst("Smith,"), std::string("Smith"));
         CHECK_EQ(AdifBand("146.940"), std::string("2m"));
         CHECK_EQ(AdifBand("7.235"), std::string("40m"));
         CHECK_EQ(AdifBand("443.500"), std::string("70cm"));
@@ -92,7 +97,7 @@ namespace ql
         contact.check_in.checked_in_at = 1790000000;  // 2026-09-21 14:13:20 UTC.
         contact.check_in.signal_report = "59";
         contact.check_in.remarks = "Mobile";
-        contact.station.name = "Ren\xC3\xA9";
+        contact.station.name = "Dupont, Ren\xC3\xA9";
         contact.station.city = "Chattanooga";
         contact.station.state = "TN";
         contact.station.county = "Hamilton";
@@ -105,7 +110,7 @@ namespace ql
               std::string::npos);
         CHECK(adif.find("<FREQ:7>443.500 <BAND:4>70cm <MODE:12>DIGITALVOICE <SUBMODE:3>DMR ") !=
               std::string::npos);
-        CHECK(adif.find("<STATION_CALLSIGN:5>W4KWK <RST_RCVD:2>59 <NAME:4>Rene ") !=
+        CHECK(adif.find("<STATION_CALLSIGN:5>W4KWK <RST_RCVD:2>59 <NAME:11>Rene Dupont ") !=
               std::string::npos);
         CHECK(adif.find("<CNTY:11>TN,Hamilton <GRIDSQUARE:4>EM75 <COMMENT:6>Mobile <EOR>") !=
               std::string::npos);

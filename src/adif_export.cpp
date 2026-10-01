@@ -98,6 +98,33 @@ namespace ql
         return folded;
     }
 
+    // `text` without spaces at either end.
+    static std::string TrimSpaces(const std::string& text)
+    {
+        std::string::size_type first = text.find_first_not_of(' ');
+        if (first == std::string::npos)
+        {
+            return "";
+        }
+        return text.substr(first, text.find_last_not_of(' ') - first + 1);
+    }
+
+    std::string FirstNameFirst(const std::string& name)
+    {
+        std::string::size_type comma = name.find(',');
+        if (comma == std::string::npos || name.find(',', comma + 1) != std::string::npos)
+        {
+            return name;
+        }
+        std::string last = TrimSpaces(name.substr(0, comma));
+        std::string first = TrimSpaces(name.substr(comma + 1));
+        if (last.empty() || first.empty())
+        {
+            return TrimSpaces(last + first);
+        }
+        return first + " " + last;
+    }
+
     struct AdifBandRange
     {
         double low;
@@ -202,7 +229,7 @@ namespace ql
             AppendField(&record, "SUBMODE", adif_submode);
             AppendField(&record, "STATION_CALLSIGN", station_callsign);
             AppendField(&record, "RST_RCVD", contact.check_in.signal_report);
-            AppendField(&record, "NAME", station.name);
+            AppendField(&record, "NAME", FirstNameFirst(station.name));
             AppendField(&record, "QTH", station.city);
             AppendField(&record, "STATE", station.state);
             AppendField(&record, "CNTY",
