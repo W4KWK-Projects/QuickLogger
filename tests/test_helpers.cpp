@@ -11,6 +11,8 @@
 
 #include <zlib.h>
 
+#include "../src/show_folder.hpp"
+
 namespace ql
 {
 
@@ -35,11 +37,13 @@ namespace ql
         SetTestEnvironment("SSH_CONNECTION", "");
         SetTestEnvironment("SSH_CLIENT", "");
         SetTestEnvironment("SSH_TTY", "");
+        RereadTerminalEnvironment();
     }
 
     LocalTerminalScope::~LocalTerminalScope()
     {
         SetTestEnvironment("SSH_TTY", "quicklogger_tests");
+        RereadTerminalEnvironment();
     }
 
     TempDir::TempDir()

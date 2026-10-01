@@ -3294,6 +3294,58 @@ namespace ql
         }
     }
 
+    // `callsigns` joined with ", ", the first three and how many more.
+    static void AppendCallsigns(const std::vector<std::string>& callsigns, std::string* text)
+    {
+        std::size_t shown = std::min<std::size_t>(callsigns.size(), 3);
+        for (std::size_t i = 0; i < shown; ++i)
+        {
+            text->append(i == 0 ? "" : ", ");
+            text->append(callsigns[i]);
+        }
+        if (callsigns.size() > shown)
+        {
+            text->append(" +");
+            text->append(std::to_string(callsigns.size() - shown));
+        }
+    }
+
+    // What differs in a session: "check-ins: K4AAA differs; K4ZZZ only
+    // in file; notes differ".
+    static std::string WhatDiffers(const MergeSession& session)
+    {
+        std::string text;
+        if (session.check_ins_differ)
+        {
+            text.append("check-ins: ");
+            bool first = true;
+            if (!session.callsigns_changed.empty())
+            {
+                AppendCallsigns(session.callsigns_changed, &text);
+                text.append(session.callsigns_changed.size() == 1 ? " differs" : " differ");
+                first = false;
+            }
+            if (!session.callsigns_only_in_file.empty())
+            {
+                text.append(first ? "" : "; ");
+                AppendCallsigns(session.callsigns_only_in_file, &text);
+                text.append(" only in file");
+                first = false;
+            }
+            if (!session.callsigns_only_here.empty())
+            {
+                text.append(first ? "" : "; ");
+                AppendCallsigns(session.callsigns_only_here, &text);
+                text.append(" only here");
+            }
+        }
+        if (session.notes_differ)
+        {
+            text.append(text.empty() ? "notes differ" : "; notes differ");
+        }
+        return text;
+    }
+
     void ChooseMergeTarget(AppState* state)
     {
         if (state->merge_stage != MergeStage::kChooseNet || state->merge_candidates.empty())
@@ -3304,11 +3356,23 @@ namespace ql
         state->merge_target_name = target.name;
         state->merge_plan = PlanNetMerge(state->db, state->merge_slice, target.id);
         state->merge_conflicts.clear();
+        state->merge_conflict_texts.clear();
         for (std::size_t i = 0; i < state->merge_plan.sessions.size(); ++i)
         {
-            if (state->merge_plan.sessions[i].kind == MergeSessionKind::kDiffers)
+            const MergeSession& session = state->merge_plan.sessions[i];
+            if (session.kind == MergeSessionKind::kDiffers)
             {
                 state->merge_conflicts.push_back(i);
+                const NetInstance& file = state->merge_slice.instances[session.file_index];
+                MergeConflictText text;
+                text.when = file.instance_date;
+                if (file.started_at > 0)
+                {
+                    text.when.append("  ");
+                    text.when.append(FormatLocalTimeOfDay(file.started_at));
+                }
+                text.what = WhatDiffers(session);
+                state->merge_conflict_texts.push_back(std::move(text));
             }
         }
         state->selected_merge_conflict = 0;

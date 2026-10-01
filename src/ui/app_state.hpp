@@ -112,6 +112,16 @@ namespace ql
         kSummary,
     };
 
+    // A row of the merge summary's sessions that differ (see
+    // AppState::merge_conflicts), as it reads: when the file's session was
+    // started ("2026-09-14  07:30 PM") and what differs ("check-ins: K4AAA
+    // differs; notes differ").
+    struct MergeConflictText
+    {
+        std::string when;
+        std::string what;
+    };
+
     // The on-screen lists a RowPickAction picks from.
     enum class PickList
     {
@@ -286,7 +296,8 @@ namespace ql
         // which is highlighted, and whether one has the very same name, so
         // it can't be imported as a new net at all. Then, for the chosen
         // net, the plan (see PlanNetMerge), the plan's sessions that differ
-        // here (indexes into merge_plan.sessions) and which is highlighted.
+        // here (indexes into merge_plan.sessions), their rows' text (made
+        // with the plan, not on every frame) and which is highlighted.
         // show_merge_modal is merge_stage != kNone, for LayeredModal.
         MergeStage merge_stage = MergeStage::kNone;
         bool show_merge_modal = false;
@@ -298,6 +309,7 @@ namespace ql
         std::string merge_target_name;
         NetMergePlan merge_plan;
         std::vector<std::size_t> merge_conflicts;
+        std::vector<MergeConflictText> merge_conflict_texts;
         int selected_merge_conflict = 0;
 
         // Manage Users page (console-only -- see kPageManageUsers and

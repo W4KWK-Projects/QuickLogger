@@ -13,6 +13,10 @@ namespace ql
     // files are already on the operator's own computer.
     bool IsLocalTerminal(bool is_console_session);
 
+    // IsLocalTerminal reads the environment once, on its first call. For tests
+    // that change SSH_CONNECTION, SSH_CLIENT or SSH_TTY: read it again.
+    void RereadTerminalEnvironment();
+
     // True if this machine has a desktop to open a file manager window on:
     // always on macOS and Windows, and on Linux/FreeBSD when a graphical
     // session is running (DISPLAY or WAYLAND_DISPLAY is set).

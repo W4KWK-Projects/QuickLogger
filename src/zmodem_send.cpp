@@ -153,7 +153,9 @@ namespace ql
 
     bool NoZmodemOnThisSystem()
     {
-        return ::access("/etc/alpine-release", F_OK) == 0;
+        // Checked once, not on every call: pages ask on every frame.
+        static const bool alpine = ::access("/etc/alpine-release", F_OK) == 0;
+        return alpine;
     }
 
     // Waits up to `timeout_seconds` for `pid` to exit on its own, polling
