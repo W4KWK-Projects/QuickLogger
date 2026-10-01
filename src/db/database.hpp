@@ -95,6 +95,9 @@ namespace ql
         // than leaving a field blank because they didn't retype known data.
         void UpdateStationFields(const Station& station, std::int64_t updated_at);
         std::optional<Station> FindStationByCallsign(const std::string& callsign);
+        // The stations here with any of `callsigns` (upper case), sorted by
+        // callsign: a few queries for the lot rather than one per callsign.
+        std::vector<Station> FindStationsByCallsigns(const std::vector<std::string>& callsigns);
         // Every station checked into net instance `instance_id`, sorted by
         // callsign: one query where looking each check-in's station up in
         // turn would be one per check-in.

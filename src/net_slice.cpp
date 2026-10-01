@@ -443,6 +443,168 @@ namespace ql
         return found->second;
     }
 
+    // The station details a merge compares: each one's label, as shown,
+    // and its Station member, so a difference can be applied.
+    struct DetailFieldName
+    {
+        const char* label;
+        std::string Station::* member;
+    };
+
+    static const DetailFieldName kDetailFields[] = {
+        {"name", &Station::name},
+        {"member ID", &Station::member_id},
+        {"address", &Station::street_address},
+        {"city", &Station::city},
+        {"county", &Station::county},
+        {"state", &Station::state},
+        {"ZIP", &Station::zip},
+        {"grid", &Station::grid_square},
+    };
+
+    static constexpr int kDetailFieldCount =
+        static_cast<int>(sizeof(kDetailFields) / sizeof(kDetailFields[0]));
+
+    static bool SameIgnoringCase(const std::string& a, const std::string& b)
+    {
+        if (a.size() != b.size())
+        {
+            return false;
+        }
+        for (std::size_t i = 0; i < a.size(); ++i)
+        {
+            if (std::tolower(static_cast<unsigned char>(a[i])) !=
+                std::tolower(static_cast<unsigned char>(b[i])))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Adds `field` to `differences` if it's filled in both here and in the
+    // file, but differently.
+    static void CompareDetail(int field_index, const std::string& here, const std::string& file,
+                              std::vector<StationDetailDifference>* differences)
+    {
+        if (here.empty() || file.empty() || SameIgnoringCase(here, file))
+        {
+            return;
+        }
+        StationDetailDifference& difference = differences->emplace_back();
+        difference.field = kDetailFields[field_index].label;
+        difference.field_index = field_index;
+        difference.here = here;
+        difference.file = file;
+    }
+
+    // Orders a slice's stations by callsign.
+    class StationPointerBefore
+    {
+    public:
+        bool operator()(const Station* a, const Station* b) const
+        {
+            return a->callsign < b->callsign;
+        }
+    };
+
+    class StationBeforeCallsign
+    {
+    public:
+        bool operator()(const Station& station, const std::string& callsign) const
+        {
+            return station.callsign < callsign;
+        }
+    };
+
+    // The file's stations (saved and others) also here whose details differ,
+    // sorted by callsign. The ones here are read in one go.
+    static std::vector<MergeStationConflict> StationConflicts(Database* db, const NetSlice& slice)
+    {
+        std::vector<const Station*> file_stations;
+        file_stations.reserve(slice.saved_stations.size() + slice.other_stations.size());
+        for (const NetSliceSavedStation& saved : slice.saved_stations)
+        {
+            file_stations.push_back(&saved.station);
+        }
+        for (const Station& station : slice.other_stations)
+        {
+            file_stations.push_back(&station);
+        }
+        std::sort(file_stations.begin(), file_stations.end(), StationPointerBefore());
+        std::vector<std::string> callsigns;
+        callsigns.reserve(file_stations.size());
+        for (const Station* station : file_stations)
+        {
+            callsigns.push_back(ToUpperAscii(station->callsign));
+        }
+        std::vector<Station> here = db->FindStationsByCallsigns(callsigns);
+
+        std::vector<MergeStationConflict> conflicts;
+        for (std::size_t i = 0; i < file_stations.size(); ++i)
+        {
+            std::vector<Station>::const_iterator found =
+                std::lower_bound(here.begin(), here.end(), callsigns[i], StationBeforeCallsign());
+            if (found == here.end() || found->callsign != callsigns[i])
+            {
+                continue;
+            }
+            const Station& mine = *found;
+            const Station& theirs = *file_stations[i];
+            std::vector<StationDetailDifference> differences;
+            for (int field = 0; field < kDetailFieldCount; ++field)
+            {
+                std::string Station::* member = kDetailFields[field].member;
+                CompareDetail(field, mine.*member, theirs.*member, &differences);
+            }
+            if (!differences.empty())
+            {
+                MergeStationConflict& conflict = conflicts.emplace_back();
+                conflict.file_station = &theirs;
+                conflict.differences = std::move(differences);
+            }
+        }
+        return conflicts;
+    }
+
+    // Which callsigns' check-ins differ between a session in the file and
+    // the same session here (see MergeSession::callsigns_changed).
+    static void DescribeCheckInChanges(const std::vector<const CheckIn*>& file,
+                                       const std::vector<CheckIn>& here, MergeSession* session)
+    {
+        std::unordered_map<std::string, std::string> here_keys;
+        here_keys.reserve(here.size());
+        std::string key;
+        for (const CheckIn& check_in : here)
+        {
+            CheckInKey(check_in, &key);
+            here_keys.emplace(ToUpperAscii(check_in.callsign), key);
+        }
+        for (const CheckIn* check_in : file)
+        {
+            std::string callsign = ToUpperAscii(check_in->callsign);
+            std::unordered_map<std::string, std::string>::iterator found = here_keys.find(callsign);
+            if (found == here_keys.end())
+            {
+                session->callsigns_only_in_file.push_back(std::move(callsign));
+                continue;
+            }
+            CheckInKey(*check_in, &key);
+            if (found->second != key)
+            {
+                session->callsigns_changed.push_back(std::move(callsign));
+            }
+            here_keys.erase(found);
+        }
+        for (std::pair<const std::string, std::string>& left : here_keys)
+        {
+            session->callsigns_only_here.push_back(left.first);
+        }
+        std::sort(session->callsigns_changed.begin(), session->callsigns_changed.end());
+        std::sort(session->callsigns_only_in_file.begin(), session->callsigns_only_in_file.end());
+        std::sort(session->callsigns_only_here.begin(), session->callsigns_only_here.end());
+    }
+
     NetMergePlan PlanNetMerge(Database* db, const NetSlice& slice, std::int64_t target_net_id)
     {
         Database::ReadTransaction reads(db);
@@ -459,6 +621,8 @@ namespace ql
             bool known = saved_here.count(ToUpperAscii(saved.station.callsign)) != 0;
             (known ? plan.known_saved_stations : plan.new_saved_stations) += 1;
         }
+
+        plan.station_conflicts = StationConflicts(db, slice);
 
         std::vector<NetInstance> local = db->GetNetInstancesForNet(target_net_id);
         // Every check-in here, in one query, by session.
@@ -509,6 +673,10 @@ namespace ql
                                            KeysFor(file.id, file_list, &file_keys) !=
                                                KeysFor(here.id, here_list, &local_keys);
                 session.notes_differ = file.notes != here.notes;
+                if (session.check_ins_differ)
+                {
+                    DescribeCheckInChanges(file_list, here_list, &session);
+                }
                 bool same = !session.check_ins_differ && !session.notes_differ;
                 session.kind = same || session.local_open ? MergeSessionKind::kAlreadyHere
                                                           : MergeSessionKind::kDiffers;
@@ -531,6 +699,42 @@ namespace ql
             if (session.kind == MergeSessionKind::kDiffers && session.replace)
             {
                 db->DeleteNetInstance(session.local_id);
+            }
+        }
+
+        // Stations whose details the operator chose to take from the file:
+        // just the details listed as differing (read here in one go), so
+        // nothing else changes.
+        std::vector<std::string> replacing;
+        for (const MergeStationConflict& conflict : plan.station_conflicts)
+        {
+            if (conflict.replace)
+            {
+                replacing.push_back(ToUpperAscii(conflict.file_station->callsign));
+            }
+        }
+        if (!replacing.empty())
+        {
+            std::vector<Station> stations = db->FindStationsByCallsigns(replacing);
+            for (const MergeStationConflict& conflict : plan.station_conflicts)
+            {
+                if (!conflict.replace)
+                {
+                    continue;
+                }
+                std::string callsign = ToUpperAscii(conflict.file_station->callsign);
+                std::vector<Station>::iterator station = std::lower_bound(
+                    stations.begin(), stations.end(), callsign, StationBeforeCallsign());
+                if (station == stations.end() || station->callsign != callsign)
+                {
+                    continue;
+                }
+                for (const StationDetailDifference& difference : conflict.differences)
+                {
+                    (*station).*(kDetailFields[difference.field_index].member) = difference.file;
+                }
+                db->UpdateStationFields(*station, now);
+                ++result.stations_replaced;
             }
         }
 

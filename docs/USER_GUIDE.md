@@ -206,7 +206,8 @@ Exports are written to the `exports/` folder next to QuickLogger's database; imp
 - The file's sessions this net doesn't have are added, with their check-ins and notes. A session that was still open in the file comes in closed, as of its last check-in, and renumbered.
 - A session counts as one this net already has when their times overlap (from start to close), or, if either is still open, when they started within 30 minutes of each other. Without start times, it's the same date and the same check-ins.
 - A session that's here but differs (different check-ins or notes) is listed. **Left/Right** (or Enter) chooses, for each one, to **Keep** yours (the default) or **Replace** it with the file's. A session still open here is never replaced.
-- The file's saved stations that this net doesn't have are added, with their remarks. Stations already here keep their details and remarks; only details missing here are filled in from the file.
+- The file's saved stations that this net doesn't have are added, with their remarks. Stations already here keep their details and remarks; details missing here are filled in from the file without asking.
+- A station whose details are filled in both here and in the file, but differently (a member ID of SP-41 here and SP-42 in the file, say), is listed under the sessions, with each differing detail on its own line. Differences only in capitals ("KNOXVILLE" and "Knoxville") don't count. **Left/Right** chooses **Keep** (yours, the default) or **Replace**, which takes the file's value for just the details listed. **Up/Down** moves through both lists. Each net's remarks for a station always stay its own.
 - The net's own settings (name, frequency, notes, Partial Matching, ZIP) don't change.
 
 It all happens at once, or not at all if something goes wrong. It can't be undone, so look at the summary first. Merging the same file twice adds nothing the second time.

@@ -194,6 +194,16 @@ CREATE TABLE IF NOT EXISTS users (
         }
     }
 
+    // Orders stations by callsign.
+    class StationsByCallsign
+    {
+    public:
+        bool operator()(const Station& a, const Station& b) const
+        {
+            return a.callsign < b.callsign;
+        }
+    };
+
     static Station ReadStationRow(const Statement& row)
     {
         Station station;
@@ -838,6 +848,40 @@ COMMIT;
             return std::nullopt;
         }
         return ReadStationRow(statement);
+    }
+
+    std::vector<Station> Database::FindStationsByCallsigns(
+        const std::vector<std::string>& callsigns)
+    {
+        // In batches, under SQLite's oldest limit on parameters (999).
+        static constexpr std::size_t kBatch = 500;
+        std::vector<Station> stations;
+        stations.reserve(callsigns.size());
+        std::string sql;
+        for (std::size_t begin = 0; begin < callsigns.size(); begin += kBatch)
+        {
+            std::size_t end = std::min(callsigns.size(), begin + kBatch);
+            sql.assign(
+                "SELECT callsign, name, member_id, street_address, city, county, state, zip, "
+                "grid_square, license_class, email, data_source, last_updated "
+                "FROM stations WHERE callsign IN (");
+            for (std::size_t i = begin; i < end; ++i)
+            {
+                sql.append(i == begin ? "?" : ",?");
+            }
+            sql.append(");");
+            Statement statement(db_, sql);
+            for (std::size_t i = begin; i < end; ++i)
+            {
+                statement.BindText(static_cast<int>(i - begin), callsigns[i]);
+            }
+            while (statement.Step())
+            {
+                stations.push_back(ReadStationRow(statement));
+            }
+        }
+        std::sort(stations.begin(), stations.end(), StationsByCallsign());
+        return stations;
     }
 
     std::vector<Station> Database::GetStationsInNetInstance(std::int64_t instance_id)

@@ -1,6 +1,7 @@
 // The app's behavior below the screen: logging, editing and deleting
 // check-ins, numbered picks, autocomplete, county fill-in, import/export.
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <optional>
@@ -2341,6 +2342,302 @@ namespace ql
         CHECK_EQ(f.state.nets.size(), std::size_t{1});
         CHECK_EQ(f.db()->GetNetInstancesForNet(net_id).size(), std::size_t{2});
         CHECK(f.state.status_message.find("Merged into TAG Skywarn: 1 session") == 0);
+    }
+
+    // ---- Two operators sharing one weekly net, syncing by .qlnet --------------
+
+    // Tuesday 2026-09-01, 8 PM Eastern, and a week.
+    static constexpr std::int64_t kFirstTuesday = 1788307200;
+    static constexpr std::int64_t kWeek = 7 * 24 * 60 * 60;
+
+    // Logs week `week` (0 = 2026-09-01) of net `net_id`: 8 PM to 8:45 PM,
+    // closed, with `operator_callsign` first and then `stations`.
+    static void LogTuesday(Database* db, std::int64_t net_id, int week,
+                           const std::string& operator_callsign,
+                           const std::vector<std::string>& stations)
+    {
+        static const char* const kDates[] = {"2026-09-01", "2026-09-08", "2026-09-15",
+                                             "2026-09-22", "2026-09-29", "2026-10-06"};
+        std::int64_t start = kFirstTuesday + week * kWeek;
+        std::int64_t session = AddTestInstance(db, net_id, kDates[week], start, operator_callsign);
+        AddTestCheckIn(db, session, operator_callsign, 1);
+        for (std::size_t i = 0; i < stations.size(); ++i)
+        {
+            AddTestCheckIn(db, session, stations[i], static_cast<int>(i) + 2);
+        }
+        db->CloseNetInstance(session, start + 45 * 60);
+    }
+
+    // Exports `from`'s net `net_id` to `to`'s imports folder, then imports it
+    // there through the Import page the way the operator would: the same
+    // name, so the Import or Merge window offers only Merge (F3), then the
+    // summary, then F2. Leaves `to` on the summary's result; returns the
+    // plan the summary showed.
+    static NetMergePlan SyncNet(Database* from, std::int64_t net_id, Fixture* to,
+                                bool replace_stations = false)
+    {
+        std::string error;
+        std::string file = ImportsDir(to->state.db_path) + "/Tuesday_Night_Net.qlnet";
+        REQUIRE(WriteNetSliceFile(file, GatherNetSlice(from, net_id), &error));
+        RefreshNets(&to->state);
+        RefreshImportNetFiles(&to->state);
+        to->state.selected_import_file_index = 0;
+        to->state.page = kPageImportNet;
+        AppKeyHandler keys(&to->state);
+
+        ImportSelectedNetSlice(&to->state);
+        REQUIRE(to->state.merge_stage == MergeStage::kChooseNet);
+        CHECK(to->state.merge_name_taken);  // The very same name: merge only.
+        REQUIRE(to->state.merge_candidates.size() == 1);
+        CHECK_EQ(to->state.merge_candidates[0].name, std::string("Tuesday Night Net"));
+        CHECK(keys(ftxui::Event::F3));
+        REQUIRE(to->state.merge_stage == MergeStage::kSummary);
+        // To replace a station's details: Down to its row (after any
+        // sessions that differ), then Right.
+        if (replace_stations)
+        {
+            int sessions = static_cast<int>(to->state.merge_conflicts.size());
+            for (std::size_t i = 0; i < to->state.merge_plan.station_conflicts.size(); ++i)
+            {
+                while (to->state.selected_merge_conflict < sessions + static_cast<int>(i))
+                {
+                    CHECK(keys(ftxui::Event::ArrowDown));
+                }
+                CHECK(keys(ftxui::Event::ArrowRight));
+            }
+        }
+        // A copy without the pointers into the file, which goes with the
+        // merge: what the summary showed, for the test to check.
+        NetMergePlan plan = to->state.merge_plan;
+        for (MergeStationConflict& conflict : plan.station_conflicts)
+        {
+            conflict.file_station = nullptr;
+        }
+        CHECK(keys(ftxui::Event::F2));
+        CHECK(to->state.merge_stage == MergeStage::kNone);
+        std::filesystem::remove(file);
+        return plan;
+    }
+
+    static int Count(const NetMergePlan& plan, MergeSessionKind kind)
+    {
+        int count = 0;
+        for (const MergeSession& session : plan.sessions)
+        {
+            count += session.kind == kind ? 1 : 0;
+        }
+        return count;
+    }
+
+    // The net's sessions as "date:check-ins" and its saved stations as
+    // "callsign:member id:remarks", sorted, for comparing two machines.
+    static std::vector<std::string> Sessions(Database* db, std::int64_t net_id)
+    {
+        std::vector<std::string> sessions;
+        for (const NetInstance& session : db->GetNetInstancesForNet(net_id))
+        {
+            sessions.push_back(session.instance_date + ":" +
+                               std::to_string(db->GetCheckInsForNetInstance(session.id).size()));
+        }
+        std::sort(sessions.begin(), sessions.end());
+        return sessions;
+    }
+
+    static std::vector<std::string> SavedStations(Database* db, std::int64_t net_id)
+    {
+        std::vector<std::string> saved;
+        for (const Station& station : db->GetSavedStationsForNet(net_id))
+        {
+            saved.push_back(station.callsign + ":" + station.member_id + ":" +
+                            db->GetSavedNetStationRemarks(net_id, station.callsign));
+        }
+        std::sort(saved.begin(), saved.end());
+        return saved;
+    }
+
+    // K4BTH, a station both operators saved: not at all, with a member ID
+    // on B's machine only, or with different member IDs on each.
+    enum class SharedStation
+    {
+        kNone,
+        kMemberIdOnBOnly,
+        kDifferentMemberIds,
+    };
+
+    // Two operators share the Tuesday net from the same start (one exported
+    // it, the other imported it), alternate weeks logging it, and each saves
+    // stations of their own, and perhaps K4BTH (see SharedStation).
+    struct AlternatingWeeks
+    {
+        Fixture a;
+        Fixture b;
+        std::int64_t a_net = 0;
+        std::int64_t b_net = 0;
+
+        explicit AlternatingWeeks(SharedStation shared)
+        {
+            Net net;
+            net.name = "Tuesday Night Net";
+            net.mode = "FM";
+            net.default_frequency = "146.940";
+            a_net = a.db()->CreateNet(net);
+            a.db()->SaveNetStation(a_net, MakeStation("K4OLD", "Olive Old"), "regular", 1);
+            LogTuesday(a.db(), a_net, 0, "W4KWK", {"K4OLD"});
+            std::string error;
+            b_net = ApplyNetSlice(b.db(), GatherNetSlice(a.db(), a_net), 1);
+
+            // Weeks 1, 3, 5 on B's machine; 2, 4 on A's.
+            LogTuesday(b.db(), b_net, 1, "N4BBB", {"K4OLD", "K4BEE"});
+            LogTuesday(a.db(), a_net, 2, "W4KWK", {"K4OLD", "K4AAY"});
+            LogTuesday(b.db(), b_net, 3, "N4BBB", {"K4BEE"});
+            LogTuesday(a.db(), a_net, 4, "W4KWK", {"K4AAY", "K4OLD"});
+            LogTuesday(b.db(), b_net, 5, "N4BBB", {"K4OLD"});
+            // Saved stations each picked up along the way.
+            a.db()->SaveNetStation(a_net, MakeStation("K4AAY", "Amy Aye"), "mobile", 2);
+            a.db()->SaveNetStation(a_net, MakeStation("K4AAZ", "Al Zed"), "", 2);
+            b.db()->SaveNetStation(b_net, MakeStation("K4BEE", "Bea Bee"), "base", 2);
+            if (shared != SharedStation::kNone)
+            {
+                Station on_a = MakeStation("K4BTH", "Beth Both");
+                if (shared == SharedStation::kDifferentMemberIds)
+                {
+                    on_a.member_id = "SP-41";
+                }
+                a.db()->SaveNetStation(a_net, on_a, "on A", 2);
+                Station on_b = MakeStation("K4BTH", "Beth Both");
+                on_b.member_id = "SP-42";
+                b.db()->SaveNetStation(b_net, on_b, "on B", 2);
+            }
+        }
+    };
+
+    QL_TEST(OperatorsAlternatingWeeksSyncWithNothingInConflict)
+    {
+        AlternatingWeeks net(SharedStation::kNone);
+
+        // B sends theirs to A: B's three weeks are new, the shared first
+        // week is already there, nothing differs; B's one saved station is
+        // new, and the one they share is known.
+        NetMergePlan to_a = SyncNet(net.b.db(), net.b_net, &net.a);
+        CHECK_EQ(to_a.sessions.size(), std::size_t{4});
+        CHECK_EQ(Count(to_a, MergeSessionKind::kNew), 3);
+        CHECK_EQ(Count(to_a, MergeSessionKind::kAlreadyHere), 1);
+        CHECK_EQ(Count(to_a, MergeSessionKind::kDiffers), 0);
+        CHECK(to_a.station_conflicts.empty());
+        CHECK_EQ(to_a.new_saved_stations, 1);
+        CHECK_EQ(to_a.known_saved_stations, 1);
+        CHECK(net.a.state.status_message.find("3 sessions and 1 saved station added") !=
+              std::string::npos);
+
+        // A sends everything back: A's two weeks are new to B.
+        NetMergePlan to_b = SyncNet(net.a.db(), net.a_net, &net.b);
+        CHECK_EQ(Count(to_b, MergeSessionKind::kNew), 2);
+        CHECK_EQ(Count(to_b, MergeSessionKind::kAlreadyHere), 4);
+        CHECK_EQ(Count(to_b, MergeSessionKind::kDiffers), 0);
+        CHECK_EQ(to_b.new_saved_stations, 2);
+
+        // Both machines now have the same six Tuesdays and saved stations.
+        std::vector<std::string> sessions = Sessions(net.a.db(), net.a_net);
+        CHECK_EQ(sessions.size(), std::size_t{6});
+        CHECK(sessions == Sessions(net.b.db(), net.b_net));
+        CHECK(SavedStations(net.a.db(), net.a_net) == SavedStations(net.b.db(), net.b_net));
+        CHECK_EQ(SavedStations(net.a.db(), net.a_net).size(), std::size_t{4});
+        // Each session's check-ins came with it.
+        CHECK_EQ(sessions[1], std::string("2026-09-08:3"));
+
+        // Syncing again finds nothing to do, either way.
+        NetMergePlan again = SyncNet(net.b.db(), net.b_net, &net.a);
+        CHECK_EQ(Count(again, MergeSessionKind::kNew), 0);
+        CHECK_EQ(Count(again, MergeSessionKind::kDiffers), 0);
+        CHECK_EQ(again.new_saved_stations, 0);
+        CHECK_EQ(Sessions(net.a.db(), net.a_net).size(), std::size_t{6});
+    }
+
+    QL_TEST(OperatorsAlternatingWeeksFillInEachOthersMissingMemberId)
+    {
+        AlternatingWeeks net(SharedStation::kMemberIdOnBOnly);
+
+        // K4BTH is saved on both machines: known, not new, and not a
+        // session conflict (saved stations are never asked about).
+        NetMergePlan to_a = SyncNet(net.b.db(), net.b_net, &net.a);
+        CHECK_EQ(Count(to_a, MergeSessionKind::kNew), 3);
+        CHECK_EQ(Count(to_a, MergeSessionKind::kDiffers), 0);
+        CHECK_EQ(to_a.new_saved_stations, 1);
+        CHECK_EQ(to_a.known_saved_stations, 2);
+        // A blank on one side isn't a conflict: it's just filled in.
+        CHECK(to_a.station_conflicts.empty());
+        // A's copy gains the member ID it lacked, and keeps its own remarks.
+        std::optional<Station> on_a = net.a.db()->FindStationByCallsign("K4BTH");
+        REQUIRE(on_a.has_value());
+        CHECK_EQ(on_a->member_id, std::string("SP-42"));
+        CHECK_EQ(on_a->name, std::string("Beth Both"));
+        CHECK_EQ(net.a.db()->GetSavedNetStationRemarks(net.a_net, "K4BTH"), std::string("on A"));
+
+        // Back to B: B keeps its member ID (a blank on A never erases it)
+        // and its own remarks.
+        SyncNet(net.a.db(), net.a_net, &net.b);
+        std::optional<Station> on_b = net.b.db()->FindStationByCallsign("K4BTH");
+        REQUIRE(on_b.has_value());
+        CHECK_EQ(on_b->member_id, std::string("SP-42"));
+        CHECK_EQ(net.b.db()->GetSavedNetStationRemarks(net.b_net, "K4BTH"), std::string("on B"));
+
+        // Everything else matches; only each machine's own remarks for
+        // K4BTH differ, by design.
+        CHECK(Sessions(net.a.db(), net.a_net) == Sessions(net.b.db(), net.b_net));
+        std::vector<std::string> a_saved = SavedStations(net.a.db(), net.a_net);
+        std::vector<std::string> b_saved = SavedStations(net.b.db(), net.b_net);
+        REQUIRE(a_saved.size() == 5);
+        REQUIRE(b_saved.size() == 5);
+        for (std::size_t i = 0; i < a_saved.size(); ++i)
+        {
+            if (a_saved[i].rfind("K4BTH", 0) == 0)
+            {
+                CHECK_EQ(a_saved[i], std::string("K4BTH:SP-42:on A"));
+                CHECK_EQ(b_saved[i], std::string("K4BTH:SP-42:on B"));
+            }
+            else
+            {
+                CHECK_EQ(a_saved[i], b_saved[i]);
+            }
+        }
+    }
+
+    QL_TEST(OperatorsWithDifferentMemberIdsChooseWhichToKeep)
+    {
+        AlternatingWeeks net(SharedStation::kDifferentMemberIds);
+
+        // B sends to A: K4BTH's member ID is listed as differing, the
+        // sessions still merge cleanly, and Keep (the default) keeps A's.
+        NetMergePlan kept = SyncNet(net.b.db(), net.b_net, &net.a);
+        CHECK_EQ(Count(kept, MergeSessionKind::kNew), 3);
+        CHECK_EQ(Count(kept, MergeSessionKind::kDiffers), 0);
+        REQUIRE(kept.station_conflicts.size() == 1);
+        const MergeStationConflict& conflict = kept.station_conflicts[0];
+        REQUIRE(conflict.differences.size() == 1);
+        CHECK_EQ(std::string(conflict.differences[0].field), std::string("member ID"));
+        CHECK_EQ(conflict.differences[0].here, std::string("SP-41"));
+        CHECK_EQ(conflict.differences[0].file, std::string("SP-42"));
+        CHECK(!conflict.replace);
+        CHECK_EQ(net.a.db()->FindStationByCallsign("K4BTH")->member_id, std::string("SP-41"));
+
+        // Sent again, A chooses Replace: K4BTH takes B's member ID, keeping
+        // A's remarks; nothing else changes.
+        NetMergePlan replaced = SyncNet(net.b.db(), net.b_net, &net.a, true);
+        REQUIRE(replaced.station_conflicts.size() == 1);
+        CHECK(replaced.station_conflicts[0].replace);
+        CHECK_EQ(Count(replaced, MergeSessionKind::kNew), 0);
+        std::optional<Station> on_a = net.a.db()->FindStationByCallsign("K4BTH");
+        REQUIRE(on_a.has_value());
+        CHECK_EQ(on_a->member_id, std::string("SP-42"));
+        CHECK_EQ(on_a->name, std::string("Beth Both"));
+        CHECK_EQ(net.a.db()->GetSavedNetStationRemarks(net.a_net, "K4BTH"), std::string("on A"));
+        CHECK(net.a.state.status_message.find("1 station's details taken from the file") !=
+              std::string::npos);
+
+        // Now they agree: syncing back to B finds no station conflict.
+        NetMergePlan to_b = SyncNet(net.a.db(), net.a_net, &net.b);
+        CHECK(to_b.station_conflicts.empty());
+        CHECK(Sessions(net.a.db(), net.a_net) == Sessions(net.b.db(), net.b_net));
     }
 
     QL_TEST(ExportingASessionAlsoWritesItsSessionFile)

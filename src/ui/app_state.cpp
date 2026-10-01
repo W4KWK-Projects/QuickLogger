@@ -3292,7 +3292,9 @@ namespace ql
     {
         bool summary = state->merge_stage == MergeStage::kSummary;
         int* index = summary ? &state->selected_merge_conflict : &state->selected_merge_candidate;
-        int count = static_cast<int>(summary ? state->merge_conflicts.size()
+        // In the summary, the sessions that differ, then the stations.
+        int count = static_cast<int>(summary ? state->merge_conflicts.size() +
+                                                   state->merge_plan.station_conflicts.size()
                                              : state->merge_candidates.size());
         if (count > 0)
         {
@@ -3324,14 +3326,22 @@ namespace ql
 
     void ToggleMergeReplace(AppState* state)
     {
-        if (state->merge_stage != MergeStage::kSummary || state->merge_conflicts.empty())
+        if (state->merge_stage != MergeStage::kSummary)
         {
             return;
         }
-        MergeSession& session =
-            state->merge_plan.sessions[state->merge_conflicts[static_cast<std::size_t>(
-                state->selected_merge_conflict)]];
-        session.replace = !session.replace;
+        std::size_t index = static_cast<std::size_t>(state->selected_merge_conflict);
+        std::size_t sessions = state->merge_conflicts.size();
+        if (index < sessions)
+        {
+            MergeSession& session = state->merge_plan.sessions[state->merge_conflicts[index]];
+            session.replace = !session.replace;
+        }
+        else if (index - sessions < state->merge_plan.station_conflicts.size())
+        {
+            MergeStationConflict& station = state->merge_plan.station_conflicts[index - sessions];
+            station.replace = !station.replace;
+        }
     }
 
     // "3 sessions", "1 saved station".
@@ -3359,19 +3369,33 @@ namespace ql
             state->form_error = std::string("Merge failed, so nothing was changed: ") + e.what();
             return;
         }
-        std::string target = state->merge_target_name;
+        std::string message = "Merged into " + state->merge_target_name + ": ";
+        message.append(Count(result.sessions_added, "session", "sessions"));
+        message.append(" and ");
+        message.append(Count(result.saved_stations_added, "saved station", "saved stations"));
+        message.append(" added");
+        if (result.sessions_replaced > 0)
+        {
+            message.append(", ");
+            message.append(Count(result.sessions_replaced, "session", "sessions"));
+            message.append(" replaced");
+        }
+        if (result.stations_replaced > 0)
+        {
+            message.append(", ");
+            message.append(
+                Count(result.stations_replaced, "station's details", "stations' details"));
+            message.append(" taken from the file");
+        }
+        message.push_back('.');
+        // The plan points into the file's data: both go together.
         state->merge_stage = MergeStage::kNone;
         state->show_merge_modal = false;
+        state->merge_plan = NetMergePlan();
         state->merge_slice = NetSlice();
         RefreshNets(state);
         state->form_error.clear();
-        state->status_message =
-            "Merged into " + target + ": " + Count(result.sessions_added, "session", "sessions") +
-            " and " + Count(result.saved_stations_added, "saved station", "saved stations") +
-            " added" +
-            (result.sessions_replaced > 0
-                 ? ", " + Count(result.sessions_replaced, "session", "sessions") + " replaced."
-                 : ".");
+        state->status_message = std::move(message);
         state->page = kPageNetList;
     }
 
@@ -3384,6 +3408,7 @@ namespace ql
         }
         state->merge_stage = MergeStage::kNone;
         state->show_merge_modal = false;
+        state->merge_plan = NetMergePlan();
         state->merge_slice = NetSlice();
     }
 

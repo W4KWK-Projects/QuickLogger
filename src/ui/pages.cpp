@@ -2255,14 +2255,27 @@ namespace ql
         {
             ftxui::Elements rows =
                 state_->merge_stage == MergeStage::kSummary ? SummaryRows() : ChoiceRows();
-            int width = std::max(40, std::min(FrameTerminalSize().dimx - 4, 76));
+            // Wider on a wide terminal, so more of each difference shows.
+            int width = std::max(40, std::min(FrameTerminalSize().dimx - 4, 100));
             return ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) |
                    ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder);
         }
 
     private:
         // A list in the window, the highlighted row marked and kept in view.
-        ftxui::Element List(const std::vector<ftxui::Element>& lines, int selected) const
+        // "Keep" or "Replace", always its full width: a long row is cut at
+        // its end, never here.
+        static ftxui::Element ReplaceLabel(bool replace)
+        {
+            return ftxui::text(replace ? "Replace" : "Keep") |
+                   ftxui::color(replace ? ftxui::Color(kColorDanger) : ftxui::Color(kColorData)) |
+                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 7);
+        }
+
+        // `lists`: how many lists share the window's room. `line_count`:
+        // the lines in all of `lines`, when an entry has more than one.
+        ftxui::Element List(const std::vector<ftxui::Element>& lines, int selected, int lists = 1,
+                            int line_count = -1) const
         {
             ftxui::Elements rows;
             for (std::size_t i = 0; i < lines.size(); ++i)
@@ -2271,8 +2284,11 @@ namespace ql
                 ftxui::Element row = ftxui::hbox({ftxui::text(marked ? "> " : "  "), lines[i]});
                 rows.push_back(marked ? row | ftxui::inverted | ftxui::focus : row);
             }
-            int room = std::max(2, FrameTerminalSize().dimy - 16);
-            int height = std::min(static_cast<int>(lines.size()), room);
+            // The window's other rows: 13 around one list, and about 4 more
+            // (a heading and a frame) for each further one.
+            int room = std::max(2, (FrameTerminalSize().dimy - 13 - 4 * (lists - 1)) / lists);
+            int height =
+                std::min(line_count >= 0 ? line_count : static_cast<int>(lines.size()), room);
             return DialogFramed(ftxui::vbox(std::move(rows)) | ftxui::yframe |
                                 ftxui::vscroll_indicator |
                                 ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height));
@@ -2342,28 +2358,40 @@ namespace ql
                                Plural(plan.new_saved_stations, "saved station", "saved stations") +
                                ".") |
                            ftxui::bold | ftxui::color(kColorLabel));
-            std::string details;
+            // A line each: the sessions already here, and the stations.
+            std::string sessions_line;
             if (here > 0)
             {
-                details += Plural(here, "session is", "sessions are") + " here already. ";
+                sessions_line = Plural(here, "session is", "sessions are") + " here already";
             }
             if (open_added > 0)
             {
-                details += Plural(open_added, "session was", "sessions were") +
-                           " still open in the file; they come in closed. ";
+                sessions_line.append(sessions_line.empty() ? "" : "; ");
+                sessions_line.append(std::to_string(open_added));
+                sessions_line.append(open_added == 1 ? " still open in the file comes in closed"
+                                                     : " still open in the file come in closed");
             }
-            details +=
-                "Stations already here keep their details and remarks; only blanks are "
-                "filled in. This net's own settings don't change.";
-            rows.push_back(ftxui::paragraph(details) | ftxui::color(kColorHint));
+            if (!sessions_line.empty())
+            {
+                sessions_line.push_back('.');
+                rows.push_back(ftxui::paragraph(sessions_line) | ftxui::color(kColorHint));
+            }
+            rows.push_back(
+                ftxui::paragraph("Local stations keep their details and remarks; blanks are filled "
+                                 "in.") |
+                ftxui::color(kColorHint));
 
+            int list_count = (state_->merge_conflicts.empty() ? 0 : 1) +
+                             (plan.station_conflicts.empty() ? 0 : 1);
             if (!state_->merge_conflicts.empty())
             {
                 rows.push_back(
-                    ftxui::paragraph(Plural(static_cast<int>(state_->merge_conflicts.size()),
-                                            "session is here but differs",
-                                            "sessions are here but differ") +
-                                     ". Keep yours, or Replace it with the file's (Left/Right):") |
+                    ftxui::paragraph(state_->merge_conflicts.size() == 1
+                                         ? "1 session differs. Keep yours, or Replace it with "
+                                           "the file's:"
+                                         : std::to_string(state_->merge_conflicts.size()) +
+                                               " sessions differ. Keep yours, or Replace them "
+                                               "with the file's:") |
                     ftxui::color(kColorLabel));
                 std::vector<ftxui::Element> lines;
                 for (std::size_t index : state_->merge_conflicts)
@@ -2376,22 +2404,75 @@ namespace ql
                         when += "  " + FormatLocalTimeOfDay(file.started_at);
                     }
                     lines.push_back(ftxui::hbox({
-                        ftxui::text(session.replace ? "Replace" : "Keep   ") |
-                            ftxui::color(session.replace ? ftxui::Color(kColorDanger)
-                                                         : ftxui::Color(kColorData)),
+                        ReplaceLabel(session.replace),
                         ftxui::text("  " + when + "   " + WhatDiffers(session)) |
                             ftxui::color(kColorListRow),
                     }));
                 }
-                rows.push_back(List(lines, state_->selected_merge_conflict));
+                rows.push_back(List(lines, state_->selected_merge_conflict, list_count));
+            }
+            // Then the stations whose details differ; one highlight moves
+            // through both lists.
+            if (!plan.station_conflicts.empty())
+            {
+                rows.push_back(
+                    ftxui::paragraph(plan.station_conflicts.size() == 1
+                                         ? "1 station differs. Keep yours, or Replace it with the "
+                                           "file's:"
+                                         : std::to_string(plan.station_conflicts.size()) +
+                                               " stations differ. Keep yours, or Replace them with "
+                                               "the file's:") |
+                    ftxui::color(kColorLabel));
+                // Each station: Keep/Replace and its callsign, then a line
+                // for each detail that differs.
+                std::vector<ftxui::Element> lines;
+                lines.reserve(plan.station_conflicts.size());
+                int line_count = 0;
+                for (const MergeStationConflict& conflict : plan.station_conflicts)
+                {
+                    ftxui::Elements station_lines;
+                    station_lines.reserve(conflict.differences.size() + 1);
+                    station_lines.push_back(ftxui::hbox({
+                        ReplaceLabel(conflict.replace),
+                        ftxui::text("  " + conflict.file_station->callsign) |
+                            ftxui::color(kColorListRow),
+                    }));
+                    for (const StationDetailDifference& difference : conflict.differences)
+                    {
+                        station_lines.push_back(ftxui::text("         " +
+                                                            std::string(difference.field) + ": " +
+                                                            difference.here + " here, " +
+                                                            difference.file + " in file") |
+                                                ftxui::color(kColorListRow));
+                    }
+                    line_count += static_cast<int>(station_lines.size());
+                    lines.push_back(ftxui::vbox(std::move(station_lines)));
+                }
+                rows.push_back(List(lines,
+                                    state_->selected_merge_conflict -
+                                        static_cast<int>(state_->merge_conflicts.size()),
+                                    list_count, line_count));
             }
             rows.push_back(DialogSeparator());
             bool anything = added > 0 || plan.new_saved_stations > 0 ||
-                            !state_->merge_conflicts.empty() || plan.known_saved_stations > 0;
+                            !state_->merge_conflicts.empty() || plan.known_saved_stations > 0 ||
+                            !plan.station_conflicts.empty();
             if (anything)
             {
                 rows.push_back(HintText("A merge can't be undone."));
-                rows.push_back(KeyHintRow({{"F2", "Merge"}, {"Esc", "Back"}}));
+                // With something to choose, how to choose it, here with the
+                // other keys rather than in each list's heading.
+                if (list_count > 0)
+                {
+                    rows.push_back(KeyHintRow({{"F2", "Merge"},
+                                               {"Up/Down", "Choose"},
+                                               {"Left/Right", "Keep/Replace"},
+                                               {"Esc", "Back"}}));
+                }
+                else
+                {
+                    rows.push_back(KeyHintRow({{"F2", "Merge"}, {"Esc", "Back"}}));
+                }
             }
             else
             {
@@ -2401,16 +2482,56 @@ namespace ql
             return rows;
         }
 
-        // "check-ins differ (here 4, file 5)", "notes differ".
+        // `callsigns` joined with ", ", the first three and how many more.
+        static void AppendCallsigns(const std::vector<std::string>& callsigns, std::string* text)
+        {
+            std::size_t shown = std::min<std::size_t>(callsigns.size(), 3);
+            for (std::size_t i = 0; i < shown; ++i)
+            {
+                text->append(i == 0 ? "" : ", ");
+                text->append(callsigns[i]);
+            }
+            if (callsigns.size() > shown)
+            {
+                text->append(" +");
+                text->append(std::to_string(callsigns.size() - shown));
+            }
+        }
+
+        // What differs in a session: "check-ins: K4AAA differs; K4ZZZ only
+        // in file; notes differ".
         static std::string WhatDiffers(const MergeSession& session)
         {
-            std::string counts = "(here " + std::to_string(session.local_check_ins) + ", file " +
-                                 std::to_string(session.file_check_ins) + ")";
-            if (session.check_ins_differ && session.notes_differ)
+            std::string text;
+            if (session.check_ins_differ)
             {
-                return "check-ins and notes differ " + counts;
+                text.append("check-ins: ");
+                bool first = true;
+                if (!session.callsigns_changed.empty())
+                {
+                    AppendCallsigns(session.callsigns_changed, &text);
+                    text.append(session.callsigns_changed.size() == 1 ? " differs" : " differ");
+                    first = false;
+                }
+                if (!session.callsigns_only_in_file.empty())
+                {
+                    text.append(first ? "" : "; ");
+                    AppendCallsigns(session.callsigns_only_in_file, &text);
+                    text.append(" only in file");
+                    first = false;
+                }
+                if (!session.callsigns_only_here.empty())
+                {
+                    text.append(first ? "" : "; ");
+                    AppendCallsigns(session.callsigns_only_here, &text);
+                    text.append(" only here");
+                }
             }
-            return session.check_ins_differ ? "check-ins differ " + counts : "notes differ";
+            if (session.notes_differ)
+            {
+                text.append(text.empty() ? "notes differ" : "; notes differ");
+            }
+            return text;
         }
 
         // "1 session", "3 sessions".

@@ -341,6 +341,57 @@ namespace ql
         CHECK(master.FindStationByCallsign("K4XTR").has_value());
     }
 
+    QL_TEST(StationsWhoseDetailsDifferAreListedAndReplacedOnlyIfChosen)
+    {
+        TempDir dir;
+        Database here(dir.File("here.db"));
+        std::int64_t net_id = AddTestNet(&here, "Skywarn");
+        Station mine = MakeStation("K4AAA", "Ann Able", "37415", "CHATTANOOGA");
+        mine.member_id = "SP-1";
+        here.SaveNetStation(net_id, mine, "mine", 1);
+        here.SaveNetStation(net_id, MakeStation("K4BBB", "Bob"), "", 1);
+
+        NetSlice slice;
+        slice.net.name = "Skywarn";
+        NetSliceSavedStation theirs;
+        theirs.station = MakeStation("K4AAA", "Ann Able", "37415", "Chattanooga");
+        theirs.station.member_id = "SP-9";
+        theirs.station.grid_square = "EM75";  // Blank here: filled in, not asked.
+        slice.saved_stations.push_back(theirs);
+        NetSliceSavedStation same;
+        same.station = MakeStation("K4BBB", "BOB");  // Case only: no conflict.
+        slice.saved_stations.push_back(same);
+
+        NetMergePlan plan = PlanNetMerge(&here, slice, net_id);
+        REQUIRE(plan.station_conflicts.size() == 1);
+        CHECK_EQ(plan.station_conflicts[0].file_station->callsign, std::string("K4AAA"));
+        REQUIRE(plan.station_conflicts[0].differences.size() == 1);
+        CHECK_EQ(std::string(plan.station_conflicts[0].differences[0].field),
+                 std::string("member ID"));
+
+        // Kept: the member ID stays; the blank grid is still filled in.
+        ApplyNetMerge(&here, slice, plan);
+        std::optional<Station> kept = here.FindStationByCallsign("K4AAA");
+        CHECK_EQ(kept->member_id, std::string("SP-1"));
+        CHECK_EQ(kept->grid_square, std::string("EM75"));
+        CHECK_EQ(kept->city, std::string("CHATTANOOGA"));
+
+        // Replaced: the file's member ID; its blanks erase nothing.
+        plan = PlanNetMerge(&here, slice, net_id);
+        REQUIRE(plan.station_conflicts.size() == 1);
+        plan.station_conflicts[0].replace = true;
+        NetMergeResult result = ApplyNetMerge(&here, slice, plan);
+        CHECK_EQ(result.stations_replaced, 1);
+        std::optional<Station> replaced = here.FindStationByCallsign("K4AAA");
+        CHECK_EQ(replaced->member_id, std::string("SP-9"));
+        CHECK_EQ(replaced->name, std::string("Ann Able"));
+        // Only what was listed changes: not the city, which differed in
+        // case only.
+        CHECK_EQ(replaced->city, std::string("CHATTANOOGA"));
+        CHECK_EQ(here.GetSavedNetStationRemarks(net_id, "K4AAA"), std::string("mine"));
+        CHECK(PlanNetMerge(&here, slice, net_id).station_conflicts.empty());
+    }
+
     QL_TEST(ASessionOpenInTheFileIsMergedClosed)
     {
         TempDir dir;
