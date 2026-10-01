@@ -1,0 +1,81 @@
+name: Linux deploy kit
+
+# Runs deploy/linux/setup.sh on fresh Ubuntu machines (GitHub's runners are
+# real VMs with systemd) and checks the server it builds: QuickLogger on
+# port 22 as a service, the admin SSH moved to 2200, the updater's first
+# install, and an SSH login reaching QuickLogger. Runs when the kit changes,
+# or by hand.
+on:
+  push:
+    paths:
+      - "deploy/linux/**"
+      - ".github/workflows/deploy-linux.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Lint
+        run: |
+          shellcheck deploy/linux/setup.sh deploy/linux/quicklogger-update deploy/linux/quicklogger-admin
+          systemd-analyze verify deploy/linux/quicklogger.service deploy/linux/quicklogger-update.service \
+            deploy/linux/quicklogger-update.timer || true
+
+      # A real server has its own SSH server; the runner may not.
+      - name: Have an SSH server, as a real server does
+        run: sudo apt-get install -y -q openssh-server
+
+      - name: Set up the server
+        run: sudo sh deploy/linux/setup.sh
+
+      - name: Check the server
+        run: |
+          set -x
+          systemctl is-active quicklogger
+          systemctl is-active quicklogger-update.timer
+          /usr/local/bin/QuickLogger --version
+          # QuickLogger owns 22; the admin SSH is on 2200.
+          sudo ss -Htlnp '( sport = :22 )' | grep -q QuickLogger
+          sudo ss -Htlnp '( sport = :2200 )' | grep -q sshd
+          # The updater's first install, in the journal.
+          sudo journalctl -t quicklogger-update --no-pager | grep -q "running "
+          id quicklogger
+          sudo test -d /var/lib/quicklogger/backups
+
+      - name: Log in over SSH
+        run: |
+          set -x
+          ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/ql_test
+          key=$(cat ~/.ssh/ql_test.pub)
+          now=$(date +%s)
+          # A user, as Manage Users would add one. The service creates the
+          # database shortly after it starts.
+          for i in $(seq 60); do
+            sudo runuser -u quicklogger -- sqlite3 /var/lib/quicklogger/quicklogger.db \
+              "SELECT 1 FROM users LIMIT 0;" 2> /dev/null && break
+            sleep 2
+          done
+          sudo runuser -u quicklogger -- sqlite3 /var/lib/quicklogger/quicklogger.db \
+            "INSERT INTO users (username, public_key, created_at) VALUES ('W4KWK', '$key', $now);"
+          # Logging in: QuickLogger's first screen is Settings, for a user
+          # with no callsign and ZIP on file yet.
+          out=$(timeout 15 script -qec "ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -i ~/.ssh/ql_test -p 22 W4KWK@127.0.0.1" /dev/null < /dev/null || true)
+          printf '%s' "$out" | tr -d '\033' | grep -q "QuickLogger"
+
+      - name: Show the logs
+        if: always()
+        run: |
+          sudo journalctl -u quicklogger --no-pager -n 50 || true
+          sudo journalctl -t quicklogger-update --no-pager || true
+          sudo ss -Htlnp || true
