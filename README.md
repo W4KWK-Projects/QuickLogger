@@ -2,7 +2,7 @@
 
 # QuickLogger
 
-A terminal (TUI) net-logging application for ham radio operators, with a built-in SSH server so a group of operators can log into a shared, always-running instance directly, without the need to SSH into a host first and then launch the app, and no OS user accounts to provision per operator.
+A terminal (TUI) net-logging application for ham radio and GMRS operators, with a built-in SSH server so a group of operators can log into a shared, always-running instance directly, without the need to SSH into a host first and then launch the app, and no OS user accounts to provision per operator.
 
 This README has two halves: **[Running QuickLogger](#running-quicklogger)** (what a machine needs in order to run it) and **[Building QuickLogger](#building-quicklogger)** (what it takes to compile it), each broken out by platform. The [built-in SSH server](#built-in-ssh-server) is documented after both. **Using** QuickLogger is covered in the **[User Guide](docs/USER_GUIDE.md)**.
 
@@ -65,7 +65,7 @@ Check the download in PowerShell with `Get-FileHash QuickLogger-<version>-window
 On every platform:
 
 - **A terminal that handles UTF-8 and colors** — any modern terminal emulator. (On Windows: Windows Terminal, or the console in Windows 10 or later.) QuickLogger takes over the whole terminal window.
-- **Internet access** for the first launch, which downloads the FCC's amateur license database (about 200 MB), Canada's (ISED's, about 2 MB) and some Census ZIP-code and county files (about 30 MB, once), and refreshes the FCC and ISED data about weekly. The FCC file comes from a weekly copy in this repository's [`fcc-data` release](https://github.com/W4KWK-Projects/QuickLogger/releases/tag/fcc-data), since fcc.gov refuses downloads from some cloud servers, and straight from the FCC if that copy can't be had. Without it the rest of QuickLogger still works, but callsign, ZIP and county lookups have no data to draw on.
+- **Internet access** for the first launch, which downloads the FCC's amateur license database (about 200 MB) and its GMRS one, Canada's amateur one (ISED's, about 2 MB) and some Census ZIP-code and county files (about 30 MB, once), and refreshes the FCC and ISED data about weekly. The FCC files come from a weekly copy in this repository's [`fcc-data` release](https://github.com/W4KWK-Projects/QuickLogger/releases/tag/fcc-data), since fcc.gov refuses downloads from some cloud servers, and straight from the FCC if that copy can't be had. Without it the rest of QuickLogger still works, but callsign, ZIP and county lookups have no data to draw on.
 - **Write access to the directory you launch it from** — it keeps its data there (see [Files it creates](#files-it-creates)).
 
 The runtime libraries QuickLogger is linked against, by platform (installing the [build packages](#what-you-need-to-build-it) instead also covers these):
@@ -101,7 +101,7 @@ The net-log/database-slice export and import features can push and pull files ov
 
 (On Windows: `QuickLogger.exe`.)
 
-On first run, you'll be taken straight to Settings to set your callsign and home ZIP code. After that, you land on the Recurring Nets list, and **F1** on any page explains its keys.
+On first run, you'll be taken straight to Settings to set your call sign (amateur, GMRS or both) and home ZIP code. After that, you land on the Recurring Nets list, and **F1** on any page explains its keys.
 
 **How to use it** — running a net, logging check-ins, ad hoc nets, autocomplete, saved stations, History, exports and the rest — is in the **[User Guide](docs/USER_GUIDE.md)**.
 
@@ -110,7 +110,7 @@ On first run, you'll be taken straight to Settings to set your callsign and home
 QuickLogger creates and uses these files/directories, all as siblings of wherever you launch it from (not tied to your current shell's directory beyond that):
 
 - `quicklogger.db` — the shared SQLite database (nets, stations, check-in history, the SSH user roster — everything except personal settings)
-- `settings.txt` — your own callsign and home ZIP (local console session only; never included in any export)
+- `settings.txt` — your own call signs and home ZIP (local console session only; never included in any export)
 - `settings/` — one settings file per SSH login user (see below)
 - `exports/`, `imports/` — where "download"/"upload" style features (net-slice export/import, ZMODEM, SFTP) read and write files. The local console's files go directly in them and are kept for good. Each SSH user's go in their own `ssh-users/<username>/` folder inside them, where only that user sees them, and are deleted after 7 days; for an SSH user they're only a stop on the way to or from their own computer.
 - `uls_cache/` — downloaded FCC, ISED and Census files (see [Station data](#station-data)); safe to delete while QuickLogger isn't running
@@ -298,11 +298,11 @@ There's no OS user account involved. Instead, QuickLogger keeps its own small ro
 1. Run `./QuickLogger` directly at the machine's own console.
 2. Go to **Settings** (F4 from the Recurring Nets list).
 3. Press **F4 (Manage Users)**.
-4. Fill in the fields at the bottom of the page — **Username**, which is that person's US or Canadian call sign, without /M, /P or the like (it's what they type in `ssh <username>@host`, in either case), **Public Key** (that person's whole public-key line, e.g. `ssh-ed25519 AAAA... their-comment`) and **Access** (see [View-only users](#view-only-users)). Then press **F2 (Add)**. Their username is also their callsign in QuickLogger: their Settings page shows it, and they can't change it. If they don't have a key yet, see [Creating your SSH key](#creating-your-ssh-key) below.
+4. Fill in the fields at the bottom of the page — **Username** (what they type in `ssh <username>@host`, in either case: 1 to 32 letters, digits, dots, hyphens and underscores, starting with a letter or digit), **Amateur Call** and **GMRS Call** (that person's call signs, at least one of them; an amateur one is US or Canadian, without /M, /P or the like), **Public Key** (that person's whole public-key line, e.g. `ssh-ed25519 AAAA... their-comment`) and **Access** (see [View-only users](#view-only-users)). Then press **F2 (Add)**. Their call signs are the ones they log under: their Settings page shows them, and they can't change them. Without a GMRS call sign they can only watch GMRS nets, and likewise for amateur nets. If they don't have a key yet, see [Creating your SSH key](#creating-your-ssh-key) below.
 
 The key is checked when you add it. A private key, a PuTTY-format key, a line missing its `ssh-ed25519` (or other type) at the start, or one cut short while copying is refused with a message saying what's wrong and what the line should look like. Extra spaces or a trailing line break from the paste are tidied up. If someone still can't log in, check they're offering the key you added (see *If you have more than one key* below).
 
-Someone who connects from more than one computer can have a key for each. Manage Users lists each user once, with their access and how many keys they have. **F4 (Edit)** and the user's row number, or **Enter** on a user, opens their **Edit User** window. Its **Username** and **Access** are saved together with **F2**, from the user's next login. Renaming them to another call sign renames their settings file and their export and import folders too. Below those is each of their keys on its own row, told apart by its type, fingerprint and comment (the same fingerprint `ssh-keygen -lf ~/.ssh/id_ed25519.pub` prints, so they can check which key is which). **F4** adds a pasted key and **F3** removes one, straight away; removing their last key removes the user. Adding the same username again on the main page also adds the key to that user, and adding a key they already have only updates its comment. **F3 (Remove)** on the main page removes a user and all their keys.
+Someone who connects from more than one computer can have a key for each. Manage Users lists each user once, with their call signs, access and how many keys they have. **F4 (Edit)** and the user's row number, or **Enter** on a user, opens their **Edit User** window. Its **Username**, call signs and **Access** are saved together with **F2**, from the user's next login. Renaming them renames their settings file and their export and import folders too. Below those is each of their keys on its own row, told apart by its type, fingerprint and comment (the same fingerprint `ssh-keygen -lf ~/.ssh/id_ed25519.pub` prints, so they can check which key is which). **F4** adds a pasted key and **F3** removes one, straight away; removing their last key removes the user. Adding the same username again on the main page also adds the key to that user, and adding a key they already have only updates its comment. **F3 (Remove)** on the main page removes a user and all their keys.
 
 That person can now connect:
 
@@ -353,7 +353,7 @@ The output is a single line that looks like this:
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... your-name-or-callsign
 ```
 
-That whole line — starting with `ssh-ed25519`, on one line with no line breaks — is what gets pasted into Manage Users. It's a public key, so sending it by email or chat is fine. Send your call sign with it: that's your username, what you'll type before the `@` when you connect (in either case). If you'll connect from more than one computer, send each computer's public key for the same username.
+That whole line — starting with `ssh-ed25519`, on one line with no line breaks — is what gets pasted into Manage Users. It's a public key, so sending it by email or chat is fine. Send your call signs with it, and the username you'd like: what you'll type before the `@` when you connect (in either case). If you'll connect from more than one computer, send each computer's public key for the same username.
 
 **If you have more than one key**, tell `ssh` which one to offer so it doesn't pick the wrong one:
 
@@ -410,7 +410,7 @@ PuTTY's equivalent is Connection → "Seconds between keepalives" (set it to 30)
 
 ### View-only users
 
-A user can be **view-only**: they can watch open net sessions, look at and export History, and change their own settings, and nothing else. They can't create, edit, import or start nets, log or edit check-ins, save stations to a net, or delete anything. Their key bars and Help show only the keys they can use. Choose **Access** (Full access or View-only) when adding a user in Manage Users, or change an existing user's Access in their Edit User window (**F4 (Edit)**). It applies to all of that user's keys, and takes effect from their next login. Users added before 1.6.0 have full access until you change them. (Usernames have been call signs since 1.6.0 too. A user added earlier under some other name still logs in, and sets their own callsign in Settings.)
+A user can be **view-only**: they can watch open net sessions, look at and export History, and change their own settings, and nothing else. They can't create, edit, import or start nets, log or edit check-ins, save stations to a net, or delete anything. Their key bars and Help show only the keys they can use. Choose **Access** (Full access or View-only) when adding a user in Manage Users, or change an existing user's Access in their Edit User window (**F4 (Edit)**). It applies to all of that user's keys, and takes effect from their next login. Users added before 1.6.0 have full access until you change them. (Users added before GMRS support have their username as their amateur call sign; change it in their Edit User window if it isn't one.)
 
 ### Why Manage Users is console-only
 

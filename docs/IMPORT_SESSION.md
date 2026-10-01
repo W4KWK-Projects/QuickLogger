@@ -43,7 +43,7 @@ interface: 1
 
 The session is imported as History's **F6 Import** would: into an existing net as a new session, its stations saved to the net. A session the net already has (the same date and start time) isn't imported twice.
 
-Which net it goes into:
+Which net it goes into, of those on the session's own service (Amateur Radio or GMRS; nets on the other are passed over):
 
 - **A recurring net's session** goes into the net here with the same name, capitals and spacing aside.
 - If there's none, but nets here have names that look like it ("TAG Skywarn" and "Skywarn Weekly Net"), the answer is `needs-confirmation`, naming the first of them alphabetically. Nothing is imported. To import it there, run the command again with `--confirm-net` and that name.
@@ -85,7 +85,7 @@ ssh exits with the command's exit status.
 | `already-imported` | 0 | The net already had it, so pushing again is harmless. | Deleted |
 | `needs-confirmation` | 2 | No net has the session's net name, but `net` looks like it. Run again with `--confirm-net`. | Kept |
 | `no-match` | 3 | No net here looks like the session's net, or `--confirm-net` names no net here. | Kept |
-| `refused` | 4 | A view-only user; a file name that isn't a `.qlsession` in your `/imports`; no such file; over 25 MB; a file that isn't a QuickLogger session; or `--confirm-net` naming a net that doesn't look like the session's. | Kept |
+| `refused` | 4 | A view-only user; a file name that isn't a `.qlsession` in your `/imports`; no such file; over 25 MB; a file that isn't a QuickLogger session; or `--confirm-net` naming a net that doesn't look like the session's, or one on the other service. | Kept |
 | `error` | 1 | An unknown command, a malformed command line, or something that went wrong on the upstream QuickLogger. | Kept |
 
 ssh itself exits 255 when it can't connect or log in; that's not one of these.

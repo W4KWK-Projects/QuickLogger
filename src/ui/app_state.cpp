@@ -5754,7 +5754,7 @@ namespace ql
                 case kPageNetList:
                     return {
                         {"F3/Enter", "View the highlighted net's open session.", false},
-                        {"F4", "Settings: your callsign, home ZIP and time format.", false},
+                        {"F4", "Settings: your call signs, home ZIP and time format.", false},
                         {"F5", "Ad hoc nets: view an open one, or see their history.", false},
                         {"F6", "History of the highlighted net: view and export.", false},
                         {"F8", "Export the highlighted net to a file to share.", false},
@@ -5792,7 +5792,7 @@ namespace ql
                 return {
                     {"F2", "Create a new recurring net.", false},
                     {"F3/Enter", "Log the highlighted net, or join or view its open session.", false},
-                    {"F4", "Settings: your callsign, home ZIP and time format.", false},
+                    {"F4", "Settings: your call signs, home ZIP and time format.", false},
                     {"F5", "Ad hoc nets: log one, resume one, or see their history.", false},
                     {"F6", "History of the highlighted net: view, export, delete.", false},
                     {"F7", "Edit a net (by number): its details and saved stations.", false},
@@ -5806,7 +5806,7 @@ namespace ql
                     {"F2", "Save the new net.", false},
                     {"Esc", "Cancel.", false},
                     {"Tab", "Move to the next field (Up/Down too).", false},
-                    {"Left/Right", "Change the Mode, or Partial Matching: US or Canada.", false},
+                    {"Left/Right", "Change the Service, Mode, Channel or Partial Matching.", false},
                 };
             case kPageSelectRole:
                 return {
@@ -5872,7 +5872,7 @@ namespace ql
                     {"F3", "Resume an ad hoc session left open (by number).", false},
                     {"F6", "History of every ad hoc net.", false},
                     {"Esc", "Back to the net list.", false},
-                    {"Left/Right", "Change the Mode, or Partial Matching: US or Canada.", false},
+                    {"Left/Right", "Change the Service, Mode, Channel or Partial Matching.", false},
                 };
             case kPageNetHistory:
             {
@@ -5904,7 +5904,7 @@ namespace ql
                     {"F8", "Delete this net and all its history.", false},
                     {"F5", "Saved stations that haven't checked in lately.", true},
                     {"Esc", "Back without saving.", false},
-                    {"Left/Right", "Change the Mode, or Partial Matching: US or Canada.", false},
+                    {"Left/Right", "Change the Mode, Channel or Partial Matching.", false},
                 };
             case kPageImportNet:
                 if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem())
