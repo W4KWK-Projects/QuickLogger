@@ -1,7 +1,7 @@
 // Federated Logging end to end: pushes run through the system's real scp
 // and ssh to a real upstream QuickLogger on this machine, which takes them
 // with its own SFTP or legacy SCP and runs import-session. Needs that
-// upstream running, so tests/push_end_to_end.sh sets it up and runs these;
+// upstream running, so tests/ssh_end_to_end.sh sets it up and runs these;
 // without QL_PUSH_E2E_DIR (every other run) they do nothing.
 //
 // PushEndToEndSeed makes both databases before the upstream starts;

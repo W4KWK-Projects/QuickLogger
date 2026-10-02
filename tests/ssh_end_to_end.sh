@@ -1,20 +1,22 @@
 #!/bin/sh
-# Federated Logging end to end (tests/test_push_end_to_end.cpp): starts an
-# upstream QuickLogger on this machine and pushes to it with the system's
-# real scp and ssh, over SFTP and legacy SCP.
+# The built-in SSH server end to end: starts a QuickLogger server on this
+# machine and runs the system's real ssh, scp and sftp against it:
+# Federated Logging pushes (tests/test_push_end_to_end.cpp), and SFTP and
+# SCP file transfers (tests/test_files_end_to_end.cpp), over SFTP and
+# legacy SCP.
 #
-#   tests/push_end_to_end.sh <build-dir> [port]
+#   tests/ssh_end_to_end.sh <build-dir> [port]
 #
 # Everything lives in a temporary folder: a key made for the run, the
-# upstream's host key in a known_hosts of its own, and scp and ssh wrappers
+# server's host key in a known_hosts of its own, and ssh, scp and sftp wrappers
 # that hand both to the real ones (-F), so ~/.ssh is never read or changed.
-# Needs ssh, scp, ssh-keygen and ssh-keyscan (OpenSSH 9.0 or later, for
+# Needs ssh, scp, sftp, ssh-keygen and ssh-keyscan (OpenSSH 9.0 or later, for
 # scp -O).
 set -eu
 
 build=$(cd "${1:?usage: $0 <build-dir> [port]}" && pwd)
 port=${2:-2391}
-dir=$(mktemp -d "${TMPDIR:-/tmp}/quicklogger-push-e2e.XXXXXX")
+dir=$(mktemp -d "${TMPDIR:-/tmp}/quicklogger-ssh-e2e.XXXXXX")
 server_pid=""
 
 finish() {
@@ -27,7 +29,7 @@ finish() {
 trap finish EXIT INT TERM
 
 mkdir -p "$dir/up" "$dir/local" "$dir/ssh" "$dir/bin"
-ssh-keygen -q -t ed25519 -N "" -C "push-e2e" -f "$dir/ssh/key"
+ssh-keygen -q -t ed25519 -N "" -C "ssh-e2e" -f "$dir/ssh/key"
 printf 'callsign=W4KWK\nlocation=37415\n' > "$dir/up/settings.txt"
 
 cat > "$dir/ssh/config" <<EOF
@@ -48,11 +50,15 @@ cat > "$dir/bin/scp" <<EOF
 #!/bin/sh
 exec $(command -v scp) \${SCP_EXTRA:-} -F "$dir/ssh/config" "\$@"
 EOF
-chmod +x "$dir/bin/ssh" "$dir/bin/scp"
+cat > "$dir/bin/sftp" <<EOF
+#!/bin/sh
+exec $(command -v sftp) -F "$dir/ssh/config" "\$@"
+EOF
+chmod +x "$dir/bin/ssh" "$dir/bin/scp" "$dir/bin/sftp"
 
 export QL_PUSH_E2E_DIR="$dir"
 export QL_PUSH_E2E_PORT="$port"
-"$build/quicklogger_tests" PushEndToEndSeed
+"$build/quicklogger_tests" EndToEndSeed
 
 (cd "$dir/up" && exec "$build/QuickLogger" --headless --ssh-port="$port") > "$dir/up.log" 2>&1 &
 server_pid=$!
@@ -67,4 +73,4 @@ until ssh-keyscan -p "$port" -t ed25519 127.0.0.1 > "$dir/ssh/known_hosts" 2>/de
     sleep 1
 done
 
-PATH="$dir/bin:$PATH" "$build/quicklogger_tests" PushEndToEndRun
+PATH="$dir/bin:$PATH" "$build/quicklogger_tests" EndToEndRun

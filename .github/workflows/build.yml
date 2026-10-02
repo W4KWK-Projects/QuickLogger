@@ -1,8 +1,8 @@
 # Builds QuickLogger and runs its tests on Linux, following the README's
 # "Building QuickLogger" steps with each distribution's packages as the
 # README lists them, on every push and pull request to main; the first job
-# also pushes a session to an upstream QuickLogger on the runner with the
-# real scp and ssh (tests/push_end_to_end.sh). One job uses
+# also runs the real ssh, scp and sftp against QuickLogger's SSH server on
+# the runner (tests/ssh_end_to_end.sh). One job uses
 # CMake 3.16, the oldest CMake the build supports. Windows and FreeBSD are
 # slow to build, so they're built only for releases, or by hand (see
 # windows-binary.yml and freebsd-binary.yml).
@@ -35,8 +35,8 @@ jobs:
         env:
           QL_EXPECT_LRZSZ: "1"
         run: ctest --test-dir build --output-on-failure
-      - name: Push end to end
-        run: tests/push_end_to_end.sh build
+      - name: SSH end to end
+        run: tests/ssh_end_to_end.sh build
 
   oldest-cmake:
     runs-on: ubuntu-22.04
