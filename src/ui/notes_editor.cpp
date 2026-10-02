@@ -156,10 +156,21 @@ namespace ql
         *cursor_ = static_cast<int>(std::min(position, text_->size()));
     }
 
+    const std::vector<TextLineSpan>& NotesEditor::Lines()
+    {
+        if (*width_ != wrapped_width_ || *text_ != wrapped_text_)
+        {
+            // One column is kept for the cursor after a full line.
+            lines_ = WrapText(*text_, *width_ - 1);
+            wrapped_text_ = *text_;
+            wrapped_width_ = *width_;
+        }
+        return lines_;
+    }
+
     ftxui::Element NotesEditor::Render()
     {
-        // One column is kept for the cursor after a full line.
-        std::vector<TextLineSpan> lines = WrapText(*text_, *width_ - 1);
+        const std::vector<TextLineSpan>& lines = Lines();
         std::size_t cursor = Cursor();
         std::size_t cursor_line = LineOf(lines, cursor);
         ftxui::Elements rows;
@@ -197,7 +208,7 @@ namespace ql
 
     void NotesEditor::MoveLines(int rows)
     {
-        std::vector<TextLineSpan> lines = WrapText(*text_, *width_ - 1);
+        const std::vector<TextLineSpan>& lines = Lines();
         std::size_t cursor = Cursor();
         std::size_t line = LineOf(lines, cursor);
         int column = CountCodePoints(*text_, lines[line].start, cursor);
@@ -242,7 +253,7 @@ namespace ql
         }
         if (event == ftxui::Event::Home || event == ftxui::Event::End)
         {
-            std::vector<TextLineSpan> lines = WrapText(*text_, *width_ - 1);
+            const std::vector<TextLineSpan>& lines = Lines();
             std::size_t line = LineOf(lines, cursor);
             SetCursor(event == ftxui::Event::Home ? lines[line].start : LastCursorPosition(*text_, lines, line));
             return true;
