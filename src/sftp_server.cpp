@@ -79,8 +79,10 @@ namespace ql
     class SftpSession
     {
     public:
-        SftpSession(sftp_session sftp, const std::string& db_path, const std::string& username, bool view_only)
+        SftpSession(sftp_session sftp, ssh_channel channel, const std::string& db_path, const std::string& username,
+                    bool view_only)
             : sftp_(sftp),
+              channel_(channel),
               exports_dir_(SessionExportsDir(db_path, username)),
               imports_dir_(SessionImportsDir(db_path, username)),
               username_(username),
@@ -413,14 +415,14 @@ namespace ql
         {
             if (!AreaWritable(path.area))
             {
-                sftp_reply_status(message, SSH_FX_PERMISSION_DENIED,
-                                  view_only_ && path.area == SftpArea::kImports ? "View-only users can't upload"
-                                                                                : "Read-only folder");
+                Refuse(message, SSH_FX_PERMISSION_DENIED,
+                       view_only_ && path.area == SftpArea::kImports ? "View-only users can't upload"
+                                                                     : "That folder is read-only");
                 return;
             }
             if (!IsAllowedImportName(path.name))
             {
-                sftp_reply_status(message, SSH_FX_PERMISSION_DENIED, "Only .qlnet and .qlsession files");
+                Refuse(message, SSH_FX_PERMISSION_DENIED, "Only .qlnet and .qlsession files can be uploaded");
                 return;
             }
 
@@ -439,13 +441,13 @@ namespace ql
             // Write) can't be done.
             if ((flags & SSH_FXF_APPEND) != 0)
             {
-                sftp_reply_status(message, SSH_FX_OP_UNSUPPORTED, "Can't resume an upload");
+                Refuse(message, SSH_FX_OP_UNSUPPORTED, "Can't resume an upload");
                 return;
             }
             std::uint64_t limit = SftpUploadLimit(SftpImportsBytesUsed(imports_dir_, path.name));
             if (limit == 0)
             {
-                sftp_reply_status(message, SSH_FX_FAILURE, "/imports is full (100 MB)");
+                Refuse(message, SSH_FX_FAILURE, "/imports is full (100 MB)");
                 return;
             }
             if (!EnsureDirectory(imports_dir_))
@@ -521,15 +523,15 @@ namespace ql
             if (message->offset > handle->limit || length > handle->limit - message->offset)
             {
                 handle->failed = true;
-                sftp_reply_status(
-                    message, SSH_FX_FAILURE,
-                    handle->limit < kSftpMaxUploadBytes ? "/imports is full (100 MB)" : "Over the 25 MB limit");
+                Refuse(message, SSH_FX_FAILURE,
+                       handle->limit < kSftpMaxUploadBytes ? "/imports is full (100 MB)"
+                                                           : "The file is over the 25 MB limit");
                 return;
             }
             if (message->offset > handle->size)
             {
                 handle->failed = true;
-                sftp_reply_status(message, SSH_FX_OP_UNSUPPORTED, "Can't resume an upload");
+                Refuse(message, SSH_FX_OP_UNSUPPORTED, "Can't resume an upload");
                 return;
             }
             std::size_t written = 0;
@@ -598,7 +600,7 @@ namespace ql
             }
             if (path.name.empty() || !AreaWritable(path.area) || !IsAllowedImportName(path.name))
             {
-                sftp_reply_status(message, SSH_FX_PERMISSION_DENIED, "Can't remove that");
+                Refuse(message, SSH_FX_PERMISSION_DENIED, "Only your uploads can be removed");
                 return;
             }
             std::string real_path = RealPathOf(path);
@@ -671,7 +673,21 @@ namespace ql
             }
         }
 
+        // Refuses a request and says why. OpenSSH's sftp and scp show only
+        // the status code's own words ("Failure", "Permission denied") for
+        // a reply, never its message, but pass what the server writes to the
+        // channel's standard error through to the person's terminal: so
+        // the reason goes there too (and push reads it, see
+        // ConnectionFailure in upstream_push.cpp).
+        void Refuse(sftp_client_message message, std::uint32_t status, const std::string& reason)
+        {
+            std::string line = reason + "\n";
+            ssh_channel_write_stderr(channel_, line.data(), static_cast<std::uint32_t>(line.size()));
+            sftp_reply_status(message, status, reason.c_str());
+        }
+
         sftp_session sftp_;
+        ssh_channel channel_;
         std::string exports_dir_;
         std::string imports_dir_;
         std::string username_;
@@ -707,7 +723,7 @@ namespace ql
         }
 
         {
-            SftpSession files(sftp, db_path, username, view_only);
+            SftpSession files(sftp, channel, db_path, username, view_only);
             while (true)
             {
                 sftp_client_message message = sftp_get_client_message(sftp);

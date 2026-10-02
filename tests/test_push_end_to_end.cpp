@@ -17,6 +17,7 @@
 #include "../src/db/database.hpp"
 #include "../src/file_export.hpp"
 #include "../src/net_slice.hpp"
+#include "../src/sftp_paths.hpp"
 #include "../src/upstream_push.hpp"
 #include "test_framework.hpp"
 #include "test_helpers.hpp"
@@ -254,6 +255,27 @@ namespace ql
                                      nullptr);
             CHECK(result.kind == PushResultKind::kFailed);
             CHECK_EQ(UpstreamCheckIns(dir, "Dixie Traders", "2026-09-27"), -1);
+        }
+
+        // A full /imports is named over SFTP as over legacy SCP: OpenSSH's
+        // scp shows only the server's reason on standard error.
+        std::vector<std::string> fillers;
+        for (int i = 1; i <= 4; ++i)
+        {
+            fillers.push_back(imports + "/Filler" + std::to_string(i) + ".qlnet");
+            WriteTextFile(fillers.back(), "");
+            std::filesystem::resize_file(fillers.back(), kSftpMaxUploadBytes);
+        }
+        for (const char* extra : {"", "-O"})
+        {
+            SetTestEnvironment("SCP_EXTRA", extra);
+            CHECK_EQ(PushSession(dir, "2026-09-22", "W4KWK", "").message,
+                     std::string("Your /imports on 127.0.0.1 is full."));
+        }
+        SetTestEnvironment("SCP_EXTRA", "");
+        for (const std::string& filler : fillers)
+        {
+            std::filesystem::remove(filler);
         }
 
         // Every way it fails, in one sentence.

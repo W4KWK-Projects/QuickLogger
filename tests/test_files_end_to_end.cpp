@@ -151,8 +151,15 @@ namespace ql
 
         // Refused: other kinds of file, writing to /exports, removing an
         // export, and anything outside the two folders.
-        CHECK(Sftp(dir, "W4KWK", "put " + files + "/notes.txt /imports/\n").exit_status != 0);
-        CHECK(Scp(false, {files + "/notes.txt", "W4KWK@127.0.0.1:/imports/"}).exit_status != 0);
+        // The server's reason reaches the person's terminal (OpenSSH shows
+        // only the status code for the reply itself, so the server also
+        // writes the reason to the channel's standard error).
+        result = Sftp(dir, "W4KWK", "put " + files + "/notes.txt /imports/\n");
+        CHECK(result.exit_status != 0);
+        CHECK(result.errors.find("Only .qlnet and .qlsession files") != std::string::npos);
+        result = Scp(false, {files + "/notes.txt", "W4KWK@127.0.0.1:/imports/"});
+        CHECK(result.exit_status != 0);
+        CHECK(result.errors.find("Only .qlnet and .qlsession files") != std::string::npos);
         CHECK(Scp(true, {files + "/notes.txt", "W4KWK@127.0.0.1:/imports/"}).exit_status != 0);
         CHECK(!FileExists(imports + "/notes.txt"));
         CHECK(Sftp(dir, "W4KWK", "put " + files + "/Net.qlnet /exports/\n").exit_status != 0);
@@ -173,14 +180,24 @@ namespace ql
         result = Sftp(dir, "K4VIEW", "get /exports/Viewer.txt " + files + "/viewer.txt\n");
         CHECK_EQ(result.exit_status, 0);
         CHECK_EQ(ReadTextFile(files + "/viewer.txt"), std::string("viewer's\n"));
-        CHECK(Sftp(dir, "K4VIEW", "put " + files + "/Net.qlnet /imports/\n").exit_status != 0);
+        result = Sftp(dir, "K4VIEW", "put " + files + "/Net.qlnet /imports/\n");
+        CHECK(result.exit_status != 0);
+        CHECK(result.errors.find("View-only users can't upload") != std::string::npos);
+        result = Scp(false, {files + "/Net.qlnet", "K4VIEW@127.0.0.1:/imports/"});
+        CHECK(result.exit_status != 0);
+        CHECK(result.errors.find("View-only users can't upload") != std::string::npos);
         CHECK(Scp(true, {files + "/Net.qlnet", "K4VIEW@127.0.0.1:/imports/"}).exit_status != 0);
         CHECK(!FileExists(SessionImportsDir(UpstreamDb(dir), "K4VIEW") + "/Net.qlnet"));
 
         // 25 MB a file, 100 MB in all; a refused upload leaves nothing,
         // not even its hidden temporary file.
         MakeFileOfSize(files + "/Big.qlnet", kSftpMaxUploadBytes + 1);
-        CHECK(Sftp(dir, "W4KWK", "put " + files + "/Big.qlnet /imports/\n").exit_status != 0);
+        result = Sftp(dir, "W4KWK", "put " + files + "/Big.qlnet /imports/\n");
+        CHECK(result.exit_status != 0);
+        CHECK(result.errors.find("over the 25 MB limit") != std::string::npos);
+        result = Scp(false, {files + "/Big.qlnet", "W4KWK@127.0.0.1:/imports/"});
+        CHECK(result.exit_status != 0);
+        CHECK(result.errors.find("over the 25 MB limit") != std::string::npos);
         CHECK(Scp(true, {files + "/Big.qlnet", "W4KWK@127.0.0.1:/imports/"}).exit_status != 0);
         CHECK(FilesIn(imports).empty());
         MakeFileOfSize(files + "/Full.qlnet", kSftpMaxUploadBytes);
@@ -191,7 +208,12 @@ namespace ql
         }
         CHECK_EQ(Sftp(dir, "W4KWK", fill).exit_status, 0);
         CHECK_EQ(FilesIn(imports).size(), std::size_t{4});
-        CHECK(Sftp(dir, "W4KWK", "put " + files + "/Net.qlnet /imports/\n").exit_status != 0);
+        result = Sftp(dir, "W4KWK", "put " + files + "/Net.qlnet /imports/\n");
+        CHECK(result.exit_status != 0);
+        CHECK(result.errors.find("is full") != std::string::npos);
+        result = Scp(false, {files + "/Net.qlnet", "W4KWK@127.0.0.1:/imports/"});
+        CHECK(result.exit_status != 0);
+        CHECK(result.errors.find("is full") != std::string::npos);
         CHECK(Scp(true, {files + "/Net.qlnet", "W4KWK@127.0.0.1:/imports/"}).exit_status != 0);
         CHECK_EQ(FilesIn(imports).size(), std::size_t{4});
         // Replacing one of them still fits.
