@@ -237,6 +237,20 @@ namespace ql
             bool drawn_problem = false;
             std::string drawn_status;
             ReadStatus(db.get(), &drawn_notice, &drawn_problem, &drawn_status);
+            // The open nets the list was just loaded with, so the first tick
+            // doesn't reload it for nothing.
+            if (db != nullptr)
+            {
+                try
+                {
+                    shown_open_net_ids_ = db->GetNetIdsWithOpenInstances();
+                    std::sort(shown_open_net_ids_.begin(), shown_open_net_ids_.end());
+                }
+                // NOLINTNEXTLINE(bugprone-empty-catch): the first tick reloads it then.
+                catch (const std::exception&)
+                {
+                }
+            }
             bool busy = !drawn_notice.empty();
             std::chrono::system_clock::time_point next_status_check =
                 std::chrono::system_clock::now() + kStatusPollIdle;

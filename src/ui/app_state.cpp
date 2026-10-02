@@ -3426,8 +3426,10 @@ namespace ql
         state->selected_user_index = index;
         state->user_keys_username = state->manage_user_names[index];
         state->rename_username = state->user_keys_username;
-        state->edit_user_access_index = state->db->IsUserViewOnly(state->user_keys_username) ? 1 : 0;
+        // Its reads share one snapshot and one lock; access comes with the keys.
+        Database::ReadTransaction reads(state->db);
         std::vector<User> keys = state->db->GetUserKeys(state->user_keys_username);
+        state->edit_user_access_index = !keys.empty() && keys[0].view_only ? 1 : 0;
         state->edit_user_amateur_callsign = keys.empty() ? std::string() : keys[0].amateur_callsign;
         state->edit_user_gmrs_callsign = keys.empty() ? std::string() : keys[0].gmrs_callsign;
         state->selected_user_key_index = 0;
