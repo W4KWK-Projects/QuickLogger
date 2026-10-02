@@ -430,7 +430,7 @@ namespace ql
     };
 
     void RunInteractiveSession(const std::string& settings_path, bool is_console_session,
-                               const std::string& ssh_username)
+                               const std::string& ssh_username, bool over_mosh)
     {
         // Each frame goes to the terminal in one write. Standard output to a
         // terminal is otherwise line-buffered, and FTXUI ends every screen
@@ -453,6 +453,7 @@ namespace ql
         state.db_path = "quicklogger.db";
         state.screen = &screen;
         state.is_console_session = is_console_session;
+        state.over_mosh = over_mosh;
         // Decided once, at login: a change in Manage Users applies from
         // the user's next login.
         state.ssh_username = is_console_session ? std::string() : ssh_username;
@@ -467,6 +468,7 @@ namespace ql
             if (!keys.empty())
             {
                 state.callsign_editable = false;
+                state.settings_focus = 1;
                 state.settings.callsign = keys[0].amateur_callsign;
                 state.settings.gmrs_callsign = keys[0].gmrs_callsign;
             }

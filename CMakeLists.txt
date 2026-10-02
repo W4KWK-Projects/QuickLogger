@@ -124,6 +124,7 @@ set(quicklogger_sources
     src/gmrs_channels.cpp
     src/remote_command.cpp
     src/scp_server.cpp
+    src/mosh_bridge.cpp
     src/run_program.cpp
     src/upstream_push.cpp
     src/zmodem_send.cpp
@@ -250,6 +251,7 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_sftp_paths.cpp
         tests/test_remote_command.cpp
         tests/test_scp_server.cpp
+        tests/test_mosh_bridge.cpp
         tests/test_upstream_push.cpp
         tests/test_push_ui.cpp
         tests/test_gmrs.cpp

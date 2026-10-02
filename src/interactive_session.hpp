@@ -23,8 +23,9 @@ namespace ql
     //
     // `ssh_username` is who logged in over SSH (blank at the console); a
     // view-only user's session can change nothing but its own settings
-    // (see AppState::view_only_user).
+    // (see AppState::view_only_user). `over_mosh` is a session started
+    // by mosh-server (see AppState::over_mosh).
     void RunInteractiveSession(const std::string& settings_path, bool is_console_session,
-                               const std::string& ssh_username);
+                               const std::string& ssh_username, bool over_mosh = false);
 
 }  // namespace ql

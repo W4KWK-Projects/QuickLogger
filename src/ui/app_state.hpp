@@ -162,6 +162,10 @@ namespace ql
         // kPageManageUsers) is reachable at all, deliberately never over
         // SSH, so there's no admin/permission concept to build or attack.
         bool is_console_session = true;
+        // An SSH user's session over Mosh (see mosh_bridge.hpp). Mosh keeps
+        // the screen in step rather than passing bytes through, so ZMODEM
+        // can't work: files are copied with scp or sftp instead.
+        bool over_mosh = false;
         // A view-only SSH user (see User::view_only): they can watch open
         // net sessions, look at and export history, and change their own
         // settings -- nothing else. Every page shows only the keys they
@@ -176,6 +180,10 @@ namespace ql
         // (User::amateur_callsign), shown on Settings but not editable
         // there. The console edits its own.
         bool callsign_editable = true;
+        // Which of the Settings page's fields has focus, in the order its
+        // container lists them (see BuildSettingsPage). An SSH user starts
+        // on My ZIP Code: their call sign fields can't be focused.
+        int settings_focus = 0;
 
         int page = kPageNetList;
         std::string form_error;

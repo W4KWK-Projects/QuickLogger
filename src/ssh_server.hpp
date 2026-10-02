@@ -48,6 +48,13 @@ namespace ql
     // listener exits by itself if the calling process goes away.
     pid_t StartSshServerProcess(const std::string& db_path, int port);
 
+    // `QuickLogger --mosh-session`: the program mosh-server starts for a
+    // mosh client (see mosh_bridge.hpp). Logs in as the user whose one-time
+    // token is in QUICKLOGGER_MOSH_TOKEN, in the data folder named by
+    // QUICKLOGGER_MOSH_DIR, and runs their session; refuses without a
+    // valid token. Returns the process's exit status.
+    int RunMoshSession();
+
     // Stops (and reaps) a listener started by StartSshServerProcess. Safe
     // to call with -1. Sessions already established keep running -- each is
     // an independent process.

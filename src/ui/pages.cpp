@@ -1808,14 +1808,16 @@ namespace ql
 
         // In the order they're drawn: across each row of the two columns,
         // then Time Format below them.
-        ftxui::Component root = ftxui::Container::Vertical({
-            input_callsign,
-            input_location,
-            input_gmrs,
-            update_check_toggle,
-            input_radius,
-            time_format_toggle,
-        });
+        ftxui::Component root = ftxui::Container::Vertical(
+            {
+                input_callsign,
+                input_location,
+                input_gmrs,
+                update_check_toggle,
+                input_radius,
+                time_format_toggle,
+            },
+            &state->settings_focus);
 
         ftxui::Component page =
             ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_gmrs, input_location, input_radius,
@@ -2407,6 +2409,20 @@ namespace ql
 
     // ---- Import net page ---------------------------------------------------
 
+    // What the Import page says while it has no files to list.
+    static std::string EmptyImportListHint(const AppState* state, const std::string& pattern)
+    {
+        if (state->ssh_username.empty())
+        {
+            return "No " + pattern + " files in imports/ yet. Press F3 to receive one via ZMODEM.";
+        }
+        if (state->over_mosh)
+        {
+            return "No " + pattern + " files received yet. Upload one to /imports with scp or sftp.";
+        }
+        return "No " + pattern + " files received yet. Press F3 to receive one via ZMODEM.";
+    }
+
     class ImportNetRenderer
     {
     public:
@@ -2418,14 +2434,9 @@ namespace ql
         {
             bool session = state_->import_session;
             std::string pattern = session ? "*.qlsession" : "*.qlnet";
-            ftxui::Element file_list =
-                state_->import_net_files.empty()
-                    ? HintText(state_->ssh_username.empty()
-                                   ? "No " + pattern +
-                                         " files in imports/ yet. Press F3 to receive one via "
-                                         "ZMODEM."
-                                   : "No " + pattern + " files received yet. Press F3 to receive one via ZMODEM.")
-                    : file_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator;
+            ftxui::Element file_list = state_->import_net_files.empty()
+                                           ? HintText(EmptyImportListHint(state_, pattern))
+                                           : file_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator;
 
             ftxui::Elements rows;
             if (session)
@@ -2446,8 +2457,8 @@ namespace ql
                                 : state_->import_session_ad_hoc ? "Import Ad Hoc Session"
                                                                 : "Import Session: " + state_->import_session_net_name;
             // No ZMODEM at a local terminal: there's no one to receive from.
-            // Nor where the system has none (Windows, Alpine).
-            if (IsLocalTerminal(state_->is_console_session) || NoZmodemOnThisSystem())
+            // Nor where the system has none (Windows, Alpine), or over Mosh.
+            if (IsLocalTerminal(state_->is_console_session) || NoZmodemOnThisSystem() || state_->over_mosh)
             {
                 return PageChrome(title, ftxui::vbox(std::move(rows)), {{"F2/Enter", "Import"}, {"Esc", "Back"}});
             }

@@ -1,18 +1,31 @@
 #include "ssh_server.hpp"
 
 #include <cerrno>
+#include <climits>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <sstream>
 #include <string_view>
+#include <vector>
 
+#include <fcntl.h>
+#include <netdb.h>
 #include <poll.h>
+#include <spawn.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#elif defined(__FreeBSD__)
+#include <sys/sysctl.h>
+#endif
 
 // openpty()/login_tty() live in a different header (and, on some platforms,
 // a different library) per OS -- verified against each platform's own
@@ -33,6 +46,7 @@
 
 #include "db/database.hpp"
 #include "interactive_session.hpp"
+#include "mosh_bridge.hpp"
 #include "remote_command.hpp"
 #include "scp_server.hpp"
 #include "sftp_server.hpp"
@@ -52,7 +66,9 @@ namespace ql
     // pre-validate its contents.
     static bool EnsureHostKeyExists(const std::string& path)
     {
-        struct stat existing{};
+        struct stat existing
+        {
+        };
         if (::stat(path.c_str(), &existing) == 0)
         {
             return true;
@@ -237,7 +253,9 @@ namespace ql
         (void)term;
         ConnectionState* state = static_cast<ConnectionState*>(userdata);
 
-        struct winsize window_size{};
+        struct winsize window_size
+        {
+        };
         window_size.ws_col = static_cast<unsigned short>(width);
         window_size.ws_row = static_cast<unsigned short>(height);
         window_size.ws_xpixel = static_cast<unsigned short>(pxwidth);
@@ -260,7 +278,9 @@ namespace ql
         {
             return -1;
         }
-        struct winsize window_size{};
+        struct winsize window_size
+        {
+        };
         window_size.ws_col = static_cast<unsigned short>(width);
         window_size.ws_row = static_cast<unsigned short>(height);
         window_size.ws_xpixel = static_cast<unsigned short>(pxwidth);
@@ -363,9 +383,7 @@ namespace ql
     class SshScpChannel : public ScpChannel
     {
     public:
-        explicit SshScpChannel(ssh_channel channel) : channel_(channel)
-        {
-        }
+        explicit SshScpChannel(ssh_channel channel) : channel_(channel) {}
 
         bool Read(char* data, std::size_t size) override
         {
@@ -391,8 +409,272 @@ namespace ql
         ssh_channel channel_;
     };
 
-    static int RunExecCommand(ssh_channel channel, const std::string& db_path, const ConnectionState& state)
+    // mosh-server's path, from PATH or where packages put it; "" if it
+    // isn't installed.
+    static std::string FindMoshServer()
     {
+        std::vector<std::string> dirs;
+        const char* path = std::getenv("PATH");
+        std::string remaining = path != nullptr ? path : "";
+        std::string::size_type start = 0;
+        while (start <= remaining.size())
+        {
+            std::string::size_type colon = remaining.find(':', start);
+            std::string dir = remaining.substr(start, colon == std::string::npos ? std::string::npos : colon - start);
+            if (!dir.empty())
+            {
+                dirs.push_back(dir);
+            }
+            if (colon == std::string::npos)
+            {
+                break;
+            }
+            start = colon + 1;
+        }
+        for (const char* dir : {"/usr/bin", "/usr/local/bin", "/opt/homebrew/bin", "/opt/local/bin"})
+        {
+            dirs.emplace_back(dir);
+        }
+        for (const std::string& dir : dirs)
+        {
+            std::string candidate = dir + "/mosh-server";
+            if (::access(candidate.c_str(), X_OK) == 0)
+            {
+                return candidate;
+            }
+        }
+        return "";
+    }
+
+    // This program's own path, for mosh-server to start; "" if it can't
+    // be found.
+    static std::string SelfExecutablePath()
+    {
+        char buffer[4096];
+#if defined(__linux__)
+        ssize_t length = ::readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+        if (length <= 0)
+        {
+            return "";
+        }
+        buffer[length] = '\0';
+        return buffer;
+#elif defined(__FreeBSD__)
+        int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
+        std::size_t length = sizeof(buffer);
+        if (::sysctl(mib, 4, buffer, &length, nullptr, 0) != 0)
+        {
+            return "";
+        }
+        return buffer;
+#elif defined(__APPLE__)
+        uint32_t length = sizeof(buffer);
+        if (_NSGetExecutablePath(buffer, &length) != 0)
+        {
+            return "";
+        }
+        char resolved[PATH_MAX];
+        return ::realpath(buffer, resolved) != nullptr ? std::string(resolved) : std::string(buffer);
+#else
+        return "";
+#endif
+    }
+
+    // "client-address client-port server-address server-port", as sshd
+    // sets SSH_CONNECTION (mosh-server -s binds to the server address).
+    static std::string SshConnectionString(ssh_session session)
+    {
+        int fd = ssh_get_fd(session);
+        struct sockaddr_storage peer
+        {
+        };
+        struct sockaddr_storage local
+        {
+        };
+        socklen_t peer_size = sizeof(peer);
+        socklen_t local_size = sizeof(local);
+        if (::getpeername(fd, reinterpret_cast<struct sockaddr*>(&peer), &peer_size) != 0 ||
+            ::getsockname(fd, reinterpret_cast<struct sockaddr*>(&local), &local_size) != 0)
+        {
+            return "";
+        }
+        char peer_host[NI_MAXHOST];
+        char peer_port[NI_MAXSERV];
+        char local_host[NI_MAXHOST];
+        char local_port[NI_MAXSERV];
+        if (::getnameinfo(reinterpret_cast<struct sockaddr*>(&peer), peer_size, peer_host, sizeof(peer_host), peer_port,
+                          sizeof(peer_port), NI_NUMERICHOST | NI_NUMERICSERV) != 0 ||
+            ::getnameinfo(reinterpret_cast<struct sockaddr*>(&local), local_size, local_host, sizeof(local_host),
+                          local_port, sizeof(local_port), NI_NUMERICHOST | NI_NUMERICSERV) != 0)
+        {
+            return "";
+        }
+        std::string connection = std::string(peer_host) + " " + peer_port + " " + local_host + " " + local_port;
+        // An IPv4 client on a dual-stack socket: as sshd gives it.
+        std::string mapped = "::ffff:";
+        std::string::size_type at = 0;
+        while ((at = connection.find(mapped, at)) != std::string::npos)
+        {
+            connection.erase(at, mapped.size());
+        }
+        return connection;
+    }
+
+    static void WriteChannelText(ssh_channel channel, const std::string& text)
+    {
+        ssh_channel_write(channel, text.data(), static_cast<uint32_t>(text.size()));
+    }
+
+    // Runs mosh-server for a mosh client (see mosh_bridge.hpp): its own
+    // options, but QuickLogger --mosh-session as the program, logged in as
+    // this connection's user by a one-time token. Relays what mosh-server
+    // prints (the "MOSH CONNECT" line the client is waiting for) and
+    // returns its exit status. mosh-server then carries on by itself, over
+    // UDP, after this connection has gone.
+    static int RunMoshServerCommand(ssh_session session, ssh_channel channel, const ConnectionState& state)
+    {
+        MoshServerRequest request;
+        std::string error;
+        if (!ParseMoshServerCommand(state.exec_command, &request, &error))
+        {
+            WriteChannelText(channel, "QuickLogger: " + error + "\n");
+            return 1;
+        }
+        std::string mosh_server = FindMoshServer();
+        if (mosh_server.empty())
+        {
+            WriteChannelText(channel,
+                             "QuickLogger: mosh-server isn't installed on this server, so Mosh can't be "
+                             "used here. Connect with ssh instead.\n");
+            return 127;
+        }
+        std::string self = SelfExecutablePath();
+        char cwd[4096];
+        if (self.empty() || ::getcwd(cwd, sizeof(cwd)) == nullptr)
+        {
+            WriteChannelText(channel, "QuickLogger: couldn't find its own program to start under Mosh.\n");
+            return 1;
+        }
+        std::string token = CreateMoshToken(cwd, state.username, static_cast<std::int64_t>(std::time(nullptr)), &error);
+        if (token.empty())
+        {
+            WriteChannelText(channel, "QuickLogger: " + error + "\n");
+            return 1;
+        }
+        std::string connection = SshConnectionString(session);
+        if (request.report_ssh_connection && !connection.empty())
+        {
+            WriteChannelText(channel, "\nMOSH SSH_CONNECTION " + connection + "\n");
+        }
+
+        // A clean environment: mosh-server sets TERM and the locale itself.
+        // HOME is the data folder, where mosh-server starts its program.
+        // A session nobody comes back to ends after a day, rather than
+        // waiting forever for its client.
+        std::vector<std::string> environment{
+            "PATH=/usr/bin:/bin:/usr/local/bin", "HOME=" + std::string(cwd), "QUICKLOGGER_MOSH_DIR=" + std::string(cwd),
+            "QUICKLOGGER_MOSH_TOKEN=" + token, "MOSH_SERVER_NETWORK_TMOUT=" + std::to_string(kMoshIdleSeconds)};
+        if (!connection.empty())
+        {
+            environment.push_back("SSH_CONNECTION=" + connection);
+        }
+        std::vector<std::string> arguments = MoshServerArgv(mosh_server, request, self);
+        std::vector<char*> argv;
+        for (std::string& argument : arguments)
+        {
+            argv.push_back(&argument[0]);
+        }
+        argv.push_back(nullptr);
+        std::vector<char*> envp;
+        for (std::string& variable : environment)
+        {
+            envp.push_back(&variable[0]);
+        }
+        envp.push_back(nullptr);
+
+        int output[2];
+        if (::pipe(output) != 0)
+        {
+            WriteChannelText(channel, "QuickLogger: couldn't start mosh-server.\n");
+            return 1;
+        }
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
+        posix_spawn_file_actions_adddup2(&actions, output[1], 1);
+        posix_spawn_file_actions_adddup2(&actions, output[1], 2);
+        posix_spawn_file_actions_addclose(&actions, output[0]);
+        posix_spawn_file_actions_addclose(&actions, output[1]);
+        // In a session of its own, so it outlives whatever ends the
+        // listener's: the terminal QuickLogger was started from closing,
+        // say. That's what Mosh is for.
+        posix_spawnattr_t attributes;
+        posix_spawnattr_init(&attributes);
+#ifdef POSIX_SPAWN_SETSID
+        posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETSID);
+#else
+        posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP);
+        posix_spawnattr_setpgroup(&attributes, 0);
+#endif
+        // Its exit status is wanted (SIGCHLD is ignored, see SshAcceptLoop).
+        std::signal(SIGCHLD, SIG_DFL);
+        pid_t pid = -1;
+        int spawned = posix_spawn(&pid, mosh_server.c_str(), &actions, &attributes, argv.data(), envp.data());
+        posix_spawn_file_actions_destroy(&actions);
+        posix_spawnattr_destroy(&attributes);
+        ::close(output[1]);
+        if (spawned != 0)
+        {
+            ::close(output[0]);
+            WriteChannelText(channel, "QuickLogger: couldn't start mosh-server.\n");
+            return 1;
+        }
+
+        // Until mosh-server has detached and its output ends: a few
+        // seconds at most.
+        std::time_t deadline = std::time(nullptr) + 20;
+        int status = 0;
+        bool exited = false;
+        while (std::time(nullptr) < deadline)
+        {
+            struct pollfd readable
+            {
+            };
+            readable.fd = output[0];
+            readable.events = POLLIN;
+            int ready = ::poll(&readable, 1, exited ? 500 : 200);
+            if (ready > 0)
+            {
+                char buffer[1024];
+                ssize_t count = ::read(output[0], buffer, sizeof(buffer));
+                if (count <= 0)
+                {
+                    break;
+                }
+                ssh_channel_write(channel, buffer, static_cast<uint32_t>(count));
+                continue;
+            }
+            if (exited)
+            {
+                break;  // Quiet since it exited: its detached half keeps the pipe.
+            }
+            exited = ::waitpid(pid, &status, WNOHANG) == pid;
+        }
+        ::close(output[0]);
+        if (!exited && ::waitpid(pid, &status, WNOHANG) != pid)
+        {
+            return 1;
+        }
+        return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+    }
+
+    static int RunExecCommand(ssh_session session, ssh_channel channel, const std::string& db_path,
+                              const ConnectionState& state)
+    {
+        if (IsMoshServerCommandLine(state.exec_command))
+        {
+            return RunMoshServerCommand(session, channel, state);
+        }
         // An scp client that doesn't speak SFTP. Never the database: the
         // files are all it needs.
         if (IsScpCommandLine(state.exec_command))
@@ -561,7 +843,9 @@ namespace ql
         // the second, timing-dependent cause of the old "intermittent
         // SSH connection failure" (the other being THE FORK RULE, in
         // ssh_server.hpp).
-        struct ssh_server_callbacks_struct server_callbacks{};
+        struct ssh_server_callbacks_struct server_callbacks
+        {
+        };
         server_callbacks.userdata = &state;
         server_callbacks.auth_pubkey_function = AuthPubkeyCallback;
         server_callbacks.channel_open_request_session_function = ChannelOpenCallback;
@@ -626,7 +910,9 @@ namespace ql
         // Poll until a channel exists (the client opens one once it
         // sees auth succeeded) and, once channel callbacks are wired up
         // below, until a pty+shell, SFTP or a command has been asked for.
-        struct ssh_channel_callbacks_struct channel_callbacks{};
+        struct ssh_channel_callbacks_struct channel_callbacks
+        {
+        };
         channel_callbacks.userdata = &state;
         channel_callbacks.channel_pty_request_function = PtyRequestCallback;
         channel_callbacks.channel_pty_window_change_function = PtyWindowChangeCallback;
@@ -671,7 +957,7 @@ namespace ql
             }
             else
             {
-                exit_status = RunExecCommand(state.channel, db_path, state);
+                exit_status = RunExecCommand(session, state.channel, db_path, state);
             }
             EndChannel(session, state.channel, exit_status);
             return;
@@ -786,7 +1072,9 @@ namespace ql
                 // Wakes up once a second even with no connection waiting,
                 // purely so the parent-still-alive check above gets to
                 // run.
-                struct pollfd listen_poll{};
+                struct pollfd listen_poll
+                {
+                };
                 listen_poll.fd = listen_fd;
                 listen_poll.events = POLLIN;
                 if (::poll(&listen_poll, 1, 1000) <= 0)
@@ -837,6 +1125,30 @@ namespace ql
         int port_;
         pid_t parent_pid_;
     };
+
+    int RunMoshSession()
+    {
+        // Taken out of the environment, so the session's own programs
+        // (sz, rz) don't see them.
+        const char* dir = std::getenv("QUICKLOGGER_MOSH_DIR");
+        const char* token = std::getenv("QUICKLOGGER_MOSH_TOKEN");
+        std::string dir_value = dir != nullptr ? dir : "";
+        std::string token_value = token != nullptr ? token : "";
+        ::unsetenv("QUICKLOGGER_MOSH_DIR");
+        ::unsetenv("QUICKLOGGER_MOSH_TOKEN");
+        std::string username;
+        if (dir_value.empty() || ::chdir(dir_value.c_str()) != 0 ||
+            !ConsumeMoshToken(dir_value, token_value, static_cast<std::int64_t>(std::time(nullptr)), &username))
+        {
+            std::printf(
+                "QuickLogger: this Mosh session wasn't started by QuickLogger's SSH server, so it can't "
+                "log in. Connect with mosh to the server's SSH port.\n");
+            return 1;
+        }
+        RunInteractiveSession(PerUserSettingsPath(username), /*is_console_session=*/false, username,
+                              /*over_mosh=*/true);
+        return 0;
+    }
 
     void RunSshServer(const std::string& db_path, int port)
     {

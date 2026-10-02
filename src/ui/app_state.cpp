@@ -2524,6 +2524,12 @@ namespace ql
             }
             return;
         }
+        // Mosh can't carry ZMODEM (see AppState::over_mosh).
+        if (state->over_mosh)
+        {
+            state->status_message = "Saved to " + ListPaths(paths) + ". Over Mosh, copy files with scp or sftp.";
+            return;
+        }
         // No ZMODEM on this system at all (Windows, Alpine), so there's
         // nothing to install.
         if (NoZmodemOnThisSystem())
@@ -3763,7 +3769,8 @@ namespace ql
         // Sent over ZMODEM as one .zip, so there's one file to receive. With
         // no ZMODEM (at the console, on Windows, or without sz), the files
         // are all there is.
-        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || !ZmodemSendAvailable())
+        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || !ZmodemSendAvailable() ||
+            state->over_mosh)
         {
             OfferZmodemSendFiles(state, paths);
             return;
@@ -4325,9 +4332,10 @@ namespace ql
         {
             return;
         }
-        // Nobody on the other end of a local terminal to send one, and no
-        // ZMODEM at all on some systems (Windows, Alpine).
-        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem())
+        // Nobody on the other end of a local terminal to send one, no
+        // ZMODEM at all on some systems (Windows, Alpine), and none over
+        // Mosh.
+        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || state->over_mosh)
         {
             return;
         }
@@ -5907,7 +5915,7 @@ namespace ql
                     {"Left/Right", "Change the Mode, Channel or Partial Matching.", false},
                 };
             case kPageImportNet:
-                if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem())
+                if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || state->over_mosh)
                 {
                     return {
                         {"F2/Enter", "Import the highlighted file.", false},

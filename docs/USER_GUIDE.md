@@ -251,6 +251,8 @@ It all happens at once, or not at all if something goes wrong. It can't be undon
 
 **Over SSH (ZMODEM):** after an export, QuickLogger offers to send the file to your terminal. Open your terminal's receive window, then press **Enter**; **Esc** skips it and the file stays in `exports/`. To upload a `.qlnet` or `.qlsession`, press **F3** on the Import page (F9 on Recurring Nets for a net, F6 in History for a session), then send the file from your terminal. A session's export sends one `.zip` holding its log, `.qlsession` and `.adi`. The three files stay in `exports/`; the `.zip` is removed once the transfer is over (or skipped), and **F7** makes a fresh one. This needs a terminal that supports ZMODEM (such as ZOC or SecureCRT) and `lrzsz` installed where QuickLogger runs, so there's no ZMODEM on Alpine Linux, which has no `lrzsz` package, or on Windows, which has no SSH server.
 
+**Over Mosh:** there's no ZMODEM (Mosh can't carry it), so QuickLogger doesn't offer it: copy files with `scp` or `sftp` as below. Connecting with Mosh is in the README's SSH section.
+
 **Over SSH (SFTP):** without ZMODEM, copy files with `scp` or `sftp`, using the address, port and key you log in with. You see two folders: `/exports`, your exports (read-only), and `/imports`, for files to import.
 
 To download an export: `scp -P 2222 you@server:/exports/Skywarn_2026-01-06.qlsession .`

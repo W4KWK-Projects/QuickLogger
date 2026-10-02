@@ -93,6 +93,17 @@ The net-log/database-slice export and import features can push and pull files ov
 - Alpine: not supported (Alpine has no `lrzsz` package). Everything else works, SSH included; exports are saved in `exports/` and imports are read from `imports/`, but not sent or received over ZMODEM. SSH users can use `scp` or `sftp` instead.
 - Windows: not supported
 
+### Optional: `mosh` (Mosh connections)
+
+With `mosh-server` installed where QuickLogger runs, SSH users can connect with [Mosh](https://mosh.org) as well as `ssh` (see [Mosh](#mosh)). Without it, Mosh just isn't offered.
+
+- macOS: `brew install mosh`
+- Debian/Ubuntu: `sudo apt install mosh`
+- Fedora: `sudo dnf install mosh`
+- FreeBSD: `sudo pkg install mosh`
+- Alpine: `sudo apk add mosh`
+- Windows: not supported (no SSH server)
+
 ## Starting it
 
 ```
@@ -408,6 +419,22 @@ Host quicklogger
 
 PuTTY's equivalent is Connection → "Seconds between keepalives" (set it to 30). When a session does drop, just reconnect: a net session you were running is still open, and QuickLogger offers to resume it.
 
+Or use Mosh, below, which doesn't drop at all.
+
+### Mosh
+
+[Mosh](https://mosh.org) keeps your session through sleep, a change of Wi-Fi or cell network, and a dropped connection: the screen picks up where it was as soon as your device is back online. It's well suited to a laptop or phone on an unreliable connection.
+
+It needs `mosh-server` installed on the server (see [Optional: `mosh`](#optional-mosh-mosh-connections)) and UDP ports 60000 to 61000 open to it, in the server's firewall and any in front of it. You need the Mosh client: `brew install mosh`, `sudo apt install mosh` and so on, or Blink Shell on iOS; on Windows, use it from WSL. Connect the way you would with `ssh`, giving `mosh` the port:
+
+```
+mosh --ssh="ssh -p 2222" <username>@<host>
+```
+
+Mosh logs in with your SSH key as usual, then switches to UDP. You always get QuickLogger: a command given after `--` is ignored. A Mosh session you never come back to ends after a day.
+
+Mosh keeps the screen in step rather than passing data through, so ZMODEM doesn't work over it: QuickLogger doesn't offer it, and you copy files with `scp` or `sftp` instead (see the [User Guide](docs/USER_GUIDE.md)).
+
 ### View-only users
 
 A user can be **view-only**: they can watch open net sessions, look at and export History, and change their own settings, and nothing else. They can't create, edit, import or start nets, log or edit check-ins, save stations to a net, or delete anything. Their key bars and Help show only the keys they can use. Choose **Access** (Full access or View-only) when adding a user in Manage Users, or change an existing user's Access in their Edit User window (**F4 (Edit)**). It applies to all of that user's keys, and takes effect from their next login. Users added before 1.6.0 have full access until you change them. (Users added before GMRS support have their username as their amateur call sign; change it in their Edit User window if it isn't one.)
@@ -429,7 +456,7 @@ Launched normally, QuickLogger starts two small helper processes alongside the c
 
 ### Firewall / networking
 
-Whatever port QuickLogger's SSH listener uses needs to actually be reachable — opening it in your OS's firewall, and/or forwarding it through a router/NAT if you're connecting from outside the local network, is on you to set up. CMake and the app itself have no way to do this for you.
+Whatever port QuickLogger's SSH listener uses needs to actually be reachable (and, for [Mosh](#mosh), UDP ports 60000 to 61000) — opening it in your OS's firewall, and/or forwarding it through a router/NAT if you're connecting from outside the local network, is on you to set up. CMake and the app itself have no way to do this for you.
 
 ### Host key
 
