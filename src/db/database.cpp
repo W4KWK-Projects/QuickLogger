@@ -2727,6 +2727,13 @@ COMMIT;
         return statement.ColumnInt64(0) != 0;
     }
 
+    std::int64_t Database::DataVersion()
+    {
+        Statement statement(&statements_, "PRAGMA data_version;");
+        statement.Step();
+        return statement.ColumnInt64(0);
+    }
+
     static User ReadUserRow(const Statement& row)
     {
         User user;

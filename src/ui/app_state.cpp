@@ -2504,15 +2504,19 @@ namespace ql
         }
 
         const NetInstance& selected = state->history_instances[state->selected_history_index];
+        // Before reading: a change made meanwhile makes what's kept out of
+        // date at once.
+        std::int64_t version = state->db->DataVersion();
         state->history_check_ins = state->db->GetCheckInsForNetInstance(selected.id);
         state->history_check_in_cells = CheckInCells(state->db, state->history_check_ins);
         state->history_check_in_labels = FormatCheckInList(state->history_check_in_cells, state->list_width);
         // Kept for moving back to it; an open session can still change.
         if (selected.status == NetInstanceStatus::kClosed)
         {
-            if (state->history_check_ins_read.size() >= 32)
+            if (state->history_check_ins_read.size() >= 32 || version != state->history_check_ins_read_version)
             {
                 state->history_check_ins_read.clear();
+                state->history_check_ins_read_version = version;
             }
             state->history_check_ins_read[selected.id] = {state->history_check_ins, state->history_check_in_cells};
         }
@@ -2524,6 +2528,11 @@ namespace ql
 
     void ShowHistoryCheckIns(AppState* state)
     {
+        // Someone else changed something: what's kept may be out of date.
+        if (!state->history_check_ins_read.empty() && state->db->DataVersion() != state->history_check_ins_read_version)
+        {
+            state->history_check_ins_read.clear();
+        }
         if (state->selected_history_index < static_cast<int>(state->history_instances.size()))
         {
             const NetInstance& selected = state->history_instances[state->selected_history_index];

@@ -455,6 +455,12 @@ namespace ql
 
         bool HasAnyUlsStations(LicenseTable table = LicenseTable::kAmateur);
 
+        // A number that changes whenever another connection (another
+        // session, the data updater) commits a change to the database, and
+        // never for this connection's own (SQLite's data_version): whether
+        // something read earlier may since have changed under it.
+        std::int64_t DataVersion();
+
         // Login keys for the built-in SSH server (see ssh_server.hpp), one
         // row per key -- global/shared data, like Net, even though each
         // user's AppSettings (see settings.hpp) is not. A username may have

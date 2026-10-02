@@ -463,9 +463,12 @@ namespace ql
         std::vector<std::vector<std::string>> history_check_in_cells;
         // Closed sessions' check-ins and cells already read, by session id,
         // so moving back and forth through History doesn't read them again
-        // (see ShowHistoryCheckIns). Emptied whenever History is reloaded.
+        // (see ShowHistoryCheckIns). Emptied whenever History is reloaded,
+        // and whenever anyone else has changed the database since they were
+        // read (Database::DataVersion, as it was before reading them).
         std::unordered_map<std::int64_t, std::pair<std::vector<CheckIn>, std::vector<std::vector<std::string>>>>
             history_check_ins_read;
+        std::int64_t history_check_ins_read_version = 0;
         std::vector<std::vector<std::string>> saved_station_cells;
         // Where each autocomplete match came from ("(this net)", "(ULS, ~4
         // mi)"...), one per entry of modal_callsign_suggestions /
