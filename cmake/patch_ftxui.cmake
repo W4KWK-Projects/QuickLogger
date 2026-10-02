@@ -22,6 +22,12 @@
 # after a frame asks for animation (RequestAnimationFrame), instead of every
 # 15 ms whether or not anything is animating. Idle, it posted ~66 tasks a
 # second that the UI loop woke up just to drop, for every session.
+#
+# Version 4 (QuickLogger 1.8.5): the UI loop draws only after it receives a
+# task, and handles signals (resize, Ctrl-C, SIGTERM) only then too; version
+# 3's quiet thread left a new SSH session blank until its first key. The
+# thread now also sends its task once at the start and whenever a signal is
+# waiting (checked five times a second while idle).
 
 if(NOT FTXUI_SOURCE_DIR)
     message(FATAL_ERROR "patch_ftxui.cmake: FTXUI_SOURCE_DIR is not set")
@@ -30,10 +36,10 @@ endif()
 set(marker "QuickLogger frame-writer patch")
 # Bumped whenever the patch changes; CMakeLists.txt passes it too, so a
 # build directory patched with an earlier version runs this again.
-set(version_marker "QuickLogger frame-writer patch, version 3")
-if(DEFINED PATCH_VERSION AND NOT PATCH_VERSION EQUAL 3)
+set(version_marker "QuickLogger frame-writer patch, version 4")
+if(DEFINED PATCH_VERSION AND NOT PATCH_VERSION EQUAL 4)
     message(FATAL_ERROR "patch_ftxui.cmake: CMakeLists.txt asks for patch version "
-                        "${PATCH_VERSION}, but this script is version 3")
+                        "${PATCH_VERSION}, but this script is version 4")
 endif()
 set(header "${FTXUI_SOURCE_DIR}/include/ftxui/component/screen_interactive.hpp")
 set(source "${FTXUI_SOURCE_DIR}/src/ftxui/component/screen_interactive.cpp")
@@ -154,6 +160,8 @@ void ScreenInteractive::Exit() {"
 "${source}")
 
 # Version 3: the animation thread waits until a frame asks for animation.
+# Version 4: it also sends one task at the start (the first frame is drawn
+# only after a task) and one whenever a signal waits to be handled.
 replace_once(source_text
 "#include <thread>    // for thread, sleep_for"
 "#include <thread>    // for thread, sleep_for
@@ -163,15 +171,16 @@ replace_once(source_text
 
 replace_once(source_text
 "    out->Send(AnimationTask());"
-"    {  // ${version_marker}: only once a frame asks for animation.
+"    {  // ${version_marker}: only for the first frame, an animation or a signal.
       std::unique_lock<std::mutex> lock(g_animation_mutex);
-      if (!g_animation_wanted) {
+      if (!g_animation_wanted && !first && !SignalWaiting()) {
         g_animation_wake.wait_for(lock, std::chrono::milliseconds(200));
       }
-      if (!g_animation_wanted) {
+      if (!g_animation_wanted && !first && !SignalWaiting()) {
         continue;
       }
       g_animation_wanted = false;
+      first = false;
     }
     out->Send(AnimationTask());"
 "${source}")
@@ -183,7 +192,19 @@ std::mutex g_animation_mutex;
 std::condition_variable g_animation_wake;
 bool g_animation_wanted = false;
 
-void AnimationListener(std::atomic<bool>* quit, Sender<Task> out) {"
+// A signal recorded but not yet handled: the UI loop handles signals only
+// after it receives a task.
+bool SignalWaiting() {
+#if defined(_WIN32)
+  return g_signal_exit_count > 0;
+#else
+  return g_signal_exit_count > 0 || g_signal_stop_count > 0 ||
+         g_signal_resize_count > 0;
+#endif
+}
+
+void AnimationListener(std::atomic<bool>* quit, Sender<Task> out) {
+  bool first = true;"
 "${source}")
 
 replace_once(source_text

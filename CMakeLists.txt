@@ -56,7 +56,7 @@ FetchContent_Declare(
     GIT_TAG        v5.0.0
     # PATCH_VERSION matches the script's version marker: changing it makes
     # existing build directories patch again.
-    PATCH_COMMAND  ${CMAKE_COMMAND} -DFTXUI_SOURCE_DIR=<SOURCE_DIR> -DPATCH_VERSION=3
+    PATCH_COMMAND  ${CMAKE_COMMAND} -DFTXUI_SOURCE_DIR=<SOURCE_DIR> -DPATCH_VERSION=4
                    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch_ftxui.cmake
 )
 FetchContent_MakeAvailable(ftxui)
