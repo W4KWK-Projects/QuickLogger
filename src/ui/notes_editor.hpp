@@ -48,12 +48,20 @@ namespace ql
         void MoveLines(int rows);
         std::size_t Cursor() const;
         void SetCursor(std::size_t position);
+        // The text wrapped to the width (see WrapText), worked out again
+        // only when the text or width has changed since: not on every
+        // frame, nor for every key.
+        const std::vector<TextLineSpan>& Lines();
 
         std::string* text_;
         int* cursor_;
         const bool* read_only_;
         const int* width_;
         const int* height_;
+        // What Lines() last wrapped, and the lines it made.
+        std::string wrapped_text_;
+        int wrapped_width_ = -1;
+        std::vector<TextLineSpan> lines_;
     };
 
 }  // namespace ql

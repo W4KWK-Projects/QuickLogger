@@ -35,6 +35,16 @@
 namespace ql
 {
 
+    // How many check-ins a session has, counted by the database rather than
+    // read whole to count.
+    static std::size_t CheckInCount(Database* db, std::int64_t instance_id)
+    {
+        std::int64_t count = 0;
+        std::int64_t newest_id = 0;
+        db->GetCheckInSummary(instance_id, &count, &newest_id);
+        return static_cast<std::size_t>(count);
+    }
+
     static bool CallsignsEqual(const std::string& a, const std::string& b)
     {
         if (a.size() != b.size())
@@ -913,7 +923,7 @@ namespace ql
             ViewOpenNet(state);
             return;
         }
-        std::size_t check_ins = state->db->GetCheckInsForNetInstance(session.id).size();
+        std::size_t check_ins = CheckInCount(state->db, session.id);
         ShowConfirmPrompt(state, ConfirmPrompt::kResumeNet, "Session Still Open",
                           {state->start_net.name + " has a session that's still open: started " +
                                DescribeSessionStart(session) + ", " + CountCheckIns(check_ins) + ".",
@@ -997,7 +1007,7 @@ namespace ql
                 continue;
             }
             std::optional<Net> net = state->db->GetNetById(session.net_id);
-            std::size_t check_ins = state->db->GetCheckInsForNetInstance(session.id).size();
+            std::size_t check_ins = CheckInCount(state->db, session.id);
             state->open_ad_hoc_sessions.push_back(session);
             state->open_ad_hoc_labels.push_back(
                 FormatOpenAdHocSession(net.has_value() ? *net : Net(), session, check_ins));
@@ -1199,7 +1209,7 @@ namespace ql
         std::string closed_name = state->active_net_name;
         bool closed_here =
             state->db->CloseNetInstance(state->active_instance.id, static_cast<std::int64_t>(std::time(nullptr)));
-        std::size_t check_ins = state->db->GetCheckInsForNetInstance(state->active_instance.id).size();
+        std::size_t check_ins = CheckInCount(state->db, state->active_instance.id);
         std::string history = HistoryKeyDescription(state);
         if (!closed_here)
         {
@@ -2546,7 +2556,7 @@ namespace ql
                                         "), close it with F4, then delete it.";
                     return;
                 }
-                std::size_t check_ins = state->db->GetCheckInsForNetInstance(instance.id).size();
+                std::size_t check_ins = CheckInCount(state->db, instance.id);
                 std::string ended = DescribeSessionEnd(instance);
                 state->row_delete_title = "Delete Net Session";
                 state->row_delete_lines.emplace_back("Delete the " + DescribeSessionStart(instance) + " session (" +
