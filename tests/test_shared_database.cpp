@@ -2,12 +2,21 @@
 // session and the console) do: each with its own connection and its own
 // screens, one acting while the other is looking.
 
+#include <sqlite3.h>
+
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "../src/db/database.hpp"
+#include "../src/net_slice.hpp"
+#include "../src/remote_command.hpp"
+#include "../src/file_export.hpp"
 #include "../src/ui/app_state.hpp"
 #include "../src/ui/handlers.hpp"
 #include "test_framework.hpp"
@@ -280,6 +289,158 @@ namespace ql
         DeleteSelectedHistoryCheckIn(&viewer.state);
         CHECK(viewer.db()->GetCheckInsForNetInstance(newer).empty());
         CHECK_EQ(viewer.db()->GetCheckInsForNetInstance(older).size(), std::size_t{1});
+    }
+
+    // Another process holding the database's write lock, as a long import
+    // or a second QuickLogger would: its own connection, on a thread, which
+    // takes the lock, holds it for `milliseconds` and lets go.
+    class WriteLockHolder
+    {
+    public:
+        WriteLockHolder(const std::string& db_path, int milliseconds)
+        {
+            thread_ = std::thread(
+                [this, db_path, milliseconds]()
+                {
+                    sqlite3* connection = nullptr;
+                    sqlite3_open(db_path.c_str(), &connection);
+                    sqlite3_exec(connection, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr);
+                    held_ = true;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+                    sqlite3_exec(connection, "COMMIT;", nullptr, nullptr, nullptr);
+                    sqlite3_close(connection);
+                });
+            while (!held_)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+        }
+
+        ~WriteLockHolder()
+        {
+            thread_.join();
+        }
+
+    private:
+        std::atomic<bool> held_{false};
+        std::thread thread_;
+    };
+
+    QL_TEST(ALogWaitsOutAShortWriteLock)
+    {
+        TempDir dir;
+        Operator net_control(dir.File("quicklogger.db"), "W4KWK");
+        std::int64_t net_id = AddTestNet(net_control.db(), "Skywarn");
+        net_control.StartSession(net_id, "Skywarn");
+
+        WriteLockHolder other(dir.File("quicklogger.db"), 1500);
+        CHECK(net_control.Log("K4AAA"));
+        CHECK_EQ(net_control.db()->GetCheckInsForNetInstance(net_control.state.active_instance.id).size(),
+                 std::size_t{2});
+    }
+
+    QL_TEST(ALogPastTheBusyTimeoutFailsCleanlyAndWorksAfter)
+    {
+        TempDir dir;
+        Operator net_control(dir.File("quicklogger.db"), "W4KWK");
+        std::int64_t net_id = AddTestNet(net_control.db(), "Skywarn");
+        net_control.StartSession(net_id, "Skywarn");
+        std::int64_t instance = net_control.state.active_instance.id;
+
+        {
+            WriteLockHolder other(dir.File("quicklogger.db"), 7000);
+            // A std::exception with words, which the key handler turns into
+            // "Action not completed: ..." (SafeAppEventDispatcher).
+            std::string message;
+            try
+            {
+                net_control.Log("K4AAA");
+            }
+            catch (const std::exception& e)
+            {
+                message = e.what();
+            }
+            CHECK(message.find("locked") != std::string::npos);
+            // Nothing half-written, and the connection still usable for reads.
+            CHECK_EQ(net_control.db()->GetCheckInsForNetInstance(instance).size(), std::size_t{1});
+        }
+
+        // Once the other lets go, the same check-in goes through, and the
+        // numbering carries on without a gap.
+        CHECK(net_control.Log("K4AAA"));
+        std::vector<CheckIn> check_ins = net_control.db()->GetCheckInsForNetInstance(instance);
+        REQUIRE(check_ins.size() == 2);
+        CHECK_EQ(check_ins[1].sequence_number, 2);
+    }
+
+    QL_TEST(APushImportPastTheBusyTimeoutIsAnErrorResultNotAThrow)
+    {
+        TempDir dir;
+        std::string db_path = dir.File("quicklogger.db");
+        Database server(db_path);
+        std::string imports = SessionImportsDir(db_path, "W4KWK");
+        REQUIRE(EnsureDirectory(imports));
+        {
+            TempDir source_dir;
+            Database source(source_dir.File("source.db"));
+            std::int64_t net_id = AddTestNet(&source, "Skywarn");
+            std::int64_t instance = AddTestInstance(&source, net_id, "2026-09-14", 1789428600, "K4ABC");
+            AddTestCheckIn(&source, instance, "K4ABC", 1);
+            source.CloseNetInstance(instance, 1789430400);
+            std::string error;
+            REQUIRE(WriteNetSliceFile(imports + "/Sky.qlsession", GatherSessionSlice(&source, instance), &error));
+        }
+        AddTestNet(&server, "Skywarn");
+
+        RemoteCommand command;
+        std::string error;
+        REQUIRE(ParseRemoteCommand("import-session Sky.qlsession", &command, &error));
+        {
+            WriteLockHolder other(db_path, 7000);
+            RemoteCommandResult result;
+            bool threw = false;
+            try
+            {
+                result = RunRemoteCommand(command, &server, db_path, "W4KWK", false, 1800000000);
+            }
+            catch (const std::exception&)
+            {
+                threw = true;
+            }
+            CHECK(!threw);
+            CHECK_EQ(result.exit_status, kRemoteExitError);
+            CHECK(result.output.find("status: error\n") != std::string::npos);
+        }
+        // The upload is still there, and the same push now imports.
+        CHECK(FileExists(imports + "/Sky.qlsession"));
+        RemoteCommandResult result = RunRemoteCommand(command, &server, db_path, "W4KWK", false, 1800000000);
+        CHECK_EQ(result.exit_status, kRemoteExitOk);
+    }
+
+    QL_TEST(ReadsAndANewConnectionAreNotBlockedByAWriteLock)
+    {
+        TempDir dir;
+        std::string db_path = dir.File("quicklogger.db");
+        Operator net_control(db_path, "W4KWK");
+        Operator logger(db_path, "K4LOG");
+        std::int64_t net_id = AddTestNet(net_control.db(), "Skywarn");
+        net_control.StartSession(net_id, "Skywarn");
+        logger.JoinSession(net_control.state.active_instance.id, "Skywarn");
+
+        // A write held for seconds: what the session page's poll and a new
+        // SSH connection (which opens the database) do meanwhile mustn't
+        // wait for it or throw.
+        WriteLockHolder other(db_path, 3000);
+        std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+        RefreshActiveCheckInsFromOthers(&logger.state, logger.state.active_instance.id);
+        CHECK_EQ(logger.state.active_check_ins.size(), std::size_t{1});
+        RefreshNets(&logger.state);
+        Operator late(db_path, "K4NEW");
+        late.JoinSession(net_control.state.active_instance.id, "Skywarn");
+        CHECK_EQ(late.state.active_check_ins.size(), std::size_t{1});
+        long long waited =
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+        CHECK(waited < 1500);
     }
 
 }  // namespace ql
