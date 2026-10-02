@@ -233,7 +233,11 @@ namespace ql
         {
             return Failed(host + "'s host key isn't known here or has changed; log in once with ssh to check it.");
         }
-        if (Contains(errors, "Permission denied"))
+        // ssh's own refusal names the methods it tried: "Permission denied
+        // (publickey)". A bare "Permission denied" is scp over SFTP, whose
+        // only refusal of a .qlsession upload to /imports is a view-only
+        // user's (legacy scp says so in words instead).
+        if (Contains(errors, "Permission denied ("))
         {
             return Failed(host + " refused your key.");
         }
@@ -241,7 +245,7 @@ namespace ql
         {
             return Failed("Couldn't find " + host + ".");
         }
-        if (Contains(errors, "View-only users"))
+        if (Contains(errors, "View-only users") || Contains(errors, "Permission denied"))
         {
             return Failed("Your user on " + host + " is view-only.");
         }

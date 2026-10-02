@@ -161,6 +161,15 @@ namespace ql
                              "to check it."));
         CHECK_EQ(Decide(Ran(1, "", "scp: View-only users can't upload.\n"), none).message,
                  std::string("Your user on upstream.example.org is view-only."));
+        // The same refusal from scp over SFTP (OpenSSH 9.0 and later).
+        CHECK_EQ(Decide(Ran(1, "",
+                            "scp: dest open \"/imports/Sky.qlsession\": Permission denied\n"
+                            "scp: failed to upload file ./exports/x to /imports/Sky.qlsession\n"),
+                        none)
+                     .message,
+                 std::string("Your user on upstream.example.org is view-only."));
+        CHECK_EQ(Decide(Ran(255, "", "W4KWK@x: Permission denied (publickey,password).\n"), none).message,
+                 std::string("upstream.example.org refused your key."));
         CHECK_EQ(Decide(Ran(1, "", "scp: Sky.qlsession: over the 25 MB limit.\n"), none).message,
                  std::string("The session is too big for upstream.example.org."));
         CHECK_EQ(Decide(Ran(1, "", "something odd\n"), none).message,
