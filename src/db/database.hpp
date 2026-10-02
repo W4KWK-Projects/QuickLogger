@@ -418,6 +418,9 @@ namespace ql
         void UpdateUserLastLogin(std::int64_t id, std::int64_t last_login_at);
 
     private:
+        // Rolls back the open transaction, never throwing (see the
+        // transactions' destructors).
+        static void Rollback(Database* db);
         void CreateSchema();
         // Rebuilds a users table from before a username could have more
         // than one key (username was its primary key) in the current shape,

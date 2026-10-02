@@ -354,6 +354,21 @@ CREATE TABLE IF NOT EXISTS users (
         CreateSchema();
     }
 
+    // Ends the open transaction without keeping its changes. For the
+    // transactions' destructors, so it never throws.
+    void Database::Rollback(Database* db)
+    {
+        try
+        {
+            Statement rollback(&db->statements_, "ROLLBACK;");
+            rollback.Step();
+        }
+        catch (const std::exception&)
+        {
+            // Nothing more to do: the connection rolls back when it closes.
+        }
+    }
+
     Database::ReadTransaction::ReadTransaction(Database* db) : db_(db)
     {
         if (sqlite3_get_autocommit(db_->db_) == 0)
@@ -380,7 +395,7 @@ CREATE TABLE IF NOT EXISTS users (
         }
         catch (const std::exception&)
         {
-            sqlite3_exec(db_->db_, "ROLLBACK;", nullptr, nullptr, nullptr);
+            Rollback(db_);
         }
     }
 
@@ -402,7 +417,7 @@ CREATE TABLE IF NOT EXISTS users (
     {
         if (began_ && !finished_ && sqlite3_get_autocommit(db_->db_) == 0)
         {
-            sqlite3_exec(db_->db_, "ROLLBACK;", nullptr, nullptr, nullptr);
+            Rollback(db_);
         }
     }
 
@@ -479,8 +494,11 @@ CREATE TABLE IF NOT EXISTS users (
         // digits: every ZIP lookup (county, distance) is keyed on the
         // five-digit form, so those rows got neither until the next weekly
         // refresh rewrote them. Idempotent -- a no-op once none remain.
-        sqlite3_exec(db_, "UPDATE uls_stations SET zip = substr(zip, 1, 5) WHERE length(zip) > 5;", nullptr, nullptr,
-                     nullptr);
+        {
+            Statement trim_zips(&statements_,
+                                "UPDATE uls_stations SET zip = substr(zip, 1, 5) WHERE length(zip) > 5;");
+            trim_zips.Step();
+        }
 
         // One-time fix-up for nets saved before a net's location became a
         // 5-digit ZIP field: keep the ZIP if the old free text has one
@@ -1279,30 +1297,17 @@ COMMIT;
 
     void Database::RenumberCheckIns(std::int64_t instance_id)
     {
-        std::vector<std::int64_t> ids;
-        {
-            Statement select(&statements_, R"sql(
-            SELECT id FROM check_ins WHERE net_instance_id = ?
-            ORDER BY sequence_number, id;
-        )sql");
-            select.BindInt64(0, instance_id);
-            while (select.Step())
-            {
-                ids.push_back(select.ColumnInt64(0));
-            }
-        }
-        // A savepoint rather than BEGIN, so it also works inside a caller's
-        // transaction.
-        sqlite3_exec(db_, "SAVEPOINT renumber_check_ins;", nullptr, nullptr, nullptr);
-        Statement update(&statements_, "UPDATE check_ins SET sequence_number = ? WHERE id = ?;");
-        for (std::size_t i = 0; i < ids.size(); ++i)
-        {
-            update.BindInt64(0, static_cast<std::int64_t>(i + 1));
-            update.BindInt64(1, ids[i]);
-            update.Step();
-            update.Reset();
-        }
-        sqlite3_exec(db_, "RELEASE renumber_check_ins;", nullptr, nullptr, nullptr);
+        // One statement, so all or none of it, inside a caller's
+        // transaction or not.
+        Statement update(&statements_, R"sql(
+        UPDATE check_ins
+        SET sequence_number = (SELECT n FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY sequence_number, id) AS n
+                                              FROM check_ins WHERE net_instance_id = ?1) AS numbered
+                               WHERE numbered.id = check_ins.id)
+        WHERE net_instance_id = ?1;
+    )sql");
+        update.BindInt64(0, instance_id);
+        update.Step();
     }
 
     void Database::DeleteNetInstance(std::int64_t instance_id)
