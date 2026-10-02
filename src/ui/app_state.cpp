@@ -3783,9 +3783,12 @@ namespace ql
                 return;
             }
             source = LooksCanadian(callsign) ? kIsedSource : "(ULS)";
-            std::optional<ZipCentroid> origin = state->nearby_zips_origin.empty()
-                                                    ? std::nullopt
-                                                    : state->db->FindZipCentroid(state->nearby_zips_origin);
+            std::optional<ZipCentroid> origin;
+            if (!state->nearby_zips_origin.empty())
+            {
+                origin = ZipCentroid{state->nearby_zips_origin, state->nearby_zips_origin_lat,
+                                     state->nearby_zips_origin_lon};
+            }
             std::optional<ZipCentroid> station_zip =
                 known->zip.size() >= 5 ? state->db->FindZipCentroid(known->zip.substr(0, 5)) : std::nullopt;
             if (!LooksCanadian(callsign) && origin.has_value() && station_zip.has_value())
@@ -4132,6 +4135,16 @@ namespace ql
 
     void RefreshNearbyZips(AppState* state, const std::string& net_zip)
     {
+        // The same ZIPs and radius as last time, with an origin found: all
+        // as it was. (With none found, ZIP data loaded since may have one.)
+        if (!state->nearby_zips_origin.empty() && net_zip == state->nearby_zips_net_zip &&
+            state->settings.location == state->nearby_zips_home_zip &&
+            state->settings.nearby_radius_miles == state->nearby_zips_radius && !state->nearby_zips.empty())
+        {
+            return;
+        }
+        state->nearby_zips_net_zip = net_zip;
+        state->nearby_zips_home_zip = state->settings.location;
         std::optional<ZipCentroid> origin;
         if (IsFiveDigitZip(net_zip))
         {
@@ -4159,6 +4172,8 @@ namespace ql
         {
             return;
         }
+        state->nearby_zips_origin_lat = origin->lat;
+        state->nearby_zips_origin_lon = origin->lon;
 
         // Only the centroids in a box around the origin that holds the
         // whole radius (a degree of latitude is about 69 miles; a degree of

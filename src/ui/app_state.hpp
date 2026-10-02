@@ -628,6 +628,12 @@ namespace ql
         // The origin ZIP and radius the two above were computed for.
         std::string nearby_zips_origin;
         int nearby_zips_radius = 0;
+        // Where that origin is, and the net and home ZIPs it was found
+        // from, so a keystroke with the same ones reads nothing.
+        double nearby_zips_origin_lat = 0.0;
+        double nearby_zips_origin_lon = 0.0;
+        std::string nearby_zips_net_zip;
+        std::string nearby_zips_home_zip;
         // Every ULS licensee near that origin, nearest first, in the order
         // Database::SearchNearbyUlsStations returns them. Loaded once per
         // origin (and again after kNearbyUlsReloadSeconds, to pick up a
