@@ -3,7 +3,8 @@
 # machine and runs the system's real ssh, scp and sftp against it:
 # Federated Logging pushes (tests/test_push_end_to_end.cpp), and SFTP and
 # SCP file transfers (tests/test_files_end_to_end.cpp), over SFTP and
-# legacy SCP. Last, tests/push_screens.py drives the real program's push
+# legacy SCP; and which commands the server will run
+# (tests/test_ssh_exec_end_to_end.cpp). Last, tests/push_screens.py drives the real program's push
 # screens (Close & Push, History's F3, the look-alike prompt) in a
 # pseudo-terminal against the same server; it needs Python's pyte and is
 # skipped without it.
@@ -78,6 +79,7 @@ until ssh-keyscan -p "$port" -t ed25519 127.0.0.1 > "$dir/ssh/known_hosts" 2>/de
 done
 
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" EndToEndRun
+PATH="$dir/bin:$PATH" "$build/quicklogger_tests" SshExecEndToEnd
 
 if python3 -c "import pyte" 2>/dev/null; then
     PATH="$dir/bin:$PATH" python3 "$(dirname "$0")/push_screens.py" "$build/QuickLogger" "$dir" "$port"

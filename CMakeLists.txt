@@ -256,6 +256,7 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_push_ui.cpp
         tests/test_push_end_to_end.cpp
         tests/test_files_end_to_end.cpp
+        tests/test_ssh_exec_end_to_end.cpp
         tests/test_upgrade_from_1_8.cpp
         tests/test_shared_database.cpp
         tests/test_gmrs.cpp
