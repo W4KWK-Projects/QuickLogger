@@ -652,6 +652,11 @@ namespace ql
             {
                 number = state->row_pick_number_texts[i];
             }
+            else
+            {
+                // A row added since picking started: no number, same indent.
+                number = std::string(static_cast<std::size_t>(PickNumberWidth(state) + 1), ' ');
+            }
             ftxui::Element row = ftxui::hbox({
                 ftxui::text(number) | ftxui::color(kColorPickNumber),
                 ftxui::text(rest) | ftxui::color(kColorListRow),
