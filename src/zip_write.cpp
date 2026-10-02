@@ -2,6 +2,7 @@
 
 #include <ctime>
 #include <filesystem>
+#include <system_error>
 #include <fstream>
 #include <iterator>
 
@@ -80,13 +81,16 @@ namespace ql
         std::vector<WrittenEntry> entries;
         for (const std::string& path : file_paths)
         {
+            // Read in one go, at its size, not a character at a time.
+            std::error_code size_error;
+            std::uintmax_t size = std::filesystem::file_size(path, size_error);
             std::ifstream in(path, std::ios::binary);
-            if (!in)
+            std::string data(size_error ? 0 : static_cast<std::size_t>(size), '\0');
+            if (!in || size_error || !in.read(&data[0], static_cast<std::streamsize>(data.size())))
             {
                 *error = "Couldn't read " + path + ".";
                 return false;
             }
-            std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             std::string compressed;
             if (!Deflate(data, &compressed))
             {

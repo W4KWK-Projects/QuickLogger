@@ -2638,20 +2638,18 @@ namespace ql
                 std::vector<ftxui::Element> lines;
                 lines.reserve(plan.station_conflicts.size());
                 int line_count = 0;
-                for (const MergeStationConflict& conflict : plan.station_conflicts)
+                for (std::size_t c = 0; c < plan.station_conflicts.size(); ++c)
                 {
+                    const std::vector<std::string>& differences = state_->merge_station_difference_texts[c];
                     ftxui::Elements station_lines;
-                    station_lines.reserve(conflict.differences.size() + 1);
+                    station_lines.reserve(differences.size() + 1);
                     station_lines.push_back(ftxui::hbox({
-                        ReplaceLabel(conflict.replace),
-                        ftxui::text("  " + conflict.file_station->callsign) | ftxui::color(kColorListRow),
+                        ReplaceLabel(plan.station_conflicts[c].replace),
+                        ftxui::text(state_->merge_station_callsign_texts[c]) | ftxui::color(kColorListRow),
                     }));
-                    for (const StationDetailDifference& difference : conflict.differences)
+                    for (const std::string& difference : differences)
                     {
-                        station_lines.push_back(ftxui::text("         " + std::string(difference.field) + ": " +
-                                                            difference.here + " here, " + difference.file +
-                                                            " in file") |
-                                                ftxui::color(kColorListRow));
+                        station_lines.push_back(ftxui::text(difference) | ftxui::color(kColorListRow));
                     }
                     line_count += static_cast<int>(station_lines.size());
                     lines.push_back(ftxui::vbox(std::move(station_lines)));

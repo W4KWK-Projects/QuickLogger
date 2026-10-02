@@ -4041,6 +4041,19 @@ namespace ql
                 state->merge_conflict_texts.push_back(std::move(text));
             }
         }
+        state->merge_station_callsign_texts.clear();
+        state->merge_station_difference_texts.clear();
+        for (const MergeStationConflict& conflict : state->merge_plan.station_conflicts)
+        {
+            state->merge_station_callsign_texts.push_back("  " + conflict.file_station->callsign);
+            std::vector<std::string> differences;
+            for (const StationDetailDifference& difference : conflict.differences)
+            {
+                differences.push_back("         " + std::string(difference.field) + ": " + difference.here + " here, " +
+                                      difference.file + " in file");
+            }
+            state->merge_station_difference_texts.push_back(std::move(differences));
+        }
         state->selected_merge_conflict = 0;
         state->merge_stage = MergeStage::kSummary;
     }
