@@ -209,7 +209,10 @@ namespace ql
         }
         if (event == ftxui::Event::F6)
         {
+            // Opens on the newest session, not the row another net's
+            // History was left on.
             state_->history_ad_hoc = true;
+            state_->selected_history_index = 0;
             state_->form_error.clear();
             state_->status_message.clear();
             RefreshNetHistory(state_);
@@ -232,7 +235,10 @@ namespace ql
             state_->form_error = "Create a recurring net first.";
             return;
         }
+        // Opens on the newest session, not the row another net's History was
+        // left on.
         state_->history_ad_hoc = false;
+        state_->selected_history_index = 0;
         RefreshNetHistory(state_);
         state_->form_error.clear();
         state_->status_message.clear();
