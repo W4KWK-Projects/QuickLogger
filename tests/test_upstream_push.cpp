@@ -262,4 +262,16 @@ namespace ql
         CHECK_EQ(LoadSettings(path).upstream_port, 22);
     }
 
+    QL_TEST(OnlyAMissingUploadIsWorthUploadingAgain)
+    {
+        CHECK(ImportReplyMeansFileMissing(ParseImportReply(
+            "QUICKLOGGER-RESULT 1\nstatus: refused\nmessage: There's no Sky.qlsession in your /imports.\n")));
+        CHECK(!ImportReplyMeansFileMissing(
+            ParseImportReply("QUICKLOGGER-RESULT 1\nstatus: refused\nmessage: View-only users can't run commands.\n")));
+        CHECK(!ImportReplyMeansFileMissing(ParseImportReply(
+            "QUICKLOGGER-RESULT 1\nstatus: refused\nmessage: Sky.qlsession is over the 25 MB limit.\n")));
+        CHECK(!ImportReplyMeansFileMissing(ParseImportReply("QUICKLOGGER-RESULT 1\nstatus: imported\nnet: Sky\n")));
+        CHECK(!ImportReplyMeansFileMissing(ParseImportReply("not a reply")));
+    }
+
 }  // namespace ql

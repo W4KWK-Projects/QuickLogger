@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -82,7 +83,12 @@ namespace ql
         std::int64_t tag = AddTestNet(&local, "TAG Skywarn");
         AddClosedSession(&local, tag, "2026-09-15", 1789516800, 4);
         AddClosedSession(&local, tag, "2026-09-22", 1790121600, 6);
-        AddClosedSession(&local, AddTestNet(&local, "Dixie Traders Net"), "2026-09-25", 1790380800, 3);
+        std::int64_t dixie = AddTestNet(&local, "Dixie Traders Net");
+        AddClosedSession(&local, dixie, "2026-09-25", 1790380800, 3);
+        // For the confirmations that don't upload again.
+        AddClosedSession(&local, dixie, "2026-09-24", 1790294400, 2);
+        AddClosedSession(&local, dixie, "2026-09-26", 1790467200, 2);
+        AddClosedSession(&local, dixie, "2026-09-27", 1790553600, 2);
         AddClosedSession(&local, AddTestNet(&local, "220 EOR net"), "2026-09-23", 1790208000, 2);
     }
 
@@ -211,6 +217,44 @@ namespace ql
         CHECK(result.kind == PushResultKind::kPushed);
         CHECK_EQ(result.message, std::string("Pushed to Dixie Traders on 127.0.0.1."));
         CHECK_EQ(UpstreamCheckIns(dir, "Dixie Traders", "2026-09-25"), 3);
+
+        // Confirming doesn't upload again: with the local file gone, it
+        // still pushes, from what the upstream kept when it asked.
+        result = PushSession(dir, "2026-09-24", "W4KWK", "");
+        CHECK(result.kind == PushResultKind::kNeedsConfirmation);
+        {
+            Upstream upstream;
+            upstream.host = "127.0.0.1";
+            upstream.user = "W4KWK";
+            upstream.port = std::atoi(std::getenv("QL_PUSH_E2E_PORT"));
+            std::string remote_name = "Dixie_Traders_Net_2026-09-24.qlsession";
+            CHECK(FileExists(SessionImportsDir(UpstreamDbPath(dir), "W4KWK") + "/" + remote_name));
+            result = PushSessionFile(upstream, dir + "/local/no-such-file.qlsession", remote_name, "Dixie Traders",
+                                     "Dixie Traders Net", nullptr);
+            CHECK(result.kind == PushResultKind::kPushed);
+            CHECK_EQ(UpstreamCheckIns(dir, "Dixie Traders", "2026-09-24"), 2);
+
+            // If the upstream has cleared it meanwhile, it is copied again
+            // (here from a file that exists), once.
+            result = PushSession(dir, "2026-09-26", "W4KWK", "");
+            CHECK(result.kind == PushResultKind::kNeedsConfirmation);
+            std::filesystem::remove(SessionImportsDir(UpstreamDbPath(dir), "W4KWK") +
+                                    "/Dixie_Traders_Net_2026-09-26.qlsession");
+            result = PushSession(dir, "2026-09-26", "W4KWK", "Dixie Traders");
+            CHECK(result.kind == PushResultKind::kPushed);
+            CHECK_EQ(UpstreamCheckIns(dir, "Dixie Traders", "2026-09-26"), 2);
+
+            // Gone, and nothing to copy again: it says so, once, without looping.
+            result = PushSession(dir, "2026-09-27", "W4KWK", "");
+            CHECK(result.kind == PushResultKind::kNeedsConfirmation);
+            std::filesystem::remove(SessionImportsDir(UpstreamDbPath(dir), "W4KWK") +
+                                    "/Dixie_Traders_Net_2026-09-27.qlsession");
+            result = PushSessionFile(upstream, dir + "/local/no-such-file.qlsession",
+                                     "Dixie_Traders_Net_2026-09-27.qlsession", "Dixie Traders", "Dixie Traders Net",
+                                     nullptr);
+            CHECK(result.kind == PushResultKind::kFailed);
+            CHECK_EQ(UpstreamCheckIns(dir, "Dixie Traders", "2026-09-27"), -1);
+        }
 
         // Every way it fails, in one sentence.
         result = PushSession(dir, "2026-09-23", "W4KWK", "");

@@ -87,6 +87,10 @@ namespace ql
     // Reads import-session's output.
     ImportReply ParseImportReply(std::string_view output);
 
+    // True if the reply says the file isn't in the user's /imports (cleared
+    // since it was uploaded): the one refusal worth uploading again for.
+    bool ImportReplyMeansFileMissing(const ImportReply& reply);
+
     // How a push went, for the operator.
     enum class PushResultKind
     {
@@ -111,7 +115,9 @@ namespace ql
                                 const std::string& session_net);
 
     // Pushes the .qlsession at `local_path` to `upstream` as `remote_name`,
-    // confirming `confirm_net` if it isn't blank. Runs scp and ssh, each for
+    // confirming `confirm_net` if it isn't blank. A confirmation runs the
+    // import on the upload the upstream kept when it asked, and copies the
+    // file again only if the upstream no longer has it. Runs scp and ssh, each for
     // up to kUpstreamRunTimeoutSeconds, and stops as soon as `*cancel`
     // becomes true. Changes nothing here: the caller sets pushed_at.
     PushResult PushSessionFile(const Upstream& upstream, const std::string& local_path, const std::string& remote_name,

@@ -267,6 +267,12 @@ namespace ql
         return Failed(std::string(fallback) + " " + host + ".");
     }
 
+    bool ImportReplyMeansFileMissing(const ImportReply& reply)
+    {
+        return reply.status == ImportReplyStatus::kRefused && Contains(reply.message, "There's no ") &&
+               Contains(reply.message, "in your /imports");
+    }
+
     PushResult DecidePushResult(const Upstream& upstream, const ProgramResult& copy, const ProgramResult& import,
                                 const std::string& session_net)
     {
@@ -325,8 +331,22 @@ namespace ql
         }
         ProgramResult copy;
         ProgramResult import;
-        // Copied again for a confirmation too, in case the first copy has
-        // gone since (the upstream clears old uploads).
+        if (!confirm_net.empty())
+        {
+            // The upstream keeps an upload it asked about, so confirming
+            // runs the import on what's already there. Only if it has gone
+            // (the upstream clears old uploads) is it copied again.
+            copy.started = true;
+            copy.exit_status = 0;
+            import = RunProgram(ssh, UpstreamImportArguments(upstream, remote_name, confirm_net),
+                                kUpstreamRunTimeoutSeconds, cancel);
+            bool gone = import.started && !import.stopped && import.exit_status != 255 &&
+                        ImportReplyMeansFileMissing(ParseImportReply(import.output));
+            if (!gone)
+            {
+                return DecidePushResult(upstream, copy, import, session_net);
+            }
+        }
         copy = RunProgram(scp, UpstreamScpArguments(upstream, local_path, remote_name), kUpstreamRunTimeoutSeconds,
                           cancel);
         if (copy.started && !copy.stopped && copy.exit_status == 0)
