@@ -27,7 +27,7 @@ jobs:
       - name: Install packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev lrzsz python3-pyte
+          sudo apt-get install -y build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev lrzsz python3-pyte mosh
       - name: Build
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -39,6 +39,7 @@ jobs:
       - name: SSH end to end
         env:
           QL_EXPECT_PYTE: "1"
+          QL_EXPECT_MOSH: "1"
         run: tests/ssh_end_to_end.sh build
 
   oldest-cmake:

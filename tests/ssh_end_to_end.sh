@@ -7,7 +7,8 @@
 # (tests/test_ssh_exec_end_to_end.cpp). Last, tests/push_screens.py drives the real program's push
 # screens (Close & Push, History's F3, the look-alike prompt) in a
 # pseudo-terminal against the same server; it needs Python's pyte and is
-# skipped without it.
+# skipped without it. With mosh installed (and pyte), tests/mosh_screens.py
+# logs in through the real mosh client.
 #
 #   tests/ssh_end_to_end.sh <build-dir> [port]
 #
@@ -88,4 +89,13 @@ elif [ -n "${QL_EXPECT_PYTE:-}" ]; then
     exit 1
 else
     echo "Skipping the push screens: Python's pyte isn't installed."
+fi
+
+if command -v mosh >/dev/null 2>&1 && command -v mosh-server >/dev/null 2>&1 && python3 -c "import pyte" 2>/dev/null; then
+    PATH="$dir/bin:$PATH" python3 "$(dirname "$0")/mosh_screens.py" "$dir" "$port"
+elif [ -n "${QL_EXPECT_MOSH:-}" ]; then
+    echo "QL_EXPECT_MOSH is set but mosh or Python's pyte isn't installed." >&2
+    exit 1
+else
+    echo "Skipping Mosh: mosh (or Python's pyte) isn't installed."
 fi
