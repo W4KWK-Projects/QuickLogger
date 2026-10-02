@@ -1298,6 +1298,41 @@ namespace ql
         CHECK_EQ(f.state.history_instances.size(), std::size_t{1});
     }
 
+    QL_TEST(HistoryOpensOnTheNewestSession)
+    {
+        Fixture f;
+        std::int64_t first = AddTestNet(f.db(), "Dixie Traders Net");
+        std::int64_t second = AddTestNet(f.db(), "TAG Skywarn");
+        for (int i = 0; i < 3; ++i)
+        {
+            AddTestInstance(f.db(), first, "2026-09-0" + std::to_string(i + 1), 100 + i, "W4KWK");
+            AddTestInstance(f.db(), second, "2026-09-1" + std::to_string(i + 1), 200 + i, "W4KWK");
+        }
+        RefreshNets(&f.state);
+        f.state.selected_net_index = 1;
+        ViewNetHistoryHandler view_history(&f.state);
+        view_history();
+        f.state.selected_history_index = 2;
+
+        // Back to the net list, on to the other net's History.
+        f.state.selected_net_index = 0;
+        view_history();
+        CHECK_EQ(f.state.page, kPageNetHistory);
+        CHECK_EQ(f.state.selected_history_index, 0);
+        CHECK_EQ(f.state.history_instances[0].instance_date, std::string("2026-09-03"));
+
+        // Ad hoc History likewise.
+        f.state.selected_history_index = 2;
+        StartAdHoc(&f, "Tailgate");
+        AddTestInstance(f.db(), f.state.start_net.id, "2026-09-22", 900, "W4KWK");
+        AddTestInstance(f.db(), f.state.start_net.id, "2026-09-23", 1000, "W4KWK");
+        AddTestInstance(f.db(), f.state.start_net.id, "2026-09-24", 1100, "W4KWK");
+        AdHocNetKeyHandler ad_hoc_keys(&f.state);
+        CHECK(ad_hoc_keys(ftxui::Event::F6));
+        CHECK(f.state.history_ad_hoc);
+        CHECK_EQ(f.state.selected_history_index, 0);
+    }
+
     QL_TEST(TheNetListShowsWhenEachNetWasCreatedOrImported)
     {
         Fixture f;
