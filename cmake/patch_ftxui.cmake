@@ -17,6 +17,11 @@
 # a frame with no changes writes nothing at all. Over SSH each of those
 # 1-byte writes was a packet of its own: 17 or so per move through a list,
 # while FTXUI's Menu animates its highlight.
+#
+# Version 3 (QuickLogger 2.0): the animation thread sends its task only
+# after a frame asks for animation (RequestAnimationFrame), instead of every
+# 15 ms whether or not anything is animating. Idle, it posted ~66 tasks a
+# second that the UI loop woke up just to drop, for every session.
 
 if(NOT FTXUI_SOURCE_DIR)
     message(FATAL_ERROR "patch_ftxui.cmake: FTXUI_SOURCE_DIR is not set")
@@ -25,10 +30,10 @@ endif()
 set(marker "QuickLogger frame-writer patch")
 # Bumped whenever the patch changes; CMakeLists.txt passes it too, so a
 # build directory patched with an earlier version runs this again.
-set(version_marker "QuickLogger frame-writer patch, version 2")
-if(DEFINED PATCH_VERSION AND NOT PATCH_VERSION EQUAL 2)
+set(version_marker "QuickLogger frame-writer patch, version 3")
+if(DEFINED PATCH_VERSION AND NOT PATCH_VERSION EQUAL 3)
     message(FATAL_ERROR "patch_ftxui.cmake: CMakeLists.txt asks for patch version "
-                        "${PATCH_VERSION}, but this script is version 2")
+                        "${PATCH_VERSION}, but this script is version 3")
 endif()
 set(header "${FTXUI_SOURCE_DIR}/include/ftxui/component/screen_interactive.hpp")
 set(source "${FTXUI_SOURCE_DIR}/src/ftxui/component/screen_interactive.cpp")
@@ -146,6 +151,49 @@ void ScreenInteractive::SetFrameWriter(FrameWriter writer) {
 }
 
 void ScreenInteractive::Exit() {"
+"${source}")
+
+# Version 3: the animation thread waits until a frame asks for animation.
+replace_once(source_text
+"#include <thread>    // for thread, sleep_for"
+"#include <thread>    // for thread, sleep_for
+#include <condition_variable>  // ${version_marker}
+#include <mutex>"
+"${source}")
+
+replace_once(source_text
+"    out->Send(AnimationTask());"
+"    {  // ${version_marker}: only once a frame asks for animation.
+      std::unique_lock<std::mutex> lock(g_animation_mutex);
+      if (!g_animation_wanted) {
+        g_animation_wake.wait_for(lock, std::chrono::milliseconds(200));
+      }
+      if (!g_animation_wanted) {
+        continue;
+      }
+      g_animation_wanted = false;
+    }
+    out->Send(AnimationTask());"
+"${source}")
+
+replace_once(source_text
+"void AnimationListener(std::atomic<bool>* quit, Sender<Task> out) {"
+"// Set by RequestAnimationFrame; ${version_marker}.
+std::mutex g_animation_mutex;
+std::condition_variable g_animation_wake;
+bool g_animation_wanted = false;
+
+void AnimationListener(std::atomic<bool>* quit, Sender<Task> out) {"
+"${source}")
+
+replace_once(source_text
+"  animation_requested_ = true;"
+"  animation_requested_ = true;
+  {  // ${version_marker}
+    std::lock_guard<std::mutex> lock(g_animation_mutex);
+    g_animation_wanted = true;
+  }
+  g_animation_wake.notify_one();"
 "${source}")
 
 file(WRITE "${header}" "${header_text}")
