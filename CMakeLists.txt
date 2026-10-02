@@ -254,6 +254,7 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_mosh_bridge.cpp
         tests/test_upstream_push.cpp
         tests/test_push_ui.cpp
+        tests/test_push_end_to_end.cpp
         tests/test_gmrs.cpp
         tests/test_app_state.cpp
     )

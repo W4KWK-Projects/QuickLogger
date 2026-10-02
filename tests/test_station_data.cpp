@@ -32,20 +32,6 @@ namespace ql
         return run;
     }
 
-    // Marks every dataset as freshly loaded, so nothing is due.
-    static void MarkAllLoaded(Database* db, std::int64_t now)
-    {
-        db->UpsertImportRunStatus(MakeStatus(kUlsDataset, "complete", now - 10, now - 5, 100));
-        db->UpsertImportRunStatus(MakeStatus(kGmrsDataset, "complete", now - 10, now - 5, 100));
-        db->UpsertImportRunStatus(MakeStatus(kIsedDataset, "complete", now - 10, now - 5, 100));
-        db->UpsertImportRunStatus(MakeStatus(kZipCountyDataset, "complete", now - 10, now - 5, 0));
-        ZipCentroid centroid;
-        centroid.zip = "37415";
-        centroid.lat = 35.1;
-        centroid.lon = -85.3;
-        db->BulkUpsertZipCentroids({centroid});
-    }
-
     // ---- Planning --------------------------------------------------------------
 
     QL_TEST(EverythingIsDueOnAFreshDatabase)

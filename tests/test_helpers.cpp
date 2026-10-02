@@ -12,6 +12,7 @@
 #include <zlib.h>
 
 #include "../src/show_folder.hpp"
+#include "../src/uls_import.hpp"
 
 namespace ql
 {
@@ -229,6 +230,30 @@ namespace ql
         check_in.checked_in_at = 1000 + sequence;
         check_in.designated_role = designated_role;
         return db->AddCheckIn(check_in);
+    }
+
+    static ImportRunStatus LoadedStatus(const std::string& source, std::int64_t now, std::int64_t records)
+    {
+        ImportRunStatus run;
+        run.source = source;
+        run.status = "complete";
+        run.started_at = now - 10;
+        run.completed_at = now - 5;
+        run.records_imported = records;
+        return run;
+    }
+
+    void MarkAllLoaded(Database* db, std::int64_t now)
+    {
+        db->UpsertImportRunStatus(LoadedStatus(kUlsDataset, now, 100));
+        db->UpsertImportRunStatus(LoadedStatus(kGmrsDataset, now, 100));
+        db->UpsertImportRunStatus(LoadedStatus(kIsedDataset, now, 100));
+        db->UpsertImportRunStatus(LoadedStatus(kZipCountyDataset, now, 0));
+        ZipCentroid centroid;
+        centroid.zip = "37415";
+        centroid.lat = 35.1;
+        centroid.lon = -85.3;
+        db->BulkUpsertZipCentroids({centroid});
     }
 
 }  // namespace ql
