@@ -2450,6 +2450,7 @@ namespace ql
         state->history_instances.clear();
         state->history_instance_cells.clear();
         state->history_instance_labels.clear();
+        state->history_check_ins_read.clear();
 
         std::unordered_map<std::int64_t, std::string> names;
         if (state->history_ad_hoc)
@@ -2506,6 +2507,39 @@ namespace ql
         state->history_check_ins = state->db->GetCheckInsForNetInstance(selected.id);
         state->history_check_in_cells = CheckInCells(state->db, state->history_check_ins);
         state->history_check_in_labels = FormatCheckInList(state->history_check_in_cells, state->list_width);
+        // Kept for moving back to it; an open session can still change.
+        if (selected.status == NetInstanceStatus::kClosed)
+        {
+            if (state->history_check_ins_read.size() >= 32)
+            {
+                state->history_check_ins_read.clear();
+            }
+            state->history_check_ins_read[selected.id] = {state->history_check_ins, state->history_check_in_cells};
+        }
+        else
+        {
+            state->history_check_ins_read.erase(selected.id);
+        }
+    }
+
+    void ShowHistoryCheckIns(AppState* state)
+    {
+        if (state->selected_history_index < static_cast<int>(state->history_instances.size()))
+        {
+            const NetInstance& selected = state->history_instances[state->selected_history_index];
+            std::unordered_map<std::int64_t,
+                               std::pair<std::vector<CheckIn>, std::vector<std::vector<std::string>>>>::const_iterator
+                read = state->history_check_ins_read.find(selected.id);
+            if (selected.status == NetInstanceStatus::kClosed && read != state->history_check_ins_read.end())
+            {
+                state->history_check_ins = read->second.first;
+                state->history_check_in_cells = read->second.second;
+                state->history_check_in_labels = FormatCheckInList(state->history_check_in_cells, state->list_width);
+                state->selected_history_check_in_index = 0;
+                return;
+            }
+        }
+        RefreshHistoryCheckIns(state);
     }
 
     void DeleteSelectedNetInstance(AppState* state)

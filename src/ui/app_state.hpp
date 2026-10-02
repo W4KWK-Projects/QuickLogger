@@ -461,6 +461,11 @@ namespace ql
         std::vector<std::vector<std::string>> active_check_in_cells;
         std::vector<std::vector<std::string>> history_instance_cells;
         std::vector<std::vector<std::string>> history_check_in_cells;
+        // Closed sessions' check-ins and cells already read, by session id,
+        // so moving back and forth through History doesn't read them again
+        // (see ShowHistoryCheckIns). Emptied whenever History is reloaded.
+        std::unordered_map<std::int64_t, std::pair<std::vector<CheckIn>, std::vector<std::vector<std::string>>>>
+            history_check_ins_read;
         std::vector<std::vector<std::string>> saved_station_cells;
         // Where each autocomplete match came from ("(this net)", "(ULS, ~4
         // mi)"...), one per entry of modal_callsign_suggestions /
@@ -980,6 +985,10 @@ namespace ql
     // so the detail pane's check-in list -- and its scroll position -- stay
     // in sync as the user moves between instances.
     void RefreshHistoryCheckIns(AppState* state);
+
+    // The same, for moving the highlight: a closed session already read
+    // (AppState::history_check_ins_read) is shown without reading it again.
+    void ShowHistoryCheckIns(AppState* state);
 
     // Permanently deletes the highlighted net instance
     // (AppState::selected_history_index) and all of its check-ins, then

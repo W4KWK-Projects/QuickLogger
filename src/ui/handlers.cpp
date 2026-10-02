@@ -234,7 +234,7 @@ namespace ql
 
     void HistoryInstanceChangedHandler::operator()() const
     {
-        RefreshHistoryCheckIns(state_);
+        ShowHistoryCheckIns(state_);
     }
 
     void NetHistoryBackHandler::operator()() const
