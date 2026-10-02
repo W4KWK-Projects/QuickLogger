@@ -81,6 +81,7 @@ done
 
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" EndToEndRun
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" SshExecEndToEnd
+PATH="$dir/bin:$PATH" "$build/quicklogger_tests" SftpLibsshEndToEnd
 
 if python3 -c "import pyte" 2>/dev/null; then
     PATH="$dir/bin:$PATH" python3 "$(dirname "$0")/push_screens.py" "$build/QuickLogger" "$dir" "$port"

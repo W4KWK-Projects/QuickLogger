@@ -68,9 +68,7 @@ namespace ql
     // pre-validate its contents.
     static bool EnsureHostKeyExists(const std::string& path)
     {
-        struct stat existing
-        {
-        };
+        struct stat existing{};
         if (::stat(path.c_str(), &existing) == 0)
         {
             return true;
@@ -243,6 +241,12 @@ namespace ql
         {
             return nullptr;
         }
+        // One channel per connection: a second would replace the first in
+        // the state the connection is served and closed from.
+        if (state->channel != nullptr)
+        {
+            return nullptr;
+        }
         state->channel = ssh_channel_new(session);
         return state->channel;
     }
@@ -255,9 +259,7 @@ namespace ql
         (void)term;
         ConnectionState* state = static_cast<ConnectionState*>(userdata);
 
-        struct winsize window_size
-        {
-        };
+        struct winsize window_size{};
         window_size.ws_col = static_cast<unsigned short>(width);
         window_size.ws_row = static_cast<unsigned short>(height);
         window_size.ws_xpixel = static_cast<unsigned short>(pxwidth);
@@ -280,9 +282,7 @@ namespace ql
         {
             return -1;
         }
-        struct winsize window_size
-        {
-        };
+        struct winsize window_size{};
         window_size.ws_col = static_cast<unsigned short>(width);
         window_size.ws_row = static_cast<unsigned short>(height);
         window_size.ws_xpixel = static_cast<unsigned short>(pxwidth);
@@ -487,12 +487,8 @@ namespace ql
     static std::string SshConnectionString(ssh_session session)
     {
         int fd = ssh_get_fd(session);
-        struct sockaddr_storage peer
-        {
-        };
-        struct sockaddr_storage local
-        {
-        };
+        struct sockaddr_storage peer{};
+        struct sockaddr_storage local{};
         socklen_t peer_size = sizeof(peer);
         socklen_t local_size = sizeof(local);
         if (::getpeername(fd, reinterpret_cast<struct sockaddr*>(&peer), &peer_size) != 0 ||
@@ -642,9 +638,7 @@ namespace ql
         bool exited = false;
         while (std::time(nullptr) < deadline)
         {
-            struct pollfd readable
-            {
-            };
+            struct pollfd readable{};
             readable.fd = output[0];
             readable.events = POLLIN;
             int ready = ::poll(&readable, 1, exited ? 500 : 200);
@@ -865,9 +859,7 @@ namespace ql
         // the second, timing-dependent cause of the old "intermittent
         // SSH connection failure" (the other being THE FORK RULE, in
         // ssh_server.hpp).
-        struct ssh_server_callbacks_struct server_callbacks
-        {
-        };
+        struct ssh_server_callbacks_struct server_callbacks{};
         server_callbacks.userdata = &state;
         server_callbacks.auth_pubkey_function = AuthPubkeyCallback;
         server_callbacks.channel_open_request_session_function = ChannelOpenCallback;
@@ -932,9 +924,7 @@ namespace ql
         // Poll until a channel exists (the client opens one once it
         // sees auth succeeded) and, once channel callbacks are wired up
         // below, until a pty+shell, SFTP or a command has been asked for.
-        struct ssh_channel_callbacks_struct channel_callbacks
-        {
-        };
+        struct ssh_channel_callbacks_struct channel_callbacks{};
         channel_callbacks.userdata = &state;
         channel_callbacks.channel_pty_request_function = PtyRequestCallback;
         channel_callbacks.channel_pty_window_change_function = PtyWindowChangeCallback;
@@ -1094,9 +1084,7 @@ namespace ql
                 // Wakes up once a second even with no connection waiting,
                 // purely so the parent-still-alive check above gets to
                 // run.
-                struct pollfd listen_poll
-                {
-                };
+                struct pollfd listen_poll{};
                 listen_poll.fd = listen_fd;
                 listen_poll.events = POLLIN;
                 if (::poll(&listen_poll, 1, 1000) <= 0)
