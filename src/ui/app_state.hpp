@@ -310,6 +310,11 @@ namespace ql
         NetMergePlan merge_plan;
         std::vector<std::size_t> merge_conflicts;
         std::vector<MergeConflictText> merge_conflict_texts;
+        // For each of merge_plan.station_conflicts, its callsign line's text
+        // and a line for each detail that differs, made once with the plan
+        // rather than on every frame.
+        std::vector<std::string> merge_station_callsign_texts;
+        std::vector<std::vector<std::string>> merge_station_difference_texts;
         int selected_merge_conflict = 0;
 
         // Manage Users page (console-only -- see kPageManageUsers and
