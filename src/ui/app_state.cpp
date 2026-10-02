@@ -28,9 +28,11 @@
 #include "../public_key.hpp"
 #include "../show_folder.hpp"
 #include "../text_utils.hpp"
+#include "../uls_import.hpp"
 #include "../update_check.hpp"
 #include "../zip_write.hpp"
 #include "../zmodem_send.hpp"
+#include "chrome.hpp"
 #include "list_columns.hpp"
 #include "push_runner.hpp"
 
@@ -1674,10 +1676,48 @@ namespace ql
         state->settings_form.nearby_radius_miles = radius;
         SaveSettings(state->settings_path, state->settings_form);
         state->settings = state->settings_form;
+        bool clock_changed = Use24HourClock() != state->settings.use_24_hour_clock;
         SetUse24HourClock(state->settings.use_24_hour_clock);
         SetUpdateCheckEnabled(state->is_console_session && state->settings.check_for_updates);
+        if (clock_changed)
+        {
+            ReadStationDataStatus(state);
+        }
         state->form_error.clear();
         return true;
+    }
+
+    void ShowStationDataStatus(AppState* state, const std::string& notice, bool is_problem, const std::string& status)
+    {
+        SetStationDataNotice(notice, is_problem);
+        state->station_status_lines.clear();
+        std::size_t start = 0;
+        while (start < status.size())
+        {
+            std::size_t end = status.find('\n', start);
+            if (end == std::string::npos)
+            {
+                end = status.size();
+            }
+            state->station_status_lines.emplace_back(status, start, end - start);
+            start = end + 1;
+        }
+    }
+
+    void ReadStationDataStatus(AppState* state)
+    {
+        try
+        {
+            Database::ReadTransaction reads(state->db);
+            std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+            bool is_problem = false;
+            std::string notice = DescribeStationDataNotice(state->db, now, &is_problem);
+            ShowStationDataStatus(state, notice, is_problem, DescribeStationDataStatus(state->db, now));
+        }
+        catch (const std::exception&)
+        {
+            // Busy right now: ScreenTicker shows it shortly.
+        }
     }
 
     bool CheckCallsign(AppState* state, const std::string& callsign)
@@ -5729,8 +5769,8 @@ namespace ql
             {
                 continue;
             }
-            rows.push_back({tally.callsign, tally.name.empty() ? StationName(state->db, tally.callsign) : tally.name,
-                            tally.last_date.empty() ? "never" : tally.last_date, std::to_string(tally.count)});
+            rows.push_back({tally.callsign, tally.name, tally.last_date.empty() ? "never" : tally.last_date,
+                            std::to_string(tally.count)});
         }
         std::vector<std::string> summary;
         summary.push_back(OutOf(static_cast<int>(rows.size()), static_cast<int>(tallies.size())) +

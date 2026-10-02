@@ -1548,36 +1548,6 @@ namespace ql
 
     // ---- Settings page ---------------------------------------------------
 
-    // The station data's status (see DescribeStationDataStatus), a line
-    // each. Read from the database at most once a second, or when the
-    // 12/24-hour setting changes, not on every frame: a read takes a lock,
-    // as for the top bar's notice (StationDataNoticeText in chrome.cpp).
-    static const std::vector<std::string>& StationDataStatusLines(Database* db, std::int64_t now)
-    {
-        static std::int64_t read_at = -1;
-        static bool read_24_hour = false;
-        static std::vector<std::string> lines;
-        if (now != read_at || Use24HourClock() != read_24_hour)
-        {
-            std::string text = DescribeStationDataStatus(db, now);
-            read_at = now;
-            read_24_hour = Use24HourClock();
-            lines.clear();
-            std::size_t start = 0;
-            while (start < text.size())
-            {
-                std::size_t end = text.find('\n', start);
-                if (end == std::string::npos)
-                {
-                    end = text.size();
-                }
-                lines.emplace_back(text, start, end - start);
-                start = end + 1;
-            }
-        }
-        return lines;
-    }
-
     class SettingsRenderer
     {
     public:
@@ -1615,8 +1585,7 @@ namespace ql
                                              std::string(kReleasesPageUrl))});
             }
             // The station data's status: one paragraph per line of it.
-            const std::vector<std::string>& status_text =
-                StationDataStatusLines(state_->db, static_cast<std::int64_t>(std::time(nullptr)));
+            const std::vector<std::string>& status_text = state_->station_status_lines;
             ftxui::Elements status_lines;
             status_lines.reserve(status_text.size());
             for (const std::string& status_line : status_text)

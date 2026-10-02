@@ -437,13 +437,10 @@ namespace ql
             // The check and the import under one write lock, so two pushes of
             // the same session at once can't both import it.
             Database::WriteTransaction transaction(db_);
-            for (const NetInstance& existing : db_->GetNetInstancesForNet(net.id))
+            if (db_->HasNetInstance(net.id, source.instance_date, source.started_at))
             {
-                if (existing.instance_date == source.instance_date && existing.started_at == source.started_at)
-                {
-                    done_ = true;
-                    return Finish("already-imported", net.name + " already has this session.", kRemoteExitOk);
-                }
+                done_ = true;
+                return Finish("already-imported", net.name + " already has this session.", kRemoteExitOk);
             }
             std::int64_t instance_id = ApplySessionSlice(db_, slice_, net.id, &error);
             if (instance_id == 0)

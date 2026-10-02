@@ -254,8 +254,9 @@ namespace ql
     struct CallsignTally
     {
         std::string callsign;
-        // A saved GMRS entry's own name (see Database::SaveNetStation), or
-        // blank.
+        // The name shown for it: a saved GMRS entry's own (see
+        // Database::SaveNetStation), else the station's. Blank where a
+        // tally doesn't carry one.
         std::string name;
         int count = 0;
         std::string last_date;

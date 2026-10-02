@@ -97,6 +97,9 @@ CREATE TABLE IF NOT EXISTS net_saved_stations (
     name TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
     PRIMARY KEY (net_id, callsign, name)
 );
+-- For "is this station saved anywhere" (DeleteUnusedStations and the
+-- station card): the primary key starts with net_id.
+CREATE INDEX IF NOT EXISTS idx_net_saved_stations_callsign ON net_saved_stations(callsign);
 
 CREATE TABLE IF NOT EXISTS import_runs (
     source TEXT PRIMARY KEY,
@@ -526,8 +529,7 @@ CREATE TABLE IF NOT EXISTS users (
         // five-digit form, so those rows got neither until the next weekly
         // refresh rewrote them. Idempotent -- a no-op once none remain.
         {
-            Statement trim_zips(&statements_,
-                                "UPDATE uls_stations SET zip = substr(zip, 1, 5) WHERE length(zip) > 5;");
+            Statement trim_zips(&statements_, "UPDATE uls_stations SET zip = substr(zip, 1, 5) WHERE length(zip) > 5;");
             trim_zips.Step();
         }
 
@@ -578,6 +580,13 @@ CREATE TABLE IF NOT EXISTS users (
         // sign and name.
         EnsureColumnExists(db_, "check_ins", "name", "TEXT NOT NULL DEFAULT ''");
         UpgradeSavedStationsTable();
+        // Again after a rebuild above, whose new table has no indexes.
+        {
+            Statement index(&statements_,
+                            "CREATE INDEX IF NOT EXISTS idx_net_saved_stations_callsign ON "
+                            "net_saved_stations(callsign);");
+            index.Step();
+        }
         EnsureColumnExists(db_, "users", "amateur_callsign", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(db_, "users", "gmrs_callsign", "TEXT NOT NULL DEFAULT ''");
         {
@@ -696,7 +705,7 @@ COMMIT;
         WriteTransaction transaction(this);
         Statement copy(db_, copy_sql);
         copy.Step();
-        Statement drop(db_, std::string("DROP TABLE net_seed_stations;"));
+        Statement drop(&statements_, "DROP TABLE net_seed_stations;");
         drop.Step();
         transaction.Commit();
     }
@@ -1033,13 +1042,12 @@ COMMIT;
                s.city, s.county, s.state, s.zip, s.grid_square, s.license_class, s.email, s.data_source,
                s.last_updated
         FROM stations s
-        JOIN (SELECT ns.callsign, ns.name FROM net_saved_stations ns WHERE ns.net_id = ?2
+        JOIN (SELECT ns.callsign, ns.name FROM net_saved_stations ns WHERE ns.net_id = ?2 AND instr(ns.callsign, ?1) > 0
               UNION
               SELECT c.callsign, c.name FROM check_ins c
               JOIN net_instances ni ON ni.id = c.net_instance_id
-              WHERE ni.net_id = ?2) e
+              WHERE ni.net_id = ?2 AND instr(c.callsign, ?1) > 0) e
           ON e.callsign = s.callsign
-        WHERE instr(s.callsign, ?1) > 0
         ORDER BY s.callsign, e.name
         LIMIT ?3;
     )sql");
@@ -1057,6 +1065,7 @@ COMMIT;
     void Database::SaveNetStation(std::int64_t net_id, const Station& station, const std::string& default_remarks,
                                   std::int64_t updated_at, const std::string& name)
     {
+        WriteTransaction transaction(this);
         // A named entry (a GMRS family member) leaves the station's name, the
         // licensee's, as it was, if it had one.
         Station shared = station;
@@ -1080,12 +1089,14 @@ COMMIT;
         statement.BindText(2, default_remarks);
         statement.BindText(3, name);
         statement.Step();
+        transaction.Commit();
     }
 
     void Database::UpdateSavedNetStation(std::int64_t net_id, const Station& station,
                                          const std::string& default_remarks, std::int64_t updated_at,
                                          const std::string& old_name, const std::string& new_name)
     {
+        WriteTransaction transaction(this);
         // A named entry (a GMRS family member) keeps its own name; the
         // station's is the licensee's.
         if (old_name.empty() && new_name.empty())
@@ -1109,10 +1120,12 @@ COMMIT;
         statement.BindText(3, ToUpperAscii(station.callsign));
         statement.BindText(4, old_name);
         statement.Step();
+        transaction.Commit();
     }
 
     void Database::RemoveSavedNetStation(std::int64_t net_id, const std::string& callsign, const std::string& name)
     {
+        WriteTransaction transaction(this);
         Statement statement(&statements_, R"sql(
         DELETE FROM net_saved_stations WHERE net_id = ? AND callsign = ? AND name = ?;
     )sql");
@@ -1121,11 +1134,13 @@ COMMIT;
         statement.BindText(2, name);
         statement.Step();
         DeleteUnusedStations();
+        transaction.Commit();
     }
 
     void Database::RenameNetSavedStationEntry(std::int64_t net_id, const std::string& callsign,
                                               const std::string& old_name, const std::string& new_name)
     {
+        WriteTransaction transaction(this);
         std::string upper = ToUpperAscii(callsign);
         bool in_use = false;
         {
@@ -1151,6 +1166,7 @@ COMMIT;
             copy.BindText(2, old_name);
             copy.BindText(3, new_name);
             copy.Step();
+            transaction.Commit();
             return;
         }
         {
@@ -1164,11 +1180,13 @@ COMMIT;
             rename.Step();
             if (sqlite3_changes(db_) > 0)
             {
+                transaction.Commit();
                 return;
             }
         }
         // Already saved under the new name too.
         RemoveSavedNetStation(net_id, callsign, old_name);
+        transaction.Commit();
     }
 
     bool Database::IsStationUsedOutsideNet(const std::string& callsign, std::int64_t net_id)
@@ -1406,6 +1424,17 @@ COMMIT;
         return instances;
     }
 
+    bool Database::HasNetInstance(std::int64_t net_id, const std::string& instance_date, std::int64_t started_at)
+    {
+        Statement statement(&statements_, R"sql(
+        SELECT EXISTS(SELECT 1 FROM net_instances WHERE net_id = ? AND instance_date = ? AND started_at = ?);
+    )sql");
+        statement.BindInt64(0, net_id);
+        statement.BindText(1, instance_date);
+        statement.BindInt64(2, started_at);
+        return statement.Step() && statement.ColumnInt64(0) != 0;
+    }
+
     std::optional<NetInstance> Database::FindAdHocSession(const std::string& net_name, const std::string& instance_date,
                                                           std::int64_t started_at)
     {
@@ -1533,7 +1562,7 @@ COMMIT;
         update.Step();
     }
 
-    void Database::DeleteNetInstance(std::int64_t instance_id)
+    void Database::DeleteNetInstance(std::int64_t instance_id, bool remove_unused_stations)
     {
         WriteTransaction transaction(this);
 
@@ -1545,7 +1574,10 @@ COMMIT;
         delete_instance.BindInt64(0, instance_id);
         delete_instance.Step();
 
-        DeleteUnusedStations();
+        if (remove_unused_stations)
+        {
+            DeleteUnusedStations();
+        }
         transaction.Commit();
     }
 
@@ -1718,8 +1750,10 @@ COMMIT;
     std::vector<CallsignTally> Database::GetSavedStationActivity(std::int64_t net_id)
     {
         Statement statement(&statements_, R"sql(
-        SELECT s.callsign, s.name, COUNT(i.id), COALESCE(MAX(i.instance_date), '')
+        SELECT s.callsign, CASE WHEN s.name != '' THEN s.name ELSE COALESCE(st.name, '') END, COUNT(i.id),
+               COALESCE(MAX(i.instance_date), '')
         FROM net_saved_stations s
+        LEFT JOIN stations st ON st.callsign = s.callsign
         LEFT JOIN check_ins c ON c.callsign = s.callsign AND (s.name = '' OR c.name = s.name COLLATE NOCASE)
         LEFT JOIN net_instances i ON i.id = c.net_instance_id AND i.net_id = s.net_id
         WHERE s.net_id = ?
@@ -1820,6 +1854,7 @@ COMMIT;
 
     void Database::DeleteCheckIn(std::int64_t check_in_id)
     {
+        WriteTransaction transaction(this);
         std::int64_t instance_id = 0;
         bool closed = false;
         {
@@ -1842,6 +1877,7 @@ COMMIT;
             RenumberCheckIns(instance_id);
         }
         DeleteUnusedStations();
+        transaction.Commit();
     }
 
     void Database::ClearCheckInRoleForInstance(std::int64_t net_instance_id, int role, std::int64_t except_check_in_id)

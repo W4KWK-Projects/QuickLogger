@@ -223,6 +223,9 @@ namespace ql
         // `instance_date` that started at `started_at`, if there is one: a
         // .qlsession already imported as an ad hoc net (see
         // ApplyAdHocSessionSlice).
+        // True if net `net_id` has a session of that date and start time: the
+        // same session, imported or pushed again.
+        bool HasNetInstance(std::int64_t net_id, const std::string& instance_date, std::int64_t started_at);
         std::optional<NetInstance> FindAdHocSession(const std::string& net_name, const std::string& instance_date,
                                                     std::int64_t started_at);
         std::optional<NetInstance> GetNetInstanceById(std::int64_t instance_id);
@@ -263,8 +266,10 @@ namespace ql
         // check-ins -- check_ins.net_instance_id references net_instances(id)
         // with foreign keys enforced, so the check-ins must go first. Wrapped
         // in one transaction so a failure can't leave check-ins orphaned from
-        // a half-deleted instance.
-        void DeleteNetInstance(std::int64_t instance_id);
+        // a half-deleted instance. Then the stations nothing refers to any
+        // more go too (DeleteUnusedStations), unless `remove_unused_stations`
+        // is false: for deleting several in a row, then removing them once.
+        void DeleteNetInstance(std::int64_t instance_id, bool remove_unused_stations = true);
 
         // Check-ins (one station's check-in during one NetInstance).
         std::int64_t AddCheckIn(const CheckIn& check_in);

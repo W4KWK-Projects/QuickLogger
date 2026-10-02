@@ -166,6 +166,10 @@ namespace ql
         // the screen in step rather than passing bytes through, so ZMODEM
         // can't work: files are copied with scp or sftp instead.
         bool over_mosh = false;
+        // The shared station data's status, a line each, as Settings shows
+        // it (see ShowStationDataStatus): kept here so its renderer never
+        // reads the database.
+        std::vector<std::string> station_status_lines;
         // A view-only SSH user (see User::view_only): they can watch open
         // net sessions, look at and export history, and change their own
         // settings -- nothing else. Every page shows only the keys they
@@ -915,6 +919,16 @@ namespace ql
     // check-in's under the same call sign is refused: false, with
     // form_error set.
     bool SaveEditCheckInForm(AppState* state);
+
+    // Shows the station data's status: the top bar's `notice` (see
+    // DescribeStationDataNotice) and Settings' `status` (see
+    // DescribeStationDataStatus), split into its lines. On the UI thread.
+    void ShowStationDataStatus(AppState* state, const std::string& notice, bool is_problem, const std::string& status);
+
+    // Reads the station data's status from AppState::db and shows it (see
+    // ShowStationDataStatus): before the first frame, and when the 12/24-hour
+    // setting changes the times in it. ScreenTicker keeps it current after.
+    void ReadStationDataStatus(AppState* state);
 
     // ---- Lists laid out for the terminal's width (see list_columns.hpp) ----
 

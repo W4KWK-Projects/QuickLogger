@@ -101,6 +101,53 @@ namespace ql
         std::int64_t instance_id_;
     };
 
+    // Posted to the UI thread by ScreenTicker when the station data's status
+    // has changed: shows it (see ShowStationDataStatus) and redraws.
+    class StationDataStatusTask
+    {
+    public:
+        StationDataStatusTask(AppState* state, std::string notice, bool is_problem, std::string status)
+            : state_(state), notice_(std::move(notice)), is_problem_(is_problem), status_(std::move(status))
+        {
+        }
+
+        void operator()() const
+        {
+            ShowStationDataStatus(state_, notice_, is_problem_, status_);
+            if (state_->screen != nullptr)
+            {
+                state_->screen->PostEvent(ftxui::Event::Custom);
+            }
+        }
+
+    private:
+        AppState* state_;
+        std::string notice_;
+        bool is_problem_;
+        std::string status_;
+    };
+
+    // Posted to the UI thread by UpdateChecker when it finds a newer release
+    // (or no longer does): shows it and redraws.
+    class AvailableUpdateTask
+    {
+    public:
+        AvailableUpdateTask(ftxui::ScreenInteractive* screen, std::string version)
+            : screen_(screen), version_(std::move(version))
+        {
+        }
+
+        void operator()() const
+        {
+            SetAvailableUpdateForDisplay(version_);
+            screen_->PostEvent(ftxui::Event::Custom);
+        }
+
+    private:
+        ftxui::ScreenInteractive* screen_;
+        std::string version_;
+    };
+
     // Redraws the screen when -- and only when -- something it shows has
     // changed on its own, without a keypress: the top bar's clock ticking
     // over to a new minute, the shared station data's status (see
@@ -146,26 +193,25 @@ namespace ql
             return static_cast<std::int64_t>(std::time(nullptr));
         }
 
-        // Everything about the station data that's shown anywhere, as one
-        // string to compare; empty if the database can't be read.
-        static std::string StatusSignature(Database* db, bool* busy)
+        // Everything about the station data that's shown anywhere: the top
+        // bar's notice (and whether it's a problem) and Settings' status.
+        // False if the database can't be read.
+        static bool ReadStatus(Database* db, std::string* notice, bool* is_problem, std::string* status)
         {
-            *busy = false;
             if (db == nullptr)
             {
-                return "";
+                return false;
             }
             try
             {
                 std::int64_t now = Now();
-                bool is_problem = false;
-                std::string notice = DescribeStationDataNotice(db, now, &is_problem);
-                *busy = !notice.empty();
-                return notice + "|" + DescribeStationDataStatus(db, now);
+                *notice = DescribeStationDataNotice(db, now, is_problem);
+                *status = DescribeStationDataStatus(db, now);
+                return true;
             }
             catch (const std::exception&)
             {
-                return "";
+                return false;
             }
         }
 
@@ -185,8 +231,13 @@ namespace ql
             }
 
             std::int64_t drawn_minute = Now() / 60;
-            bool busy = false;
-            std::string drawn_status = StatusSignature(db.get(), &busy);
+            // What the UI thread read before the first frame (see
+            // ReadStationDataStatus), read again here to compare against.
+            std::string drawn_notice;
+            bool drawn_problem = false;
+            std::string drawn_status;
+            ReadStatus(db.get(), &drawn_notice, &drawn_problem, &drawn_status);
+            bool busy = !drawn_notice.empty();
             std::chrono::system_clock::time_point next_status_check =
                 std::chrono::system_clock::now() + kStatusPollIdle;
             while (true)
@@ -242,12 +293,20 @@ namespace ql
                 }
                 if (std::chrono::system_clock::now() >= next_status_check)
                 {
-                    std::string status = StatusSignature(db.get(), &busy);
-                    if (status != drawn_status)
+                    std::string notice;
+                    bool is_problem = false;
+                    std::string status;
+                    if (ReadStatus(db.get(), &notice, &is_problem, &status) &&
+                        (notice != drawn_notice || is_problem != drawn_problem || status != drawn_status))
                     {
+                        drawn_notice = notice;
+                        drawn_problem = is_problem;
                         drawn_status = status;
-                        changed = true;
+                        // It redraws, so this tick needn't.
+                        screen_->Post(StationDataStatusTask(state_, notice, is_problem, status));
+                        changed = false;
                     }
+                    busy = !drawn_notice.empty();
                     next_status_check = std::chrono::system_clock::now() + (busy ? kStatusPollBusy : kStatusPollIdle);
                 }
                 if (changed)
@@ -406,7 +465,7 @@ namespace ql
                         if (found != AvailableUpdate())
                         {
                             SetAvailableUpdate(found);
-                            screen_->PostEvent(ftxui::Event::Custom);
+                            screen_->Post(AvailableUpdateTask(screen_, found));
                         }
                         next = kUpdateCheckInterval;
                     }
@@ -536,8 +595,9 @@ namespace ql
             ql::LayeredModal(with_confirm_prompt, ql::BuildInfoWindow(&state), &state.show_info_window);
         ftxui::Component ui = ftxui::Make<ql::SafeAppEventDispatcher>(with_info_window, &state);
 
-        // The top bar's station-data notice reads this session's database.
-        SetTopBarNoticeDatabase(&db);
+        // The station data's status as of the first frame; ScreenTicker
+        // keeps it current.
+        ReadStationDataStatus(&state);
 
         // Declared after `screen` so it is stopped and joined before `screen`
         // is destroyed.

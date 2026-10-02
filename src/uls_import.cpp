@@ -366,8 +366,8 @@ namespace ql
         std::string zip_name;     // As downloaded into the cache.
         std::string extract_dir;  // Where its .dat files are unpacked.
         LicenseTable table;
-        bool has_classes;         // AM.dat
-        const char* what;         // "FCC license data", for progress.
+        bool has_classes;  // AM.dat
+        const char* what;  // "FCC license data", for progress.
     };
 
     static bool ExtractUlsZip(const FccLicenseFile& file, const std::string& zip_path, std::string* error)
@@ -678,8 +678,8 @@ namespace ql
         // The GitHub copy, then the FCC's own if the copy can't be had (or
         // turns out damaged: unpacking checks every file's CRC).
         std::string first_error;
-        bool fetched = DownloadAndExtractUls(file, file.url, zip_path, reporter, base, download_span, extract_span,
-                                             &first_error);
+        bool fetched =
+            DownloadAndExtractUls(file, file.url, zip_path, reporter, base, download_span, extract_span, &first_error);
         if (!fetched)
         {
             if (file.fallback_url.empty() || reporter->StopRequested())
@@ -705,8 +705,9 @@ namespace ql
     static bool LoadUls(const DataSources& sources, const std::string& cache_dir, Database* db,
                         ProgressReporter* reporter, int base, int span, std::int64_t* out_records, std::string* error)
     {
-        FccLicenseFile file{sources.uls_zip_url, sources.uls_zip_fallback_url, "l_amat.zip", cache_dir,
-                            LicenseTable::kAmateur, true, "FCC license data"};
+        FccLicenseFile file{sources.uls_zip_url, sources.uls_zip_fallback_url, "l_amat.zip",
+                            cache_dir,           LicenseTable::kAmateur,       true,
+                            "FCC license data"};
         return LoadFccLicenses(file, cache_dir, db, reporter, base, span, out_records, error);
     }
 
@@ -715,8 +716,9 @@ namespace ql
     static bool LoadGmrs(const DataSources& sources, const std::string& cache_dir, Database* db,
                          ProgressReporter* reporter, int base, int span, std::int64_t* out_records, std::string* error)
     {
-        FccLicenseFile file{sources.gmrs_zip_url, sources.gmrs_zip_fallback_url, "l_gmrs.zip", cache_dir + "/gmrs",
-                            LicenseTable::kGmrs, false, "FCC GMRS data"};
+        FccLicenseFile file{sources.gmrs_zip_url, sources.gmrs_zip_fallback_url, "l_gmrs.zip",
+                            cache_dir + "/gmrs",  LicenseTable::kGmrs,           false,
+                            "FCC GMRS data"};
         return LoadFccLicenses(file, cache_dir, db, reporter, base, span, out_records, error);
     }
 
@@ -1244,6 +1246,8 @@ namespace ql
 
     DataRefreshPlan PlanDataRefresh(Database* db, std::int64_t now)
     {
+        // Its reads under one snapshot and one lock.
+        Database::ReadTransaction reads(db);
         std::optional<ImportRunStatus> job = db->GetImportRunStatus(kDataRefreshJob);
         bool requested = job.has_value() && job->requested_at > job->started_at;
 
