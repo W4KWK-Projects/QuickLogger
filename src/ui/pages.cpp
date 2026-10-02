@@ -510,12 +510,8 @@ namespace ql
     // number.
     static int PickNumberWidth(const AppState* state)
     {
-        int widest = 9;
-        for (int number : state->row_pick_numbers)
-        {
-            widest = number > widest ? number : widest;
-        }
-        return static_cast<int>(std::to_string(widest).size());
+        // As made when picking started (see StartRowPick).
+        return state->row_pick_number_texts.empty() ? 1 : static_cast<int>(state->row_pick_number_texts[0].size()) - 1;
     }
 
     // Extra spaces in front of a list's column header in pick mode, so it
@@ -553,8 +549,8 @@ namespace ql
         {
             return menu->Render();
         }
-        int width = PickNumberWidth(state);
         ftxui::Elements rows;
+        rows.reserve(labels.size());
         for (std::size_t i = 0; i < labels.size(); ++i)
         {
             std::string number;
@@ -568,11 +564,14 @@ namespace ql
                 number = "  " + rest.substr(0, digits_end);
                 rest = rest.substr(digits_end);
             }
+            else if (i < state->row_pick_number_texts.size())
+            {
+                number = state->row_pick_number_texts[i];
+            }
             else
             {
-                std::string digits =
-                    i < state->row_pick_numbers.size() ? std::to_string(state->row_pick_numbers[i]) : std::string();
-                number = std::string(static_cast<std::size_t>(width) - digits.size(), ' ') + digits + " ";
+                // A row added since picking started: no number, same indent.
+                number = std::string(static_cast<std::size_t>(PickNumberWidth(state) + 1), ' ');
             }
             ftxui::Element row = ftxui::hbox({
                 ftxui::text(number) | ftxui::color(kColorPickNumber),

@@ -2378,6 +2378,19 @@ namespace ql
             }
             state->row_pick_numbers.push_back(number);
         }
+        int widest = 9;
+        for (int number : state->row_pick_numbers)
+        {
+            widest = std::max(widest, number);
+        }
+        std::size_t width = std::to_string(widest).size();
+        state->row_pick_number_texts.clear();
+        state->row_pick_number_texts.reserve(state->row_pick_numbers.size());
+        for (int number : state->row_pick_numbers)
+        {
+            std::string digits = std::to_string(number);
+            state->row_pick_number_texts.push_back(std::string(width - digits.size(), ' ') + digits + " ");
+        }
         state->row_pick_action = action;
         state->row_pick_digits.clear();
         state->form_error.clear();
@@ -2389,6 +2402,7 @@ namespace ql
         state->row_pick_action = RowPickAction::kNone;
         state->row_pick_digits.clear();
         state->row_pick_numbers.clear();
+        state->row_pick_number_texts.clear();
     }
 
     // The history page's check-in pane follows the highlighted session.
