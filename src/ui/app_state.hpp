@@ -289,6 +289,10 @@ namespace ql
         RowPickAction row_pick_action = RowPickAction::kNone;
         std::string row_pick_digits;
         std::vector<int> row_pick_numbers;
+        // Each row's number as pick mode shows it, right-aligned to the
+        // widest with a space after: made once when picking starts, not on
+        // every frame.
+        std::vector<std::string> row_pick_number_texts;
         // The delete confirmation a pick leads to: which action, on which
         // row, and the text to show.
         bool show_row_delete_confirm_modal = false;
