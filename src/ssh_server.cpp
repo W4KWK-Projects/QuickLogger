@@ -15,6 +15,8 @@
 #include <poll.h>
 #include <spawn.h>
 #include <sys/ioctl.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -605,6 +607,9 @@ namespace ql
         posix_spawn_file_actions_adddup2(&actions, output[1], 2);
         posix_spawn_file_actions_addclose(&actions, output[0]);
         posix_spawn_file_actions_addclose(&actions, output[1]);
+        // Not the SSH connection's socket: mosh-server lives on after it,
+        // for up to a day, and would hold it open all that time.
+        posix_spawn_file_actions_addclose(&actions, ssh_get_fd(session));
         // In a session of its own, so it outlives whatever ends the
         // listener's: the terminal QuickLogger was started from closing,
         // say. That's what Mosh is for.
@@ -773,7 +778,9 @@ namespace ql
         {
             return 0;
         }
-        char buffer[4096];
+        // A whole frame at once (the session writes each in one go), so it
+        // goes out as one SSH packet, not several.
+        char buffer[32768];
         ssize_t count = ::read(fd, buffer, sizeof(buffer));
         if (count <= 0)
         {
@@ -829,6 +836,21 @@ namespace ql
         // it all day on port 22 -- would hold this process open forever.
         // Cancelled once the shell is running.
         ::alarm(90);
+
+        // A client that vanishes without closing the connection (its
+        // network dropped, a laptop slept) is noticed within a few minutes,
+        // and this process ends, rather than waiting on it for ever.
+        int keepalive = 1;
+        int fd = ssh_get_fd(session);
+        ::setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+#if defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL) && defined(TCP_KEEPCNT)
+        int idle = 60;
+        int interval = 15;
+        int count = 4;
+        ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+        ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
+        ::setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
+#endif
 
         ConnectionState state;
 
