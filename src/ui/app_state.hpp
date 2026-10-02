@@ -999,7 +999,7 @@ namespace ql
     // list shows on screen (not every field on the underlying Station
     // record -- this mirrors FormatSavedStationRow, which only ever showed
     // those three).
-    void ExportSavedStations(AppState* state, const std::string& net_name, const std::vector<Station>& saved_stations);
+    void ExportSavedStations(AppState* state, const std::string& net_name);
 
     // Writes everything about `net` -- its own definition, every station
     // saved to it or that's ever checked in, its instances, and their

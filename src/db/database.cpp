@@ -1663,6 +1663,72 @@ COMMIT;
         return sqlite3_last_insert_rowid(db_);
     }
 
+    std::unordered_map<std::int64_t, std::int64_t> Database::GetCheckInCounts(std::int64_t net_id)
+    {
+        Statement statement(&statements_, net_id > 0 ? R"sql(
+        SELECT c.net_instance_id, COUNT(*) FROM check_ins c JOIN net_instances i ON i.id = c.net_instance_id
+        WHERE i.net_id = ? GROUP BY c.net_instance_id;
+    )sql"
+                                                     : R"sql(
+        SELECT c.net_instance_id, COUNT(*) FROM check_ins c JOIN net_instances i ON i.id = c.net_instance_id
+        JOIN nets n ON n.id = i.net_id
+        WHERE n.is_ad_hoc = 1 GROUP BY c.net_instance_id;
+    )sql");
+        if (net_id > 0)
+        {
+            statement.BindInt64(0, net_id);
+        }
+        std::unordered_map<std::int64_t, std::int64_t> counts;
+        while (statement.Step())
+        {
+            counts[statement.ColumnInt64(0)] = statement.ColumnInt64(1);
+        }
+        return counts;
+    }
+
+    std::vector<std::string> Database::GetCallsignsInOtherSessions(std::int64_t net_id, std::int64_t instance_id)
+    {
+        Statement statement(&statements_, R"sql(
+        SELECT DISTINCT c.callsign FROM check_ins c JOIN net_instances i ON i.id = c.net_instance_id
+        WHERE i.net_id = ? AND i.id != ?;
+    )sql");
+        statement.BindInt64(0, net_id);
+        statement.BindInt64(1, instance_id);
+        std::vector<std::string> callsigns;
+        while (statement.Step())
+        {
+            callsigns.push_back(statement.ColumnText(0));
+        }
+        return callsigns;
+    }
+
+    std::vector<CheckIn> Database::GetCheckInsForNetInstances(const std::vector<std::int64_t>& instance_ids)
+    {
+        std::vector<CheckIn> check_ins;
+        if (instance_ids.empty())
+        {
+            return check_ins;
+        }
+        // Few: the sessions a window looks at, well under SQLite's limit on
+        // parameters.
+        std::string sql = "SELECT " QL_CHECK_IN_COLUMNS " FROM check_ins c WHERE c.net_instance_id IN (";
+        for (std::size_t i = 0; i < instance_ids.size(); ++i)
+        {
+            sql.append(i == 0 ? "?" : ",?");
+        }
+        sql.append(") ORDER BY c.net_instance_id, c.sequence_number;");
+        Statement statement(db_, sql);
+        for (std::size_t i = 0; i < instance_ids.size(); ++i)
+        {
+            statement.BindInt64(static_cast<int>(i), instance_ids[i]);
+        }
+        while (statement.Step())
+        {
+            check_ins.push_back(ReadCheckInRow(statement));
+        }
+        return check_ins;
+    }
+
     void Database::GetCheckInSummary(std::int64_t net_instance_id, std::int64_t* count, std::int64_t* newest_id)
     {
         Statement statement(&statements_,
@@ -2376,6 +2442,47 @@ COMMIT;
         station.last_updated = statement.ColumnInt64(7);
         station.data_source = table == LicenseTable::kGmrs ? StationDataSource::kGmrs : StationDataSource::kUls;
         return station;
+    }
+
+    std::vector<Station> Database::FindUlsStationsByCallsigns(const std::vector<std::string>& callsigns,
+                                                              LicenseTable table)
+    {
+        std::vector<Station> stations;
+        if (callsigns.empty())
+        {
+            return stations;
+        }
+        // Few: a screenful of autocomplete matches.
+        std::string sql = std::string(
+                              "SELECT callsign, name, street_address, city, state, zip, license_class, "
+                              "last_updated FROM ") +
+                          (table == LicenseTable::kGmrs ? "gmrs_stations" : "uls_stations") + " WHERE callsign IN (";
+        for (std::size_t i = 0; i < callsigns.size(); ++i)
+        {
+            sql.append(i == 0 ? "?" : ",?");
+        }
+        sql.append(");");
+        Statement statement(db_, sql);
+        for (std::size_t i = 0; i < callsigns.size(); ++i)
+        {
+            statement.BindText(static_cast<int>(i), ToUpperAscii(callsigns[i]));
+        }
+        while (statement.Step())
+        {
+            Station station;
+            station.callsign = statement.ColumnText(0);
+            station.name = statement.ColumnText(1);
+            station.street_address = statement.ColumnText(2);
+            station.city = statement.ColumnText(3);
+            station.state = statement.ColumnText(4);
+            station.zip = statement.ColumnText(5);
+            station.license_class = statement.ColumnText(6);
+            station.last_updated = statement.ColumnInt64(7);
+            station.data_source = table == LicenseTable::kGmrs ? StationDataSource::kGmrs : StationDataSource::kUls;
+            stations.push_back(std::move(station));
+        }
+        std::sort(stations.begin(), stations.end(), StationsByCallsign());
+        return stations;
     }
 
     void Database::BulkUpsertZipCentroids(const std::vector<ZipCentroid>& batch)

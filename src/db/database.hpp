@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "../models.hpp"
@@ -307,6 +308,16 @@ namespace ql
         // How many check-ins a session has and the newest one's id -- enough
         // to tell cheaply whether someone else has logged or deleted one.
         void GetCheckInSummary(std::int64_t net_instance_id, std::int64_t* count, std::int64_t* newest_id);
+        // How many check-ins each session of net `net_id` has, by session id,
+        // in one query (a session with none isn't listed). With `net_id` 0,
+        // every ad hoc net's sessions.
+        std::unordered_map<std::int64_t, std::int64_t> GetCheckInCounts(std::int64_t net_id);
+        // Every call sign that has checked in to net `net_id` in a session
+        // other than `instance_id`, once each.
+        std::vector<std::string> GetCallsignsInOtherSessions(std::int64_t net_id, std::int64_t instance_id);
+        // The check-ins of a few sessions, in one query, by session then
+        // number.
+        std::vector<CheckIn> GetCheckInsForNetInstances(const std::vector<std::int64_t>& instance_ids);
         void UpdateCheckIn(const CheckIn& check_in);
         // Removes one check-in entry entirely (e.g. logged in error). Does not
         // touch the Station record. In an open session the others keep their
@@ -387,6 +398,10 @@ namespace ql
         // specific operator's info (see LogOperatorCheckIn) rather than
         // searching/ranking candidates.
         std::optional<Station> FindUlsStationByCallsign(const std::string& callsign,
+                                                        LicenseTable table = LicenseTable::kAmateur);
+        // The same for a few call signs at once (a screenful of autocomplete
+        // matches), sorted by callsign; those not licensed are left out.
+        std::vector<Station> FindUlsStationsByCallsigns(const std::vector<std::string>& callsigns,
                                                         LicenseTable table = LicenseTable::kAmateur);
 
         // Canada's amateur call sign database (ISED -- see uls_import.hpp),

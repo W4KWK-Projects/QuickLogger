@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <unordered_set>
 #include <utility>
 
 #include <ftxui/component/component_base.hpp>
@@ -2275,6 +2276,9 @@ namespace ql
         {
             return false;
         }
+        // The check below and everything logged, in one transaction: one
+        // commit, and no one else can log it in between.
+        Database::WriteTransaction writes(state->db);
         // Once per session, counting W4KWK/M as W4KWK. Read fresh: someone
         // else sharing the session may have logged it. On a GMRS net, once
         // per call sign and name: one license covers a whole family.
@@ -2325,6 +2329,7 @@ namespace ql
             ApplyCheckInRoleDesignation(state, check_in.id, kRoleNone, check_in.designated_role, check_in.callsign);
         }
 
+        writes.Commit();
         RefreshActiveCheckIns(state);
         state->form_error.clear();
         return true;
@@ -2420,8 +2425,8 @@ namespace ql
         {
             state->db->RenameNetSavedStationEntry(state->active_instance.net_id, callsign, old_person, person);
         }
-        writes.Commit();
         ApplyCheckInRoleDesignation(state, check_in.id, old_role, new_role, check_in.callsign);
+        writes.Commit();
 
         RefreshActiveCheckIns(state);
         state->form_error.clear();
@@ -2453,13 +2458,14 @@ namespace ql
             }
             state->history_instances = state->db->GetNetInstancesForNet(state->nets[state->selected_net_index].id);
         }
+        // Every session's count in one query.
+        std::unordered_map<std::int64_t, std::int64_t> counts =
+            state->db->GetCheckInCounts(state->history_ad_hoc ? 0 : state->nets[state->selected_net_index].id);
         for (const NetInstance& instance : state->history_instances)
         {
-            std::int64_t check_ins = 0;
-            std::int64_t newest_id = 0;
-            state->db->GetCheckInSummary(instance.id, &check_ins, &newest_id);
-            state->history_instance_cells.push_back(
-                NetInstanceCells(instance, names[instance.net_id], check_ins, state->history_ad_hoc));
+            std::unordered_map<std::int64_t, std::int64_t>::const_iterator count = counts.find(instance.id);
+            state->history_instance_cells.push_back(NetInstanceCells(
+                instance, names[instance.net_id], count == counts.end() ? 0 : count->second, state->history_ad_hoc));
         }
         state->history_instance_labels =
             FormatRows(state->history_instance_cells, NetInstanceLayout(state->list_width, state->history_ad_hoc));
@@ -3827,23 +3833,17 @@ namespace ql
         state->status_message = "Saved to " + ListPaths(paths) + ".";
     }
 
-    void ExportSavedStations(AppState* state, const std::string& net_name, const std::vector<Station>& saved_stations)
+    void ExportSavedStations(AppState* state, const std::string& net_name)
     {
-        Database::ReadTransaction reads(state->db);
         std::vector<std::string> lines;
         lines.push_back("Net: " + net_name);
         lines.emplace_back("Saved Stations:");
         lines.emplace_back("");
-        // Every column, as in ExportNetLog.
-        std::vector<std::vector<std::string>> cells;
-        for (const Station& station : saved_stations)
-        {
-            cells.push_back(
-                SavedStationCells(station, state->db->GetSavedNetStationRemarks(state->edit_net_id, station.callsign)));
-        }
+        // Every column, as in ExportNetLog, from the cells the list was
+        // made from (see RefreshEditNetSavedStations): nothing to read again.
         ListLayout layout = ExportListLayout(SavedStationColumns(), 1);
         lines.push_back(FormatListHeading(SavedStationColumns(), layout));
-        std::vector<std::string> rows = FormatRows(cells, layout);
+        std::vector<std::string> rows = FormatRows(state->saved_station_cells, layout);
         lines.insert(lines.end(), rows.begin(), rows.end());
 
         std::string path = SessionExportsDir(state->db_path, state->ssh_username) + "/" +
@@ -4941,10 +4941,13 @@ namespace ql
             state->nearby_uls_loaded_at = now;
         }
 
+        // The matches, nearest first, then their records in one query.
         std::string upper = ToUpperAscii(typed);
+        std::vector<const NearbyUlsCallsign*> matches;
+        std::vector<std::string> match_callsigns;
         for (const NearbyUlsCallsign& candidate : state->nearby_uls_callsigns)
         {
-            if (suggestions->size() >= max_suggestions)
+            if (suggestions->size() + matches.size() >= max_suggestions)
             {
                 break;
             }
@@ -4961,18 +4964,24 @@ namespace ql
                     break;
                 }
             }
-            if (already_known)
+            if (!already_known)
             {
-                continue;
+                matches.push_back(&candidate);
+                match_callsigns.push_back(candidate.callsign);
             }
+        }
+        std::vector<Station> records = state->db->FindUlsStationsByCallsigns(match_callsigns, table);
+        for (const NearbyUlsCallsign* match : matches)
+        {
+            std::string callsign = match->callsign;
+            std::vector<Station>::const_iterator found =
+                std::lower_bound(records.begin(), records.end(), callsign, StationCallsignBefore);
             // Gone if the station data was refreshed since the list loaded.
-            std::optional<Station> station = state->db->FindUlsStationByCallsign(candidate.callsign, table);
-            if (!station.has_value())
+            if (found != records.end() && found->callsign == callsign)
             {
-                continue;
+                suggestions->push_back(*found);
+                sources->push_back(UlsSource(match->miles));
             }
-            suggestions->push_back(*station);
-            sources->push_back(UlsSource(candidate.miles));
         }
     }
 
@@ -5302,6 +5311,32 @@ namespace ql
         return station.has_value() ? station->name : "";
     }
 
+    // The names on file for `callsigns`, by callsign, read in one query.
+    static std::unordered_map<std::string, std::string> StationNames(Database* db,
+                                                                     const std::vector<std::string>& callsigns)
+    {
+        std::vector<std::string> upper;
+        upper.reserve(callsigns.size());
+        for (const std::string& callsign : callsigns)
+        {
+            upper.push_back(ToUpperAscii(callsign));
+        }
+        std::unordered_map<std::string, std::string> names;
+        for (Station& station : db->FindStationsByCallsigns(upper))
+        {
+            names[station.callsign] = std::move(station.name);
+        }
+        return names;
+    }
+
+    static const std::string& NameOf(const std::unordered_map<std::string, std::string>& names,
+                                     const std::string& callsign)
+    {
+        static const std::string kNone;
+        std::unordered_map<std::string, std::string>::const_iterator found = names.find(ToUpperAscii(callsign));
+        return found == names.end() ? kNone : found->second;
+    }
+
     // "13 of the last 20", "1 of 1".
     static std::string OutOf(int part, int whole)
     {
@@ -5401,29 +5436,44 @@ namespace ql
         std::vector<std::string> names;
         std::vector<int> counts;
         std::vector<std::string> last_seen;
-        for (const NetInstance& session : sessions)
+        // Each key's place in those, and the sessions' check-ins in one query.
+        std::unordered_map<std::string, std::size_t> index_of;
+        std::unordered_map<std::int64_t, std::size_t> session_of;
+        std::vector<std::int64_t> session_ids;
+        for (std::size_t i = 0; i < sessions.size(); ++i)
         {
-            std::vector<std::string> in_session;
-            for (const CheckIn& check_in : state->db->GetCheckInsForNetInstance(session.id))
+            session_of[sessions[i].id] = i;
+            session_ids.push_back(sessions[i].id);
+        }
+        std::vector<std::vector<const CheckIn*>> by_session(sessions.size());
+        std::vector<CheckIn> session_check_ins = state->db->GetCheckInsForNetInstances(session_ids);
+        for (const CheckIn& check_in : session_check_ins)
+        {
+            by_session[session_of[check_in.net_instance_id]].push_back(&check_in);
+        }
+        for (std::size_t s = 0; s < sessions.size(); ++s)
+        {
+            std::unordered_set<std::string> in_session;
+            for (const CheckIn* check_in : by_session[s])
             {
-                std::string key = CheckInKey(check_in.callsign, check_in.name);
-                if (std::find(in_session.begin(), in_session.end(), key) != in_session.end())
+                std::string key = CheckInKey(check_in->callsign, check_in->name);
+                if (!in_session.insert(key).second)
                 {
                     continue;  // Counted once per session.
                 }
-                in_session.push_back(key);
-                std::vector<std::string>::iterator found = std::find(keys.begin(), keys.end(), key);
-                if (found == keys.end())
+                std::unordered_map<std::string, std::size_t>::iterator found = index_of.find(key);
+                if (found == index_of.end())
                 {
+                    index_of.emplace(key, keys.size());
                     keys.push_back(key);
-                    callsigns.push_back(check_in.callsign);
-                    names.push_back(check_in.name);
+                    callsigns.push_back(check_in->callsign);
+                    names.push_back(check_in->name);
                     counts.push_back(1);
-                    last_seen.push_back(session.instance_date);  // Newest first.
+                    last_seen.push_back(sessions[s].instance_date);  // Newest first.
                 }
                 else
                 {
-                    ++counts[static_cast<std::size_t>(found - keys.begin())];
+                    ++counts[found->second];
                 }
             }
         }
@@ -5431,14 +5481,14 @@ namespace ql
         // Regulars: at least half the sessions looked at, not yet here.
         std::vector<std::size_t> regulars;
         int total = static_cast<int>(sessions.size());
+        std::unordered_set<std::string> here;
+        for (const CheckIn& check_in : state->active_check_ins)
+        {
+            here.insert(CheckInKey(check_in.callsign, check_in.name));
+        }
         for (std::size_t i = 0; i < keys.size(); ++i)
         {
-            bool here = false;
-            for (const CheckIn& check_in : state->active_check_ins)
-            {
-                here = here || CheckInKey(check_in.callsign, check_in.name) == keys[i];
-            }
-            if (!here && counts[i] * 2 >= total)
+            if (here.count(keys[i]) == 0 && counts[i] * 2 >= total)
             {
                 regulars.push_back(i);
             }
@@ -5458,10 +5508,19 @@ namespace ql
 
         std::vector<std::vector<std::string>> rows;
         state->info_stations.clear();
+        // Their details in one query.
+        std::vector<std::string> regular_callsigns;
         for (std::size_t index : regulars)
         {
-            std::optional<Station> found = state->db->FindStationByCallsign(callsigns[index]);
-            Station station = found.has_value() ? *found : Station();
+            regular_callsigns.push_back(ToUpperAscii(callsigns[index]));
+        }
+        std::vector<Station> on_file = state->db->FindStationsByCallsigns(regular_callsigns);
+        for (std::size_t index : regulars)
+        {
+            std::string upper = ToUpperAscii(callsigns[index]);
+            std::vector<Station>::const_iterator found =
+                std::lower_bound(on_file.begin(), on_file.end(), upper, StationCallsignBefore);
+            Station station = found != on_file.end() && found->callsign == upper ? *found : Station();
             station.callsign = callsigns[index];
             if (!names[index].empty())
             {
@@ -5572,20 +5631,30 @@ namespace ql
     {
         // Its reads share one snapshot and one lock.
         Database::ReadTransaction reads(state->db);
-        std::vector<std::vector<std::string>> rows;
+        // First-timers: in no other session of this net. Each read in one
+        // query, not one per check-in.
+        std::unordered_set<std::string> seen_before;
+        for (std::string& callsign :
+             state->db->GetCallsignsInOtherSessions(state->active_instance.net_id, state->active_instance.id))
+        {
+            seen_before.insert(ToUpperAscii(callsign));
+        }
+        std::vector<const CheckIn*> first_timers;
+        std::vector<std::string> first_timer_callsigns;
         for (const CheckIn& check_in : state->active_check_ins)
         {
-            bool first_time = true;
-            for (const StationCheckInRecord& record :
-                 state->db->GetStationCheckInsForNet(state->active_instance.net_id, check_in.callsign))
+            if (seen_before.count(ToUpperAscii(check_in.callsign)) == 0)
             {
-                first_time = first_time && record.instance.id == state->active_instance.id;
+                first_timers.push_back(&check_in);
+                first_timer_callsigns.push_back(check_in.callsign);
             }
-            if (first_time)
-            {
-                rows.push_back({std::to_string(check_in.sequence_number), check_in.callsign,
-                                StationName(state->db, check_in.callsign)});
-            }
+        }
+        std::unordered_map<std::string, std::string> names = StationNames(state->db, first_timer_callsigns);
+        std::vector<std::vector<std::string>> rows;
+        for (const CheckIn* check_in : first_timers)
+        {
+            rows.push_back(
+                {std::to_string(check_in->sequence_number), check_in->callsign, NameOf(names, check_in->callsign)});
         }
 
         std::vector<std::string> summary;
@@ -5602,11 +5671,12 @@ namespace ql
         {
             std::int64_t sum = 0;
             std::int64_t most = 0;
+            std::unordered_map<std::int64_t, std::int64_t> counts =
+                state->db->GetCheckInCounts(state->active_instance.net_id);
             for (const NetInstance& session : sessions)
             {
-                std::int64_t count = 0;
-                std::int64_t newest_id = 0;
-                state->db->GetCheckInSummary(session.id, &count, &newest_id);
+                std::unordered_map<std::int64_t, std::int64_t>::const_iterator found = counts.find(session.id);
+                std::int64_t count = found == counts.end() ? 0 : found->second;
                 sum += count;
                 most = std::max(most, count);
             }
@@ -5655,11 +5725,11 @@ namespace ql
         std::vector<std::string> months;
         std::vector<int> month_sessions;
         std::vector<std::int64_t> month_check_ins;
+        std::unordered_map<std::int64_t, std::int64_t> counts = state->db->GetCheckInCounts(net.id);
         for (const NetInstance& session : sessions)
         {
-            std::int64_t count = 0;
-            std::int64_t newest_id = 0;
-            state->db->GetCheckInSummary(session.id, &count, &newest_id);
+            std::unordered_map<std::int64_t, std::int64_t>::const_iterator found = counts.find(session.id);
+            std::int64_t count = found == counts.end() ? 0 : found->second;
             sum += count;
             if (count > most)
             {
@@ -5693,10 +5763,17 @@ namespace ql
         summary.emplace_back("Most frequent stations:");
 
         std::vector<std::vector<std::string>> rows;
-        for (const CallsignTally& tally : state->db->GetTopCallsignsForNet(net.id, 15))
+        std::vector<CallsignTally> top = state->db->GetTopCallsignsForNet(net.id, 15);
+        std::vector<std::string> top_callsigns;
+        for (const CallsignTally& tally : top)
+        {
+            top_callsigns.push_back(tally.callsign);
+        }
+        std::unordered_map<std::string, std::string> names = StationNames(state->db, top_callsigns);
+        for (const CallsignTally& tally : top)
         {
             rows.push_back(
-                {tally.callsign, StationName(state->db, tally.callsign), std::to_string(tally.count), tally.last_date});
+                {tally.callsign, NameOf(names, tally.callsign), std::to_string(tally.count), tally.last_date});
         }
         ShowInfoWindow(
             state, InfoWindow::kNetStatistics, "Net Statistics: " + net.name, std::move(summary),
@@ -5725,10 +5802,21 @@ namespace ql
         }
         std::vector<StationCheckInRecord> records =
             state->db->FindCheckInsByCallsign(state->info_query, kStationSearchLimit);
+        // Their names in one query, not one per row, on every keystroke.
+        std::vector<std::string> callsigns;
+        std::unordered_set<std::string> listed;
+        for (const StationCheckInRecord& record : records)
+        {
+            if (listed.insert(record.check_in.callsign).second)
+            {
+                callsigns.push_back(record.check_in.callsign);
+            }
+        }
+        std::unordered_map<std::string, std::string> names = StationNames(state->db, callsigns);
         for (const StationCheckInRecord& record : records)
         {
             state->info_cells.push_back({record.instance.instance_date, record.net_name, record.check_in.callsign,
-                                         StationName(state->db, record.check_in.callsign),
+                                         NameOf(names, record.check_in.callsign),
                                          RoleAbbreviation(record.check_in.designated_role), record.check_in.remarks});
             // Ad hoc nets aren't on the Recurring Nets list, so say which
             // these are (see the Ad Hoc page for them).

@@ -382,7 +382,7 @@ namespace ql
 
     void ExportSavedStationsHandler::operator()() const
     {
-        ExportSavedStations(state_, state_->edit_net_name, state_->edit_net_saved_stations);
+        ExportSavedStations(state_, state_->edit_net_name);
     }
 
     void InfoQueryChangeHandler::operator()() const
