@@ -86,6 +86,27 @@ namespace ql
         AddClosedSession(&local, AddTestNet(&local, "220 EOR net"), "2026-09-23", 1790208000, 2);
     }
 
+    // The local database tests/push_screens.py drives the real program on:
+    // its sessions are on dates of their own, so the pushes it makes never
+    // meet the ones PushEndToEndRun makes.
+    QL_TEST(PushScreensSeed)
+    {
+        std::string dir = EndToEndDir();
+        if (dir.empty())
+        {
+            return;
+        }
+        Database local(dir + "/local-screens/quicklogger.db");
+        MarkAllLoaded(&local, static_cast<std::int64_t>(std::time(nullptr)));
+        std::int64_t tag = AddTestNet(&local, "TAG Skywarn");
+        AddClosedSession(&local, tag, "2026-10-06", 1791331200, 3);
+        AddClosedSession(&local, AddTestNet(&local, "Dixie Traders Net"), "2026-10-07", 1791417600, 2);
+        AddClosedSession(&local, AddTestNet(&local, "220 EOR net"), "2026-10-08", 1791504000, 2);
+        std::int64_t open = AddTestInstance(&local, tag, "2026-10-13", 1791936000, "W4KWK");
+        AddTestCheckIn(&local, open, "W4KWK", 1, kRoleNetControl);
+        AddTestCheckIn(&local, open, "K4TB", 2);
+    }
+
     // Writes the local session on `date` as a .qlsession, the way a push
     // does, and pushes it as `user`, to `host` on QL_PUSH_E2E_PORT.
     static PushResult PushSession(const std::string& dir, const std::string& date, const std::string& user,

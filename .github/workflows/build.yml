@@ -2,7 +2,8 @@
 # "Building QuickLogger" steps with each distribution's packages as the
 # README lists them, on every push and pull request to main; the first job
 # also runs the real ssh, scp and sftp against QuickLogger's SSH server on
-# the runner (tests/ssh_end_to_end.sh). One job uses
+# the runner, and drives the push screens in a terminal
+# (tests/ssh_end_to_end.sh). One job uses
 # CMake 3.16, the oldest CMake the build supports. Windows and FreeBSD are
 # slow to build, so they're built only for releases, or by hand (see
 # windows-binary.yml and freebsd-binary.yml).
@@ -26,7 +27,7 @@ jobs:
       - name: Install packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev lrzsz
+          sudo apt-get install -y build-essential cmake git libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libssh-dev lrzsz python3-pyte
       - name: Build
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -36,6 +37,8 @@ jobs:
           QL_EXPECT_LRZSZ: "1"
         run: ctest --test-dir build --output-on-failure
       - name: SSH end to end
+        env:
+          QL_EXPECT_PYTE: "1"
         run: tests/ssh_end_to_end.sh build
 
   oldest-cmake:
