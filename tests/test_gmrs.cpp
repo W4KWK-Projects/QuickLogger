@@ -229,6 +229,8 @@ namespace ql
         result = RunRemoteCommand(command, f.db(), f.state.db_path, "W4KWK", false, 1800000000);
         CHECK_EQ(result.exit_status, kRemoteExitRefused);
         CHECK(result.output.find("is on Amateur Radio and this session was logged on GMRS") != std::string::npos);
+        // The refusal ended that push, and the upload with it.
+        WriteSession(imports, "Family.qlsession", "Family Net", NetService::kGmrs);
 
         REQUIRE(
             ParseRemoteCommand("import-session --confirm-net \"Family GMRS Net\" Family.qlsession", &command, &error));

@@ -109,10 +109,8 @@ namespace ql
         std::string files = dir + "/files";
         std::string imports = SessionImportsDir(UpstreamDb(dir), "W4KWK");
         std::string exports = SessionExportsDir(UpstreamDb(dir), "W4KWK");
-        // From an empty /imports: a push that found no net leaves its
-        // upload there.
-        std::error_code ignored;
-        std::filesystem::remove_all(imports, ignored);
+        // /imports starts empty: a push that fails leaves nothing there.
+        CHECK(FilesIn(imports).empty());
 
         // Listing: the two folders, then the user's own exports.
         ProgramResult result = Sftp(dir, "W4KWK", "pwd\nls -1 /\nls -1 /exports\n");

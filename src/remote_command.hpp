@@ -18,6 +18,7 @@ namespace ql
     //
     //   version
     //   import-session [--confirm-net "<net name>"] <file>
+    //   discard-upload <file>
     //
     // Every command answers in the same form: "QUICKLOGGER-RESULT 1", then
     // "key: value" lines (see RemoteCommandResult), and an exit status.
@@ -34,12 +35,13 @@ namespace ql
     {
         kVersion,
         kImportSession,
+        kDiscardUpload,
     };
 
     struct RemoteCommand
     {
         RemoteCommandKind kind = RemoteCommandKind::kVersion;
-        // import-session: the file as given, and --confirm-net's net name.
+        // import-session and discard-upload: the file as given, and --confirm-net's net name.
         std::string file;
         bool has_confirm_net = false;
         std::string confirm_net;

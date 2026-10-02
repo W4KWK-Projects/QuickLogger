@@ -1,6 +1,6 @@
 # import-session: pushing a session upstream
 
-QuickLogger's built-in SSH server runs two commands of its own, for Federated Logging: another QuickLogger (or an app) that logged a session pushes it to a central "upstream" QuickLogger. This page is the interface, for anyone writing such a client. It's versioned: this is **interface 1**.
+QuickLogger's built-in SSH server runs three commands of its own, for Federated Logging: another QuickLogger (or an app) that logged a session pushes it to a central "upstream" QuickLogger. This page is the interface, for anyone writing such a client. It's versioned: this is **interface 1**.
 
 A push takes two steps, both as an SSH user added in Manage Users who isn't view-only:
 
@@ -9,11 +9,12 @@ A push takes two steps, both as an SSH user added in Manage Users who isn't view
 
 ## Commands
 
-Apart from copying files with scp, the SSH server runs only these two. It never starts a shell or another program: anything else is answered with `status: error` and exit status 1, and nothing runs.
+Apart from copying files with scp, the SSH server runs only these three. It never starts a shell or another program: anything else is answered with `status: error` and exit status 1, and nothing runs.
 
 ```
 version
 import-session [--confirm-net "<net name>"] <file>
+discard-upload <file>
 ```
 
 The command line is split into words at spaces, without a shell. A net name with spaces goes in double quotes (`\"` and `\\` inside them stand for `"` and `\`). Outside quotes, only letters, digits and `. _ - / + = : , @ %` are allowed, so `import-session x; ls` is an error, not two commands.
@@ -51,7 +52,19 @@ Which net it goes into, of those on the session's own service (Amateur Radio or 
 - If no net here looks like it, the answer is `no-match`.
 - **An ad hoc net's session** becomes a new ad hoc net, as it was defined where it was logged. `--confirm-net` isn't used for one.
 
-Once the session is imported, or found to be here already, the file is deleted from `/imports`. Otherwise it stays, so the same file can be used again with `--confirm-net`.
+The file is deleted from `/imports` once the command has answered, whatever the answer was: a push that fails leaves nothing behind. The one exception is `needs-confirmation`, which keeps it so the same file can be used again with `--confirm-net`. If the answer to that question is no, send `discard-upload` for it.
+
+### discard-upload
+
+`<file>` is named as for `import-session`, but may be any upload in your `/imports`. It deletes that file, for a client that was asked to confirm a net and decided against it. Nothing there is fine too.
+
+```
+QUICKLOGGER-RESULT 1
+status: ok
+message: Discarded Skywarn_2026-09-14.qlsession.
+```
+
+A name that isn't an upload in your `/imports` is `refused` (exit 4), and a view-only user is refused as for every command. An upstream older than this command answers `status: error` (exit 1) and keeps the file, which it deletes itself a week after the upload; a client can ignore that.
 
 ## Output
 
@@ -84,9 +97,9 @@ ssh exits with the command's exit status.
 | `imported` | 0 | The session was added. | Deleted |
 | `already-imported` | 0 | The net already had it, so pushing again is harmless. | Deleted |
 | `needs-confirmation` | 2 | No net has the session's net name, but `net` looks like it. Run again with `--confirm-net`. | Kept |
-| `no-match` | 3 | No net here looks like the session's net, or `--confirm-net` names no net here. | Kept |
-| `refused` | 4 | A view-only user; a file name that isn't a `.qlsession` in your `/imports`; no such file; over 25 MB; a file that isn't a QuickLogger session; or `--confirm-net` naming a net that doesn't look like the session's, or one on the other service. | Kept |
-| `error` | 1 | An unknown command, a malformed command line, or something that went wrong on the upstream QuickLogger. | Kept |
+| `no-match` | 3 | No net here looks like the session's net, or `--confirm-net` names no net here. | Deleted |
+| `refused` | 4 | A view-only user; a file name that isn't a `.qlsession` in your `/imports`; no such file; over 25 MB; a file that isn't a QuickLogger session; or `--confirm-net` naming a net that doesn't look like the session's, or one on the other service. | Deleted, except when the file wasn't there or the user is view-only |
+| `error` | 1 | An unknown command, a malformed command line, or something that went wrong on the upstream QuickLogger. | Deleted if it was an `import-session` of an upload |
 
 ssh itself exits 255 when it can't connect or log in; that's not one of these.
 

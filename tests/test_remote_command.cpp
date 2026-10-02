@@ -215,11 +215,16 @@ namespace ql
         CHECK_EQ(result.exit_status, kRemoteExitRefused);
         CHECK(result.output.find("status: refused\n") != std::string::npos);
         CHECK(fixture.db()->GetNetInstancesForNet(ares).empty());
-        CHECK(fixture.Uploaded("Sky.qlsession"));
+        // That was the end of the push: the upload goes, so a failed push
+        // leaves nothing behind. Only the question kept it.
+        CHECK(!fixture.Uploaded("Sky.qlsession"));
 
+        fixture.WriteSession("Sky.qlsession", "TAG Skywarn");
         result = fixture.Run("import-session --confirm-net \"No Such Net\" Sky.qlsession");
         CHECK_EQ(result.exit_status, kRemoteExitNoMatch);
-        CHECK(fixture.Uploaded("Sky.qlsession"));
+        CHECK(!fixture.Uploaded("Sky.qlsession"));
+
+        fixture.WriteSession("Sky.qlsession", "TAG Skywarn");
 
         // Confirmed by its exact name (case and spacing aside), even the one
         // that wasn't offered first.
@@ -241,7 +246,7 @@ namespace ql
         CHECK_EQ(result.exit_status, kRemoteExitNoMatch);
         CHECK_EQ(result.output, std::string("QUICKLOGGER-RESULT 1\nstatus: no-match\nsession: 2026-09-14 23:30 UTC\n"
                                             "message: No net here looks like \"Dixie Traders\".\n"));
-        CHECK(fixture.Uploaded("Dixie.qlsession"));
+        CHECK(!fixture.Uploaded("Dixie.qlsession"));
     }
 
     QL_TEST(ImportSessionMakesAnAdHocNetOnce)
@@ -281,8 +286,46 @@ namespace ql
         CHECK_EQ(fixture.Run("import-session .Sky.qlsession").exit_status, kRemoteExitRefused);
         CHECK_EQ(fixture.Run("import-session Missing.qlsession").exit_status, kRemoteExitRefused);
         CHECK_EQ(fixture.Run("import-session Junk.qlsession").exit_status, kRemoteExitRefused);
+        // A view-only user's command, and names that aren't uploads, touch
+        // nothing; a file that isn't a session is the push's end, so it goes.
         CHECK(fixture.Uploaded("Sky.qlsession"));
-        CHECK(fixture.Uploaded("Junk.qlsession"));
+        CHECK(!fixture.Uploaded("Junk.qlsession"));
+    }
+
+    QL_TEST(DiscardUploadRemovesAnUploadTheClientNoLongerWants)
+    {
+        ImportFixture fixture;
+        AddTestNet(fixture.db(), "Skywarn Weekly Net");
+        fixture.WriteSession("Sky.qlsession", "TAG Skywarn");
+        fixture.WriteSession("Other.qlsession", "TAG Skywarn");
+        fixture.WriteSession("Sky.qlnet", "TAG Skywarn");
+
+        // Asked about, then declined.
+        CHECK_EQ(fixture.Run("import-session Sky.qlsession").exit_status, kRemoteExitNeedsConfirmation);
+        CHECK(fixture.Uploaded("Sky.qlsession"));
+        RemoteCommandResult result = fixture.Run("discard-upload Sky.qlsession");
+        CHECK_EQ(result.exit_status, kRemoteExitOk);
+        CHECK_EQ(result.output, std::string("QUICKLOGGER-RESULT 1\nstatus: ok\nmessage: Discarded Sky.qlsession.\n"));
+        CHECK(!fixture.Uploaded("Sky.qlsession"));
+        CHECK(fixture.Uploaded("Other.qlsession"));
+
+        // Nothing there is fine too; names outside /imports uploads are not.
+        result = fixture.Run("discard-upload /imports/Sky.qlsession");
+        CHECK_EQ(result.exit_status, kRemoteExitOk);
+        CHECK(result.output.find("There was no Sky.qlsession to discard.") != std::string::npos);
+        CHECK_EQ(fixture.Run("discard-upload ../Other.qlsession").exit_status, kRemoteExitRefused);
+        CHECK_EQ(fixture.Run("discard-upload /exports/Other.qlsession").exit_status, kRemoteExitRefused);
+        CHECK_EQ(fixture.Run("discard-upload .Other.qlsession").exit_status, kRemoteExitRefused);
+        CHECK_EQ(fixture.Run("discard-upload notes.txt").exit_status, kRemoteExitRefused);
+        CHECK(fixture.Uploaded("Other.qlsession"));
+
+        // A view-only user is refused, like every command; a bad command
+        // line is an error and removes nothing.
+        CHECK_EQ(fixture.Run("discard-upload Other.qlsession", /*view_only=*/true).exit_status, kRemoteExitRefused);
+        CHECK_EQ(fixture.Run("discard-upload").exit_status, kRemoteExitError);
+        CHECK_EQ(fixture.Run("discard-upload Other.qlsession Sky.qlnet").exit_status, kRemoteExitError);
+        CHECK(fixture.Uploaded("Other.qlsession"));
+        CHECK(fixture.Uploaded("Sky.qlnet"));
     }
 
     QL_TEST(VersionNamesTheInterface)

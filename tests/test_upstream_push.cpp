@@ -196,6 +196,18 @@ namespace ql
         CHECK(Decide(copied, Ran(127, "", "")).kind == PushResultKind::kFailed);
     }
 
+    QL_TEST(DiscardingAnUploadRunsDiscardUploadOnTheSameConnection)
+    {
+        std::vector<std::string> discard = UpstreamDiscardArguments(TestUpstream(), "Sky.qlsession");
+        std::vector<std::string> import = UpstreamImportArguments(TestUpstream(), "Sky.qlsession", "");
+        REQUIRE(discard.size() == import.size());
+        for (std::size_t i = 0; i + 1 < discard.size(); ++i)
+        {
+            CHECK_EQ(discard[i], import[i]);
+        }
+        CHECK_EQ(discard.back(), std::string("discard-upload Sky.qlsession"));
+    }
+
     QL_TEST(WindowsCommandLinesQuoteEachArgument)
     {
         std::vector<std::string> arguments;

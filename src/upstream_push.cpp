@@ -107,6 +107,13 @@ namespace ql
         return arguments;
     }
 
+    std::vector<std::string> UpstreamDiscardArguments(const Upstream& upstream, const std::string& remote_name)
+    {
+        std::vector<std::string> arguments = UpstreamImportArguments(upstream, remote_name, "");
+        arguments.back() = "discard-upload " + remote_name;
+        return arguments;
+    }
+
     ImportReply ParseImportReply(std::string_view output)
     {
         ImportReply reply;
@@ -355,6 +362,16 @@ namespace ql
                                 kUpstreamRunTimeoutSeconds, cancel);
         }
         return DecidePushResult(upstream, copy, import, session_net);
+    }
+
+    void DiscardUpstreamUpload(const Upstream& upstream, const std::string& remote_name,
+                               const std::atomic<bool>* cancel)
+    {
+        std::string ssh = FindProgramOnPath("ssh");
+        if (!ssh.empty())
+        {
+            RunProgram(ssh, UpstreamDiscardArguments(upstream, remote_name), kUpstreamRunTimeoutSeconds, cancel);
+        }
     }
 
     bool UpstreamToolsAvailable()

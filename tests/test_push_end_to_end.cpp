@@ -90,6 +90,7 @@ namespace ql
         AddClosedSession(&local, dixie, "2026-09-24", 1790294400, 2);
         AddClosedSession(&local, dixie, "2026-09-26", 1790467200, 2);
         AddClosedSession(&local, dixie, "2026-09-27", 1790553600, 2);
+        AddClosedSession(&local, dixie, "2026-09-28", 1790640000, 2);
         AddClosedSession(&local, AddTestNet(&local, "220 EOR net"), "2026-09-23", 1790208000, 2);
     }
 
@@ -278,10 +279,29 @@ namespace ql
             std::filesystem::remove(filler);
         }
 
-        // Every way it fails, in one sentence.
+        // A look-alike that's declined: the client has the upstream delete
+        // the upload it kept to ask about.
+        result = PushSession(dir, "2026-09-28", "W4KWK", "");
+        CHECK(result.kind == PushResultKind::kNeedsConfirmation);
+        CHECK(FileExists(imports + "/Dixie_Traders_Net_2026-09-28.qlsession"));
+        {
+            Upstream declined;
+            declined.host = "127.0.0.1";
+            declined.user = "W4KWK";
+            declined.port = std::atoi(std::getenv("QL_PUSH_E2E_PORT"));
+            DiscardUpstreamUpload(declined, "Dixie_Traders_Net_2026-09-28.qlsession", nullptr);
+            CHECK(!FileExists(imports + "/Dixie_Traders_Net_2026-09-28.qlsession"));
+            // Again, with nothing there, is harmless.
+            DiscardUpstreamUpload(declined, "Dixie_Traders_Net_2026-09-28.qlsession", nullptr);
+        }
+        CHECK_EQ(UpstreamCheckIns(dir, "Dixie Traders", "2026-09-28"), -1);
+
+        // Every way it fails, in one sentence; none leaves its upload on the
+        // upstream.
         result = PushSession(dir, "2026-09-23", "W4KWK", "");
         CHECK(result.kind == PushResultKind::kFailed);
         CHECK_EQ(result.message, std::string("No net named like 220 EOR net on 127.0.0.1."));
+        CHECK(!FileExists(imports + "/220_EOR_net_2026-09-23.qlsession"));
         CHECK_EQ(PushSession(dir, "2026-09-22", "K4VIEW", "").message,
                  std::string("Your user on 127.0.0.1 is view-only."));
         CHECK_EQ(PushSession(dir, "2026-09-22", "K4NOBODY", "").message, std::string("127.0.0.1 refused your key."));

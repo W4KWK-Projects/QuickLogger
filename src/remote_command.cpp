@@ -156,9 +156,22 @@ namespace ql
             *command = std::move(parsed);
             return true;
         }
+        if (words[0] == "discard-upload")
+        {
+            if (words.size() != 2)
+            {
+                *error = "Usage: discard-upload <file>";
+                return false;
+            }
+            parsed.kind = RemoteCommandKind::kDiscardUpload;
+            parsed.file = words[1];
+            *command = std::move(parsed);
+            return true;
+        }
         if (words[0] != "import-session")
         {
-            *error = "Unknown command: " + words[0] + ". QuickLogger runs only import-session and version.";
+            *error =
+                "Unknown command: " + words[0] + ". QuickLogger runs only import-session, discard-upload and version.";
             return false;
         }
 
@@ -396,12 +409,6 @@ namespace ql
             return Finish("needs-confirmation", message, kRemoteExitNeedsConfirmation);
         }
 
-        // Imported, or found already imported: the file can go.
-        bool Done() const
-        {
-            return done_;
-        }
-
     private:
         static const Net* FindNamed(const std::vector<const Net*>& nets, const std::string& name)
         {
@@ -439,7 +446,6 @@ namespace ql
             Database::WriteTransaction transaction(db_);
             if (db_->HasNetInstance(net.id, source.instance_date, source.started_at))
             {
-                done_ = true;
                 return Finish("already-imported", net.name + " already has this session.", kRemoteExitOk);
             }
             std::int64_t instance_id = ApplySessionSlice(db_, slice_, net.id, &error);
@@ -448,7 +454,6 @@ namespace ql
                 return Finish("error", error, kRemoteExitError);
             }
             transaction.Commit();
-            done_ = true;
             std::string message = "Imported the session into " + net.name;
             if (net.name != slice_.net.name)
             {
@@ -469,7 +474,6 @@ namespace ql
                 fields_.has_net = true;
                 fields_.net = slice_.net.name;
                 fields_.net_id = existing->net_id;
-                done_ = true;
                 return Finish("already-imported", "The ad hoc net " + slice_.net.name + " already has this session.",
                               kRemoteExitOk);
             }
@@ -483,7 +487,6 @@ namespace ql
             fields_.has_net = true;
             fields_.net = slice_.net.name;
             fields_.net_id = net_id;
-            done_ = true;
             return Finish("imported", "Imported the session as a new ad hoc net, " + slice_.net.name + ".",
                           kRemoteExitOk);
         }
@@ -492,7 +495,6 @@ namespace ql
         const NetSlice& slice_;
         std::int64_t now_;
         RemoteResultFields fields_;
-        bool done_ = false;
     };
 
     static RemoteCommandResult ImportSession(const RemoteCommand& command, Database* db, const std::string& db_path,
@@ -516,9 +518,13 @@ namespace ql
         {
             return Simple("refused", "There's no " + path.name + " in your /imports.", kRemoteExitRefused);
         }
+        // The upload goes once the import has had its say, whatever it was:
+        // only a question to the user (needs-confirmation) keeps it, for the
+        // answer. A push that fails leaves nothing behind.
         std::uintmax_t size = std::filesystem::file_size(file_path, error_code);
         if (error_code || size > kSftpMaxUploadBytes)
         {
+            std::filesystem::remove(file_path, error_code);
             return Simple("refused", path.name + " is over the 25 MB limit.", kRemoteExitRefused);
         }
 
@@ -526,16 +532,54 @@ namespace ql
         std::optional<NetSlice> slice = ReadSessionSliceFile(file_path, &error);
         if (!slice.has_value())
         {
+            std::filesystem::remove(file_path, error_code);
             return Simple("refused", path.name + " can't be read: " + error, kRemoteExitRefused);
         }
 
-        SessionImport import(db, *slice, now);
-        RemoteCommandResult result = import.Run(command);
-        if (import.Done())
+        RemoteCommandResult result;
+        try
+        {
+            SessionImport import(db, *slice, now);
+            result = import.Run(command);
+        }
+        catch (...)
+        {
+            std::filesystem::remove(file_path, error_code);
+            throw;
+        }
+        if (result.exit_status != kRemoteExitNeedsConfirmation)
         {
             std::filesystem::remove(file_path, error_code);
         }
         return result;
+    }
+
+    // Removes an upload the client no longer wants (it was asked about a
+    // look-alike net and said no). Nothing there is as good as removed.
+    static RemoteCommandResult DiscardUpload(const RemoteCommand& command, const std::string& db_path,
+                                             const std::string& username)
+    {
+        std::string client_path =
+            command.file.find('/') == std::string::npos ? "/imports/" + command.file : command.file;
+        SftpPath path;
+        if (!ResolveSftpPath(client_path, &path) || path.area != SftpArea::kImports || path.name.empty() ||
+            !IsAllowedImportName(path.name))
+        {
+            return Simple("refused", "The file has to be one of your uploads in /imports.", kRemoteExitRefused);
+        }
+        std::string file_path = SessionImportsDir(db_path, username) + "/" + path.name;
+        std::error_code error_code;
+        std::filesystem::file_status status = std::filesystem::symlink_status(file_path, error_code);
+        if (error_code || !std::filesystem::is_regular_file(status))
+        {
+            return Simple("ok", "There was no " + path.name + " to discard.", kRemoteExitOk);
+        }
+        std::filesystem::remove(file_path, error_code);
+        if (error_code)
+        {
+            return Simple("error", "Couldn't discard " + path.name + ".", kRemoteExitError);
+        }
+        return Simple("ok", "Discarded " + path.name + ".", kRemoteExitOk);
     }
 
     RemoteCommandResult RunRemoteCommand(const RemoteCommand& command, Database* db, const std::string& db_path,
@@ -555,6 +599,10 @@ namespace ql
                 AppendLine(&result.output, "version", QuickLoggerVersion());
                 AppendLine(&result.output, "interface", std::to_string(kRemoteCommandInterface));
                 return result;
+            }
+            if (command.kind == RemoteCommandKind::kDiscardUpload)
+            {
+                return DiscardUpload(command, db_path, username);
             }
             return ImportSession(command, db, db_path, username, now);
         }

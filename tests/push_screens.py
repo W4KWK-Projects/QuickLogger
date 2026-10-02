@@ -102,6 +102,25 @@ def upstream_check_ins(directory, net, date):
         db.close()
 
 
+def uploads_left(directory):
+    """The .qlsession uploads in any user's /imports on the upstream."""
+    found = []
+    for root, _, files in os.walk(directory + "/up"):
+        if "imports" in root.split(os.sep):
+            found += [f for f in files if f.endswith(".qlsession")]
+    return found
+
+
+def uploads_gone(directory, seconds=10):
+    """True once no upload is left on the upstream (a declined push's is deleted by a background ssh)."""
+    end = time.time() + seconds
+    while time.time() < end:
+        if not uploads_left(directory):
+            return True
+        time.sleep(0.2)
+    return False
+
+
 def settings(run_dir, port, user):
     with open(run_dir + "/settings.txt", "w") as f:
         f.write("callsign=W4KWK\nlocation=37415\nupstream_host=127.0.0.1\n"
@@ -180,6 +199,7 @@ def main():
     program.expect("Not pushed. Push it from History (F3) later.", "look-alike: declined")
     check(upstream_check_ins(directory, "Dixie Traders", "2026-10-07") is None,
           "look-alike: declined, so nothing reached the upstream")
+    check(uploads_gone(directory), "look-alike: declined, so the upstream's copy is deleted")
     program.send("F3")
     program.expect("Push to Dixie Traders?", "look-alike: asks again")
     program.send("Enter")
@@ -196,6 +216,7 @@ def main():
     program.expect("No net named like 220 EOR net on 127.0.0.1.", "no match: push says so")
     check(upstream_check_ins(directory, "220 EOR net", "2026-10-08") is None,
           "no match: nothing reached the upstream")
+    check(uploads_gone(directory, 3), "no match: nothing left in the upstream's /imports")
     program.quit()
 
     print("")

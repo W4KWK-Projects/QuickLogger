@@ -108,6 +108,9 @@ namespace ql
         std::string upstream_net;
     };
 
+    // ssh's arguments to run discard-upload on `remote_name`.
+    std::vector<std::string> UpstreamDiscardArguments(const Upstream& upstream, const std::string& remote_name);
+
     // The push's result once scp has run (`copy`) and, if the copy worked,
     // ssh too (`import`, else ignored). `session_net` is the session's own
     // net name, for "no net like" messages.
@@ -122,6 +125,13 @@ namespace ql
     // becomes true. Changes nothing here: the caller sets pushed_at.
     PushResult PushSessionFile(const Upstream& upstream, const std::string& local_path, const std::string& remote_name,
                                const std::string& confirm_net, const std::string& session_net,
+                               const std::atomic<bool>* cancel);
+
+    // Asks the upstream to delete the upload of `remote_name` it kept when it
+    // asked about a look-alike net and the answer was no. Best effort and
+    // silent: an upstream that can't (it's gone, or older and doesn't know
+    // the command) sweeps old uploads itself after a week.
+    void DiscardUpstreamUpload(const Upstream& upstream, const std::string& remote_name,
                                const std::atomic<bool>* cancel);
 
     // True if both ssh and scp can be found (FindProgramOnPath).

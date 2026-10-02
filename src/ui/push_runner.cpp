@@ -34,6 +34,19 @@ namespace ql
         {
             thread_.join();
         }
+        if (discard_thread_.joinable())
+        {
+            discard_thread_.join();
+        }
+    }
+
+    void PushRunner::Discard(const Upstream& upstream, const std::string& remote_name)
+    {
+        if (discard_thread_.joinable())
+        {
+            discard_thread_.join();
+        }
+        discard_thread_ = std::thread(&DiscardUpstreamUpload, upstream, remote_name, &cancel_);
     }
 
     void PushRunner::Start(const Upstream& upstream, const std::string& local_path, const std::string& remote_name,

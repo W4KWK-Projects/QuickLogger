@@ -1229,6 +1229,21 @@ namespace ql
         StartPush(state, selected.id, "");
     }
 
+    // The upstream kept the last push's upload to ask about it; it won't be
+    // used, so it can go.
+    static void DiscardKeptUpload(AppState* state)
+    {
+        if (state->push_runner == nullptr || state->push_remote_name.empty())
+        {
+            return;
+        }
+        Upstream upstream;
+        upstream.host = state->settings.upstream_host;
+        upstream.user = state->settings.upstream_user;
+        upstream.port = state->settings.upstream_port;
+        state->push_runner->Discard(upstream, state->push_remote_name);
+    }
+
     void FinishPush(AppState* state, const PushResult& result)
     {
         state->push_running = false;
@@ -1253,6 +1268,7 @@ namespace ql
                 state->status_message.clear();
                 state->form_error = "Not pushed: " + state->settings.upstream_host + " has no net named " +
                                     state->push_session_net + ". Push it from History (F3) to choose.";
+                DiscardKeptUpload(state);
                 return;
             }
             state->push_upstream_net = result.upstream_net;
@@ -1275,6 +1291,7 @@ namespace ql
     void DeclinePushToNet(AppState* state)
     {
         CancelConfirmPrompt(state);
+        DiscardKeptUpload(state);
         state->form_error.clear();
         state->status_message = "Not pushed. Push it from History (F3) later.";
     }

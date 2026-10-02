@@ -32,6 +32,12 @@ namespace ql
         void Start(const Upstream& upstream, const std::string& local_path, const std::string& remote_name,
                    const std::string& confirm_net, const std::string& session_net);
 
+        // Has the upstream delete the upload it kept when it asked about a
+        // look-alike net, now declined. Done on a thread of its own and
+        // without a word to the person: if it doesn't work, the upstream's
+        // sweep of old uploads gets it.
+        void Discard(const Upstream& upstream, const std::string& remote_name);
+
     private:
         void Run(Upstream upstream, std::string local_path, std::string remote_name, std::string confirm_net,
                  std::string session_net);
@@ -40,6 +46,7 @@ namespace ql
         AppState* state_;
         std::atomic<bool> cancel_{false};
         std::thread thread_;
+        std::thread discard_thread_;
     };
 
 }  // namespace ql

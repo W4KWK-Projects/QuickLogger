@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -389,6 +390,7 @@ namespace ql
             source.CloseNetInstance(instance, 1789430400);
             std::string error;
             REQUIRE(WriteNetSliceFile(imports + "/Sky.qlsession", GatherSessionSlice(&source, instance), &error));
+            std::filesystem::copy_file(imports + "/Sky.qlsession", dir.File("spare.qlsession"));
         }
         AddTestNet(&server, "Skywarn");
 
@@ -411,8 +413,9 @@ namespace ql
             CHECK_EQ(result.exit_status, kRemoteExitError);
             CHECK(result.output.find("status: error\n") != std::string::npos);
         }
-        // The upload is still there, and the same push now imports.
-        CHECK(FileExists(imports + "/Sky.qlsession"));
+        // The failed push left nothing behind; pushed again, it imports.
+        CHECK(!FileExists(imports + "/Sky.qlsession"));
+        std::filesystem::copy_file(dir.File("spare.qlsession"), imports + "/Sky.qlsession");
         RemoteCommandResult result = RunRemoteCommand(command, &server, db_path, "W4KWK", false, 1800000000);
         CHECK_EQ(result.exit_status, kRemoteExitOk);
     }
