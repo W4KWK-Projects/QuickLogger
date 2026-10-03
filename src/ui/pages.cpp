@@ -2469,16 +2469,15 @@ namespace ql
             if (state_->pull_stage == PullStage::kChoosing)
             {
                 rows.push_back(ftxui::paragraph(state_->pull_sessions
-                                                    ? "Which of " + host + "'s nets are these sessions of?"
-                                                    : "Which of " + host + "'s nets?") |
+                                                    ? std::string("Select a net to pull sessions from:")
+                                                    : "Select a net to import from " + host + ":") |
                                ftxui::bold | ftxui::color(kColorLabel));
-                rows.push_back(
-                    ftxui::paragraph(state_->pull_sessions
-                                         ? "Adds its closed sessions to " + state_->import_session_net_name +
-                                               "'s History; the ones it has already are skipped."
-                                         : "Imports it like a file received any other way: you're asked if one here "
-                                           "looks like it.") |
-                    ftxui::color(kColorHint));
+                if (state_->pull_sessions)
+                {
+                    rows.push_back(ftxui::paragraph("Adds its closed sessions to " + state_->import_session_net_name +
+                                                    "'s History; duplicates are skipped.") |
+                                   ftxui::color(kColorHint));
+                }
                 rows.push_back(NetList());
                 rows.push_back(DialogSeparator());
                 rows.push_back(KeyHintRow({{"F2/Enter", "Pull"}, {"Esc", "Cancel"}}));

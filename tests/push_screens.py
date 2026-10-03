@@ -258,7 +258,7 @@ def main():
     program.expect("Import Net", "pull: the Import page opens")
     program.expect("F4  Pull", "pull: the Import page offers Pull")
     program.send("F4")
-    program.expect("Which of 127.0.0.1's nets?", "pull: the upstream's nets are listed")
+    program.expect("Select a net to import from 127.0.0.1:", "pull: the upstream's nets are listed")
     concurrent = upstream_sessions(directory, "Concurrent Net")
     program.expect("Concurrent Net  (%d sessions)" % concurrent, "pull: a net's closed sessions are counted")
     program.send("Enter")  # Concurrent Net, which nothing here is like
@@ -270,7 +270,7 @@ def main():
     # Cancelled: nothing changes.
     program.send("F9")
     program.send("F4")
-    program.expect("Which of 127.0.0.1's nets?", "pull: the list opens again")
+    program.expect("Select a net to import from 127.0.0.1:", "pull: the list opens again")
     program.send("Esc")
     program.expect("Import Net", "pull: Esc closes the window")
     program.send("Esc")
@@ -285,7 +285,7 @@ def main():
     program.send("F6")
     program.expect("Import Session: TAG Skywarn", "pull sessions: the Import page opens")
     program.send("F4")
-    program.expect("Which of 127.0.0.1's nets are these sessions of?", "pull sessions: asks which net")
+    program.expect("Select a net to pull sessions from:", "pull sessions: asks which net")
     program.send("Enter")  # TAG Skywarn is highlighted: it has this net's name
     program.expect("Added 2 sessions of TAG Skywarn from 127.0.0.1; 2 here already.", "pull sessions: two added")
     program.expect("History: TAG Skywarn", "pull sessions: back in History")
@@ -298,7 +298,7 @@ def main():
     # Again: nothing new.
     program.send("F6")
     program.send("F4")
-    program.expect("Which of 127.0.0.1's nets are these sessions of?", "pull again: asks which net")
+    program.expect("Select a net to pull sessions from:", "pull again: asks which net")
     program.send("Enter")
     program.expect("Nothing new:", "pull again: nothing new")
     program.quit()
