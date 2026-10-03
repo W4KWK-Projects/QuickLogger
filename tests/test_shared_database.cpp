@@ -383,14 +383,25 @@ namespace ql
             // A std::exception with words, which the key handler turns into
             // "Action not completed: ..." (SafeAppEventDispatcher).
             std::string message;
+            std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
+            bool logged = false;
             try
             {
-                net_control.Log("K4AAA");
+                logged = net_control.Log("K4AAA");
             }
             catch (const std::exception& e)
             {
                 message = e.what();
             }
+            std::fprintf(
+                stderr,
+                "Log under the lock: returned %d after %lld ms, threw \"%s\", form error \"%s\", %zu check-ins\n",
+                logged ? 1 : 0,
+                static_cast<long long>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - began)
+                        .count()),
+                message.c_str(), net_control.state.form_error.c_str(),
+                net_control.db()->GetCheckInsForNetInstance(instance).size());
             CHECK(message.find("locked") != std::string::npos);
             // Nothing half-written, and the connection still usable for reads.
             CHECK_EQ(net_control.db()->GetCheckInsForNetInstance(instance).size(), std::size_t{1});
