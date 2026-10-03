@@ -2478,15 +2478,14 @@ namespace ql
 
         ftxui::Element operator()() const
         {
-            const std::string& host = state_->settings.upstream_host;
             ftxui::Elements rows;
             rows.push_back(Heading(state_->pull_sessions ? "Pull Sessions" : "Pull Net"));
             rows.push_back(DialogSeparator());
             if (state_->pull_stage == PullStage::kChoosing)
             {
                 rows.push_back(ftxui::paragraph(state_->pull_sessions
-                                                    ? std::string("Select a net to pull sessions from:")
-                                                    : "Select a net to import from " + host + ":") |
+                                                    ? std::string("Select an upstream net to pull sessions from:")
+                                                    : std::string("Select an upstream net to import:")) |
                                ftxui::bold | ftxui::color(kColorLabel));
                 if (state_->pull_sessions)
                 {
@@ -2501,8 +2500,8 @@ namespace ql
             else
             {
                 std::string working = state_->pull_stage == PullStage::kFetching
-                                          ? "Fetching " + state_->pull_net_name + " from " + host + "..."
-                                          : "Asking " + host + " for its nets...";
+                                          ? "Fetching " + state_->pull_net_name + " from upstream..."
+                                          : std::string("Asking upstream for its nets...");
                 rows.push_back(ftxui::paragraph(working) | ftxui::color(kColorLabel));
                 rows.push_back(DialogSeparator());
                 rows.push_back(KeyHintRow({{"Esc", "Cancel"}}));
