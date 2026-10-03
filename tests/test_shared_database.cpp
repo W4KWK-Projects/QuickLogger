@@ -299,7 +299,7 @@ namespace ql
     class WriteLockHolder
     {
     public:
-        WriteLockHolder(const std::string& db_path, int milliseconds)
+        WriteLockHolder(const std::string& db_path, int milliseconds) : path_(db_path)
         {
             thread_ = std::thread(
                 [this, db_path, milliseconds]()
@@ -324,12 +324,31 @@ namespace ql
             }
         }
 
+        // Whether a second connection really is kept out. Not on every
+        // system: the GitHub macOS 15 runner (SQLite 3.43.2) lets a second
+        // connection in the same process write while the first holds the
+        // lock, so the tests that need the lock to bite stop there.
+        bool Blocks() const
+        {
+            sqlite3* probe = nullptr;
+            sqlite3_open(path_.c_str(), &probe);
+            int result = sqlite3_exec(probe, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr);
+            if (result == SQLITE_OK)
+            {
+                sqlite3_exec(probe, "ROLLBACK;", nullptr, nullptr, nullptr);
+            }
+            std::fprintf(stderr, "WriteLockHolder: a second connection's BEGIN IMMEDIATE returned %d\n", result);
+            sqlite3_close(probe);
+            return result == SQLITE_BUSY;
+        }
+
         ~WriteLockHolder()
         {
             thread_.join();
         }
 
     private:
+        std::string path_;
         std::atomic<bool> held_{false};
         std::thread thread_;
     };
@@ -357,6 +376,10 @@ namespace ql
 
         {
             WriteLockHolder other(dir.File("quicklogger.db"), 7000);
+            if (!other.Blocks())
+            {
+                return;
+            }
             // A std::exception with words, which the key handler turns into
             // "Action not completed: ..." (SafeAppEventDispatcher).
             std::string message;
@@ -406,6 +429,10 @@ namespace ql
         REQUIRE(ParseRemoteCommand("import-session Sky.qlsession", &command, &error));
         {
             WriteLockHolder other(db_path, 7000);
+            if (!other.Blocks())
+            {
+                return;
+            }
             RemoteCommandResult result;
             bool threw = false;
             try
