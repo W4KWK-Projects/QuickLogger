@@ -1647,7 +1647,7 @@ namespace ql
                 HintText(state_->callsign_editable ? "* Required: the postal code, and one call sign or both"
                                                    : "* Required. Your call signs are set by the server's operator."),
                 Separator(),
-                HintParagraph("Postal Code (a 5-digit ZIP, or a Canadian postal code) finds nearby licensed stations "
+                HintParagraph("Postal Code (5-digit ZIP, or Canadian postal code) finds nearby licensed stations "
                               "for nets without one."),
                 ftxui::text(""),
                 HintParagraph(

@@ -1777,7 +1777,7 @@ namespace ql
         }
         if (!IsZipOrPostalCode(state->settings_form.location))
         {
-            state->form_error = "Your postal code is required: a 5-digit ZIP or a Canadian postal code.";
+            state->form_error = "Your postal code is required: 5-digit ZIP or Canadian postal code.";
             return false;
         }
         state->settings_form.location = NormalizeZipOrPostalCode(state->settings_form.location);
@@ -1995,7 +1995,7 @@ namespace ql
     {
         if (!zip.empty() && !IsZipOrPostalCode(zip))
         {
-            state->form_error = "Postal code must be a 5-digit ZIP or a Canadian postal code, or left blank.";
+            state->form_error = "Postal code must be a 5-digit ZIP or Canadian postal code, or left blank.";
             return false;
         }
         return true;
