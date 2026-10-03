@@ -472,7 +472,7 @@ namespace ql
             ftxui::Elements rows;
             // After an export of a net or closed session with an upstream set: F3 pushes it.
             bool can_push = ExportOffersPush(state_);
-            std::string push_label = "Push to " + state_->settings.upstream_host;
+            const char* push_label = "Push to upstream";
             if (state_->zmodem_action == ZmodemAction::kShowFolder || state_->zmodem_action == ZmodemAction::kPushOnly)
             {
                 rows.push_back(Heading("Exported"));

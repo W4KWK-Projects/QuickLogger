@@ -153,13 +153,13 @@ QuickLogger keeps no keys of its own: it runs this computer's `ssh` and `scp`, w
 
 **Close & Push:** with an upstream set, closing a net (**F4**) also offers **F3 Close & Push**. The session closes here, then goes to the upstream while you carry on; the status line says when it's done. The session stays closed here whatever becomes of the push.
 
-**From History:** **F7** Export on a closed session also offers **F3 Push to** the upstream, such as for one closed with **F2** or one whose push failed. A pushed session's Status reads *pushed*. Pushing one the upstream already has does no harm.
+**From History:** **F7** Export on a closed session also offers **F3 Push to upstream**, such as for one closed with **F2** or one whose push failed. A pushed session's Status reads *pushed*. Pushing one the upstream already has does no harm.
 
 **When the names differ:** if the upstream has no net of the session's name but one that looks like it, QuickLogger asks. **F2/Enter** pushes it to that net, **Esc** doesn't. If nothing there looks like it, nothing is pushed.
 
 **When a push fails:** the status line says why in one sentence, such as that the upstream couldn't be reached, refused your key, or has a host key `ssh` doesn't know. Push it again from History once that's fixed.
 
-**Pushing a net:** like a session, with **F8** Export on Recurring Nets: the export window also offers **F3 Push to** the upstream. It sends the net's closed sessions and saved stations. A net the upstream hasn't got is added. If it has a net of that name (or one that looks like it), QuickLogger shows what merging would add and asks: **F2/Enter** merges, **Esc** doesn't. A merge only adds what the upstream lacks and never changes what it has. Where there's nothing else to do with the export (no ZMODEM, no file manager), the window offers just the push.
+**Pushing a net:** like a session, with **F8** Export on Recurring Nets: the export window also offers **F3 Push to upstream**. It sends the net's closed sessions and saved stations. A net the upstream hasn't got is added. If it has a net of that name (or one that looks like it), QuickLogger shows what merging would add and asks: **F2/Enter** merges, **Esc** doesn't. A merge only adds what the upstream lacks and never changes what it has. Where there's nothing else to do with the export (no ZMODEM, no file manager), the window offers just the push.
 
 **Pulling a net:** with an upstream set, **F4 Pull** on the Import page (**F9** on Recurring Nets) lists the upstream's nets with their number of closed sessions. Highlight one and press **F2/Enter**. QuickLogger fetches the net and imports it as a file you received: a net you don't have is added as *imported*, and one that looks like a net you have opens the **Import or Merge?** window. **Esc** cancels.
 
