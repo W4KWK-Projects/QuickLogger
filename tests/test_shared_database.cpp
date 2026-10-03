@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -305,7 +306,13 @@ namespace ql
                 {
                     sqlite3* connection = nullptr;
                     sqlite3_open(db_path.c_str(), &connection);
-                    sqlite3_exec(connection, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr);
+                    std::fprintf(stderr, "WriteLockHolder: SQLite %s\n", sqlite3_libversion());
+                    int result = sqlite3_exec(connection, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr);
+                    if (result != SQLITE_OK)
+                    {
+                        std::fprintf(stderr, "WriteLockHolder: BEGIN IMMEDIATE failed: %d %s\n", result,
+                                     sqlite3_errmsg(connection));
+                    }
                     held_ = true;
                     std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
                     sqlite3_exec(connection, "COMMIT;", nullptr, nullptr, nullptr);
