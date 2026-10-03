@@ -191,16 +191,22 @@ CREATE TABLE IF NOT EXISTS users (
     static constexpr int kSchemaVersion = 16;
 
     // How SQLite waits for another connection's lock: 1 ms pauses for the
-    // first 20 tries, then 5 ms ones, 5 seconds in all. SQLite's own handler
-    // (sqlite3_busy_timeout) counts nominal milliseconds but sleeps whole
-    // seconds where a build lacks a microsecond sleep (the SQLite in macOS
-    // 15), so its "5 seconds" ran to nearly a minute there.
+    // first 20 tries, then 5 ms ones, giving up after 5 seconds by the clock.
+    // Counting tries instead ran long where sleeps overshoot (the GitHub
+    // macOS runner: 7 seconds for "5"). A wait is one call chain on one
+    // thread, so its start can live in a thread_local.
     static constexpr int kBusyFastTries = 20;
-    static constexpr int kBusyTries = kBusyFastTries + (5000 - kBusyFastTries) / 5;
+    static constexpr std::chrono::milliseconds kBusyLimit{5000};
 
     static int WaitForLock(void*, int tries)
     {
-        if (tries >= kBusyTries)
+        thread_local std::chrono::steady_clock::time_point began;
+        std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+        if (tries == 0)
+        {
+            began = now;
+        }
+        else if (now - began >= kBusyLimit)
         {
             return 0;
         }
