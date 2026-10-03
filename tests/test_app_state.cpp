@@ -1348,10 +1348,10 @@ namespace ql
         f.db()->CreateNet(old);
         RefreshNets(&f.state);
         REQUIRE(f.state.net_names.size() == 3);
-        CHECK_EQ(f.state.net_names[0], "Old" + std::string(30 - 3 + 2, ' ') + "HAM");
+        CHECK_EQ(f.state.net_names[0], "Old" + std::string(30 - 3 + 2, ' ') + "Amateur");
         // The names get a 30-column Net column (see RefreshNets), then Type,
         // the Frequency column (blank here) and the two-space gaps.
-        std::string gap = std::string(30 - 7 + 2, ' ') + "HAM" + std::string(1 + 2 + 10 + 2, ' ');
+        std::string gap = std::string(30 - 7 + 2, ' ') + "Amateur" + std::string(2 + 10 + 2, ' ');
         CHECK(f.state.net_names[1].find("Skywarn" + gap + "created " + FormatLocalDate(1790000000)) == 0);
         CHECK(f.state.net_names[2].find("Skywarn" + gap + "imported " + FormatLocalDate(1790100000)) == 0);
     }
@@ -2040,7 +2040,7 @@ namespace ql
         RefreshNets(&f.state);
         REQUIRE(f.state.net_names.size() == 1);
         CHECK_EQ(f.state.net_names[0],
-                 "Skywarn" + std::string(30 - 7 + 2, ' ') + "HAM" + std::string(1 + 2 + 10 + 2, ' ') + "session open");
+                 "Skywarn" + std::string(30 - 7 + 2, ' ') + "Amateur" + std::string(2 + 10 + 2, ' ') + "session open");
     }
 
     QL_TEST(AWiderTerminalShowsMoreOfEveryList)

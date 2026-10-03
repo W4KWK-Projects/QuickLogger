@@ -160,8 +160,8 @@ namespace ql
         f.AddNet("Skywarn", NetService::kAmateur);
         RefreshNets(&f.state);
         REQUIRE(f.state.net_names.size() == 2);
-        CHECK(f.state.net_names[0].find("Family Net" + std::string(30 - 10 + 2, ' ') + "GMRS  Ch 22R") == 0);
-        CHECK(f.state.net_names[1].find("Skywarn" + std::string(30 - 7 + 2, ' ') + "HAM") == 0);
+        CHECK(f.state.net_names[0].find("Family Net" + std::string(30 - 10 + 2, ' ') + "GMRS     Ch 22R") == 0);
+        CHECK(f.state.net_names[1].find("Skywarn" + std::string(30 - 7 + 2, ' ') + "Amateur") == 0);
     }
 
     QL_TEST(LongNetNamesGiveTheTypeItsRoomAt80Columns)
@@ -173,9 +173,9 @@ namespace ql
         f.db()->CreateNet(net);
         RefreshNets(&f.state);
         REQUIRE(f.state.net_names.size() == 1);
-        // The name is cut at 36, so the date after it never is.
+        // The name is cut at 33, so the date after it never is.
         const std::string& row = f.state.net_names[0];
-        CHECK(row.find("Tennessee Alabama Georgia Skywarn We  HAM") == 0);
+        CHECK(row.find("Tennessee Alabama Georgia Skywarn  Amateur") == 0);
         CHECK(row.find("created " + FormatLocalDate(1790000000)) != std::string::npos);
         CHECK(static_cast<int>(row.size()) <= 75);
     }

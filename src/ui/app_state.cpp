@@ -677,9 +677,9 @@ namespace ql
     static constexpr int kNetNameBreathingRoom = 4;
     static constexpr int kNetNameNarrowRoom = 2;
     // The most the name starts at: what's left at 80 columns beside the
-    // always-shown Type (4), Frequency (10) and Notes (19), with their gaps.
+    // always-shown Type (7), Frequency (10) and Notes (19), with their gaps.
     // It widens back toward kMaxNetNameColumnWidth when there's room.
-    static constexpr int kNetNameWidthAt80 = 36;
+    static constexpr int kNetNameWidthAt80 = 33;
 
     // The when-created/imported column (and "session open") comes last, as
     // it always has.
@@ -695,10 +695,9 @@ namespace ql
     {
         return {
             {"Net", name_width, name_max_width, 0, 99},
-            // Amateur Radio ("HAM", to keep it narrow) or GMRS, at every
-            // width; at 80 columns its room comes out of the name's (see
+            // "Amateur" or "GMRS", at every width; at 80 columns its room comes out of the name's (see
             // kNetNameWidthAt80).
-            {"Type", 4, 4, 0, 0, 4},
+            {"Type", 7, 7, 0, 0, 7},
             {"Mode", 6, 8, 1, 6},
             // Always shown: at 80 columns it fits beside the name and the
             // notes, whose longest text ("imported 2026-09-30") is known.
@@ -765,7 +764,7 @@ namespace ql
         std::vector<std::string> cells;
         cells.reserve(7);
         cells.push_back(net.name);
-        cells.emplace_back(net.service == NetService::kGmrs ? "GMRS" : "HAM");
+        cells.emplace_back(net.service == NetService::kGmrs ? "GMRS" : "Amateur");
         cells.push_back(net.mode);
         // A GMRS net by its channel ("Ch 22R"): channel 22 and its repeater
         // pair share a frequency.

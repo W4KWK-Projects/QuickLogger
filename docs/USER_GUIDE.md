@@ -64,7 +64,7 @@ A recurring net is one you run again and again: a weekly Skywarn net, a club's T
 - **Modes from older versions:** before 1.8.0, Mode was free text. When you upgrade, or import a net exported by an older version, a mode written another way becomes the one it means ("fm" is FM, "D-Star" is D-STAR, "YSF" and "C4FM" are Fusion, "USB" and "LSB" are SSB), and anything else ("Digital", "FM & DMR") is cleared. Edit Net then shows FM with a note saying the old mode wasn't one of these, until you pick one and save.
 - **Nets from older versions:** a frequency that isn't a plain amateur frequency (for example "146.940 -600 PL 100") is moved into the net's Comments as "Frequency: ..." when you upgrade, or when you import such a net, and any frequency with a decimal point found in it stays in Frequency.
 - **Delete:** **F8** on its Edit Net page. It asks first: this deletes every session and check-in of the net.
-- **Telling nets apart:** the list's **Type** column shows HAM or GMRS. It also shows when each net was created, or when it was imported, and *session open* while one of its sessions hasn't been closed. The list keeps this current as others open and close sessions.
+- **Telling nets apart:** the list's **Type** column shows Amateur or GMRS. It also shows when each net was created, or when it was imported, and *session open* while one of its sessions hasn't been closed. The list keeps this current as others open and close sessions.
 
 ## Running a net
 
