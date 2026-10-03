@@ -273,6 +273,12 @@ namespace ql
     {
         if (state_->show_zmodem_confirm_modal)
         {
+            // After F7 Export of a closed session, with an upstream set.
+            if (event == ftxui::Event::F3 && ExportOffersPush(state_))
+            {
+                PushExport(state_);
+                return true;
+            }
             if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
             {
                 ConfirmZmodemActionHandler confirm(state_);
@@ -313,11 +319,6 @@ namespace ql
         if (event == ftxui::Event::F12)
         {
             OpenHistorySessionNotes(state_);
-            return true;
-        }
-        if (event == ftxui::Event::F3 && CanPushUpstream(state_))
-        {
-            PushSelectedHistorySession(state_);
             return true;
         }
         // Nothing in History can be deleted or imported by a view-only
@@ -599,6 +600,12 @@ namespace ql
     {
         if (state_->show_zmodem_confirm_modal)
         {
+            // After an export, with an upstream set: push what was exported.
+            if (event == ftxui::Event::F3 && ExportOffersPush(state_))
+            {
+                PushExport(state_);
+                return true;
+            }
             if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
             {
                 ConfirmZmodemActionHandler confirm(state_);

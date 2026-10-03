@@ -191,15 +191,15 @@ namespace ql
             *command = std::move(parsed);
             return true;
         }
-        if (words[0] != "import-session")
+        if (words[0] != "import-session" && words[0] != "import-net")
         {
             *error = "Unknown command: " + words[0] +
-                     ". QuickLogger runs only import-session, discard-upload, list-nets, export-net, "
-                     "export-sessions and version.";
+                     ". QuickLogger runs only import-session, import-net, discard-upload, list-nets, "
+                     "export-net, export-sessions and version.";
             return false;
         }
 
-        parsed.kind = RemoteCommandKind::kImportSession;
+        parsed.kind = words[0] == "import-net" ? RemoteCommandKind::kImportNet : RemoteCommandKind::kImportSession;
         std::size_t next = 1;
         if (next < words.size() && words[next] == "--confirm-net")
         {
@@ -214,7 +214,7 @@ namespace ql
         }
         if (next >= words.size())
         {
-            *error = "Usage: import-session [--confirm-net \"<net name>\"] <file>";
+            *error = "Usage: " + words[0] + " [--confirm-net \"<net name>\"] <file>";
             return false;
         }
         if (words[next].size() > 1 && words[next][0] == '-' && words[next][1] == '-')
@@ -224,7 +224,7 @@ namespace ql
         }
         if (next + 1 != words.size())
         {
-            *error = "import-session takes one file.";
+            *error = words[0] + " takes one file.";
             return false;
         }
         parsed.file = words[next];
@@ -241,6 +241,11 @@ namespace ql
         bool has_net = false;
         std::int64_t net_id = 0;
         std::string session;
+        // import-net: what merging adds and what differs.
+        bool has_counts = false;
+        int new_sessions = 0;
+        int new_saved_stations = 0;
+        int differing_sessions = 0;
         std::string message;
     };
 
@@ -276,6 +281,12 @@ namespace ql
         if (!fields.session.empty())
         {
             AppendLine(&result.output, "session", fields.session);
+        }
+        if (fields.has_counts)
+        {
+            AppendLine(&result.output, "new-sessions", std::to_string(fields.new_sessions));
+            AppendLine(&result.output, "new-saved-stations", std::to_string(fields.new_saved_stations));
+            AppendLine(&result.output, "differing-sessions", std::to_string(fields.differing_sessions));
         }
         if (!fields.message.empty())
         {
@@ -521,18 +532,209 @@ namespace ql
         RemoteResultFields fields_;
     };
 
-    static RemoteCommandResult ImportSession(const RemoteCommand& command, Database* db, const std::string& db_path,
-                                             const std::string& username, std::int64_t now)
+    // A "3 sessions", "1 saved station".
+    static std::string CountOf(int count, const char* singular, const char* plural)
     {
+        return std::to_string(count) + " " + (count == 1 ? singular : plural);
+    }
+
+    // The outcome of import-net once the file has been read: a net that no
+    // net here is like is added; one a net here is the same as or like is
+    // only merged into once confirmed (--confirm-net), as the Merge window
+    // would with every difference left as it is here.
+    class NetImport
+    {
+    public:
+        NetImport(Database* db, const NetSlice& slice, std::int64_t now) : db_(db), slice_(slice), now_(now) {}
+
+        RemoteCommandResult Run(const RemoteCommand& command)
+        {
+            if (slice_.net.is_ad_hoc)
+            {
+                return Finish("refused", "An ad hoc net can't be pushed as a net.", kRemoteExitRefused);
+            }
+            // Only nets on the net's own service. Names are unique across
+            // services, so a name taken on the other one can't be used.
+            std::vector<Net> nets = db_->GetAllNets();
+            std::vector<const Net*> recurring;
+            const Net* elsewhere = nullptr;
+            for (const Net& net : nets)
+            {
+                if (net.is_ad_hoc)
+                {
+                    continue;
+                }
+                if (net.service == slice_.net.service)
+                {
+                    recurring.emplace_back(&net);
+                }
+                else if (NetNamesAreTheSame(net.name, command.has_confirm_net ? command.confirm_net : slice_.net.name))
+                {
+                    elsewhere = &net;
+                }
+            }
+            if (elsewhere != nullptr)
+            {
+                SetNet(*elsewhere);
+                return Finish("refused",
+                              "\"" + elsewhere->name + "\" is on " + ServiceName(elsewhere->service) +
+                                  " and this net was logged on " + ServiceName(slice_.net.service) + ".",
+                              kRemoteExitRefused);
+            }
+
+            if (command.has_confirm_net)
+            {
+                const Net* confirmed = FindNamed(recurring, command.confirm_net);
+                if (confirmed == nullptr)
+                {
+                    return Finish("no-match", "No net here is named \"" + command.confirm_net + "\".",
+                                  kRemoteExitNoMatch);
+                }
+                if (!NetNamesAreTheSame(confirmed->name, slice_.net.name) &&
+                    !NetNamesLookAlike(slice_.net.name, confirmed->name, /*alike_if_unsure=*/false))
+                {
+                    SetNet(*confirmed);
+                    return Finish("refused",
+                                  "\"" + confirmed->name + "\" doesn't look like \"" + slice_.net.name +
+                                      "\", so the net wasn't merged into it.",
+                                  kRemoteExitRefused);
+                }
+                return MergeInto(*confirmed);
+            }
+
+            const Net* same = FindNamed(recurring, slice_.net.name);
+            if (same != nullptr)
+            {
+                return Ask(*same);
+            }
+            std::vector<const Net*> look_alikes;
+            for (const Net* net : recurring)
+            {
+                if (NetNamesLookAlike(slice_.net.name, net->name, /*alike_if_unsure=*/false))
+                {
+                    look_alikes.emplace_back(net);
+                }
+            }
+            if (!look_alikes.empty())
+            {
+                std::sort(look_alikes.begin(), look_alikes.end(), CompareNetNames);
+                return Ask(*look_alikes[0]);
+            }
+            return AddAsNewNet();
+        }
+
+    private:
+        static const Net* FindNamed(const std::vector<const Net*>& nets, const std::string& name)
+        {
+            for (const Net* net : nets)
+            {
+                if (NetNamesAreTheSame(net->name, name))
+                {
+                    return net;
+                }
+            }
+            return nullptr;
+        }
+
+        void SetNet(const Net& net)
+        {
+            fields_.has_net = true;
+            fields_.net = net.name;
+            fields_.net_id = net.id;
+        }
+
+        RemoteCommandResult Finish(const char* status, const std::string& message, int exit_status)
+        {
+            fields_.status = status;
+            fields_.message = message;
+            return MakeResult(fields_, exit_status);
+        }
+
+        void SetCounts(const NetMergePlan& plan)
+        {
+            fields_.has_counts = true;
+            fields_.new_sessions = 0;
+            fields_.differing_sessions = 0;
+            for (const MergeSession& session : plan.sessions)
+            {
+                fields_.new_sessions += session.kind == MergeSessionKind::kNew ? 1 : 0;
+                fields_.differing_sessions += session.kind == MergeSessionKind::kDiffers ? 1 : 0;
+            }
+            fields_.new_saved_stations = plan.new_saved_stations;
+        }
+
+        // What merging would add, as a sentence.
+        std::string Adds() const
+        {
+            std::string text = "adds " + CountOf(fields_.new_sessions, "session", "sessions") + " and " +
+                               CountOf(fields_.new_saved_stations, "saved station", "saved stations");
+            if (fields_.differing_sessions > 0)
+            {
+                text += "; " + CountOf(fields_.differing_sessions, "session differs", "sessions differ") +
+                        " and stays as it is here";
+            }
+            return text;
+        }
+
+        RemoteCommandResult Ask(const Net& net)
+        {
+            SetNet(net);
+            SetCounts(PlanNetMerge(db_, slice_, net.id));
+            return Finish("needs-confirmation",
+                          "The net was logged as \"" + slice_.net.name + "\"; confirm \"" + net.name +
+                              "\" to merge it there, which " + Adds() + ".",
+                          kRemoteExitNeedsConfirmation);
+        }
+
+        RemoteCommandResult MergeInto(const Net& net)
+        {
+            SetNet(net);
+            // The plan and the merge under one write lock, so two pushes at
+            // once can't both add the same session.
+            Database::WriteTransaction transaction(db_);
+            NetMergePlan plan = PlanNetMerge(db_, slice_, net.id);
+            SetCounts(plan);
+            if (fields_.new_sessions == 0 && fields_.new_saved_stations == 0)
+            {
+                return Finish("already-imported", net.name + " already has all of this net.", kRemoteExitOk);
+            }
+            ApplyNetMerge(db_, slice_, plan);
+            transaction.Commit();
+            return Finish("merged", "Merged into " + net.name + ": it " + Adds() + ".", kRemoteExitOk);
+        }
+
+        RemoteCommandResult AddAsNewNet()
+        {
+            Database::WriteTransaction transaction(db_);
+            std::int64_t net_id = ApplyNetSlice(db_, slice_, now_);
+            transaction.Commit();
+            fields_.has_net = true;
+            fields_.net = slice_.net.name;
+            fields_.net_id = net_id;
+            return Finish("imported", "Imported the net as a new net, " + slice_.net.name + ".", kRemoteExitOk);
+        }
+
+        Database* db_;
+        const NetSlice& slice_;
+        std::int64_t now_;
+        RemoteResultFields fields_;
+    };
+
+    // import-session or import-net (`net`) on an upload in the user's
+    // /imports.
+    static RemoteCommandResult ImportUpload(const RemoteCommand& command, Database* db, const std::string& db_path,
+                                            const std::string& username, std::int64_t now, bool net)
+    {
+        const std::string extension = net ? ".qlnet" : ".qlsession";
         // A bare name is in /imports, as is the only place one may be.
         std::string client_path =
             command.file.find('/') == std::string::npos ? "/imports/" + command.file : command.file;
         SftpPath path;
         if (!ResolveSftpPath(client_path, &path) || path.area != SftpArea::kImports || path.name.empty() ||
-            !IsAllowedImportName(path.name) || path.name.size() < 10 ||
-            path.name.compare(path.name.size() - 10, 10, ".qlsession") != 0)
+            !IsAllowedImportName(path.name) || path.name.size() < extension.size() ||
+            path.name.compare(path.name.size() - extension.size(), extension.size(), extension) != 0)
         {
-            return Simple("refused", "The file has to be a .qlsession in your /imports.", kRemoteExitRefused);
+            return Simple("refused", "The file has to be a " + extension + " in your /imports.", kRemoteExitRefused);
         }
 
         std::string file_path = SessionImportsDir(db_path, username) + "/" + path.name;
@@ -553,7 +755,8 @@ namespace ql
         }
 
         std::string error;
-        std::optional<NetSlice> slice = ReadSessionSliceFile(file_path, &error);
+        std::optional<NetSlice> slice =
+            net ? ReadNetSliceFile(file_path, &error) : ReadSessionSliceFile(file_path, &error);
         if (!slice.has_value())
         {
             std::filesystem::remove(file_path, error_code);
@@ -563,8 +766,16 @@ namespace ql
         RemoteCommandResult result;
         try
         {
-            SessionImport import(db, *slice, now);
-            result = import.Run(command);
+            if (net)
+            {
+                NetImport import(db, *slice, now);
+                result = import.Run(command);
+            }
+            else
+            {
+                SessionImport import(db, *slice, now);
+                result = import.Run(command);
+            }
         }
         catch (...)
         {
@@ -783,7 +994,8 @@ namespace ql
         // What changes this QuickLogger is for people who can; reading it
         // out isn't (a view-only user can take an export over ZMODEM too).
         if (view_only &&
-            (command.kind == RemoteCommandKind::kImportSession || command.kind == RemoteCommandKind::kDiscardUpload))
+            (command.kind == RemoteCommandKind::kImportSession || command.kind == RemoteCommandKind::kImportNet ||
+             command.kind == RemoteCommandKind::kDiscardUpload))
         {
             return Simple("refused", "View-only users can't import or upload.", kRemoteExitRefused);
         }
@@ -814,7 +1026,7 @@ namespace ql
             {
                 return DiscardUpload(command, db_path, username);
             }
-            return ImportSession(command, db, db_path, username, now);
+            return ImportUpload(command, db, db_path, username, now, command.kind == RemoteCommandKind::kImportNet);
         }
         catch (const std::exception& e)
         {

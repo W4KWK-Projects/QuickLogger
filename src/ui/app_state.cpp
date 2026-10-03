@@ -1137,7 +1137,8 @@ namespace ql
         }
     }
 
-    bool StartPush(AppState* state, std::int64_t instance_id, const std::string& confirm_net)
+    // True if a push can start now; else says why in form_error.
+    static bool CheckPushPossible(AppState* state)
     {
         if (!CanPushUpstream(state))
         {
@@ -1152,6 +1153,15 @@ namespace ql
         if (!UpstreamToolsAvailable())
         {
             state->form_error = kNoSshMessage;
+            return false;
+        }
+        return true;
+    }
+
+    bool StartPush(AppState* state, std::int64_t instance_id, const std::string& confirm_net)
+    {
+        if (!CheckPushPossible(state))
+        {
             return false;
         }
         std::optional<NetInstance> instance = state->db->GetNetInstanceById(instance_id);
@@ -1185,6 +1195,7 @@ namespace ql
 
         RemovePushFile(state);
         state->push_running = true;
+        state->push_is_net = false;
         state->push_instance_id = instance_id;
         state->push_local_path = local_path;
         state->push_remote_name = remote_name;
@@ -1199,30 +1210,81 @@ namespace ql
         return true;
     }
 
-    void PushSelectedHistorySession(AppState* state)
+    // `slice` without its open sessions and their check-ins: a session still
+    // being logged isn't finished, so it isn't pushed.
+    static NetSlice WithoutOpenSessions(NetSlice slice)
     {
-        if (!CanPushUpstream(state))
+        std::unordered_set<std::int64_t> open;
+        std::vector<NetInstance> closed;
+        closed.reserve(slice.instances.size());
+        for (NetInstance& instance : slice.instances)
         {
-            return;
+            if (instance.status == NetInstanceStatus::kClosed)
+            {
+                closed.push_back(std::move(instance));
+            }
+            else
+            {
+                open.insert(instance.id);
+            }
         }
-        if (state->history_instances.empty())
+        slice.instances = std::move(closed);
+        std::vector<CheckIn> kept;
+        kept.reserve(slice.check_ins.size());
+        for (CheckIn& check_in : slice.check_ins)
         {
-            state->form_error = "No session to push.";
-            return;
+            if (open.count(check_in.net_instance_id) == 0)
+            {
+                kept.push_back(std::move(check_in));
+            }
         }
-        const NetInstance& selected = state->history_instances[state->selected_history_index];
-        if (selected.status != NetInstanceStatus::kClosed)
+        slice.check_ins = std::move(kept);
+        return slice;
+    }
+
+    bool StartNetPush(AppState* state, std::int64_t net_id, const std::string& confirm_net)
+    {
+        if (!CheckPushPossible(state))
         {
-            state->form_error = "Only a closed session can be pushed.";
-            return;
+            return false;
         }
-        if (selected.pushed_at > 0)
+        std::optional<Net> net = state->db->GetNetById(net_id);
+        if (!net.has_value())
         {
-            state->status_message.clear();
-            state->form_error = "That session has been pushed already.";
-            return;
+            state->form_error = "That net no longer exists.";
+            return false;
         }
-        StartPush(state, selected.id, "");
+
+        // Made under a name of its own next to F8's export, so it never
+        // replaces one.
+        std::string remote_name = SanitizeFilenameComponent(net->name) + ".qlnet";
+        std::string exports = ExportsDir(state->db_path);
+        std::string local_path = TemporaryPathFor(exports + "/" + remote_name);
+        std::string error;
+        if (!EnsureDirectory(exports) ||
+            !WriteNetSliceFile(local_path, WithoutOpenSessions(GatherNetSlice(state->db, net_id)), &error))
+        {
+            std::error_code ignored;
+            std::filesystem::remove(local_path, ignored);
+            state->form_error = "Couldn't write the net to push: " + (error.empty() ? exports : error);
+            return false;
+        }
+
+        RemovePushFile(state);
+        state->push_running = true;
+        state->push_is_net = true;
+        state->push_net_id = net_id;
+        state->push_local_path = local_path;
+        state->push_remote_name = remote_name;
+        state->push_session_net = net->name;
+        Upstream upstream;
+        upstream.host = state->settings.upstream_host;
+        upstream.user = state->settings.upstream_user;
+        upstream.port = state->settings.upstream_port;
+        state->push_runner->Start(upstream, local_path, remote_name, confirm_net, net->name, true);
+        state->form_error.clear();
+        state->status_message = "Pushing to " + upstream.host + "...";
+        return true;
     }
 
     // The upstream kept the last push's upload to ask about it; it won't be
@@ -1246,7 +1308,11 @@ namespace ql
         RemovePushFile(state);
         if (result.kind == PushResultKind::kPushed)
         {
-            state->db->SetNetInstancePushedAt(state->push_instance_id, static_cast<std::int64_t>(std::time(nullptr)));
+            if (!state->push_is_net)
+            {
+                state->db->SetNetInstancePushedAt(state->push_instance_id,
+                                                  static_cast<std::int64_t>(std::time(nullptr)));
+            }
             if (state->page == kPageNetHistory)
             {
                 RefreshNetHistory(state);
@@ -1262,12 +1328,26 @@ namespace ql
             if (state->show_confirm_prompt)
             {
                 state->status_message.clear();
-                state->form_error = "Not pushed: " + state->settings.upstream_host + " has no net named " +
-                                    state->push_session_net + ". Push it from History (F3) to choose.";
+                state->form_error = state->push_is_net
+                                        ? "Not pushed: " + state->settings.upstream_host +
+                                              " has a net to merge into. Push it again with F8 Export."
+                                        : "Not pushed: " + state->settings.upstream_host + " has no net named " +
+                                              state->push_session_net + ". Push it from History (F7 Export) to choose.";
                 DiscardKeptUpload(state);
                 return;
             }
             state->push_upstream_net = result.upstream_net;
+            if (state->push_is_net)
+            {
+                std::string has = NetNamesAreTheSame(result.upstream_net, state->push_session_net)
+                                      ? state->settings.upstream_host + " has " + result.upstream_net + " already."
+                                      : state->settings.upstream_host + " has no net named " + state->push_session_net +
+                                            ". Its net " + result.upstream_net + " looks like it.";
+                ShowConfirmPrompt(state, ConfirmPrompt::kPushToNet, "Merge Into " + result.upstream_net + "?",
+                                  {has, "Merging it " + result.merge_summary + ".",
+                                   "Merge this net into " + result.upstream_net + "?"});
+                return;
+            }
             ShowConfirmPrompt(state, ConfirmPrompt::kPushToNet, "Push to " + result.upstream_net + "?",
                               {state->settings.upstream_host + " has no net named " + state->push_session_net +
                                    ". Its net " + result.upstream_net + " looks like it.",
@@ -1281,6 +1361,11 @@ namespace ql
     void ConfirmPushToNet(AppState* state)
     {
         CancelConfirmPrompt(state);
+        if (state->push_is_net)
+        {
+            StartNetPush(state, state->push_net_id, state->push_upstream_net);
+            return;
+        }
         StartPush(state, state->push_instance_id, state->push_upstream_net);
     }
 
@@ -1289,7 +1374,8 @@ namespace ql
         CancelConfirmPrompt(state);
         DiscardKeptUpload(state);
         state->form_error.clear();
-        state->status_message = "Not pushed. Push it from History (F3) later.";
+        state->status_message = state->push_is_net ? "Not pushed. Push it again with F8 Export."
+                                                   : "Not pushed. Push it from History (F7 Export) later.";
     }
 
     void StartSelectedNet(AppState* state)
@@ -2620,14 +2706,32 @@ namespace ql
         return text;
     }
 
-    void OfferZmodemSend(AppState* state, const std::string& path)
+    void OfferZmodemSend(AppState* state, const std::string& path, std::int64_t push_net_id,
+                         std::int64_t push_instance_id)
     {
-        OfferZmodemSendFiles(state, {path});
+        OfferZmodemSendFiles(state, {path}, push_net_id, push_instance_id);
     }
 
-    void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths)
+    // The export modal with only a push to offer (see kPushOnly), after a
+    // "Saved to" message; none if there's no push either.
+    static void OfferPushOnly(AppState* state, const std::vector<std::string>& paths)
+    {
+        if (ExportOffersPush(state))
+        {
+            state->zmodem_action = ZmodemAction::kPushOnly;
+            state->zmodem_send_paths = paths;
+            state->show_zmodem_confirm_modal = true;
+        }
+    }
+
+    void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths, std::int64_t push_net_id,
+                              std::int64_t push_instance_id)
     {
         state->zmodem_zip_contents.clear();
+        // Only with an upstream to push to, from the console.
+        bool can_push = CanPushUpstream(state);
+        state->export_push_net_id = can_push ? push_net_id : 0;
+        state->export_push_instance_id = can_push ? push_instance_id : 0;
         // The files are already on this computer: nothing to send, but the
         // folder can be opened for the operator.
         if (IsLocalTerminal(state->is_console_session))
@@ -2638,13 +2742,16 @@ namespace ql
                 state->zmodem_action = ZmodemAction::kShowFolder;
                 state->zmodem_send_paths = paths;
                 state->show_zmodem_confirm_modal = true;
+                return;
             }
+            OfferPushOnly(state, paths);
             return;
         }
         // Mosh can't carry ZMODEM (see AppState::over_mosh).
         if (state->over_mosh)
         {
             state->status_message = "Saved to " + ListPaths(paths) + ". Over Mosh, copy files with scp or sftp.";
+            OfferPushOnly(state, paths);
             return;
         }
         // No ZMODEM on this system at all (Windows, Alpine), so there's
@@ -2652,11 +2759,13 @@ namespace ql
         if (NoZmodemOnThisSystem())
         {
             state->status_message = "Saved to " + ListPaths(paths) + ".";
+            OfferPushOnly(state, paths);
             return;
         }
         if (!ZmodemSendAvailable())
         {
             state->status_message = "Saved to " + ListPaths(paths) + " (install 'sz'/lrzsz for ZMODEM download).";
+            OfferPushOnly(state, paths);
             return;
         }
 
@@ -2727,11 +2836,43 @@ namespace ql
         return saved;
     }
 
+    bool ExportOffersPush(const AppState* state)
+    {
+        return state->export_push_net_id != 0 || state->export_push_instance_id != 0;
+    }
+
+    void PushExport(AppState* state)
+    {
+        std::int64_t net_id = state->export_push_net_id;
+        std::int64_t instance_id = state->export_push_instance_id;
+        state->export_push_net_id = 0;
+        state->export_push_instance_id = 0;
+        state->show_zmodem_confirm_modal = false;
+        // A session's .zip for ZMODEM isn't needed now.
+        if (state->zmodem_action == ZmodemAction::kSend)
+        {
+            state->status_message = "Saved to " + ListPaths(SavedAfterZmodem(state)) + ".";
+        }
+        if (net_id != 0)
+        {
+            StartNetPush(state, net_id, "");
+        }
+        else if (instance_id != 0)
+        {
+            StartPush(state, instance_id, "");
+        }
+    }
+
     void ConfirmZmodemAction(AppState* state)
     {
         state->show_zmodem_confirm_modal = false;
         std::string error;
 
+        if (state->zmodem_action == ZmodemAction::kPushOnly)
+        {
+            PushExport(state);
+            return;
+        }
         if (state->zmodem_action == ZmodemAction::kShowFolder)
         {
             if (!ShowInFileManager(state->zmodem_send_paths, &error))
@@ -2782,7 +2923,7 @@ namespace ql
     void CancelZmodemAction(AppState* state)
     {
         state->show_zmodem_confirm_modal = false;
-        if (state->zmodem_action == ZmodemAction::kShowFolder)
+        if (state->zmodem_action == ZmodemAction::kShowFolder || state->zmodem_action == ZmodemAction::kPushOnly)
         {
             return;
         }
@@ -3884,6 +4025,8 @@ namespace ql
             return;
         }
         std::vector<std::string> paths{log_path, session_path};
+        // A closed session can be pushed upstream from the window that follows.
+        std::int64_t push_instance_id = instance.status == NetInstanceStatus::kClosed ? instance.id : 0;
         // And for a logging program (see BuildAdif), except a GMRS session:
         // ADIF is for amateur contacts.
         std::optional<Net> net = state->db->GetNetById(instance.net_id);
@@ -3905,7 +4048,7 @@ namespace ql
         if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || !ZmodemSendAvailable() ||
             state->over_mosh)
         {
-            OfferZmodemSendFiles(state, paths);
+            OfferZmodemSendFiles(state, paths, 0, push_instance_id);
             return;
         }
         std::string zip_path = stem + ".zip";
@@ -3915,7 +4058,7 @@ namespace ql
             state->form_error = "Saved " + ListPaths(paths) + ", but not " + zip_path + ": " + error;
             return;
         }
-        OfferZmodemSendFiles(state, {zip_path});
+        OfferZmodemSendFiles(state, {zip_path}, 0, push_instance_id);
         state->zmodem_zip_contents = paths;
         state->status_message = "Saved to " + ListPaths(paths) + ".";
     }
@@ -3953,7 +4096,7 @@ namespace ql
         }
 
         state->form_error.clear();
-        OfferZmodemSend(state, path);
+        OfferZmodemSend(state, path, net.id);
     }
 
     void RefreshImportNetFiles(AppState* state)
@@ -6472,11 +6615,6 @@ namespace ql
                     {"F12", "The highlighted session's notes, to read or edit.", true},
                     {"Esc", "Back.", false},
                 };
-                if (CanPushUpstream(state))
-                {
-                    lines.insert(lines.begin() + 1,
-                                 {"F3", "Push the highlighted closed session upstream (\"pushed\" once done).", false});
-                }
                 return lines;
             }
             case kPageEditNet:

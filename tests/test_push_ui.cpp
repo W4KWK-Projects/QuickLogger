@@ -1,6 +1,6 @@
 // Pushing sessions upstream, as the screens do it (app_state.hpp): the
-// Upstream Server window, what a finished push leaves behind, and History's
-// F3. Nothing here runs ssh: pushes are finished by hand with FinishPush.
+// Upstream Server window, what a finished push leaves behind, and the push
+// the export windows offer. Nothing here runs ssh: pushes are finished by hand with FinishPush.
 
 #include <cstdint>
 #include <string>
@@ -158,11 +158,6 @@ namespace ql
         CHECK(f.db()->GetNetInstanceById(instance_id)->pushed_at > 0);
         CHECK_EQ(f.state.status_message, result.message);
         CHECK_EQ(f.state.history_instance_cells[0].back(), std::string("pushed"));
-
-        // Not again from History.
-        PushSelectedHistorySession(&f.state);
-        CHECK_EQ(f.state.form_error, std::string("That session has been pushed already."));
-        CHECK(!f.state.push_running);
     }
 
     QL_TEST(APushThatFailedSaysWhyAndLeavesTheSessionClosed)
@@ -208,24 +203,98 @@ namespace ql
 
         DeclinePushToNet(&f.state);
         CHECK(!f.state.show_confirm_prompt);
-        CHECK_EQ(f.state.status_message, std::string("Not pushed. Push it from History (F3) later."));
+        CHECK_EQ(f.state.status_message, std::string("Not pushed. Push it from History (F7 Export) later."));
         CHECK_EQ(f.db()->GetNetInstanceById(instance_id)->pushed_at, std::int64_t{0});
     }
 
-    QL_TEST(OnlyAClosedSessionIsPushedFromHistory)
+    QL_TEST(ExportingANetOffersAPushWhenAnUpstreamIsSet)
+    {
+        PushFixture f;
+        std::int64_t instance_id = f.AddSession();
+        (void)instance_id;
+        Net net = f.state.nets[0];
+
+        // No upstream: the export is as it was.
+        ExportNetSlice(&f.state, net);
+        CHECK_EQ(f.state.export_push_net_id, std::int64_t{0});
+
+        // With one, the modal is up and F3 on it pushes this net.
+        f.state.show_zmodem_confirm_modal = false;
+        f.SetUpstream();
+        ExportNetSlice(&f.state, net);
+        CHECK_EQ(f.state.export_push_net_id, net.id);
+        CHECK(f.state.show_zmodem_confirm_modal);
+
+        // Anything else exported next doesn't offer it.
+        OfferZmodemSend(&f.state, f.dir().File("other.txt"));
+        CHECK_EQ(f.state.export_push_net_id, std::int64_t{0});
+    }
+
+    QL_TEST(APushedNetIsAskedAboutAndLeavesSessionsAlone)
     {
         PushFixture f;
         f.SetUpstream();
-        f.AddSession(/*open=*/true);
-        PushSelectedHistorySession(&f.state);
-        CHECK_EQ(f.state.form_error, std::string("Only a closed session can be pushed."));
-        CHECK(!f.state.push_running);
+        std::int64_t instance_id = f.AddSession();
+        f.state.push_running = true;
+        f.state.push_is_net = true;
+        f.state.push_net_id = f.state.nets[0].id;
+        f.state.push_session_net = "TAG Skywarn";
+        PushResult result;
+        result.kind = PushResultKind::kNeedsConfirmation;
+        result.upstream_net = "TAG Skywarn";
+        result.merge_summary = "adds 2 sessions and 0 saved stations";
+        FinishPush(&f.state, result);
+
+        REQUIRE(f.state.show_confirm_prompt);
+        CHECK(f.state.confirm_prompt == ConfirmPrompt::kPushToNet);
+        CHECK_EQ(f.state.confirm_prompt_lines[0], std::string("upstream.example.org has TAG Skywarn already."));
+        CHECK_EQ(f.state.confirm_prompt_lines[1], std::string("Merging it adds 2 sessions and 0 saved stations."));
+        DeclinePushToNet(&f.state);
+        CHECK_EQ(f.state.status_message, std::string("Not pushed. Push it again with F8 Export."));
+
+        // A merge that worked marks no session pushed: pushed_at is for sessions.
+        f.state.push_running = true;
+        result.kind = PushResultKind::kPushed;
+        result.message = "Merged into TAG Skywarn on upstream.example.org: it adds 2 sessions and 0 saved stations.";
+        FinishPush(&f.state, result);
+        CHECK_EQ(f.state.status_message, result.message);
+        CHECK_EQ(f.db()->GetNetInstanceById(instance_id)->pushed_at, std::int64_t{0});
+    }
+
+    QL_TEST(ExportingAClosedSessionOffersAPush)
+    {
+        PushFixture f;
+        std::int64_t instance_id = f.AddSession();
+        NetInstance session = *f.db()->GetNetInstanceById(instance_id);
+
+        // No upstream: the export is as it was.
+        ExportNetLog(&f.state, "TAG Skywarn", session, {});
+        CHECK(!ExportOffersPush(&f.state));
+
+        // With one, the window offers F3, and F3 pushes (once, whichever
+        // window it came from).
+        f.state.show_zmodem_confirm_modal = false;
+        f.SetUpstream();
+        ExportNetLog(&f.state, "TAG Skywarn", session, {});
+        CHECK_EQ(f.state.export_push_instance_id, instance_id);
+        CHECK(f.state.show_zmodem_confirm_modal);
 
         // A second push waits for the first.
         f.state.push_running = true;
-        f.state.form_error.clear();
-        CHECK(!StartPush(&f.state, f.state.history_instances[0].id, ""));
+        PushExport(&f.state);
+        CHECK(!f.state.show_zmodem_confirm_modal);
         CHECK_EQ(f.state.form_error, std::string("A push is already running."));
+        CHECK(!ExportOffersPush(&f.state));
+    }
+
+    QL_TEST(AnOpenSessionExportOffersNoPush)
+    {
+        PushFixture f;
+        f.SetUpstream();
+        std::int64_t instance_id = f.AddSession(/*open=*/true);
+        NetInstance session = *f.db()->GetNetInstanceById(instance_id);
+        ExportNetLog(&f.state, "TAG Skywarn", session, {});
+        CHECK(!ExportOffersPush(&f.state));
     }
 
     QL_TEST(ExportsCarryNoPushTime)

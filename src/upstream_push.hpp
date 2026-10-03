@@ -70,17 +70,18 @@ namespace ql
     std::string UpstreamFailureMessage(const Upstream& upstream, const ProgramResult& run, const char* fallback,
                                        bool uploading);
 
-    // ssh's arguments to run import-session on `remote_name`, with
-    // --confirm-net `confirm_net` if it isn't empty. The command reaches the
+    // ssh's arguments to run import-session (import-net if `net`) on
+    // `remote_name`, with --confirm-net `confirm_net` if it isn't empty. The command reaches the
     // upstream as one string; the net name in it is quoted as
     // import-session reads it (SplitCommandLine).
     std::vector<std::string> UpstreamImportArguments(const Upstream& upstream, const std::string& remote_name,
-                                                     const std::string& confirm_net);
+                                                     const std::string& confirm_net, bool net = false);
 
     // What import-session answered.
     enum class ImportReplyStatus
     {
         kImported,
+        kMerged,  // import-net: merged into a net there.
         kAlreadyImported,
         kNeedsConfirmation,
         kNoMatch,
@@ -98,9 +99,14 @@ namespace ql
         std::int64_t net_id = 0;
         std::string session;
         std::string message;
+        // import-net: what merging adds, and the sessions that differ.
+        bool has_counts = false;
+        int new_sessions = 0;
+        int new_saved_stations = 0;
+        int differing_sessions = 0;
     };
 
-    // Reads import-session's output.
+    // Reads import-session's (or import-net's) output.
     ImportReply ParseImportReply(std::string_view output);
 
     // True if the reply says the file isn't in the user's /imports (cleared
@@ -120,8 +126,11 @@ namespace ql
         PushResultKind kind = PushResultKind::kFailed;
         // One sentence for the status line.
         std::string message;
-        // kNeedsConfirmation: the upstream's net to confirm.
+        // kNeedsConfirmation: the upstream's net to confirm, and for a net
+        // pushed, what merging into it would do ("adds 2 sessions and 1 saved
+        // station; 1 session differs and stays as it is there").
         std::string upstream_net;
+        std::string merge_summary;
     };
 
     // ssh's arguments to run discard-upload on `remote_name`.
@@ -133,7 +142,12 @@ namespace ql
     PushResult DecidePushResult(const Upstream& upstream, const ProgramResult& copy, const ProgramResult& import,
                                 const std::string& session_net);
 
-    // Pushes the .qlsession at `local_path` to `upstream` as `remote_name`,
+    // What merging a pushed net adds, as a sentence without its end:
+    // "adds 2 sessions and 1 saved station; 1 session differs and stays as
+    // it is there".
+    std::string MergeSummary(const ImportReply& reply);
+
+    // Pushes the .qlsession (or, if `net`, .qlnet) at `local_path` to `upstream` as `remote_name`,
     // confirming `confirm_net` if it isn't blank. A confirmation runs the
     // import on the upload the upstream kept when it asked, and copies the
     // file again only if the upstream no longer has it. Runs scp and ssh, each for
@@ -141,7 +155,7 @@ namespace ql
     // becomes true. Changes nothing here: the caller sets pushed_at.
     PushResult PushSessionFile(const Upstream& upstream, const std::string& local_path, const std::string& remote_name,
                                const std::string& confirm_net, const std::string& session_net,
-                               const std::atomic<bool>* cancel);
+                               const std::atomic<bool>* cancel, bool net = false);
 
     // Asks the upstream to delete the upload of `remote_name` it kept when it
     // asked about a look-alike net and the answer was no. Best effort and

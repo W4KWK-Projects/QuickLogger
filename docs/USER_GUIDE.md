@@ -140,7 +140,6 @@ Every net, recurring or ad hoc, is either Amateur Radio or GMRS: **Service** on 
 - **F6** imports a session logged somewhere else (see below).
 - **F5** deletes one check-in from that session (by its #), as on the session's own page. If it held a role, the role is cleared too.
 - **F4** deletes a whole closed session (by number). An open session has to be resumed and closed first. At 80 columns it isn't on the key bar, but it always works.
-- **F3** pushes the highlighted closed session to the upstream server, once one is set (see [Pushing to and pulling from an upstream server](#pushing-to-and-pulling-from-an-upstream-server)). Its Status then reads *pushed*.
 
 **Importing a session** adds one session to this net's history, without touching the rest of it. It's for a session logged on another QuickLogger: during an outage, say, a net logged on a laptop instead of the server. On the computer where it was logged, **F7** on that session (on the net's page or in History) saves its `.qlsession` file. On this one, put the file in `imports/` (or receive it over SSH with **F3**), open this net's History, press **F6**, highlight the file and press **F2**. The session and its check-ins are added as they were logged: times, roles, remarks and comments, and each station's details, and its stations are saved to this net. It goes into the net whose History you're on, even if the net had another name where it was logged (the message after importing says so). If that name has nothing in common with this net's ("Hamilton County ARES" going into TAG Skywarn, say), QuickLogger asks first, in case you're on the wrong net's History: **F2/Enter** imports it anyway, **Esc** cancels. Small differences, such as "Co." for "County", a typo, a missing word or initials ("TAG" for Tennessee Alabama Georgia), don't ask. A session this net already has, with the same date and start time, is refused. On ad hoc History, an imported session becomes a new ad hoc net with its own name. With an upstream server set, **F4** pulls all of a net's sessions instead (see [Pushing to and pulling from an upstream server](#pushing-to-and-pulling-from-an-upstream-server)).
 
@@ -154,11 +153,13 @@ QuickLogger keeps no keys of its own: it runs this computer's `ssh` and `scp`, w
 
 **Close & Push:** with an upstream set, closing a net (**F4**) also offers **F3 Close & Push**. The session closes here, then goes to the upstream while you carry on; the status line says when it's done. The session stays closed here whatever becomes of the push.
 
-**From History:** **F3** pushes the highlighted closed session that hasn't been pushed yet, such as one closed with **F2** or one whose push failed. A pushed session's Status reads *pushed*. Pushing one the upstream already has does no harm.
+**From History:** **F7** Export on a closed session also offers **F3 Push to** the upstream, such as for one closed with **F2** or one whose push failed. A pushed session's Status reads *pushed*. Pushing one the upstream already has does no harm.
 
 **When the names differ:** if the upstream has no net of the session's name but one that looks like it, QuickLogger asks. **F2/Enter** pushes it to that net, **Esc** doesn't. If nothing there looks like it, nothing is pushed.
 
 **When a push fails:** the status line says why in one sentence, such as that the upstream couldn't be reached, refused your key, or has a host key `ssh` doesn't know. Push it again from History once that's fixed.
+
+**Pushing a net:** like a session, with **F8** Export on Recurring Nets: the export window also offers **F3 Push to** the upstream. It sends the net's closed sessions and saved stations. A net the upstream hasn't got is added. If it has a net of that name (or one that looks like it), QuickLogger shows what merging would add and asks: **F2/Enter** merges, **Esc** doesn't. A merge only adds what the upstream lacks and never changes what it has. Where there's nothing else to do with the export (no ZMODEM, no file manager), the window offers just the push.
 
 **Pulling a net:** with an upstream set, **F4 Pull** on the Import page (**F9** on Recurring Nets) lists the upstream's nets with their number of closed sessions. Highlight one and press **F2/Enter**. QuickLogger fetches the net and imports it as a file you received: a net you don't have is added as *imported*, and one that looks like a net you have opens the **Import or Merge?** window. **Esc** cancels.
 

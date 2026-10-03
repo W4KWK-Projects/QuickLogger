@@ -80,6 +80,7 @@ until ssh-keyscan -p "$port" -t ed25519 127.0.0.1 > "$dir/ssh/known_hosts" 2>/de
 done
 
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" EndToEndRun
+PATH="$dir/bin:$PATH" "$build/quicklogger_tests" PushNetEndToEnd
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" PullEndToEnd
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" PushConcurrentEndToEnd
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" SshExecEndToEnd

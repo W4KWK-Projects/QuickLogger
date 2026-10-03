@@ -18,6 +18,7 @@ namespace ql
     //
     //   version
     //   import-session [--confirm-net "<net name>"] <file>
+    //   import-net [--confirm-net "<net name>"] <file>
     //   discard-upload <file>
     //   list-nets
     //   export-net "<net name>"
@@ -38,6 +39,7 @@ namespace ql
     {
         kVersion,
         kImportSession,
+        kImportNet,
         kDiscardUpload,
         kListNets,
         kExportNet,
@@ -104,6 +106,13 @@ namespace ql
     // --confirm-net. An ad hoc net's becomes a new ad hoc net. A session
     // already there is "already-imported", not an error. The file is deleted
     // once imported (or found already imported), and kept otherwise.
+    //
+    //
+    // import-net imports a .qlnet from /imports the same way: a net no net
+    // here is like is added as a new net; one a net here is the same as or
+    // like asks first (needs-confirmation, naming it, with what merging adds
+    // and what differs), and is merged into only once named with
+    // --confirm-net, adding what it lacks and keeping everything it has.
     //
     // list-nets answers with one `net:` / `service:` / `sessions:` group per
     // recurring net. export-net writes the net (as a .qlnet) and

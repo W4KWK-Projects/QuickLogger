@@ -325,7 +325,7 @@ Public-key authentication only — there's no password option.
 
 The same address, port and key work for `scp` and `sftp`, which reach only that user's own exports and imports (see the [User Guide](docs/USER_GUIDE.md)).
 
-Besides copying files with scp, the server runs six commands of its own: `import-session` (for another QuickLogger pushing a session to it), `discard-upload` (to withdraw an upload), `list-nets`, `export-net` and `export-sessions` (for another QuickLogger pulling nets and sessions from it, which view-only users may do too) and `version`; it never runs a shell or any other program. See [Upstream commands](docs/IMPORT_SESSION.md).
+Besides copying files with scp, the server runs seven commands of its own: `import-session` and `import-net` (for another QuickLogger pushing a session or a net to it), `discard-upload` (to withdraw an upload), `list-nets`, `export-net` and `export-sessions` (for another QuickLogger pulling nets and sessions from it, which view-only users may do too) and `version`; it never runs a shell or any other program. See [Upstream commands](docs/IMPORT_SESSION.md).
 
 ### Creating your SSH key
 

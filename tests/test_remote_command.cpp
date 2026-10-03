@@ -87,6 +87,9 @@ namespace ql
         CHECK_EQ(command.confirm_net, std::string("Sky Warn"));
         CHECK_EQ(command.file, std::string("Net.qlsession"));
 
+        REQUIRE(ParseRemoteCommand("import-net --confirm-net \"Sky Warn\" Net.qlnet", &command, &error));
+        CHECK(command.kind == RemoteCommandKind::kImportNet);
+        CHECK_EQ(command.confirm_net, std::string("Sky Warn"));
         REQUIRE(ParseRemoteCommand("list-nets", &command, &error));
         CHECK(command.kind == RemoteCommandKind::kListNets);
         REQUIRE(ParseRemoteCommand("export-net \"Sky Warn\"", &command, &error));
@@ -166,6 +169,32 @@ namespace ql
             source.CloseNetInstance(instance, started_at + 1800);
             std::string error;
             REQUIRE(WriteNetSliceFile(ImportsDir() + "/" + file, GatherSessionSlice(&source, instance), &error));
+        }
+
+        // Writes `file` into /imports: a net `net_name` with a closed session
+        // on each of `dates` (their start times a day apart from 1789428600).
+        void WriteNet(const std::string& file, const std::string& net_name, const std::vector<std::string>& dates)
+        {
+            TempDir source_dir;
+            Database source(source_dir.File("source.db"));
+            std::int64_t net_id = AddTestNet(&source, net_name);
+            AddSessionsOn(&source, net_id, dates);
+            std::string error;
+            REQUIRE(WriteNetSliceFile(ImportsDir() + "/" + file, GatherNetSlice(&source, net_id), &error));
+        }
+
+        // A closed session in `db`'s net `net_id` on each of `dates`, started
+        // at 1789428600 plus a day for each date's place in the list.
+        static void AddSessionsOn(Database* db, std::int64_t net_id, const std::vector<std::string>& dates)
+        {
+            std::int64_t started_at = 1789428600;
+            for (const std::string& date : dates)
+            {
+                std::int64_t instance = AddTestInstance(db, net_id, date, started_at, "K4ABC");
+                AddTestCheckIn(db, instance, "K4ABC", 1);
+                db->CloseNetInstance(instance, started_at + 1800);
+                started_at += 86400;
+            }
         }
 
         RemoteCommandResult Run(const std::string& line, bool view_only = false)
@@ -311,6 +340,85 @@ namespace ql
         // nothing; a file that isn't a session is the push's end, so it goes.
         CHECK(fixture.Uploaded("Sky.qlsession"));
         CHECK(!fixture.Uploaded("Junk.qlsession"));
+    }
+
+    QL_TEST(ImportNetAddsANetNothingHereIsLike)
+    {
+        ImportFixture fixture;
+        AddTestNet(fixture.db(), "Dixie Traders");
+        fixture.WriteNet("Sky.qlnet", "TAG Skywarn", {"2026-09-14", "2026-09-15"});
+
+        RemoteCommandResult result = fixture.Run("import-net Sky.qlnet");
+        CHECK_EQ(result.exit_status, kRemoteExitOk);
+        CHECK(result.output.find("status: imported\nnet: TAG Skywarn\n") != std::string::npos);
+        std::vector<Net> nets = fixture.db()->GetAllNets();
+        REQUIRE(nets.size() == 2);
+        CHECK_EQ(fixture.db()->GetNetInstancesForNet(nets[1].id).size(), std::size_t(2));
+        CHECK(!fixture.Uploaded("Sky.qlnet"));
+    }
+
+    QL_TEST(ImportNetAsksBeforeMergingThenKeepsWhatIsHere)
+    {
+        ImportFixture fixture;
+        std::int64_t net_id = AddTestNet(fixture.db(), "TAG Skywarn");
+        ImportFixture::AddSessionsOn(fixture.db(), net_id, {"2026-09-14"});
+        fixture.WriteNet("Sky.qlnet", "TAG Skywarn", {"2026-09-14", "2026-09-15", "2026-09-16"});
+
+        // The net's own name still asks, and says what merging would do.
+        RemoteCommandResult result = fixture.Run("import-net Sky.qlnet");
+        CHECK_EQ(result.exit_status, kRemoteExitNeedsConfirmation);
+        CHECK(result.output.find("status: needs-confirmation\nnet: TAG Skywarn\nnet-id: " + std::to_string(net_id) +
+                                 "\nnew-sessions: 2\nnew-saved-stations: 0\ndiffering-sessions: 0\n") !=
+              std::string::npos);
+        CHECK(fixture.Uploaded("Sky.qlnet"));
+        CHECK_EQ(fixture.db()->GetNetInstancesForNet(net_id).size(), std::size_t(1));
+
+        result = fixture.Run("import-net --confirm-net \"TAG Skywarn\" Sky.qlnet");
+        CHECK_EQ(result.exit_status, kRemoteExitOk);
+        CHECK(result.output.find("status: merged\n") != std::string::npos);
+        CHECK(result.output.find("message: Merged into TAG Skywarn: it adds 2 sessions and 0 saved stations.\n") !=
+              std::string::npos);
+        CHECK_EQ(fixture.db()->GetNetInstancesForNet(net_id).size(), std::size_t(3));
+        CHECK(!fixture.Uploaded("Sky.qlnet"));
+
+        // Again: nothing left to add.
+        fixture.WriteNet("Sky.qlnet", "TAG Skywarn", {"2026-09-14", "2026-09-15", "2026-09-16"});
+        result = fixture.Run("import-net --confirm-net \"TAG Skywarn\" Sky.qlnet");
+        CHECK_EQ(result.exit_status, kRemoteExitOk);
+        CHECK(result.output.find("status: already-imported\n") != std::string::npos);
+        CHECK_EQ(fixture.db()->GetNetInstancesForNet(net_id).size(), std::size_t(3));
+    }
+
+    QL_TEST(ImportNetOffersALookAlikeAndRefusesAnUnlikeNet)
+    {
+        ImportFixture fixture;
+        std::int64_t sky_warn = AddTestNet(fixture.db(), "Sky Warn");
+        AddTestNet(fixture.db(), "Hamilton County ARES");
+        fixture.WriteNet("Sky.qlnet", "TAG Skywarn", {"2026-09-14"});
+
+        RemoteCommandResult result = fixture.Run("import-net Sky.qlnet");
+        CHECK_EQ(result.exit_status, kRemoteExitNeedsConfirmation);
+        CHECK(result.output.find("net: Sky Warn\nnet-id: " + std::to_string(sky_warn) + "\n") != std::string::npos);
+        CHECK(fixture.db()->GetNetInstancesForNet(sky_warn).empty());
+
+        result = fixture.Run("import-net --confirm-net \"Hamilton County ARES\" Sky.qlnet");
+        CHECK_EQ(result.exit_status, kRemoteExitRefused);
+        CHECK(fixture.Uploaded("Sky.qlnet") == false);
+
+        fixture.WriteNet("Sky.qlnet", "TAG Skywarn", {"2026-09-14"});
+        CHECK_EQ(fixture.Run("import-net --confirm-net \"No Such Net\" Sky.qlnet").exit_status, kRemoteExitNoMatch);
+    }
+
+    QL_TEST(ImportNetIsRefusedToViewOnlyUsersAndForOtherFiles)
+    {
+        ImportFixture fixture;
+        fixture.WriteNet("Sky.qlnet", "TAG Skywarn", {"2026-09-14"});
+        fixture.WriteSession("Sky.qlsession", "TAG Skywarn");
+        CHECK_EQ(fixture.Run("import-net Sky.qlnet", /*view_only=*/true).exit_status, kRemoteExitRefused);
+        CHECK(fixture.Uploaded("Sky.qlnet"));
+        CHECK_EQ(fixture.Run("import-net Sky.qlsession").exit_status, kRemoteExitRefused);
+        CHECK_EQ(fixture.Run("import-session Sky.qlnet").exit_status, kRemoteExitRefused);
+        CHECK(fixture.db()->GetAllNets().empty());
     }
 
     QL_TEST(DiscardUploadRemovesAnUploadTheClientNoLongerWants)

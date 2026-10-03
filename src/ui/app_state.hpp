@@ -47,6 +47,10 @@ namespace ql
         kSend,
         kReceive,
         kShowFolder,
+        // Neither ZMODEM nor a folder to show (a console with no file manager,
+        // Mosh, Windows): the modal only offers pushing the exported net
+        // upstream (AppState::export_push_net_id).
+        kPushOnly,
     };
 
     // Edit and delete on a list work by number: the key (e.g. F5 Delete
@@ -446,6 +450,14 @@ namespace ql
         std::string push_remote_name;
         std::string push_session_net;
         std::string push_upstream_net;
+        // The push is of a whole net (push_net_id, as a .qlnet), not a session.
+        bool push_is_net = false;
+        std::int64_t push_net_id = 0;
+        // After an export with an upstream set: the net (F8) or the closed
+        // session (F7 in History) that the export modal then offers to push
+        // (F3); 0 otherwise. At most one is set.
+        std::int64_t export_push_net_id = 0;
+        std::int64_t export_push_instance_id = 0;
 
         // Pulling from the upstream (console only): the Pull window over the
         // import page (F4), for a whole net (pull_sessions false) or the
@@ -1085,9 +1097,14 @@ namespace ql
     // local terminal (IsLocalTerminal) ZMODEM is never offered; with a
     // desktop to show it on, the modal offers F2 Show Folder instead
     // (zmodem_action = kShowFolder).
-    void OfferZmodemSend(AppState* state, const std::string& path);
+    // With `push_net_id` (or `push_instance_id`, a closed session), the modal
+    // also offers F3 to push that net (session) to the upstream, and appears
+    // when nothing else is on offer (see kPushOnly).
+    void OfferZmodemSend(AppState* state, const std::string& path, std::int64_t push_net_id = 0,
+                         std::int64_t push_instance_id = 0);
     // The same for several files written together, sent as one batch.
-    void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths);
+    void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths, std::int64_t push_net_id = 0,
+                              std::int64_t push_instance_id = 0);
 
     // Reloads AppState::import_net_files from whatever *.qlnet files (or
     // *.qlsession, when AppState::import_session) are currently sitting
@@ -1316,9 +1333,16 @@ namespace ql
     // running).
     bool StartPush(AppState* state, std::int64_t instance_id, const std::string& confirm_net);
 
-    // F3 in History: pushes the highlighted session, if it's closed and
-    // not pushed yet.
-    void PushSelectedHistorySession(AppState* state);
+    // Pushes net `net_id` upstream (as a .qlnet, its closed sessions only)
+    // on PushRunner's thread, merging into the upstream's net `confirm_net`
+    // if it isn't blank. Says why not instead if it can't.
+    bool StartNetPush(AppState* state, std::int64_t net_id, const std::string& confirm_net);
+
+    // True while the export modal offers a push (F3).
+    bool ExportOffersPush(const AppState* state);
+
+    // F3 on the export modal: pushes the net or session just exported.
+    void PushExport(AppState* state);
 
     // On the UI thread once a push has ended: records pushed_at, or asks
     // about the upstream's look-alike net (ConfirmPrompt::kPushToNet), or

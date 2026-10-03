@@ -7,6 +7,8 @@ A push takes two steps, both as an SSH user added in Manage Users who isn't view
 1. Upload the session's `.qlsession` file (F7 Export) into your `/imports` with scp or sftp: `scp -P 2222 Skywarn_2026-09-14.qlsession you@upstream:/imports/`
 2. Import it: `ssh -p 2222 you@upstream import-session Skywarn_2026-09-14.qlsession`
 
+A net can be pushed the same way, with `.qlnet` and `import-net` in place of `.qlsession` and `import-session`.
+
 A pull takes three steps, and any SSH user may make it, view-only ones included:
 
 1. List the upstream's nets: `ssh -p 2222 you@upstream list-nets`
@@ -15,11 +17,12 @@ A pull takes three steps, and any SSH user may make it, view-only ones included:
 
 ## Commands
 
-Apart from copying files with scp, the SSH server runs only these six. It never starts a shell or another program: anything else is answered with `status: error` and exit status 1, and nothing runs.
+Apart from copying files with scp, the SSH server runs only these seven. It never starts a shell or another program: anything else is answered with `status: error` and exit status 1, and nothing runs.
 
 ```
 version
 import-session [--confirm-net "<net name>"] <file>
+import-net [--confirm-net "<net name>"] <file>
 discard-upload <file>
 list-nets
 export-net "<net name>"
@@ -34,7 +37,7 @@ The ssh command on your own computer goes through your own shell first, which re
 ssh -p 2222 you@upstream 'import-session --confirm-net "Sky Warn" Skywarn_2026-09-14.qlsession'
 ```
 
-A view-only user may run `version`, `list-nets`, `export-net` and `export-sessions`, which only read, as they may take an export over ZMODEM or SFTP. `import-session` and `discard-upload` are refused them (`status: refused`, exit 4).
+A view-only user may run `version`, `list-nets`, `export-net` and `export-sessions`, which only read, as they may take an export over ZMODEM or SFTP. `import-session`, `import-net` and `discard-upload` are refused them (`status: refused`, exit 4).
 
 ### version
 
@@ -62,6 +65,28 @@ Which net it goes into, of those on the session's own service (Amateur Radio or 
 - **An ad hoc net's session** becomes a new ad hoc net, as it was defined where it was logged. `--confirm-net` isn't used for one.
 
 The file is deleted from `/imports` once the command has answered, whatever the answer was: a push that fails leaves nothing behind. The one exception is `needs-confirmation`, which keeps it so the same file can be used again with `--confirm-net`. If the answer to that question is no, send `discard-upload` for it.
+
+### import-net
+
+`<file>` is a `.qlnet` in your own `/imports`, named as for `import-session`. A recurring net only; an ad hoc net is refused.
+
+- If no net here, on the net's own service, has its name or looks like it, the net is added as a new net, with its saved stations and sessions (`imported`).
+- If a net here has its very name (capitals and spacing aside), or one looks like it, nothing is changed yet: the answer is `needs-confirmation`, naming that net (the first alphabetically, if several look alike) and what merging would do. Run the command again with `--confirm-net` and that name to merge.
+- A merge adds the sessions and saved stations the net lacks and keeps everything it has: a session it has that differs is left as it is here (the Merge window's "Keep"). It answers `merged`, or `already-imported` if there was nothing to add.
+- `--confirm-net` must name a net here exactly (capitals and spacing aside) whose name is the file's or looks like it, on the same service, or the net isn't merged.
+
+```
+QUICKLOGGER-RESULT 1
+status: needs-confirmation
+net: TAG Skywarn
+net-id: 4
+new-sessions: 2
+new-saved-stations: 1
+differing-sessions: 1
+message: The net was logged as "TAG Skywarn"; confirm "TAG Skywarn" to merge it there, which adds 2 sessions and 1 saved station; 1 session differs and stays as it is here.
+```
+
+`new-sessions`, `new-saved-stations` and `differing-sessions` come with `needs-confirmation`, `merged` and `already-imported`. The file is deleted once the command has answered, except for `needs-confirmation`, as for `import-session`; `discard-upload` withdraws it.
 
 ### discard-upload
 
@@ -138,13 +163,14 @@ The number is the interface version. Then come `key: value` lines, one per key, 
 
 | Key | Value |
 |---|---|
-| `status` | `imported`, `already-imported`, `needs-confirmation`, `no-match`, `refused` or `error` (`ok` for `version`, `list-nets`, `export-net`, `export-sessions` and `discard-upload`) |
+| `status` | `imported`, `merged` (`import-net`), `already-imported`, `needs-confirmation`, `no-match`, `refused` or `error` (`ok` for `version`, `list-nets`, `export-net`, `export-sessions` and `discard-upload`) |
 | `net` | The net's name on the upstream QuickLogger |
 | `net-id` | That net's id there, a whole number |
 | `session` | When the session started, in UTC, 24-hour: `2026-09-14 23:30 UTC`. A session logged before start times were recorded has just its date: `2026-09-14` |
 | `service` | `list-nets`: a net's service, `amateur` or `gmrs` |
 | `sessions` | `list-nets`: a net's closed sessions; `export-sessions`: how many files were written |
 | `not-sent` | `export-sessions`: sessions not written, when there are any |
+| `new-sessions`, `new-saved-stations`, `differing-sessions` | `import-net`: what merging adds, and the sessions that differ |
 | `file` | `export-net` and `export-sessions`: a file now in your `/exports`, once for each |
 | `message` | One sentence, for people |
 

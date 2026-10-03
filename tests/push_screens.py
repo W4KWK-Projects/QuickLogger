@@ -2,7 +2,7 @@
 """The Federated Logging push screens, through the real program.
 
 Run by tests/ssh_end_to_end.sh after the other end-to-end tests, against the
-upstream it started: Close & Push, History's F3, and the look-alike confirm
+upstream it started: Close & Push, the push in History's export window, and the look-alike confirm
 prompt, and pulling a net or a net's sessions from the Import page, driven
 in a pseudo-terminal and read back through pyte.
 
@@ -26,7 +26,7 @@ import time
 import pyte
 
 KEYS = {
-    "F2": "\x1bOQ", "F3": "\x1bOR", "F4": "\x1bOS", "F6": "\x1b[17~", "F9": "\x1b[20~",
+    "F2": "\x1bOQ", "F3": "\x1bOR", "F4": "\x1bOS", "F6": "\x1b[17~", "F7": "\x1b[18~", "F8": "\x1b[19~", "F9": "\x1b[20~",
     "Esc": "\x1b", "Enter": "\r", "Down": "\x1b[B", "Up": "\x1b[A",
 }
 COLS = int(os.environ.get("QL_SCREEN_COLS", "100"))
@@ -87,7 +87,8 @@ class Program:
         return found
 
     def highlight(self, needle, presses=8):
-        """Presses Down until the highlighted row has `needle` in it (wrapping round once)."""
+        """Goes to the top of the list, then presses Down until the highlighted row has `needle` in it."""
+        self.send(*["Up"] * presses)
         for _ in range(presses):
             marked = [line for line in self.text().split("\n") if line.startswith("\u2502>")]
             if marked and needle in marked[0]:
@@ -123,12 +124,21 @@ def upstream_sessions(directory, net):
         db.close()
 
 
+def upstream_net_exists(directory, net):
+    """True if the upstream has a net called `net`."""
+    db = sqlite3.connect("file:" + directory + "/up/quicklogger.db?mode=ro", uri=True)
+    try:
+        return db.execute("SELECT COUNT(*) FROM nets WHERE name = ?", (net,)).fetchone()[0] > 0
+    finally:
+        db.close()
+
+
 def uploads_left(directory):
-    """The .qlsession uploads in any user's /imports on the upstream."""
+    """The .qlsession and .qlnet uploads in any user's /imports on the upstream."""
     found = []
     for root, _, files in os.walk(directory + "/up"):
         if "imports" in root.split(os.sep):
-            found += [f for f in files if f.endswith(".qlsession")]
+            found += [f for f in files if f.endswith((".qlsession", ".qlnet"))]
     return found
 
 
@@ -168,7 +178,7 @@ def main():
     program.send("Up", "Up", "Down", "Down")  # TAG Skywarn
     program.send("F6")
     program.expect("History: TAG Skywarn", "view-only: History opens")
-    program.send("Down", "F3")  # past the open session, to the closed one
+    program.send("Down", "F7", "F3")  # past the open session, to the closed one
     program.expect("Your user on 127.0.0.1 is view-only.", "view-only: push says so")
     check(upstream_check_ins(directory, "TAG Skywarn", "2026-10-06") is None,
           "view-only: nothing reached the upstream")
@@ -183,7 +193,7 @@ def main():
     program.expect("Recurring Nets", "unreachable: net list shows")
     program.send("Down", "Down", "F6")
     program.expect("History: TAG Skywarn", "unreachable: History opens")
-    program.send("Down", "F3")
+    program.send("Down", "F7", "F3")
     program.expect("Couldn't reach 127.0.0.1.", "unreachable: push says so")
     program.quit()
 
@@ -209,29 +219,27 @@ def main():
     program.expect("History: TAG Skywarn", "History opens")
     program.expect("2026-10-13", "History lists the closed session")
     check("pushed" in program.text(), "History shows it as pushed")
-    program.send("F3")
-    program.expect("That session has been pushed already.", "F3 on a pushed session refuses")
 
-    # The older closed session: F3 pushes it.
-    program.send("Down", "F3")
-    program.expect("Pushed to TAG Skywarn on 127.0.0.1.", "History F3: pushed")
+    # The older closed session: pushed from the export window.
+    program.send("Down", "F7", "F3")
+    program.expect("Pushed to TAG Skywarn on 127.0.0.1.", "History export: pushed")
     check(upstream_check_ins(directory, "TAG Skywarn", "2026-10-06") == 3,
-          "History F3: the upstream has the 3 check-ins")
+          "History export: the upstream has the 3 check-ins")
     program.send("Esc")
 
     # A look-alike net: declined, then confirmed.
     program.send("Up")
     program.send("F6")
     program.expect("History: Dixie Traders Net", "look-alike: History opens")
-    program.send("F3")
+    program.send("F7", "F3")
     program.expect("Push to Dixie Traders?", "look-alike: asks first")
     program.expect("Its net Dixie", "look-alike: names the upstream net")
     program.send("Esc")
-    program.expect("Not pushed. Push it from History (F3) later.", "look-alike: declined")
+    program.expect("Not pushed. Push it from History (F7 Export) later.", "look-alike: declined")
     check(upstream_check_ins(directory, "Dixie Traders", "2026-10-07") is None,
           "look-alike: declined, so nothing reached the upstream")
     check(uploads_gone(directory), "look-alike: declined, so the upstream's copy is deleted")
-    program.send("F3")
+    program.send("F7", "F3")
     program.expect("Push to Dixie Traders?", "look-alike: asks again")
     program.send("Enter")
     program.expect("Pushed to Dixie Traders on 127.0.0.1.", "look-alike: confirmed and pushed")
@@ -243,7 +251,7 @@ def main():
     program.send("Up")
     program.send("F6")
     program.expect("History: 220 EOR net", "no match: History opens")
-    program.send("F3")
+    program.send("F7", "F3")
     program.expect("No net named like 220 EOR net on 127.0.0.1.", "no match: push says so")
     check(upstream_check_ins(directory, "220 EOR net", "2026-10-08") is None,
           "no match: nothing reached the upstream")
@@ -261,7 +269,7 @@ def main():
     program.expect("Select a net to import from 127.0.0.1:", "pull: the upstream's nets are listed")
     concurrent = upstream_sessions(directory, "Concurrent Net")
     program.expect("Concurrent Net  (%d sessions)" % concurrent, "pull: a net's closed sessions are counted")
-    program.send("Enter")  # Concurrent Net, which nothing here is like
+    program.send("Down", "Enter")  # Concurrent Net, second after Brand New Net, which nothing here is like
     program.expect("Imported \"Concurrent Net\"", "pull: the net is imported")
     check(local_scalar(run_dir, "SELECT COUNT(*) FROM net_instances i JOIN nets n ON n.id = i.net_id "
                                 "WHERE n.name = 'Concurrent Net'") == concurrent,
@@ -301,6 +309,36 @@ def main():
     program.expect("Select a net to pull sessions from:", "pull again: asks which net")
     program.send("Enter")
     program.expect("Nothing new:", "pull again: nothing new")
+    program.quit()
+
+    # Pushing a whole net: F8 Export offers it. A net the upstream lacks is
+    # added; one it has asks before merging.
+    program = Program(binary, run_dir)
+    program.expect("Recurring Nets", "push net: net list shows")
+    check(program.highlight("220 EOR net"), "push net: 220 EOR net highlighted")
+    program.send("F8")
+    program.expect("Saved to:", "push net: the export window opens")
+    program.expect("F3  Push to 127.0.0.1", "push net: it offers a push")
+    program.send("F3")
+    program.expect("Pushed to 220 EOR net on 127.0.0.1.", "push net: pushed")
+    check(upstream_net_exists(directory, "220 EOR net"), "push net: the upstream has the net")
+
+    check(program.highlight("TAG Skywarn"), "push net: TAG Skywarn highlighted")
+    program.send("F8")
+    program.expect("F3  Push to 127.0.0.1", "push net: offers a push again")
+    program.send("F3")
+    program.expect("Merge Into TAG Skywarn?", "push net: asks before merging")
+    program.expect("127.0.0.1 has TAG Skywarn already.", "push net: says it has the net")
+    program.send("Enter")
+    program.expect("Merged into TAG Skywarn on 127.0.0.1", "push net: merged")
+
+    # Declined: nothing changes, and the upload is deleted.
+    program.send("F8")
+    program.send("F3")
+    program.expect("Merge Into TAG Skywarn?", "push net: asks again")
+    program.send("Esc")
+    program.expect("Not pushed. Push it again with F8 Export.", "push net: declined")
+    check(uploads_gone(directory), "push net: declined, so the upstream's copy is deleted")
     program.quit()
 
     print("")

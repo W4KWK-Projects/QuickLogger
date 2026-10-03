@@ -136,6 +136,34 @@ namespace ql
         CHECK_EQ(result.upstream_net, std::string("Sky Warn"));
     }
 
+    QL_TEST(APushedNetIsMergedOnceConfirmed)
+    {
+        ProgramResult copied = Ran(0, "", "");
+        PushResult result =
+            Decide(copied, Ran(2,
+                               "QUICKLOGGER-RESULT 1\nstatus: needs-confirmation\nnet: TAG Skywarn\nnet-id: 4\n"
+                               "new-sessions: 2\nnew-saved-stations: 1\ndiffering-sessions: 1\n",
+                               ""));
+        CHECK(result.kind == PushResultKind::kNeedsConfirmation);
+        CHECK_EQ(result.upstream_net, std::string("TAG Skywarn"));
+        CHECK_EQ(result.merge_summary,
+                 std::string("adds 2 sessions and 1 saved station; 1 session differs and stays as it is there"));
+
+        result = Decide(copied, Ran(0,
+                                    "QUICKLOGGER-RESULT 1\nstatus: merged\nnet: TAG Skywarn\nnet-id: 4\n"
+                                    "new-sessions: 1\nnew-saved-stations: 0\ndiffering-sessions: 0\n",
+                                    ""));
+        CHECK(result.kind == PushResultKind::kPushed);
+        CHECK_EQ(result.message,
+                 std::string("Merged into TAG Skywarn on upstream.example.org: it adds 1 session and 0 saved "
+                             "stations."));
+
+        // import-net, not import-session, for a net.
+        CHECK_EQ(Joined(UpstreamImportArguments(TestUpstream(), "Sky.qlnet", "Sky Warn", true)),
+                 std::string("[-o][BatchMode=yes][-o][ConnectTimeout=15][-p][2222][-l][W4KWK][--]"
+                             "[upstream.example.org][import-net --confirm-net \"Sky Warn\" Sky.qlnet]"));
+    }
+
     QL_TEST(PushesThatFailSayWhyInOneSentence)
     {
         ProgramResult copied = Ran(0, "", "");

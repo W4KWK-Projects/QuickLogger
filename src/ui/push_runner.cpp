@@ -50,20 +50,20 @@ namespace ql
     }
 
     void PushRunner::Start(const Upstream& upstream, const std::string& local_path, const std::string& remote_name,
-                           const std::string& confirm_net, const std::string& session_net)
+                           const std::string& confirm_net, const std::string& session_net, bool net)
     {
         // The last push's thread has posted its result by now; it's ending.
         if (thread_.joinable())
         {
             thread_.join();
         }
-        thread_ = std::thread(&PushRunner::Run, this, upstream, local_path, remote_name, confirm_net, session_net);
+        thread_ = std::thread(&PushRunner::Run, this, upstream, local_path, remote_name, confirm_net, session_net, net);
     }
 
     void PushRunner::Run(Upstream upstream, std::string local_path, std::string remote_name, std::string confirm_net,
-                         std::string session_net)
+                         std::string session_net, bool net)
     {
-        PushResult result = PushSessionFile(upstream, local_path, remote_name, confirm_net, session_net, &cancel_);
+        PushResult result = PushSessionFile(upstream, local_path, remote_name, confirm_net, session_net, &cancel_, net);
         if (!cancel_)
         {
             screen_->Post(PushFinishedTask(state_, std::move(result)));

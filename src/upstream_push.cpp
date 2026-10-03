@@ -106,9 +106,9 @@ namespace ql
     }
 
     std::vector<std::string> UpstreamImportArguments(const Upstream& upstream, const std::string& remote_name,
-                                                     const std::string& confirm_net)
+                                                     const std::string& confirm_net, bool net)
     {
-        std::string command = "import-session ";
+        std::string command = net ? "import-net " : "import-session ";
         if (!confirm_net.empty())
         {
             command += "--confirm-net " + Quoted(confirm_net) + " ";
@@ -166,6 +166,10 @@ namespace ql
                 {
                     reply.status = ImportReplyStatus::kImported;
                 }
+                else if (value == "merged")
+                {
+                    reply.status = ImportReplyStatus::kMerged;
+                }
                 else if (value == "already-imported")
                 {
                     reply.status = ImportReplyStatus::kAlreadyImported;
@@ -210,6 +214,17 @@ namespace ql
             else if (key == "message")
             {
                 reply.message = std::move(value);
+            }
+            else if (key == "new-sessions" || key == "new-saved-stations" || key == "differing-sessions")
+            {
+                reply.has_counts = true;
+                int count =
+                    value.empty() || value.size() > 6 || value.find_first_not_of("0123456789") != std::string::npos
+                        ? 0
+                        : std::stoi(value);
+                (key == "new-sessions"         ? reply.new_sessions
+                 : key == "new-saved-stations" ? reply.new_saved_stations
+                                               : reply.differing_sessions) = count;
             }
         }
         if (!has_status || (reply.status == ImportReplyStatus::kNeedsConfirmation && reply.net.empty()))
@@ -296,6 +311,23 @@ namespace ql
                Contains(reply.message, "in your /imports");
     }
 
+    static std::string CountedOf(int count, const char* singular, const char* plural)
+    {
+        return std::to_string(count) + " " + (count == 1 ? singular : plural);
+    }
+
+    std::string MergeSummary(const ImportReply& reply)
+    {
+        std::string text = "adds " + CountedOf(reply.new_sessions, "session", "sessions") + " and " +
+                           CountedOf(reply.new_saved_stations, "saved station", "saved stations");
+        if (reply.differing_sessions > 0)
+        {
+            text += "; " + CountedOf(reply.differing_sessions, "session differs", "sessions differ") +
+                    " and stays as it is there";
+        }
+        return text;
+    }
+
     PushResult DecidePushResult(const Upstream& upstream, const ProgramResult& copy, const ProgramResult& import,
                                 const std::string& session_net)
     {
@@ -317,13 +349,19 @@ namespace ql
                 result.kind = PushResultKind::kPushed;
                 result.message = "Pushed to " + reply.net + " on " + host + ".";
                 return result;
+            case ImportReplyStatus::kMerged:
+                result.kind = PushResultKind::kPushed;
+                result.message = "Merged into " + reply.net + " on " + host + ": it " + MergeSummary(reply) + ".";
+                return result;
             case ImportReplyStatus::kAlreadyImported:
                 result.kind = PushResultKind::kPushed;
-                result.message = host + " already had this session, in " + reply.net + ".";
+                result.message = reply.has_counts ? reply.net + " on " + host + " already has all of this net."
+                                                  : host + " already had this session, in " + reply.net + ".";
                 return result;
             case ImportReplyStatus::kNeedsConfirmation:
                 result.kind = PushResultKind::kNeedsConfirmation;
                 result.upstream_net = reply.net;
+                result.merge_summary = MergeSummary(reply);
                 result.message = "Push to " + reply.net + " on " + host + "?";
                 return result;
             case ImportReplyStatus::kNoMatch:
@@ -344,7 +382,7 @@ namespace ql
 
     PushResult PushSessionFile(const Upstream& upstream, const std::string& local_path, const std::string& remote_name,
                                const std::string& confirm_net, const std::string& session_net,
-                               const std::atomic<bool>* cancel)
+                               const std::atomic<bool>* cancel, bool net)
     {
         std::string scp = FindProgramOnPath("scp");
         std::string ssh = FindProgramOnPath("ssh");
@@ -361,7 +399,7 @@ namespace ql
             // (the upstream clears old uploads) is it copied again.
             copy.started = true;
             copy.exit_status = 0;
-            import = RunProgram(ssh, UpstreamImportArguments(upstream, remote_name, confirm_net),
+            import = RunProgram(ssh, UpstreamImportArguments(upstream, remote_name, confirm_net, net),
                                 kUpstreamRunTimeoutSeconds, cancel);
             bool gone = import.started && !import.stopped && import.exit_status != 255 &&
                         ImportReplyMeansFileMissing(ParseImportReply(import.output));
@@ -374,7 +412,7 @@ namespace ql
                           cancel);
         if (copy.started && !copy.stopped && copy.exit_status == 0)
         {
-            import = RunProgram(ssh, UpstreamImportArguments(upstream, remote_name, confirm_net),
+            import = RunProgram(ssh, UpstreamImportArguments(upstream, remote_name, confirm_net, net),
                                 kUpstreamRunTimeoutSeconds, cancel);
         }
         return DecidePushResult(upstream, copy, import, session_net);

@@ -470,7 +470,10 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Elements rows;
-            if (state_->zmodem_action == ZmodemAction::kShowFolder)
+            // After an export of a net or closed session with an upstream set: F3 pushes it.
+            bool can_push = ExportOffersPush(state_);
+            std::string push_label = "Push to " + state_->settings.upstream_host;
+            if (state_->zmodem_action == ZmodemAction::kShowFolder || state_->zmodem_action == ZmodemAction::kPushOnly)
             {
                 rows.push_back(Heading("Exported"));
                 rows.push_back(DialogSeparator());
@@ -480,7 +483,18 @@ namespace ql
                     rows.push_back(ftxui::text("  " + path) | ftxui::color(kColorLabel));
                 }
                 rows.push_back(DialogSeparator());
-                rows.push_back(KeyHintRow({{"F2/Enter", "Show Folder"}, {"Esc", "Close"}}));
+                if (state_->zmodem_action == ZmodemAction::kPushOnly)
+                {
+                    rows.push_back(KeyHintRow({{"F2/Enter", push_label}, {"Esc", "Close"}}));
+                }
+                else if (can_push)
+                {
+                    rows.push_back(KeyHintRow({{"F2/Enter", "Show Folder"}, {"F3", push_label}, {"Esc", "Close"}}));
+                }
+                else
+                {
+                    rows.push_back(KeyHintRow({{"F2/Enter", "Show Folder"}, {"Esc", "Close"}}));
+                }
                 return ftxui::vbox(std::move(rows)) | ftxui::color(kColorHeading) |
                        ftxui::borderStyled(kColorDialogBorder);
             }
@@ -498,7 +512,14 @@ namespace ql
                 rows.push_back(ftxui::text("press Enter to start. Gives up after about 25s if"));
                 rows.push_back(ftxui::text("nothing responds."));
                 rows.push_back(DialogSeparator());
-                rows.push_back(KeyHintRow({{"F2/Enter", "Send"}, {"Esc", "Skip"}}));
+                if (can_push)
+                {
+                    rows.push_back(KeyHintRow({{"F2/Enter", "Send"}, {"F3", push_label}, {"Esc", "Skip"}}));
+                }
+                else
+                {
+                    rows.push_back(KeyHintRow({{"F2/Enter", "Send"}, {"Esc", "Skip"}}));
+                }
             }
             else
             {
@@ -1698,9 +1719,8 @@ namespace ql
                 {FieldLabel("Port:      "), input_port_->Render() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 6)}));
             rows.push_back(DialogSeparator());
             rows.push_back(
-                HintParagraph("Closed sessions can be pushed to this QuickLogger (F3 when closing a net, "
-                              "or in History), and its nets and sessions pulled (F4 on the Import "
-                              "page). A blank host means none."));
+                HintParagraph("Push sessions and nets here from an Export window (F3), or when closing a "
+                              "net (F3). Pull them with F4 on an Import page. A blank host means none."));
             rows.push_back(ftxui::text(""));
             rows.push_back(
                 HintParagraph("Pushing and pulling use this computer's ssh and your own ssh key. Log in there "
@@ -2035,10 +2055,6 @@ namespace ql
                                   InKeyOrder(AddExtraKeysThatFit({{"F7", "Export"}, {"Esc", "Back"}}, extras, 1)));
             }
             std::vector<KeyHint> hints;
-            if (CanPushUpstream(state_))
-            {
-                hints.push_back({"F3", "Push"});
-            }
             hints.push_back({"F5", "Del Check-In"});
             hints.push_back({"F6", "Import"});
             hints.push_back({"F7", "Export"});

@@ -101,6 +101,14 @@ namespace ql
         AddClosedSession(&local, dixie, "2026-09-27", 1790553600, 2);
         AddClosedSession(&local, dixie, "2026-09-28", 1790640000, 2);
         AddClosedSession(&local, AddTestNet(&local, "220 EOR net"), "2026-09-23", 1790208000, 2);
+        // For pushing whole nets (PushNetEndToEnd): one the upstream lacks, and
+        // one it has a session of already.
+        AddClosedSession(&local, AddTestNet(&local, "Brand New Net"), "2026-12-01", 1796083200, 3);
+        std::int64_t merge = AddTestNet(&local, "Merge Net");
+        AddClosedSession(&local, merge, "2026-12-02", 1796169600, 3);
+        AddClosedSession(&local, merge, "2026-12-09", 1796774400, 4);
+        AddClosedSession(&local, merge, "2026-12-16", 1797379200, 2);
+        AddClosedSession(&upstream, AddTestNet(&upstream, "Merge Net"), "2026-12-02", 1796169600, 3);
         // For the pushes made at the same time (PushConcurrentEndToEnd):
         // a session a day from 2026-11-01 to 2026-11-30, 2 to 5 stations.
         std::int64_t concurrent = AddTestNet(&local, "Concurrent Net");
@@ -469,6 +477,63 @@ namespace ql
         CHECK(missing.kind == PullResultKind::kFailed);
         CHECK_EQ(missing.message, std::string("127.0.0.1 has no net named No Such Net any more."));
         CHECK_EQ(PullNetList(UpstreamFor("nobody"), nullptr).message, std::string("127.0.0.1 refused your key."));
+    }
+
+    // Pushing whole nets (import-net) through the real ssh and scp: one the
+    // upstream lacks is added, and one it has is merged into once confirmed.
+    QL_TEST(PushNetEndToEnd)
+    {
+        std::string dir = EndToEndDir();
+        if (dir.empty())
+        {
+            return;
+        }
+        REQUIRE(std::getenv("QL_PUSH_E2E_PORT") != nullptr);
+        Database local(LocalDbPath(dir));
+        std::string error;
+        PushResult result;
+        for (const char* name : {"Brand New Net", "Merge Net"})
+        {
+            std::int64_t net_id = 0;
+            for (const Net& net : local.GetAllNets())
+            {
+                net_id = net.name == name ? net.id : net_id;
+            }
+            REQUIRE(net_id != 0);
+            std::string remote_name = SanitizeFilenameComponent(name) + ".qlnet";
+            std::string local_path = dir + "/local/" + remote_name;
+            REQUIRE(WriteNetSliceFile(local_path, GatherNetSlice(&local, net_id), &error));
+
+            result = PushSessionFile(UpstreamFor("W4KWK"), local_path, remote_name, "", name, nullptr, true);
+            if (std::string(name) == "Brand New Net")
+            {
+                CHECK(result.kind == PushResultKind::kPushed);
+                CHECK_EQ(result.message, std::string("Pushed to Brand New Net on 127.0.0.1."));
+                CHECK_EQ(UpstreamCheckIns(dir, name, "2026-12-01"), 3);
+                continue;
+            }
+            // Its own name still asks, and says what merging would add.
+            CHECK(result.kind == PushResultKind::kNeedsConfirmation);
+            CHECK_EQ(result.upstream_net, std::string("Merge Net"));
+            CHECK_EQ(result.merge_summary, std::string("adds 2 sessions and 0 saved stations"));
+            CHECK_EQ(UpstreamCheckIns(dir, name, "2026-12-09"), -1);
+            result = PushSessionFile(UpstreamFor("W4KWK"), local_path, remote_name, "Merge Net", name, nullptr, true);
+            CHECK(result.kind == PushResultKind::kPushed);
+            CHECK_EQ(result.message,
+                     std::string("Merged into Merge Net on 127.0.0.1: it adds 2 sessions and 0 saved stations."));
+            CHECK_EQ(UpstreamCheckIns(dir, name, "2026-12-09"), 4);
+            CHECK_EQ(UpstreamCheckIns(dir, name, "2026-12-16"), 2);
+
+            // Again: nothing left to add.
+            result = PushSessionFile(UpstreamFor("W4KWK"), local_path, remote_name, "Merge Net", name, nullptr, true);
+            CHECK_EQ(result.message, std::string("Merge Net on 127.0.0.1 already has all of this net."));
+        }
+
+        // A view-only user can't push a net.
+        std::string remote_name = "Brand_New_Net.qlnet";
+        result = PushSessionFile(UpstreamFor("K4VIEW"), dir + "/local/" + remote_name, remote_name, "", "Brand New Net",
+                                 nullptr, true);
+        CHECK_EQ(result.message, std::string("Your user on 127.0.0.1 is view-only."));
     }
 
     QL_TEST(PushConcurrentEndToEnd)

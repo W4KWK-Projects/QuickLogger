@@ -29,8 +29,9 @@ namespace ql
 
         // Starts pushing. The caller makes sure no push is running
         // (AppState::push_running).
+        // `net`: the file is a .qlnet (import-net), not a .qlsession.
         void Start(const Upstream& upstream, const std::string& local_path, const std::string& remote_name,
-                   const std::string& confirm_net, const std::string& session_net);
+                   const std::string& confirm_net, const std::string& session_net, bool net = false);
 
         // Has the upstream delete the upload it kept when it asked about a
         // look-alike net, now declined. Done on a thread of its own and
@@ -40,7 +41,7 @@ namespace ql
 
     private:
         void Run(Upstream upstream, std::string local_path, std::string remote_name, std::string confirm_net,
-                 std::string session_net);
+                 std::string session_net, bool net);
 
         ftxui::ScreenInteractive* screen_;
         AppState* state_;
