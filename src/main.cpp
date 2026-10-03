@@ -89,6 +89,18 @@ static int RunQuickLogger(int argc, char** argv)
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
+#ifdef QUICKLOGGER_WITH_SSH
+    // Started by mosh-server for a mosh client of the SSH server (see
+    // mosh_bridge.hpp): just that user's session, nothing else.
+    for (int i = 1; i < argc; ++i)
+    {
+        if (std::string_view(argv[i]) == "--mosh-session")
+        {
+            return ql::RunMoshSession();
+        }
+    }
+#endif
+
     CliOptions options = ParseArgs(argc, argv);
 
     // Keeps the shared station data loaded and current for every session

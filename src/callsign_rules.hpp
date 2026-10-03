@@ -36,6 +36,13 @@ namespace ql
     // leading US or Canadian prefix with its digit (VE3/W4KWK, KH6/VE3ABC).
     bool IsValidCallsign(const std::string& callsign);
 
+    // True if `callsign` (already normalized) is a call sign the FCC issues
+    // for GMRS: seven characters, K or W and then letters then digits,
+    // either four letters and three digits (today's, such as WSIP663 or
+    // WRAA123) or three letters and four digits (older ones, such as
+    // KAE1234). No portable indicators: GMRS has none.
+    bool IsValidGmrsCallsign(const std::string& callsign);
+
     // `callsign` without its portable indicators: "W4KWK" for W4KWK/M,
     // VE3/W4KWK or VE3/W4KWK/P. Anything it can't make sense of comes back
     // as it is.

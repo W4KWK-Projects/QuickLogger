@@ -744,6 +744,7 @@ namespace ql
     {
         Fixture f;
         f.state.new_user_username = "K4WES";
+        f.state.new_user_amateur_callsign = "K4WES";
         f.state.new_user_public_key = "AAAAC3NzaC1lZDI1NTE5AAAAINM3eCDBCkdxto9OIGli2KKno";
         AddUserFromForm(&f.state);
         CHECK(f.state.form_error.find("key type is missing") != std::string::npos);
@@ -768,6 +769,7 @@ namespace ql
     {
         Fixture f;
         f.state.new_user_username = "K4WES";
+        f.state.new_user_amateur_callsign = "K4WES";
         f.state.new_user_public_key = kTestKey;
         AddUserFromForm(&f.state);
         f.state.new_user_username = "K4WES";
@@ -830,6 +832,7 @@ namespace ql
     {
         Fixture f;
         f.state.new_user_username = "KB4VEW";
+        f.state.new_user_amateur_callsign = "KB4VEW";
         f.state.new_user_public_key = kTestKey;
         f.state.new_user_access_index = 1;
         AddUserFromForm(&f.state);
@@ -948,31 +951,49 @@ namespace ql
         CHECK(!lists_new);
     }
 
-    QL_TEST(UsernamesAreCallSigns)
+    QL_TEST(UsernamesAreLoginNamesWithCallSignsOfTheirOwn)
     {
         Fixture f;
         f.state.new_user_public_key = kTestKey;
-        f.state.new_user_username = "tester";
-        AddUserFromForm(&f.state);
-        CHECK(f.state.form_error.find("TESTER isn't a valid US or Canadian call sign") != std::string::npos);
+        // A username is any login name, but not just any characters.
         f.state.new_user_username = "k4wes/m";
+        f.state.new_user_amateur_callsign = "K4WES";
         AddUserFromForm(&f.state);
-        CHECK(f.state.form_error.find("without /M") != std::string::npos);
+        CHECK(f.state.form_error.find("A username has 1 to 32 letters") == 0);
+        // At least one call sign, each a valid one.
+        f.state.new_user_username = "wes";
+        f.state.new_user_amateur_callsign = "";
+        AddUserFromForm(&f.state);
+        CHECK_EQ(f.state.form_error, std::string("At least one call sign is required: Amateur Radio or GMRS."));
+        f.state.new_user_amateur_callsign = "k4wes/m";
+        AddUserFromForm(&f.state);
+        CHECK(f.state.form_error.find("K4WES/M isn't a valid") == 0);
+        f.state.new_user_amateur_callsign = "";
+        f.state.new_user_gmrs_callsign = "W4KWK";
+        AddUserFromForm(&f.state);
+        CHECK_EQ(f.state.form_error, std::string("W4KWK isn't a valid GMRS call sign."));
         CHECK(f.db()->ListUsers().empty());
 
-        // Canadian call signs too, as everywhere else.
-        f.state.new_user_username = "VE3ABC";
+        // A GMRS licensee with no amateur call sign.
+        f.state.new_user_gmrs_callsign = "wsip663";
         AddUserFromForm(&f.state);
         CHECK(f.state.form_error.empty());
-        CHECK_EQ(f.db()->GetUserKeys("VE3ABC").size(), std::size_t{1});
+        std::vector<User> keys = f.db()->GetUserKeys("WES");
+        REQUIRE(keys.size() == 1);
+        CHECK_EQ(keys[0].username, std::string("wes"));
+        CHECK_EQ(keys[0].gmrs_callsign, std::string("WSIP663"));
+        CHECK(keys[0].amateur_callsign.empty());
+        REQUIRE(f.state.manage_users_labels.size() == 1);
+        CHECK(f.state.manage_users_labels[0].find("WSIP663") != std::string::npos);
 
-        // Typed in lowercase, kept in capitals, and found either way.
-        f.state.new_user_username = " k4wes ";
+        // Another key keeps their call signs, whatever the form says.
+        f.state.new_user_username = "WES";
         f.state.new_user_public_key = kOtherTestKey;
         AddUserFromForm(&f.state);
         CHECK(f.state.form_error.empty());
-        REQUIRE(f.db()->GetUserKeys("k4wes").size() == 1);
-        CHECK_EQ(f.db()->GetUserKeys("k4wes")[0].username, std::string("K4WES"));
+        keys = f.db()->GetUserKeys("wes");
+        REQUIRE(keys.size() == 2);
+        CHECK_EQ(keys[1].gmrs_callsign, std::string("WSIP663"));
     }
 
     QL_TEST(RenamingAUserTakesTheirSettingsAndFilesAlong)
@@ -983,6 +1004,7 @@ namespace ql
             User user;
             user.username = username;
             user.public_key = kTestKey;
+            user.amateur_callsign = username;
             f.db()->CreateUser(user);
         }
         EnsureDirectory(f.dir().File("settings"));
@@ -994,53 +1016,100 @@ namespace ql
         REQUIRE(f.state.user_keys_username == "K4WES");
         CHECK_EQ(f.state.rename_username, std::string("K4WES"));
 
-        // Not a call sign, or someone else's: refused, and nothing saved.
+        CHECK_EQ(f.state.edit_user_amateur_callsign, std::string("K4WES"));
+
+        // Not a username, or someone else's: refused, and nothing saved.
         f.state.edit_user_access_index = 1;
-        f.state.rename_username = "wes";
+        f.state.rename_username = "wes!";
         SaveEditedUser(&f.state);
-        CHECK(f.state.form_error.find("isn't a valid") != std::string::npos);
+        CHECK(f.state.form_error.find("A username has") == 0);
         f.state.rename_username = "kb4vew";
         SaveEditedUser(&f.state);
-        CHECK_EQ(f.state.form_error, std::string("KB4VEW is already a user."));
+        CHECK_EQ(f.state.form_error, std::string("kb4vew is already a user."));
         CHECK(f.state.show_user_keys_modal);
         CHECK_EQ(f.db()->GetUserKeys("K4WES").size(), std::size_t{1});
         CHECK(!f.db()->IsUserViewOnly("K4WES"));
 
-        // Renamed and made view-only in one save.
-        f.state.rename_username = "w4new";
+        // Renamed, made view-only and given a GMRS call sign in one save.
+        f.state.rename_username = "wes";
+        f.state.edit_user_gmrs_callsign = "wsip663";
         SaveEditedUser(&f.state);
         CHECK(f.state.form_error.empty());
-        CHECK_EQ(f.state.status_message, std::string("Renamed K4WES to W4NEW, now view-only, from their next login."));
+        CHECK_EQ(f.state.status_message, std::string("Renamed K4WES to wes and saved, from their next login."));
         CHECK(!f.state.show_user_keys_modal);
         CHECK(f.db()->GetUserKeys("K4WES").empty());
-        REQUIRE(f.db()->GetUserKeys("W4NEW").size() == 1);
-        CHECK_EQ(f.db()->GetUserKeys("W4NEW")[0].username, std::string("W4NEW"));
-        CHECK(f.db()->IsUserViewOnly("W4NEW"));
-        CHECK_EQ(f.state.manage_user_names[static_cast<std::size_t>(f.state.selected_user_index)],
-                 std::string("W4NEW"));
+        REQUIRE(f.db()->GetUserKeys("wes").size() == 1);
+        CHECK_EQ(f.db()->GetUserKeys("wes")[0].username, std::string("wes"));
+        CHECK_EQ(f.db()->GetUserKeys("wes")[0].amateur_callsign, std::string("K4WES"));
+        CHECK_EQ(f.db()->GetUserKeys("wes")[0].gmrs_callsign, std::string("WSIP663"));
+        CHECK(f.db()->IsUserViewOnly("wes"));
+        CHECK_EQ(f.state.manage_user_names[static_cast<std::size_t>(f.state.selected_user_index)], std::string("wes"));
         // Their settings and files moved with them.
         CHECK(!std::filesystem::exists(SshUserSettingsPath(f.state.db_path, "K4WES")));
-        CHECK_EQ(ReadTextFile(SshUserSettingsPath(f.state.db_path, "W4NEW")), std::string("location=37402\n"));
-        CHECK_EQ(ListFilesWithExtension(SessionExportsDir(f.state.db_path, "W4NEW"), ".txt").size(), std::size_t{1});
+        CHECK_EQ(ReadTextFile(SshUserSettingsPath(f.state.db_path, "wes")), std::string("location=37402\n"));
+        CHECK_EQ(ListFilesWithExtension(SessionExportsDir(f.state.db_path, "wes"), ".txt").size(), std::size_t{1});
         CHECK(!std::filesystem::exists(SessionExportsDir(f.state.db_path, "K4WES")));
     }
 
-    QL_TEST(AnSshUsersCallsignIsTheirUsername)
+    QL_TEST(AnSshUsersCallSignsAreManageUsersToSet)
     {
         Fixture f;
-        f.state.ssh_username = "K4WES";
+        f.state.ssh_username = "wes";
         f.state.callsign_editable = false;
-        f.state.settings_path = f.dir().File("k4wes.txt");
+        f.state.settings.callsign = "K4WES";
+        f.state.settings.gmrs_callsign = "WSIP663";
+        f.state.settings_path = f.dir().File("wes.txt");
         OpenSettingsForm(&f.state);
         f.state.settings_form.callsign = "W4KWK";  // However it got there.
+        f.state.settings_form.gmrs_callsign = "";
         REQUIRE(SaveSettingsForm(&f.state));
         CHECK_EQ(f.state.settings.callsign, std::string("K4WES"));
+        CHECK_EQ(f.state.settings.gmrs_callsign, std::string("WSIP663"));
+    }
+
+    QL_TEST(TheConsoleNeedsOneCallSignOrTheOther)
+    {
+        Fixture f;
+        f.state.settings_path = f.dir().File("settings.txt");
+        OpenSettingsForm(&f.state);
+        f.state.settings_form.callsign = "";
+        f.state.settings_form.gmrs_callsign = "";
+        CHECK(!SaveSettingsForm(&f.state));
+        f.state.settings_form.gmrs_callsign = "wsip663";
+        REQUIRE(SaveSettingsForm(&f.state));
+        CHECK(f.state.settings.callsign.empty());
+        CHECK_EQ(f.state.settings.gmrs_callsign, std::string("WSIP663"));
+        CHECK(SettingsAreComplete(f.state.settings));
+    }
+
+    QL_TEST(WithoutACallSignForItsServiceANetCanOnlyBeWatched)
+    {
+        Fixture f;
+        f.state.settings.callsign = "W4KWK";
+        f.state.settings.gmrs_callsign = "";
+        Net family;
+        family.name = "Family Net";
+        family.service = NetService::kGmrs;
+        f.db()->CreateNet(family);
+        RefreshNets(&f.state);
+        StartSelectedNet(&f.state);
+        CHECK_EQ(f.state.page, kPageNetList);
+        CHECK_EQ(f.state.form_error,
+                 std::string("You have no GMRS call sign, so you can only watch GMRS nets. Add one in Settings (F4)."));
+
+        // With one, the role page, prefilled with it.
+        f.state.form_error.clear();
+        f.state.settings.gmrs_callsign = "WSIP663";
+        StartSelectedNet(&f.state);
+        CHECK_EQ(f.state.page, kPageSelectRole);
+        CHECK_EQ(f.state.operator_callsign, std::string("WSIP663"));
     }
 
     QL_TEST(RemovingAUserByNumber)
     {
         Fixture f;
         f.state.new_user_username = "K4WES";
+        f.state.new_user_amateur_callsign = "K4WES";
         f.state.new_user_public_key = kTestKey;
         AddUserFromForm(&f.state);
         CHECK_EQ(f.state.manage_users.size(), std::size_t{1});
@@ -1279,10 +1348,10 @@ namespace ql
         f.db()->CreateNet(old);
         RefreshNets(&f.state);
         REQUIRE(f.state.net_names.size() == 3);
-        CHECK_EQ(f.state.net_names[0], std::string("Old"));
-        // The names get a 30-column Net column (see RefreshNets), then the
-        // Frequency column (blank here) and the two-space gaps.
-        std::string gap(30 - 7 + 2 + 10 + 2, ' ');
+        CHECK_EQ(f.state.net_names[0], "Old" + std::string(30 - 3 + 2, ' ') + "Amateur");
+        // The names get a 30-column Net column (see RefreshNets), then Type,
+        // the Frequency column (blank here) and the two-space gaps.
+        std::string gap = std::string(30 - 7 + 2, ' ') + "Amateur" + std::string(2 + 10 + 2, ' ');
         CHECK(f.state.net_names[1].find("Skywarn" + gap + "created " + FormatLocalDate(1790000000)) == 0);
         CHECK(f.state.net_names[2].find("Skywarn" + gap + "imported " + FormatLocalDate(1790100000)) == 0);
     }
@@ -1613,6 +1682,59 @@ namespace ql
             shows_class = shows_class || line.find("Advanced") != std::string::npos;
         }
         CHECK(shows_class);
+    }
+
+    QL_TEST(CanadianCallSignsNearTheNetsPostalCodeShowTheirDistance)
+    {
+        Fixture f;
+        LoadZipData(f.db());
+        std::vector<ZipCentroid> fsas = {{"K1A", 45.40, -75.70}, {"K2P", 45.41, -75.69}, {"M5V", 43.64, -79.40}};
+        f.db()->BulkUpsertZipCentroids(fsas);
+        Station near_a = MakeStation("VE3AAA", "Able, Ann");
+        near_a.zip = "K1A 0B1";
+        Station near_b = MakeStation("VE3BBB", "Baker, Bob");
+        near_b.zip = "K2P 1A1";
+        Station far_c = MakeStation("VE3CCC", "Cole, Cy");
+        far_c.zip = "M5V 2T6";
+        f.db()->ReplaceIsedStations({near_a, near_b, far_c, MakeStation("VE3DDD", "Dunn, Di")}, 1);
+        f.StartNet("Skywarn");
+        f.state.active_net_zip = "K1A 0B1";
+        ClearModalFields(&f.state);
+        f.state.modal_station.callsign = "ve3";
+        RefreshCallsignSuggestions(&f.state);
+
+        // The two in Ottawa first, with distances; the rest as before.
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 4);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("VE3AAA"));
+        CHECK_EQ(f.state.modal_callsign_suggestion_sources[0], std::string("(ISED ~0 mi)"));
+        CHECK_EQ(f.state.modal_callsign_suggestions[1].callsign, std::string("VE3BBB"));
+        CHECK_EQ(f.state.modal_callsign_suggestion_sources[1].find("(ISED ~"), std::size_t{0});
+        CHECK_EQ(f.state.modal_callsign_suggestion_sources[2], std::string("(ISED)"));
+        CHECK_EQ(f.state.modal_callsign_suggestion_sources[3], std::string("(ISED)"));
+
+        // Picking one fills its grid from the FSA.
+        f.state.selected_suggestion_index = 0;
+        ApplySelectedCallsignSuggestion(&f.state);
+        CHECK_EQ(f.state.modal_station.grid_square, std::string("FN25"));
+    }
+
+    QL_TEST(APostalCodeIsAcceptedAndKeptTidyInSettings)
+    {
+        Fixture f;
+        f.state.settings_path = f.dir().File("settings.txt");
+        OpenSettingsForm(&f.state);
+        f.state.settings_form.location = "k1a0b1";
+        REQUIRE(SaveSettingsForm(&f.state));
+        CHECK_EQ(f.state.settings.location, std::string("K1A 0B1"));
+        CHECK_EQ(LoadSettings(f.state.settings_path).location, std::string("K1A 0B1"));
+        CHECK(SettingsAreComplete(f.state.settings));
+
+        f.state.settings_form.location = "K1A 0B";
+        CHECK(!SaveSettingsForm(&f.state));
+        CHECK(!CheckNetZip(&f.state, "K1A 0B"));
+        CHECK(CheckNetZip(&f.state, "K1A 0B1"));
+        CHECK(CheckNetZip(&f.state, "37415"));
+        CHECK(CheckNetZip(&f.state, ""));
     }
 
     QL_TEST(PartialMatchingIsSetPerNetToUsOrCanadianData)
@@ -1966,11 +2088,12 @@ namespace ql
         CHECK_EQ(f.state.modal_callsign_suggestion_labels[0], std::string(expected));
 
         // The net list: the name padded to 30 columns (or 4 past the
-        // longest name), the frequency (none here), then whether a session
-        // is open.
+        // longest name), its Type, the frequency (none here), then whether
+        // a session is open.
         RefreshNets(&f.state);
         REQUIRE(f.state.net_names.size() == 1);
-        CHECK_EQ(f.state.net_names[0], "Skywarn" + std::string(30 - 7 + 2 + 10 + 2, ' ') + "session open");
+        CHECK_EQ(f.state.net_names[0],
+                 "Skywarn" + std::string(30 - 7 + 2, ' ') + "Amateur" + std::string(2 + 10 + 2, ' ') + "session open");
     }
 
     QL_TEST(AWiderTerminalShowsMoreOfEveryList)
@@ -2976,7 +3099,7 @@ namespace ql
         CloseSavedStationForm(&f.state);
         CHECK(!f.state.show_saved_station_modal);
 
-        LoadSavedStationIntoForm(&f.state, f.state.edit_net_saved_stations[0]);
+        LoadSavedStationIntoForm(&f.state, 0);
         CHECK(f.state.show_saved_station_modal);
         CHECK_EQ(f.state.saved_station.name, std::string("Ann"));
         CHECK_EQ(f.state.saved_station_remarks, std::string("mobile"));

@@ -19,6 +19,27 @@
 namespace ql
 {
 
+    // Every check-in of net `net_id` into `slice`, in one query, and the
+    // stations of those not in `known_callsigns` (upper case) in one more.
+    // A station that checked in but isn't saved to the net (removed from
+    // its saved stations since, or from before stations were saved on
+    // check-in) still needs its stations row on the importing side.
+    static void GatherCheckIns(Database* db, std::int64_t net_id, std::unordered_set<std::string>* known_callsigns,
+                               NetSlice* slice)
+    {
+        slice->check_ins = db->GetCheckInsForNet(net_id);
+        std::vector<std::string> unknown;
+        for (const CheckIn& check_in : slice->check_ins)
+        {
+            std::string upper = ToUpperAscii(check_in.callsign);
+            if (known_callsigns->insert(upper).second)
+            {
+                unknown.push_back(std::move(upper));
+            }
+        }
+        slice->other_stations = db->FindStationsByCallsigns(unknown);
+    }
+
     NetSlice GatherNetSlice(Database* db, std::int64_t net_id)
     {
         // All of its reads under one snapshot and one lock.
@@ -31,37 +52,14 @@ namespace ql
         }
 
         std::unordered_set<std::string> known_callsigns;
-        std::vector<Station> saved = db->GetSavedStationsForNet(net_id);
-        slice.saved_stations.reserve(saved.size());
-        for (Station& station : saved)
+        slice.saved_stations = db->GetSavedNetEntries(net_id);
+        for (const NetSliceSavedStation& saved : slice.saved_stations)
         {
-            NetSliceSavedStation entry;
-            entry.default_remarks = db->GetSavedNetStationRemarks(net_id, station.callsign);
-            known_callsigns.insert(ToUpperAscii(station.callsign));
-            entry.station = std::move(station);
-            slice.saved_stations.push_back(std::move(entry));
+            known_callsigns.insert(ToUpperAscii(saved.station.callsign));
         }
 
         slice.instances = db->GetNetInstancesForNet(net_id);
-        for (const NetInstance& instance : slice.instances)
-        {
-            std::vector<CheckIn> check_ins = db->GetCheckInsForNetInstance(instance.id);
-            for (CheckIn& check_in : check_ins)
-            {
-                // Only reachable for check-in history logged before stations
-                // started auto-saving on check-in -- see NetSlice::other_stations.
-                if (known_callsigns.insert(ToUpperAscii(check_in.callsign)).second)
-                {
-                    std::optional<Station> station = db->FindStationByCallsign(check_in.callsign);
-                    if (station.has_value())
-                    {
-                        slice.other_stations.push_back(std::move(*station));
-                    }
-                }
-                slice.check_ins.push_back(std::move(check_in));
-            }
-        }
-
+        GatherCheckIns(db, net_id, &known_callsigns, &slice);
         return slice;
     }
 
@@ -75,8 +73,12 @@ namespace ql
         // A net exported by an older version may carry free text here,
         // from before this was a ZIP field (see Database::NormalizeNetZips).
         net.default_location = ExtractZipCode(net.default_location);
-        // Likewise a frequency from before it was checked.
-        MoveBadFrequencyToComments(&net.default_frequency, &net.comments);
+        // Likewise a frequency from before it was checked (an amateur one:
+        // a GMRS net's is one of its channels, never typed in).
+        if (net.service != NetService::kGmrs)
+        {
+            MoveBadFrequencyToComments(&net.default_frequency, &net.comments);
+        }
         // And a mode from before it was a fixed choice.
         net.mode = NormalizeMode(net.mode);
         std::int64_t new_net_id = db->CreateNet(net);
@@ -84,7 +86,7 @@ namespace ql
 
         for (const NetSliceSavedStation& saved : slice.saved_stations)
         {
-            db->SaveNetStation(new_net_id, saved.station, saved.default_remarks, now);
+            db->SaveNetStation(new_net_id, saved.station, saved.default_remarks, now, saved.name);
         }
         for (const Station& station : slice.other_stations)
         {
@@ -165,40 +167,14 @@ namespace ql
             slice.net = std::move(nets[0]);
 
             std::unordered_set<std::string> known_callsigns;
-            std::vector<Station> saved = source.GetSavedStationsForNet(slice.net.id);
-            slice.saved_stations.reserve(saved.size());
-            for (Station& station : saved)
+            slice.saved_stations = source.GetSavedNetEntries(slice.net.id);
+            for (const NetSliceSavedStation& saved : slice.saved_stations)
             {
-                NetSliceSavedStation entry;
-                entry.default_remarks = source.GetSavedNetStationRemarks(slice.net.id, station.callsign);
-                known_callsigns.insert(ToUpperAscii(station.callsign));
-                entry.station = std::move(station);
-                slice.saved_stations.push_back(std::move(entry));
+                known_callsigns.insert(ToUpperAscii(saved.station.callsign));
             }
 
             slice.instances = source.GetNetInstancesForNet(slice.net.id);
-            for (const NetInstance& instance : slice.instances)
-            {
-                std::vector<CheckIn> check_ins = source.GetCheckInsForNetInstance(instance.id);
-                for (const CheckIn& check_in : check_ins)
-                {
-                    // A station that checked in but isn't saved to the net
-                    // (e.g. removed from its saved stations since) -- its
-                    // check-ins need its stations row on the importing side.
-                    std::string upper = ToUpperAscii(check_in.callsign);
-                    if (known_callsigns.insert(upper).second)
-                    {
-                        std::optional<Station> station = source.FindStationByCallsign(upper);
-                        if (station.has_value())
-                        {
-                            slice.other_stations.push_back(std::move(*station));
-                        }
-                    }
-                }
-                slice.check_ins.insert(slice.check_ins.end(), std::make_move_iterator(check_ins.begin()),
-                                       std::make_move_iterator(check_ins.end()));
-            }
-
+            GatherCheckIns(&source, slice.net.id, &known_callsigns, &slice);
             return slice;
         }
         catch (const std::exception& e)
@@ -225,20 +201,7 @@ namespace ql
         }
         slice.instances.push_back(std::move(*instance));
         slice.check_ins = db->GetCheckInsForNetInstance(instance_id);
-
-        std::unordered_set<std::string> known_callsigns;
-        for (const CheckIn& check_in : slice.check_ins)
-        {
-            if (!known_callsigns.insert(ToUpperAscii(check_in.callsign)).second)
-            {
-                continue;
-            }
-            std::optional<Station> station = db->FindStationByCallsign(check_in.callsign);
-            if (station.has_value())
-            {
-                slice.other_stations.push_back(std::move(*station));
-            }
-        }
+        slice.other_stations = db->GetStationsInNetInstance(instance_id);
         return slice;
     }
 
@@ -265,16 +228,12 @@ namespace ql
         // One transaction: the whole session or none of it.
         Database::WriteTransaction transaction(db);
         const NetInstance& source = slice.instances[0];
-        for (const NetInstance& existing : db->GetNetInstancesForNet(net_id))
+        if (db->HasNetInstance(net_id, source.instance_date, source.started_at))
         {
-            if (existing.instance_date == source.instance_date && existing.started_at == source.started_at)
-            {
-                *error =
-                    "This net already has that session (" + source.instance_date +
-                    (source.started_at > 0 ? ", started " + FormatLocalTimeOfDay(source.started_at) : std::string()) +
-                    "), so nothing was imported.";
-                return 0;
-            }
+            *error = "This net already has that session (" + source.instance_date +
+                     (source.started_at > 0 ? ", started " + FormatLocalTimeOfDay(source.started_at) : std::string()) +
+                     "), so nothing was imported.";
+            return 0;
         }
 
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
@@ -294,11 +253,22 @@ namespace ql
         instance.net_id = net_id;
         std::int64_t instance_id = db->CreateNetInstance(instance);
 
-        std::unordered_set<std::string> saved_callsigns;
+        // The net's default remarks for what's saved to it already, read in
+        // one go, by call sign and entry name.
+        std::unordered_map<std::string, std::string> saved_remarks;
+        for (const SavedNetStation& saved : db->GetSavedNetEntries(net_id))
+        {
+            saved_remarks[ToUpperAscii(saved.station.callsign) + '\x1f' + ToUpperAscii(saved.name)] =
+                saved.default_remarks;
+        }
+        // Saved once each: by call sign, or on a GMRS net by call sign and
+        // name (see CheckIn::name).
+        std::unordered_set<std::string> saved_entries;
         for (const CheckIn& check_in : slice.check_ins)
         {
             std::string upper = ToUpperAscii(check_in.callsign);
-            if (saved_callsigns.insert(upper).second)
+            std::string entry = upper + '\x1f' + ToUpperAscii(check_in.name);
+            if (saved_entries.insert(entry).second)
             {
                 std::unordered_map<std::string, const Station*>::const_iterator found = stations.find(upper);
                 // Just the callsign, if the file has nothing else on it.
@@ -308,8 +278,9 @@ namespace ql
                     bare.callsign = upper;
                 }
                 const Station& station = found != stations.end() ? *found->second : bare;
-                std::string remarks = db->GetSavedNetStationRemarks(net_id, upper);
-                db->SaveNetStation(net_id, station, remarks.empty() ? check_in.remarks : remarks, now);
+                std::unordered_map<std::string, std::string>::const_iterator remarks = saved_remarks.find(entry);
+                bool keep = remarks != saved_remarks.end() && !remarks->second.empty();
+                db->SaveNetStation(net_id, station, keep ? remarks->second : check_in.remarks, now, check_in.name);
             }
             db->AddCheckIn(check_in, instance_id);
         }
@@ -322,14 +293,49 @@ namespace ql
         return instance_id;
     }
 
+    std::int64_t ApplyAdHocSessionSlice(Database* db, const NetSlice& slice, std::int64_t imported_at,
+                                        std::int64_t* net_id, std::string* error)
+    {
+        if (slice.instances.size() != 1)
+        {
+            *error = "This file doesn't hold exactly one session.";
+            return 0;
+        }
+        Database::WriteTransaction transaction(db);
+        const NetInstance& session = slice.instances[0];
+        if (db->FindAdHocSession(slice.net.name, session.instance_date, session.started_at).has_value())
+        {
+            *error = "The ad hoc net " + slice.net.name + " already has that session, so nothing was imported.";
+            return 0;
+        }
+        Net net = slice.net;
+        net.is_ad_hoc = true;
+        net.imported_at = imported_at;
+        net.default_location = ExtractZipCode(net.default_location);
+        if (net.service != NetService::kGmrs)
+        {
+            MoveBadFrequencyToComments(&net.default_frequency, &net.comments);
+        }
+        std::int64_t new_net_id = db->CreateNet(net);
+        std::int64_t instance_id = ApplySessionSlice(db, slice, new_net_id, error);
+        if (instance_id != 0)
+        {
+            transaction.Commit();
+            *net_id = new_net_id;
+        }
+        return instance_id;
+    }
+
     // A check-in as compared by SameCheckIns, appended to `key` (cleared
     // first) so one string is reused rather than built from temporaries.
     static void CheckInKey(const CheckIn& check_in, std::string* key)
     {
         key->clear();
-        key->reserve(check_in.callsign.size() + check_in.signal_report.size() + check_in.remarks.size() +
-                     check_in.comment.size() + 8);
+        key->reserve(check_in.callsign.size() + check_in.name.size() + check_in.signal_report.size() +
+                     check_in.remarks.size() + check_in.comment.size() + 9);
         key->append(check_in.callsign);
+        key->push_back('\x1f');
+        key->append(check_in.name);
         for (char& c : *key)
         {
             c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
@@ -438,7 +444,7 @@ namespace ql
     struct DetailFieldName
     {
         const char* label;
-        std::string Station::* member;
+        std::string Station::*member;
     };
 
     static const DetailFieldName kDetailFields[] = {
@@ -502,7 +508,7 @@ namespace ql
 
     // The file's stations (saved and others) also here whose details differ,
     // sorted by callsign. The ones here are read in one go.
-    static std::vector<MergeStationConflict> StationConflicts(Database* db, const NetSlice& slice)
+    static std::vector<MergeStationConflict> StationConflicts(const Database* db, const NetSlice& slice)
     {
         std::vector<const Station*> file_stations;
         file_stations.reserve(slice.saved_stations.size() + slice.other_stations.size());
@@ -526,6 +532,11 @@ namespace ql
         std::vector<MergeStationConflict> conflicts;
         for (std::size_t i = 0; i < file_stations.size(); ++i)
         {
+            // A GMRS call sign saved once for each person on it is one station.
+            if (i > 0 && callsigns[i] == callsigns[i - 1])
+            {
+                continue;
+            }
             std::vector<Station>::const_iterator found =
                 std::lower_bound(here.begin(), here.end(), callsigns[i], StationBeforeCallsign());
             if (found == here.end() || found->callsign != callsigns[i])
@@ -537,7 +548,7 @@ namespace ql
             std::vector<StationDetailDifference> differences;
             for (int field = 0; field < kDetailFieldCount; ++field)
             {
-                std::string Station::* member = kDetailFields[field].member;
+                std::string Station::*member = kDetailFields[field].member;
                 CompareDetail(field, mine.*member, theirs.*member, &differences);
             }
             if (!differences.empty())
@@ -594,14 +605,16 @@ namespace ql
         NetMergePlan plan;
         plan.target_net_id = target_net_id;
 
+        // By call sign and entry name (see SavedNetStation).
         std::unordered_set<std::string> saved_here;
-        for (const Station& here : db->GetSavedStationsForNet(target_net_id))
+        for (const SavedNetStation& here : db->GetSavedNetEntries(target_net_id))
         {
-            saved_here.insert(ToUpperAscii(here.callsign));
+            saved_here.insert(ToUpperAscii(here.station.callsign) + '\x1f' + ToUpperAscii(here.name));
         }
         for (const NetSliceSavedStation& saved : slice.saved_stations)
         {
-            bool known = saved_here.count(ToUpperAscii(saved.station.callsign)) != 0;
+            bool known =
+                saved_here.count(ToUpperAscii(saved.station.callsign) + '\x1f' + ToUpperAscii(saved.name)) != 0;
             (known ? plan.known_saved_stations : plan.new_saved_stations) += 1;
         }
 
@@ -672,13 +685,16 @@ namespace ql
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
         Database::WriteTransaction transaction(db);
 
-        // The sessions being replaced go first, so a station only they used
-        // isn't left behind, nor removed after it's needed again.
+        // The sessions being replaced go first. Stations only they used are
+        // removed once, at the end, so one needed again isn't removed and
+        // the stations aren't checked once per session.
+        bool replaced_any = false;
         for (const MergeSession& session : plan.sessions)
         {
             if (session.kind == MergeSessionKind::kDiffers && session.replace)
             {
-                db->DeleteNetInstance(session.local_id);
+                db->DeleteNetInstance(session.local_id, /*remove_unused_stations=*/false);
+                replaced_any = true;
             }
         }
 
@@ -725,7 +741,8 @@ namespace ql
         {
             db->FillStationBlanks(saved.station, now);
             have_station.insert(ToUpperAscii(saved.station.callsign));
-            if (db->AddNetSavedStationIfMissing(plan.target_net_id, saved.station.callsign, saved.default_remarks))
+            if (db->AddNetSavedStationIfMissing(plan.target_net_id, saved.station.callsign, saved.default_remarks,
+                                                saved.name))
             {
                 ++result.saved_stations_added;
             }
@@ -796,6 +813,10 @@ namespace ql
             ++(session.kind == MergeSessionKind::kNew ? result.sessions_added : result.sessions_replaced);
         }
 
+        if (replaced_any)
+        {
+            db->DeleteUnusedStations();
+        }
         transaction.Commit();
         return result;
     }

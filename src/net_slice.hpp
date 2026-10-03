@@ -10,14 +10,10 @@
 namespace ql
 {
 
-    // A station explicitly saved to the net being exported, paired with its
-    // per-net default remarks -- mirrors one net_saved_stations row (see
-    // Database::GetSavedStationsForNet/GetSavedNetStationRemarks).
-    struct NetSliceSavedStation
-    {
-        Station station;
-        std::string default_remarks;
-    };
+    // A station explicitly saved to the net being exported, with its
+    // per-net default remarks and, on a GMRS net, its own name -- one
+    // net_saved_stations row (see Database::GetSavedNetEntries).
+    using NetSliceSavedStation = SavedNetStation;
 
     // Everything needed to reconstitute one recurring net -- its own
     // definition, every station that's either saved to it or has ever
@@ -109,6 +105,16 @@ namespace ql
     // the same start time -- most likely this one, imported before.
     // Otherwise returns the new session's id.
     std::int64_t ApplySessionSlice(Database* db, const NetSlice& slice, std::int64_t net_id, std::string* error);
+
+    // Adds the one session in `slice` as a new ad hoc net, defined as it was
+    // where it was logged and imported at `imported_at`, as History's F6
+    // does for an ad hoc session. Refuses (returning 0, with `error` set) if
+    // an ad hoc net of the same name already has that session (see
+    // Database::FindAdHocSession). Otherwise returns the new session's id,
+    // and its net's in `net_id`. The net is kept only if the session is
+    // imported too.
+    std::int64_t ApplyAdHocSessionSlice(Database* db, const NetSlice& slice, std::int64_t imported_at,
+                                        std::int64_t* net_id, std::string* error);
 
     // ---- Merging a .qlnet into a net that's already here -------------------
     //

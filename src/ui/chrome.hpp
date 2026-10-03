@@ -117,12 +117,18 @@ namespace ql
     // How many columns KeyHintRow(hints) needs to show every hint.
     int KeyHintRowWidth(const std::vector<KeyHint>& hints);
 
-    // Where TopBar reads the station-data notice from (see
-    // DescribeStationDataNotice in uls_import.hpp). Set once per session,
-    // before the first frame; until then, or with nullptr, no notice shows.
-    // A process-wide setting because every page's TopBar needs it and each
-    // process runs exactly one session.
-    void SetTopBarNoticeDatabase(Database* db);
+    // The station-data notice TopBar shows (see DescribeStationDataNotice in
+    // uls_import.hpp; "" for none), and whether it's a problem rather than
+    // just news. Set on the UI thread, before the first frame and whenever
+    // ScreenTicker finds it changed (see ShowStationDataStatus): a renderer
+    // never reads the database. Process-wide because every page's TopBar
+    // needs it and each process runs exactly one session.
+    void SetStationDataNotice(const std::string& notice, bool is_problem);
+
+    // The newer release TopBar and Settings show ("" for none). Set on the
+    // UI thread when the update check finds one, so a renderer takes no
+    // lock to read it.
+    void SetAvailableUpdateForDisplay(const std::string& version);
 
     // A full-width colored title bar for the top of a page, naming the app and
     // the page currently shown, with the local time (to the minute) at the
@@ -134,8 +140,8 @@ namespace ql
     // check-in count), shown left of all that. The title is shortened if
     // need be so none of it is pushed off the edge.
     ftxui::Element TopBar(const std::string& page_title, const std::string& status = "");
-    // The newer release found at the console (AvailableUpdate), or "", read
-    // at most once a second: for what's drawn every frame.
+    // The newer release found at the console, or "" (see
+    // SetAvailableUpdateForDisplay): for what's drawn every frame.
     const std::string& AvailableUpdateForDisplay();
 
     // The terminal's size for the frame being drawn. Read once as each frame

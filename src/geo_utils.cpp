@@ -1,9 +1,12 @@
 #include "geo_utils.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <set>
 #include <utility>
+
+#include "text_utils.hpp"
 
 namespace ql
 {
@@ -32,6 +35,29 @@ namespace ql
         double a = sin_lat * sin_lat + std::cos(lat1_rad) * std::cos(lat2_rad) * sin_lon * sin_lon;
         double c = 2.0 * std::atan2(std::sqrt(a), std::sqrt(1.0 - a));
         return kEarthRadiusMiles * c;
+    }
+
+    static bool IsAsciiDigit(char c)
+    {
+        return std::isdigit(static_cast<unsigned char>(c)) != 0;
+    }
+
+    static bool IsAsciiLetter(char c)
+    {
+        return std::isalpha(static_cast<unsigned char>(c)) != 0;
+    }
+
+    std::string ZipCentroidKey(const std::string& zip)
+    {
+        if (zip.size() >= 5 && std::all_of(zip.begin(), zip.begin() + 5, IsAsciiDigit))
+        {
+            return zip.substr(0, 5);
+        }
+        if (zip.size() >= 3 && IsAsciiLetter(zip[0]) && IsAsciiDigit(zip[1]) && IsAsciiLetter(zip[2]))
+        {
+            return ToUpperAscii(zip.substr(0, 3));
+        }
+        return std::string();
     }
 
     std::string MaidenheadGrid4(double lat, double lon)

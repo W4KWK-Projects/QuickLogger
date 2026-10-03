@@ -1,0 +1,177 @@
+PRAGMA foreign_keys=OFF;
+BEGIN TRANSACTION;
+CREATE TABLE stations (
+    callsign TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    member_id TEXT NOT NULL DEFAULT '',
+    street_address TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    county TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT '',
+    zip TEXT NOT NULL DEFAULT '',
+    grid_square TEXT NOT NULL DEFAULT '',
+    license_class TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    data_source INTEGER NOT NULL DEFAULT 0,
+    last_updated INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO stations VALUES('KQ4ZZA','O''Brien, Sam "Skip"','','','Ringgold','Catoosa','GA','30736','','','',0,1790086400);
+INSERT INTO stations VALUES('AB4ZZE','','','','','','','','','','',0,1790086490);
+INSERT INTO stations VALUES('VE3ZZD','Tremblay, Élise','','','Montréal','','QC','','','','',0,1790518445);
+INSERT INTO stations VALUES('W4TST','Tester, Pat Q','10001','1 Main St','Chattanooga','Hamilton','TN','37415','EM75','','',0,1790172800);
+INSERT INTO stations VALUES('KD4ZZB','Peña, José','','','Cleveland','','TN','37311','','','',0,1790172820);
+INSERT INTO stations VALUES('N4ZZC/P','Lee, Chris','','','','','','','','','',0,1789481780);
+CREATE TABLE nets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT '',
+    default_frequency TEXT NOT NULL DEFAULT '',
+    default_location TEXT NOT NULL DEFAULT '',
+    default_grid_square TEXT NOT NULL DEFAULT '',
+    recurrence_description TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL DEFAULT 0,
+    imported_at INTEGER NOT NULL DEFAULT 0,
+    is_ad_hoc INTEGER NOT NULL DEFAULT 0,
+    repeater_offset TEXT NOT NULL DEFAULT '',
+    pl_tone TEXT NOT NULL DEFAULT '',
+    partial_match_canada INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO nets VALUES(1,'Test County Skywarn','FM','145.390','37415','EM75','Tuesdays at 8pm ET',replace('Weather spotters.\u000aSecond line, with "quotes".','\u000a',char(10)),1787408000,0,0,'-0.6','107.2',0);
+INSERT INTO nets VALUES(2,'Bare Net','','','','','','',1788272000,0,0,'','',0);
+INSERT INTO nets VALUES(3,'Cross-Border HF Net','SSB','7.255','','','Sundays 1400Z','',1789136000,1789222400,0,'','',1);
+INSERT INTO nets VALUES(4,'Fusion Net','Fusion','442.100','30736','','','',1789568000,0,0,'+5','',0);
+INSERT INTO nets VALUES(5,'Tailgate Test','FM','146.520','','','','',1790172800,0,1,'','',0);
+CREATE TABLE net_instances (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    net_id INTEGER NOT NULL REFERENCES nets(id),
+    instance_date TEXT NOT NULL,
+    net_control_callsign TEXT NOT NULL DEFAULT '',
+    alternate_net_control_callsign TEXT NOT NULL DEFAULT '',
+    logger_callsign TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    frequency TEXT NOT NULL DEFAULT '',
+    location TEXT NOT NULL DEFAULT '',
+    status INTEGER NOT NULL DEFAULT 0,
+    closed_at INTEGER NOT NULL DEFAULT 0,
+    operator_role INTEGER NOT NULL DEFAULT 0,
+    started_at INTEGER NOT NULL DEFAULT 0,
+    notes TEXT NOT NULL DEFAULT ''
+);
+INSERT INTO net_instances VALUES(1,1,'2026-09-15','W4TST','','','W4TST','','',1,1789484300,0,1789481600,replace('Severe watch until 10pm.\u000aNo damage reports.','\u000a',char(10)));
+INSERT INTO net_instances VALUES(2,1,'2026-09-22','W4TST','','KQ4ZZA','KQ4ZZA','','',1,1790088200,2,1790086400,'');
+INSERT INTO net_instances VALUES(3,3,'2026-09-27','','W4TST','','W4TST','','',0,0,1,1790518400,'');
+INSERT INTO net_instances VALUES(4,4,'2026-09-26','W4TST','','','W4TST','','',1,1790432600,0,1790432000,'');
+INSERT INTO net_instances VALUES(5,5,'2026-09-23','W4TST','','','W4TST','','',1,1790173700,0,1790172800,'');
+CREATE TABLE check_ins (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    net_instance_id INTEGER NOT NULL REFERENCES net_instances(id),
+    callsign TEXT NOT NULL REFERENCES stations(callsign),
+    sequence_number INTEGER NOT NULL DEFAULT 0,
+    signal_report TEXT NOT NULL DEFAULT '',
+    remarks TEXT NOT NULL DEFAULT '',
+    comment TEXT NOT NULL DEFAULT '',
+    checked_in_at INTEGER NOT NULL DEFAULT 0,
+    designated_role INTEGER NOT NULL DEFAULT -1
+);
+INSERT INTO check_ins VALUES(1,1,'W4TST',1,'','','',1789481600,-1);
+INSERT INTO check_ins VALUES(2,1,'KQ4ZZA',2,'59','Spotter 12','Heavy rain',1789481660,-1);
+INSERT INTO check_ins VALUES(3,1,'KD4ZZB',3,'57','','',1789481720,1);
+INSERT INTO check_ins VALUES(4,1,'N4ZZC/P',4,'','Portable','',1789481780,2);
+INSERT INTO check_ins VALUES(5,2,'KQ4ZZA',1,'','','',1790086400,-1);
+INSERT INTO check_ins VALUES(6,2,'W4TST',2,'','','',1790086430,-1);
+INSERT INTO check_ins VALUES(7,2,'AB4ZZE',3,'55','First time','',1790086490,-1);
+INSERT INTO check_ins VALUES(8,3,'W4TST',1,'','','',1790518400,-1);
+INSERT INTO check_ins VALUES(9,3,'VE3ZZD',2,'5x9','','Montréal relay',1790518445,-1);
+INSERT INTO check_ins VALUES(10,4,'W4TST',1,'','','',1790432000,-1);
+INSERT INTO check_ins VALUES(11,5,'W4TST',1,'','','',1790172800,-1);
+INSERT INTO check_ins VALUES(12,5,'KD4ZZB',2,'','Simplex','',1790172820,-1);
+CREATE TABLE net_saved_stations (
+    net_id INTEGER NOT NULL REFERENCES nets(id),
+    callsign TEXT NOT NULL REFERENCES stations(callsign),
+    default_remarks TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (net_id, callsign)
+);
+INSERT INTO net_saved_stations VALUES(1,'KQ4ZZA','Mobile spotter');
+INSERT INTO net_saved_stations VALUES(1,'AB4ZZE','');
+INSERT INTO net_saved_stations VALUES(3,'VE3ZZD','Relays from VE3');
+CREATE TABLE import_runs (
+    source TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'never_run',
+    started_at INTEGER NOT NULL DEFAULT 0,
+    completed_at INTEGER NOT NULL DEFAULT 0,
+    records_imported INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT ''
+, phase TEXT NOT NULL DEFAULT '', percent INTEGER NOT NULL DEFAULT 0, heartbeat_at INTEGER NOT NULL DEFAULT 0, requested_at INTEGER NOT NULL DEFAULT 0);
+INSERT INTO import_runs VALUES('uls','complete',1789996300,1789996400,1,'','',0,0,0);
+INSERT INTO import_runs VALUES('ised','complete',1789996300,1789996400,1,'','',0,0,0);
+INSERT INTO import_runs VALUES('zip_centroids','complete',1789996300,1789996400,1,'','',0,0,0);
+INSERT INTO import_runs VALUES('zip_county_data','complete',1789996300,1789996400,1,'','',0,0,0);
+INSERT INTO import_runs VALUES('data_refresh','complete',1789996300,1789996400,0,'','',100,0,0);
+CREATE TABLE uls_stations (
+    callsign TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    street_address TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT '',
+    zip TEXT NOT NULL DEFAULT '',
+    license_class TEXT NOT NULL DEFAULT '',
+    last_updated INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO uls_stations VALUES('W4ZZF','LICENSEE, FIXTURE A','2 Test Rd','CHATTANOOGA','TN','37421','G',1789996400);
+CREATE TABLE ised_stations (
+    callsign TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    street_address TEXT NOT NULL DEFAULT '',
+    city TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT '',
+    zip TEXT NOT NULL DEFAULT '',
+    license_class TEXT NOT NULL DEFAULT '',
+    last_updated INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO ised_stations VALUES('VA3ZZG','Fixture, Ised','','Ottawa','ON','K1A 0B1','',1789996400);
+CREATE TABLE zip_centroids (
+    zip TEXT PRIMARY KEY,
+    lat REAL NOT NULL,
+    lon REAL NOT NULL
+);
+INSERT INTO zip_centroids VALUES('37415',35.1121,-85.2793);
+CREATE TABLE zip_counties (
+    zip TEXT PRIMARY KEY,
+    county TEXT NOT NULL DEFAULT ''
+);
+INSERT INTO zip_counties VALUES('37415','Hamilton');
+CREATE TABLE zip_place_counties (
+    zip TEXT NOT NULL,
+    place TEXT NOT NULL,
+    county TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (zip, place)
+);
+INSERT INTO zip_place_counties VALUES('30736','RINGGOLD','Catoosa');
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT 0,
+    last_login_at INTEGER NOT NULL DEFAULT 0,
+    view_only INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO users VALUES(1,'W4TST','ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKeyOneFixtureKeyOneFixtureKeyOne0 laptop',1787408000,1790003600,0);
+INSERT INTO users VALUES(2,'W4TST','ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKeyTwoFixtureKeyTwoFixtureKeyTwo0 phone',1787408000,0,0);
+INSERT INTO users VALUES(3,'KQ4ZZA','ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKeyThreeFixtureKeyThreeFixtureKe0',1787408000,0,1);
+INSERT INTO users VALUES(4,'kd4zzb','ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureKeyFourFixtureKeyFourFixtureKey0',1787408000,0,0);
+PRAGMA writable_schema=ON;
+CREATE TABLE IF NOT EXISTS sqlite_sequence(name,seq);
+DELETE FROM sqlite_sequence;
+INSERT INTO sqlite_sequence VALUES('nets',5);
+INSERT INTO sqlite_sequence VALUES('net_instances',5);
+INSERT INTO sqlite_sequence VALUES('check_ins',12);
+INSERT INTO sqlite_sequence VALUES('users',4);
+CREATE INDEX idx_net_instances_net ON net_instances(net_id);
+CREATE INDEX idx_check_ins_net_instance ON check_ins(net_instance_id);
+CREATE INDEX idx_check_ins_callsign ON check_ins(callsign);
+CREATE INDEX idx_uls_stations_zip_callsign ON uls_stations(zip, callsign);
+CREATE INDEX idx_zip_centroids_lat_lon ON zip_centroids(lat, lon, zip);
+PRAGMA writable_schema=OFF;
+COMMIT;
+PRAGMA user_version = 13;

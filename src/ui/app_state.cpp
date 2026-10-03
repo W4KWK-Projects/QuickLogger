@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <unordered_set>
 #include <utility>
 
 #include <ftxui/component/component_base.hpp>
@@ -22,15 +23,20 @@
 #include "../frequency_rules.hpp"
 #include "../file_export.hpp"
 #include "../geo_utils.hpp"
+#include "../gmrs_channels.hpp"
 #include "../mode_rules.hpp"
 #include "../net_slice.hpp"
 #include "../public_key.hpp"
 #include "../show_folder.hpp"
 #include "../text_utils.hpp"
+#include "../uls_import.hpp"
 #include "../update_check.hpp"
 #include "../zip_write.hpp"
 #include "../zmodem_send.hpp"
+#include "chrome.hpp"
 #include "list_columns.hpp"
+#include "pull_runner.hpp"
+#include "push_runner.hpp"
 
 namespace ql
 {
@@ -243,7 +249,8 @@ namespace ql
             row.push_back(std::to_string(check_in.sequence_number));
             row.push_back(FormatLocalTimeOfDay(check_in.checked_in_at));
             row.push_back(check_in.callsign);
-            row.push_back(station.name);
+            // On a GMRS net, the person this check-in was logged under.
+            row.push_back(check_in.name.empty() ? station.name : check_in.name);
             row.push_back(station.member_id);
             row.push_back(CityAndState(station));
             row.push_back(station.county);
@@ -339,7 +346,9 @@ namespace ql
         cells.push_back(instance.created_by);
         cells.push_back(std::to_string(check_ins));
         cells.emplace_back(instance.notes.empty() ? "" : "yes");
-        cells.emplace_back(instance.status == NetInstanceStatus::kOpen ? "OPEN" : "closed");
+        cells.emplace_back(instance.status == NetInstanceStatus::kOpen ? "OPEN"
+                           : instance.pushed_at > 0                    ? "pushed"
+                                                                       : "closed");
         return cells;
     }
 
@@ -415,15 +424,17 @@ namespace ql
 
     // -- SSH users and their keys (Manage Users) --
 
+    // What a username may be, as Manage Users says it.
+    static const char* const kUsernameRule =
+        "A username has 1 to 32 letters, digits, dots, hyphens and underscores, starting with a letter or digit.";
+
     // A row per user: their access applies to every key of theirs.
     static const std::vector<ListColumn>& UserColumns()
     {
         static const std::vector<ListColumn> columns = {
-            // Room for 2.0's longer GMRS call signs (e.g. WSIP663) and more.
-            {"Username", 16, 16, 0, 0},
-            {"Access", 9, 9, 0, 0},
-            {"Keys", 4, 4, 0, 0},
-            {"Last Login", 19, 19, 0, 0},
+            // A login name, which needn't be a call sign.
+            {"Username", 16, 16, 0, 0}, {"Amateur", 9, 9, 0, 0}, {"GMRS", 7, 7, 0, 0},
+            {"Access", 9, 9, 0, 0},     {"Keys", 4, 4, 0, 0},    {"Last Login", 19, 19, 0, 0},
         };
         return columns;
     }
@@ -440,19 +451,23 @@ namespace ql
         bool view_only = false;
         int count = 0;
         std::int64_t last_login_at = 0;
+        const User* first = nullptr;
         for (const User& key : keys)
         {
             if (key.username != username)
             {
                 continue;
             }
+            first = first == nullptr ? &key : first;
             view_only = view_only || key.view_only;
             ++count;
             last_login_at = std::max(last_login_at, key.last_login_at);
         }
         std::vector<std::string> cells;
-        cells.reserve(4);
+        cells.reserve(6);
         cells.push_back(username);
+        cells.push_back(first != nullptr ? first->amateur_callsign : std::string());
+        cells.push_back(first != nullptr ? first->gmrs_callsign : std::string());
         cells.emplace_back(view_only ? "View-Only" : "Full");
         cells.push_back(std::to_string(count));
         cells.push_back(DescribeLastLogin(last_login_at));
@@ -461,9 +476,9 @@ namespace ql
 
     static ListLayout UserLayout(int terminal_width)
     {
-        // Four short columns: spread out by three spaces even at 80
-        // columns, up to four on a wider terminal.
-        return LayOutList(UserColumns(), ScreenListWidth(terminal_width), kScreenListWidthAt80, 3, 4);
+        // Six short columns: all of them fit at 80 columns two spaces apart,
+        // spread out up to four on a wider terminal.
+        return LayOutList(UserColumns(), ScreenListWidth(terminal_width), kScreenListWidthAt80, 2, 4);
     }
 
     const std::string& UserListHeader(int terminal_width)
@@ -595,17 +610,67 @@ namespace ql
         return is_this_net ? "(this net)" : "(other net)";
     }
 
+    // On a GMRS net, after the last of this net's names for the call sign
+    // typed (one license covers a family), a match with that station's
+    // details and no name, for checking in someone else on it. Dropping
+    // the last match if there's no room.
+    static void OfferNewGmrsName(NetService service, const std::string& typed, std::size_t max_suggestions,
+                                 std::vector<Station>* suggestions, std::vector<std::string>* sources)
+    {
+        if (service != NetService::kGmrs)
+        {
+            return;
+        }
+        std::string callsign = NormalizeCallsign(typed);
+        std::size_t after = 0;
+        for (std::size_t i = 0; i < suggestions->size(); ++i)
+        {
+            if ((*suggestions)[i].callsign == callsign && (*sources)[i] == KnownStationSource(true))
+            {
+                after = i + 1;
+            }
+        }
+        if (after == 0)
+        {
+            return;
+        }
+        Station someone_new = (*suggestions)[after - 1];
+        someone_new.name.clear();
+        if (suggestions->size() >= max_suggestions)
+        {
+            suggestions->pop_back();
+            sources->pop_back();
+        }
+        after = std::min(after, suggestions->size());
+        suggestions->insert(suggestions->begin() + static_cast<std::ptrdiff_t>(after), std::move(someone_new));
+        sources->insert(sources->begin() + static_cast<std::ptrdiff_t>(after), "(new name)");
+    }
+
     // `distance_miles` < 0 means "unknown" (the station's own ZIP has no
-    // centroid on file) -- shown as "(ULS, nearby)" rather than a fabricated
+    // centroid on file) -- shown as "(ULS, unknown)" rather than a fabricated
     // number, since it only passed the coarser ZIP3-prefix pre-filter.
     // A Canadian license, from ISED's data (see AppendCanadianSuggestions).
     static const char* const kIsedSource = "(ISED)";
+
+    static std::string IsedSource(double distance_miles)
+    {
+        if (distance_miles < 0.0)
+        {
+            return kIsedSource;
+        }
+        int miles = static_cast<int>(distance_miles);
+        if (miles >= 1000)
+        {
+            return "(ISED 999+mi)";
+        }
+        return "(ISED ~" + std::to_string(miles) + (miles >= 100 ? "mi)" : " mi)");
+    }
 
     static std::string UlsSource(double distance_miles)
     {
         if (distance_miles < 0.0)
         {
-            return "(ULS, nearby)";
+            return "(ULS, unknown)";
         }
         // Kept to the Source column's 13 characters (see MatchColumns).
         int miles = static_cast<int>(distance_miles);
@@ -626,13 +691,17 @@ namespace ql
     // name narrows to make room for more columns.
     static constexpr int kNetNameBreathingRoom = 4;
     static constexpr int kNetNameNarrowRoom = 2;
+    // The most the name starts at: what's left at 80 columns beside the
+    // always-shown Type (7), Frequency (10) and Notes (19), with their gaps.
+    // It widens back toward kMaxNetNameColumnWidth when there's room.
+    static constexpr int kNetNameWidthAt80 = 33;
 
     // The when-created/imported column (and "session open") comes last, as
     // it always has.
     // The Recurrence column's index in NetListColumns, and its full width:
     // a typical recurrence ("Wednesdays at 8pm ET") is about 20; more
     // than 24 would take room Offset and PL can use.
-    static constexpr std::size_t kNetRecurrenceColumn = 5;
+    static constexpr std::size_t kNetRecurrenceColumn = 6;
     static constexpr int kNetRecurrenceFullWidth = 24;
 
     // `name_width` widens toward `name_max_width` only after everything
@@ -641,6 +710,9 @@ namespace ql
     {
         return {
             {"Net", name_width, name_max_width, 0, 99},
+            // "Amateur" or "GMRS", at every width; at 80 columns its room comes out of the name's (see
+            // kNetNameWidthAt80).
+            {"Type", 7, 7, 0, 0, 7},
             {"Mode", 6, 8, 1, 6},
             // Always shown: at 80 columns it fits beside the name and the
             // notes, whose longest text ("imported 2026-09-30") is known.
@@ -664,8 +736,9 @@ namespace ql
     static ListLayout NetListLayout(const AppState* state)
     {
         int available = ScreenListWidth(state->list_width);
-        ListLayout usual = LayOutList(NetListColumns(state->net_name_width, state->net_name_width), available,
-                                      kScreenListWidthAt80, 2);
+        ListLayout usual =
+            LayOutList(NetListColumns(std::min(state->net_name_width, kNetNameWidthAt80), state->net_name_width),
+                       available, kScreenListWidthAt80, 2);
         // Recurrence at full width beside the usual name: nothing to gain.
         if (usual.widths[kNetRecurrenceColumn] >= kNetRecurrenceFullWidth ||
             state->net_name_min_width >= state->net_name_width)
@@ -706,8 +779,20 @@ namespace ql
         std::vector<std::string> cells;
         cells.reserve(7);
         cells.push_back(net.name);
+        cells.emplace_back(net.service == NetService::kGmrs ? "GMRS" : "Amateur");
         cells.push_back(net.mode);
-        cells.push_back(net.default_frequency);
+        // A GMRS net by its channel ("Ch 22R"): channel 22 and its repeater
+        // pair share a frequency.
+        int channel =
+            net.service == NetService::kGmrs ? FindGmrsChannel(net.default_frequency, net.repeater_offset) : -1;
+        if (channel >= 0)
+        {
+            cells.push_back("Ch " + std::string(GmrsChannels()[static_cast<std::size_t>(channel)].name));
+        }
+        else
+        {
+            cells.push_back(net.default_frequency);
+        }
         cells.push_back(net.repeater_offset);
         cells.push_back(net.pl_tone);
         cells.push_back(net.recurrence_description);
@@ -718,7 +803,7 @@ namespace ql
     static std::vector<std::string> FormatNetList(const AppState* state)
     {
         std::vector<std::string> rows = FormatRows(state->net_cells, NetListLayout(state));
-        // A net with nothing after its name is shown as just its name.
+        // No trailing blanks when nothing follows the Type.
         for (std::string& row : rows)
         {
             row.erase(row.find_last_not_of(' ') + 1);
@@ -760,17 +845,22 @@ namespace ql
     }
 
     // Appends stations from `candidates` onto `suggestions` that aren't
-    // already present (by callsign), so tier 2 never duplicates a tier 1 hit.
-    // Moves candidates in (they're not used again) and stops once
-    // `suggestions` holds `max_suggestions`.
+    // already present (by callsign), so tier 2 never duplicates a tier 1 hit,
+    // leaving out call signs of the other service (a GMRS one on an Amateur
+    // Radio net, say). Moves candidates in (they're not used again) and
+    // stops once `suggestions` holds `max_suggestions`.
     static void AppendNewSuggestions(std::vector<Station>* suggestions, std::vector<Station>* candidates,
-                                     std::size_t max_suggestions)
+                                     std::size_t max_suggestions, NetService service)
     {
         for (Station& candidate : *candidates)
         {
             if (suggestions->size() >= max_suggestions)
             {
                 return;
+            }
+            if (IsValidGmrsCallsign(candidate.callsign) != (service == NetService::kGmrs))
+            {
+                continue;
             }
             bool already_included = false;
             for (const Station& existing : *suggestions)
@@ -909,10 +999,6 @@ namespace ql
         state->confirm_prompt = ConfirmPrompt::kNone;
     }
 
-    // Asks whether to resume `session` of AppState::start_net, which is still
-    // open, or close it and start a new one (ConfirmPrompt::kResumeNet).
-    void ViewOpenNet(AppState* state);
-
     static void OfferToResume(AppState* state, const NetInstance& session)
     {
         state->resume_instance = session;
@@ -953,6 +1039,359 @@ namespace ql
 #endif
     }
 
+    bool CanPushUpstream(const AppState* state)
+    {
+        return state->is_console_session && state->push_runner != nullptr && !state->settings.upstream_host.empty();
+    }
+
+    void OpenUpstreamWindow(AppState* state)
+    {
+        if (!state->is_console_session)
+        {
+            return;
+        }
+        state->upstream_host_text = state->settings.upstream_host;
+        state->upstream_user_text = state->settings.upstream_user;
+        state->upstream_port_text = std::to_string(state->settings.upstream_port);
+        state->upstream_host_cursor = static_cast<int>(state->upstream_host_text.size());
+        state->upstream_user_cursor = static_cast<int>(state->upstream_user_text.size());
+        state->upstream_port_cursor = static_cast<int>(state->upstream_port_text.size());
+        state->upstream_focus = 0;
+        // Looked for once here, not on every frame.
+        state->upstream_tools_available = UpstreamToolsAvailable();
+        state->form_error.clear();
+        state->status_message.clear();
+        state->show_upstream_window = true;
+    }
+
+    void CloseUpstreamWindow(AppState* state)
+    {
+        state->show_upstream_window = false;
+        state->form_error.clear();
+    }
+
+    // `text` without spaces or tabs around it.
+    static std::string Spaceless(const std::string& text)
+    {
+        std::string::size_type start = text.find_first_not_of(" \t");
+        if (start == std::string::npos)
+        {
+            return std::string();
+        }
+        std::string::size_type end = text.find_last_not_of(" \t");
+        return text.substr(start, end - start + 1);
+    }
+
+    void SaveUpstreamWindow(AppState* state)
+    {
+        std::string host = Spaceless(state->upstream_host_text);
+        std::string user = Spaceless(state->upstream_user_text);
+        std::string port_text = Spaceless(state->upstream_port_text);
+        int port = kDefaultUpstreamPort;
+        if (!host.empty())
+        {
+            if (!IsValidUpstreamHost(host))
+            {
+                state->form_error = "A host name has only letters, digits, dots, hyphens and underscores.";
+                return;
+            }
+            if (user.empty())
+            {
+                state->form_error = "Your username on the upstream is required.";
+                return;
+            }
+            if (!IsValidUpstreamUser(user))
+            {
+                state->form_error = "A username has only letters, digits, dots, hyphens and underscores.";
+                return;
+            }
+            if (!port_text.empty())
+            {
+                port = port_text.size() > 5 ? 0 : std::stoi(port_text);
+                if (port < 1 || port > 65535)
+                {
+                    state->form_error = "The port must be 1 to 65535.";
+                    return;
+                }
+            }
+        }
+        else
+        {
+            user.clear();
+        }
+        // Into the saved settings and the Settings page's working copy
+        // alike, so the page's own F2 doesn't put the old upstream back.
+        state->settings.upstream_host = host;
+        state->settings.upstream_user = user;
+        state->settings.upstream_port = port;
+        state->settings_form.upstream_host = host;
+        state->settings_form.upstream_user = user;
+        state->settings_form.upstream_port = port;
+        SaveSettings(state->settings_path, state->settings);
+        state->show_upstream_window = false;
+        state->form_error.clear();
+        state->status_message =
+            host.empty() ? "No upstream server: sessions aren't pushed." : "Sessions can be pushed to " + host + ".";
+    }
+
+    // The name F7 Export gives a session's files, without the extension:
+    // the net's name and the session's date.
+    static std::string SessionFileStem(const std::string& net_name, const NetInstance& instance)
+    {
+        return SanitizeFilenameComponent(net_name) + "_" + SanitizeFilenameComponent(instance.instance_date);
+    }
+
+    static void RemovePushFile(AppState* state)
+    {
+        if (!state->push_local_path.empty())
+        {
+            std::error_code ignored;
+            std::filesystem::remove(state->push_local_path, ignored);
+            state->push_local_path.clear();
+        }
+    }
+
+    // True if a push can start now; else says why in form_error.
+    static bool CheckPushPossible(AppState* state)
+    {
+        if (!CanPushUpstream(state))
+        {
+            state->form_error = "Set up an upstream server in Settings (F5) first.";
+            return false;
+        }
+        if (state->push_running)
+        {
+            state->form_error = "A push is already running.";
+            return false;
+        }
+        if (!UpstreamToolsAvailable())
+        {
+            state->form_error = kNoSshMessage;
+            return false;
+        }
+        return true;
+    }
+
+    bool StartPush(AppState* state, std::int64_t instance_id, const std::string& confirm_net)
+    {
+        if (!CheckPushPossible(state))
+        {
+            return false;
+        }
+        std::optional<NetInstance> instance = state->db->GetNetInstanceById(instance_id);
+        std::optional<Net> net = instance.has_value() ? state->db->GetNetById(instance->net_id) : std::nullopt;
+        if (!net.has_value())
+        {
+            state->form_error = "That session no longer exists.";
+            return false;
+        }
+        if (instance->status != NetInstanceStatus::kClosed)
+        {
+            state->form_error = "Only a closed session can be pushed.";
+            return false;
+        }
+
+        // Uploaded under F7's name, so pushing it again replaces the
+        // earlier upload; made here under a name of its own, so it never
+        // replaces an F7 export.
+        std::string remote_name = SessionFileStem(net->name, *instance) + ".qlsession";
+        std::string exports = ExportsDir(state->db_path);
+        std::string local_path = TemporaryPathFor(exports + "/" + remote_name);
+        std::string error;
+        if (!EnsureDirectory(exports) ||
+            !WriteNetSliceFile(local_path, GatherSessionSlice(state->db, instance_id), &error))
+        {
+            std::error_code ignored;
+            std::filesystem::remove(local_path, ignored);
+            state->form_error = "Couldn't write the session to push: " + (error.empty() ? exports : error);
+            return false;
+        }
+
+        RemovePushFile(state);
+        state->push_running = true;
+        state->push_is_net = false;
+        state->push_instance_id = instance_id;
+        state->push_local_path = local_path;
+        state->push_remote_name = remote_name;
+        state->push_session_net = net->name;
+        Upstream upstream;
+        upstream.host = state->settings.upstream_host;
+        upstream.user = state->settings.upstream_user;
+        upstream.port = state->settings.upstream_port;
+        state->push_runner->Start(upstream, local_path, remote_name, confirm_net, net->name);
+        state->form_error.clear();
+        state->status_message = "Pushing to " + upstream.host + "...";
+        return true;
+    }
+
+    // `slice` without its open sessions and their check-ins: a session still
+    // being logged isn't finished, so it isn't pushed.
+    static NetSlice WithoutOpenSessions(NetSlice slice)
+    {
+        std::unordered_set<std::int64_t> open;
+        std::vector<NetInstance> closed;
+        closed.reserve(slice.instances.size());
+        for (NetInstance& instance : slice.instances)
+        {
+            if (instance.status == NetInstanceStatus::kClosed)
+            {
+                closed.push_back(std::move(instance));
+            }
+            else
+            {
+                open.insert(instance.id);
+            }
+        }
+        slice.instances = std::move(closed);
+        std::vector<CheckIn> kept;
+        kept.reserve(slice.check_ins.size());
+        for (CheckIn& check_in : slice.check_ins)
+        {
+            if (open.count(check_in.net_instance_id) == 0)
+            {
+                kept.push_back(std::move(check_in));
+            }
+        }
+        slice.check_ins = std::move(kept);
+        return slice;
+    }
+
+    bool StartNetPush(AppState* state, std::int64_t net_id, const std::string& confirm_net)
+    {
+        if (!CheckPushPossible(state))
+        {
+            return false;
+        }
+        std::optional<Net> net = state->db->GetNetById(net_id);
+        if (!net.has_value())
+        {
+            state->form_error = "That net no longer exists.";
+            return false;
+        }
+
+        // Made under a name of its own next to F8's export, so it never
+        // replaces one.
+        std::string remote_name = SanitizeFilenameComponent(net->name) + ".qlnet";
+        std::string exports = ExportsDir(state->db_path);
+        std::string local_path = TemporaryPathFor(exports + "/" + remote_name);
+        std::string error;
+        if (!EnsureDirectory(exports) ||
+            !WriteNetSliceFile(local_path, WithoutOpenSessions(GatherNetSlice(state->db, net_id)), &error))
+        {
+            std::error_code ignored;
+            std::filesystem::remove(local_path, ignored);
+            state->form_error = "Couldn't write the net to push: " + (error.empty() ? exports : error);
+            return false;
+        }
+
+        RemovePushFile(state);
+        state->push_running = true;
+        state->push_is_net = true;
+        state->push_net_id = net_id;
+        state->push_local_path = local_path;
+        state->push_remote_name = remote_name;
+        state->push_session_net = net->name;
+        Upstream upstream;
+        upstream.host = state->settings.upstream_host;
+        upstream.user = state->settings.upstream_user;
+        upstream.port = state->settings.upstream_port;
+        state->push_runner->Start(upstream, local_path, remote_name, confirm_net, net->name, true);
+        state->form_error.clear();
+        state->status_message = "Pushing to " + upstream.host + "...";
+        return true;
+    }
+
+    // The upstream kept the last push's upload to ask about it; it won't be
+    // used, so it can go.
+    static void DiscardKeptUpload(const AppState* state)
+    {
+        if (state->push_runner == nullptr || state->push_remote_name.empty())
+        {
+            return;
+        }
+        Upstream upstream;
+        upstream.host = state->settings.upstream_host;
+        upstream.user = state->settings.upstream_user;
+        upstream.port = state->settings.upstream_port;
+        state->push_runner->Discard(upstream, state->push_remote_name);
+    }
+
+    void FinishPush(AppState* state, const PushResult& result)
+    {
+        state->push_running = false;
+        RemovePushFile(state);
+        if (result.kind == PushResultKind::kPushed)
+        {
+            if (!state->push_is_net)
+            {
+                state->db->SetNetInstancePushedAt(state->push_instance_id,
+                                                  static_cast<std::int64_t>(std::time(nullptr)));
+            }
+            if (state->page == kPageNetHistory)
+            {
+                RefreshNetHistory(state);
+            }
+            state->form_error.clear();
+            state->status_message = result.message;
+            return;
+        }
+        if (result.kind == PushResultKind::kNeedsConfirmation)
+        {
+            // Something else is being asked right now: don't stack a second
+            // question on it.
+            if (state->show_confirm_prompt)
+            {
+                state->status_message.clear();
+                state->form_error = state->push_is_net
+                                        ? "Not pushed: " + state->settings.upstream_host +
+                                              " has a net to merge into. Push it again with F8 Export."
+                                        : "Not pushed: " + state->settings.upstream_host + " has no net named " +
+                                              state->push_session_net + ". Push it from History (F7 Export) to choose.";
+                DiscardKeptUpload(state);
+                return;
+            }
+            state->push_upstream_net = result.upstream_net;
+            if (state->push_is_net)
+            {
+                std::string has = NetNamesAreTheSame(result.upstream_net, state->push_session_net)
+                                      ? state->settings.upstream_host + " has " + result.upstream_net + " already."
+                                      : state->settings.upstream_host + " has no net named " + state->push_session_net +
+                                            ". Its net " + result.upstream_net + " looks like it.";
+                ShowConfirmPrompt(state, ConfirmPrompt::kPushToNet, "Merge Into " + result.upstream_net + "?",
+                                  {has, "Merging it " + result.merge_summary + ".",
+                                   "Merge this net into " + result.upstream_net + "?"});
+                return;
+            }
+            ShowConfirmPrompt(state, ConfirmPrompt::kPushToNet, "Push to " + result.upstream_net + "?",
+                              {state->settings.upstream_host + " has no net named " + state->push_session_net +
+                                   ". Its net " + result.upstream_net + " looks like it.",
+                               "Push this session to " + result.upstream_net + "?"});
+            return;
+        }
+        state->status_message.clear();
+        state->form_error = result.message;
+    }
+
+    void ConfirmPushToNet(AppState* state)
+    {
+        CancelConfirmPrompt(state);
+        if (state->push_is_net)
+        {
+            StartNetPush(state, state->push_net_id, state->push_upstream_net);
+            return;
+        }
+        StartPush(state, state->push_instance_id, state->push_upstream_net);
+    }
+
+    void DeclinePushToNet(AppState* state)
+    {
+        CancelConfirmPrompt(state);
+        DiscardKeptUpload(state);
+        state->form_error.clear();
+        state->status_message = state->push_is_net ? "Not pushed. Push it again with F8 Export."
+                                                   : "Not pushed. Push it from History (F7 Export) later.";
+    }
+
     void StartSelectedNet(AppState* state)
     {
         if (state->nets.empty())
@@ -962,13 +1401,26 @@ namespace ql
             return;
         }
         state->start_net = state->nets[state->selected_net_index];
-        if (state->view_only_user)
+        // Without a call sign for its service, as for a view-only user,
+        // only watching.
+        if (state->view_only_user || OwnCallsign(state, state->start_net.service).empty())
         {
+            std::string why;
+            if (!state->view_only_user)
+            {
+                RefuseWithoutCallsign(state, state->start_net.service);
+                why = state->form_error;
+                state->form_error.clear();
+            }
             // Only ever to watch its open session, if it has one.
             ViewStartNet(state);
             if (!state->form_error.empty())
             {
                 state->form_error = "No session of " + state->start_net.name + " is open to view.";
+                if (!why.empty())
+                {
+                    state->form_error = why;
+                }
             }
             return;
         }
@@ -1029,20 +1481,14 @@ namespace ql
             state->form_error = "Net name is required.";
             return;
         }
-        if (!CheckNetRadio(state, state->new_net_frequency, state->new_net_offset, &state->new_net_tone) ||
-            !CheckNetZip(state, state->new_net_location))
+        Net net;
+        if (!ReadNewNetRadio(state, &net) || !CheckNetZip(state, state->new_net_location) ||
+            RefuseWithoutCallsign(state, net.service))
         {
             return;
         }
-
-        Net net;
         net.name = state->new_net_name;
-        net.mode = NetModes()[static_cast<std::size_t>(state->new_net_mode_index)];
-        net.default_frequency = state->new_net_frequency;
-        net.repeater_offset = state->new_net_offset;
-        net.pl_tone = state->new_net_tone;
-        net.default_location = state->new_net_location;
-        net.partial_match_canada = state->new_net_partial_match_index == 1;
+        net.default_location = NormalizeZipOrPostalCode(state->new_net_location);
         net.created_at = static_cast<std::int64_t>(std::time(nullptr));
         net.is_ad_hoc = true;
         net.id = state->db->CreateNet(net);
@@ -1072,6 +1518,7 @@ namespace ql
         state->active_net_name = net.has_value() ? net->name : "";
         state->active_net_zip = net.has_value() ? net->default_location : "";
         state->active_net_partial_match_canada = net.has_value() && net->partial_match_canada;
+        state->active_net_service = net.has_value() ? net->service : NetService::kAmateur;
         state->active_net_radio = net.has_value() ? DescribeNetRadio(*net) : "";
         state->active_net_is_ad_hoc = net.has_value() && net->is_ad_hoc;
         // The header shows who started it, in which role.
@@ -1092,7 +1539,7 @@ namespace ql
         if (viewing)
         {
             state->selected_role_index = kRoleViewer;
-            state->operator_callsign = state->settings.callsign;
+            state->operator_callsign = OwnCallsign(state, state->active_net_service);
         }
         state->show_new_station_modal = false;
         state->show_edit_checkin_modal = false;
@@ -1199,12 +1646,12 @@ namespace ql
         state->page = kPageNetList;
     }
 
-    void CloseActiveNet(AppState* state)
+    bool CloseActiveNet(AppState* state)
     {
         CancelConfirmPrompt(state);
         if (RefuseViewOnly(state, "close net sessions"))
         {
-            return;
+            return false;
         }
         std::string closed_name = state->active_net_name;
         bool closed_here =
@@ -1216,12 +1663,27 @@ namespace ql
             // Someone sharing the session closed (or deleted) it first.
             // (Their end time is the one that stands -- see CloseNetInstance.)
             ShowSessionClosedPrompt(state, "");
-            return;
+            return false;
         }
         LeaveActiveNet(state);
         state->form_error.clear();
         state->status_message =
             "Closed " + closed_name + " (" + CountCheckIns(check_ins) + "). It's in History (" + history + ").";
+        return true;
+    }
+
+    void CloseActiveNetAndPush(AppState* state)
+    {
+        std::int64_t instance_id = state->active_instance.id;
+        if (!CloseActiveNet(state))
+        {
+            return;
+        }
+        std::string closed = state->status_message;
+        if (StartPush(state, instance_id, ""))
+        {
+            state->status_message = closed + " " + state->status_message;
+        }
     }
 
     bool EnsureActiveSessionOpen(AppState* state, const std::string& unlogged_callsign)
@@ -1273,13 +1735,13 @@ namespace ql
         }
         else
         {
-            lines.push_back("Another user has deleted this net's session.");
+            lines.emplace_back("Another user has deleted this net's session.");
         }
         if (!unlogged.empty())
         {
             lines.push_back(unlogged + " was not logged.");
         }
-        lines.push_back("You will be returned to the Recurring Nets list when you press Enter.");
+        lines.emplace_back("You will be returned to the Recurring Nets list when you press Enter.");
         ShowConfirmPrompt(state, ConfirmPrompt::kSessionClosed, session.has_value() ? "Net Closed" : "Session Deleted",
                           lines);
     }
@@ -1305,22 +1767,20 @@ namespace ql
     {
         if (!state->callsign_editable)
         {
-            state->settings_form.callsign = state->ssh_username;
+            // An SSH user's are Manage Users' to set.
+            state->settings_form.callsign = state->settings.callsign;
+            state->settings_form.gmrs_callsign = state->settings.gmrs_callsign;
         }
-        if (state->settings_form.callsign.empty())
-        {
-            state->form_error = "Your callsign is required.";
-            return false;
-        }
-        if (!CheckCallsign(state, state->settings_form.callsign))
+        else if (!CheckUserCallsigns(state, &state->settings_form.callsign, &state->settings_form.gmrs_callsign))
         {
             return false;
         }
-        if (state->settings_form.location.size() != 5)
+        if (!IsZipOrPostalCode(state->settings_form.location))
         {
-            state->form_error = "Your ZIP code is required and must be 5 digits.";
+            state->form_error = "Your postal code is required: 5-digit ZIP or Canadian postal code.";
             return false;
         }
+        state->settings_form.location = NormalizeZipOrPostalCode(state->settings_form.location);
 
         // A blank field means the default, which its placeholder shows.
         int radius = kDefaultNearbyRadiusMiles;
@@ -1340,10 +1800,49 @@ namespace ql
         state->settings_form.nearby_radius_miles = radius;
         SaveSettings(state->settings_path, state->settings_form);
         state->settings = state->settings_form;
+        bool clock_changed = Use24HourClock() != state->settings.use_24_hour_clock;
         SetUse24HourClock(state->settings.use_24_hour_clock);
         SetUpdateCheckEnabled(state->is_console_session && state->settings.check_for_updates);
+        if (clock_changed)
+        {
+            ReadStationDataStatus(state);
+        }
         state->form_error.clear();
         return true;
+    }
+
+    void ShowStationDataStatus(AppState* state, const std::string& notice, bool is_problem, const std::string& status)
+    {
+        SetStationDataNotice(notice, is_problem);
+        state->station_status_lines.clear();
+        std::size_t start = 0;
+        while (start < status.size())
+        {
+            std::size_t end = status.find('\n', start);
+            if (end == std::string::npos)
+            {
+                end = status.size();
+            }
+            state->station_status_lines.emplace_back(status, start, end - start);
+            start = end + 1;
+        }
+    }
+
+    void ReadStationDataStatus(AppState* state)
+    {
+        try
+        {
+            Database::ReadTransaction reads(state->db);
+            std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+            bool is_problem = false;
+            std::string notice = DescribeStationDataNotice(state->db, now, &is_problem);
+            ShowStationDataStatus(state, notice, is_problem, DescribeStationDataStatus(state->db, now));
+        }
+        // NOLINTNEXTLINE(bugprone-empty-catch): busy right now, ScreenTicker shows it shortly.
+        catch (const std::exception&)
+        {
+            // Busy right now: ScreenTicker shows it shortly.
+        }
     }
 
     bool CheckCallsign(AppState* state, const std::string& callsign)
@@ -1356,8 +1855,35 @@ namespace ql
         return true;
     }
 
+    bool CheckNetCallsign(AppState* state, const std::string& callsign, NetService service)
+    {
+        if (service != NetService::kGmrs)
+        {
+            return CheckCallsign(state, callsign);
+        }
+        if (!IsValidGmrsCallsign(callsign))
+        {
+            state->form_error = callsign + " isn't a valid GMRS call sign.";
+            return false;
+        }
+        return true;
+    }
+
     std::string DescribeNetRadio(const Net& net)
     {
+        int channel =
+            net.service == NetService::kGmrs ? FindGmrsChannel(net.default_frequency, net.repeater_offset) : -1;
+        if (channel >= 0)
+        {
+            // "GMRS 20R  462.6750 MHz  PL 141.3": the channel says the rest.
+            std::string text = "GMRS " + std::string(GmrsChannels()[static_cast<std::size_t>(channel)].name) + "  " +
+                               net.default_frequency + " MHz";
+            if (!net.pl_tone.empty())
+            {
+                text += "  PL " + net.pl_tone;
+            }
+            return text;
+        }
         std::string text;
         if (!net.default_frequency.empty())
         {
@@ -1394,17 +1920,88 @@ namespace ql
         return true;
     }
 
+    const char* ServiceLabel(NetService service)
+    {
+        return service == NetService::kGmrs ? "GMRS" : "Amateur Radio";
+    }
+
+    void SetNewNetService(AppState* state)
+    {
+        state->new_net_gmrs = state->new_net_service_index == 1;
+        state->new_net_amateur = !state->new_net_gmrs;
+    }
+
+    // A GMRS net's radio: FM on `channel` (an index into GmrsChannels()),
+    // with `tone`, checked; US data for Partial Matching (GMRS licenses are
+    // the FCC's alone).
+    static bool FillGmrsRadio(AppState* state, int channel, std::string* tone, Net* net)
+    {
+        std::string problem = ToneProblem(*tone);
+        if (!problem.empty())
+        {
+            state->form_error = problem;
+            return false;
+        }
+        *tone = NormalizeTone(*tone);
+        const GmrsChannel& chosen = GmrsChannels()[static_cast<std::size_t>(channel)];
+        net->service = NetService::kGmrs;
+        net->mode = "FM";
+        net->default_frequency = chosen.frequency;
+        net->repeater_offset = chosen.offset;
+        net->pl_tone = *tone;
+        net->partial_match_canada = false;
+        return true;
+    }
+
+    bool ReadNewNetRadio(AppState* state, Net* net)
+    {
+        if (state->new_net_gmrs)
+        {
+            return FillGmrsRadio(state, state->new_net_gmrs_channel, &state->new_net_tone, net);
+        }
+        if (!CheckNetRadio(state, state->new_net_frequency, state->new_net_offset, &state->new_net_tone))
+        {
+            return false;
+        }
+        net->service = NetService::kAmateur;
+        net->mode = NetModes()[static_cast<std::size_t>(state->new_net_mode_index)];
+        net->default_frequency = state->new_net_frequency;
+        net->repeater_offset = state->new_net_offset;
+        net->pl_tone = state->new_net_tone;
+        net->partial_match_canada = state->new_net_partial_match_index == 1;
+        return true;
+    }
+
+    bool ReadEditNetRadio(AppState* state, Net* net)
+    {
+        if (state->edit_net_gmrs)
+        {
+            return FillGmrsRadio(state, state->edit_net_gmrs_channel, &state->edit_net_tone, net);
+        }
+        if (!CheckNetRadio(state, state->edit_net_frequency, state->edit_net_offset, &state->edit_net_tone))
+        {
+            return false;
+        }
+        net->service = NetService::kAmateur;
+        net->mode = NetModes()[static_cast<std::size_t>(state->edit_net_mode_index)];
+        net->default_frequency = state->edit_net_frequency;
+        net->repeater_offset = state->edit_net_offset;
+        net->pl_tone = state->edit_net_tone;
+        net->partial_match_canada = state->edit_net_partial_match_index == 1;
+        return true;
+    }
+
     bool CheckNetZip(AppState* state, const std::string& zip)
     {
-        if (!zip.empty() && !IsFiveDigitZip(zip))
+        if (!zip.empty() && !IsZipOrPostalCode(zip))
         {
-            state->form_error = "ZIP code must be 5 digits, or left blank.";
+            state->form_error = "Postal code must be a 5-digit ZIP or Canadian postal code, or left blank.";
             return false;
         }
         return true;
     }
 
-    std::string ExistingNetNamed(AppState* state, const std::string& name, std::int64_t except_net_id)
+    std::string ExistingNetNamed(const AppState* state, const std::string& name, std::int64_t except_net_id)
     {
         for (const Net& net : state->db->GetAllNets())
         {
@@ -1427,15 +2024,56 @@ namespace ql
         state->new_net_recurrence.clear();
         state->new_net_comments.clear();
         state->new_net_partial_match_index = 0;
+        state->new_net_service_index = 0;
+        state->new_net_gmrs_channel = 0;
+        SetNewNetService(state);
         state->form_error.clear();
+    }
+
+    std::string SavedEntryName(NetService service, const std::string& name)
+    {
+        return service == NetService::kGmrs ? Spaceless(name) : std::string();
+    }
+
+    // A check-in's call sign and name as one string, the name compared
+    // without regard to case. A check-in on an Amateur Radio net has no
+    // name, so its key is its call sign.
+    static std::string CheckInKey(const std::string& callsign, const std::string& name)
+    {
+        return name.empty() ? callsign : callsign + '\n' + ToUpperAscii(name);
+    }
+
+    std::optional<Station> FindLicensee(Database* db, const std::string& callsign, NetService service)
+    {
+        return service == NetService::kGmrs ? db->FindUlsStationByCallsign(callsign, LicenseTable::kGmrs)
+                                            : db->FindLicensedStationByCallsign(callsign);
+    }
+
+    const std::string& OwnCallsign(const AppState* state, NetService service)
+    {
+        return service == NetService::kGmrs ? state->settings.gmrs_callsign : state->settings.callsign;
+    }
+
+    bool RefuseWithoutCallsign(AppState* state, NetService service)
+    {
+        if (!OwnCallsign(state, service).empty())
+        {
+            return false;
+        }
+        state->status_message.clear();
+        state->form_error = std::string("You have no ") + ServiceLabel(service) + " call sign, so you can only watch " +
+                            ServiceLabel(service) + " nets." +
+                            (state->callsign_editable ? " Add one in Settings (F4)." : "");
+        return true;
     }
 
     void ResetStartNetFlow(AppState* state)
     {
         state->selected_role_index = kRoleNetControl;
-        // Prefill with the operator's own callsign from Settings; they can
-        // still edit it if a different person is filling this particular role.
-        state->operator_callsign = state->settings.callsign;
+        // Prefill with the operator's own call sign for the net's service;
+        // they can still edit it if a different person is filling this
+        // particular role.
+        state->operator_callsign = OwnCallsign(state, state->start_net.service);
         state->form_error.clear();
     }
 
@@ -1493,7 +2131,7 @@ namespace ql
         }
         else
         {
-            std::optional<Station> uls = state->db->FindLicensedStationByCallsign(state->operator_callsign);
+            std::optional<Station> uls = FindLicensee(state->db, state->operator_callsign, state->active_net_service);
             if (uls.has_value())
             {
                 operator_station = *uls;
@@ -1501,6 +2139,8 @@ namespace ql
         }
         operator_station.callsign = state->operator_callsign;
         BackfillCountyFromZip(state, &operator_station);
+        // On a GMRS net, named as every check-in there is.
+        std::string person = SavedEntryName(state->active_net_service, operator_station.name);
 
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
         // SaveNetStation (rather than a bare RecordManualCheckInStation) so
@@ -1510,12 +2150,13 @@ namespace ql
         // check-in history), never in the edit-net page's saved-station
         // list or its export, which both query net_saved_stations only.
         std::string existing_remarks =
-            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, operator_station.callsign);
-        state->db->SaveNetStation(state->active_instance.net_id, operator_station, existing_remarks, now);
+            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, operator_station.callsign, person);
+        state->db->SaveNetStation(state->active_instance.net_id, operator_station, existing_remarks, now, person);
 
         CheckIn check_in;
         check_in.net_instance_id = state->active_instance.id;
         check_in.callsign = state->operator_callsign;
+        check_in.name = person;
         check_in.sequence_number = 1;
         check_in.checked_in_at = now;
         check_in.designated_role = state->selected_role_index;
@@ -1670,7 +2311,7 @@ namespace ql
     // known to some net, or else the FCC data at any distance (or, for a
     // Canadian call sign, ISED's). Returns
     // whether the station was found.
-    static bool FillStationFromKnown(AppState* state, Station* station)
+    static bool FillStationFromKnown(AppState* state, Station* station, NetService service)
     {
         std::string callsign = NormalizeCallsign(station->callsign);
         if (callsign.empty())
@@ -1680,7 +2321,7 @@ namespace ql
         std::optional<Station> known = state->db->FindStationByCallsign(callsign);
         if (!known.has_value())
         {
-            known = state->db->FindLicensedStationByCallsign(callsign);
+            known = FindLicensee(state->db, callsign, service);
         }
         std::string base = BaseCallsign(callsign);
         if (!known.has_value() && base != callsign)
@@ -1688,7 +2329,7 @@ namespace ql
             known = state->db->FindStationByCallsign(base);
             if (!known.has_value())
             {
-                known = state->db->FindLicensedStationByCallsign(base);
+                known = FindLicensee(state->db, base, service);
             }
         }
         if (!known.has_value())
@@ -1712,25 +2353,28 @@ namespace ql
 
     bool FillCheckInFromKnownStation(AppState* state)
     {
-        if (!FillStationFromKnown(state, &state->modal_station))
+        if (!FillStationFromKnown(state, &state->modal_station, state->active_net_service))
         {
             return false;
         }
         FillIfBlank(&state->modal_remarks,
-                    state->db->GetSavedNetStationRemarks(state->active_instance.net_id,
-                                                         NormalizeCallsign(state->modal_station.callsign)));
+                    state->db->GetSavedNetStationRemarks(
+                        state->active_instance.net_id, NormalizeCallsign(state->modal_station.callsign),
+                        SavedEntryName(state->active_net_service, state->modal_station.name)));
         return true;
     }
 
     bool FillSavedStationFromKnownStation(AppState* state)
     {
-        if (!FillStationFromKnown(state, &state->saved_station))
+        NetService service = state->edit_net_gmrs ? NetService::kGmrs : NetService::kAmateur;
+        if (!FillStationFromKnown(state, &state->saved_station, service))
         {
             return false;
         }
         FillIfBlank(
             &state->saved_station_remarks,
-            state->db->GetSavedNetStationRemarks(state->edit_net_id, NormalizeCallsign(state->saved_station.callsign)));
+            state->db->GetSavedNetStationRemarks(state->edit_net_id, NormalizeCallsign(state->saved_station.callsign),
+                                                 SavedEntryName(service, state->saved_station.name)));
         return true;
     }
 
@@ -1746,7 +2390,7 @@ namespace ql
             state->form_error = "Callsign is required.";
             return false;
         }
-        if (!CheckCallsign(state, state->modal_station.callsign))
+        if (!CheckNetCallsign(state, state->modal_station.callsign, state->active_net_service))
         {
             return false;
         }
@@ -1756,19 +2400,28 @@ namespace ql
         {
             return false;
         }
+        // The check below and everything logged, in one transaction: one
+        // commit, and no one else can log it in between.
+        Database::WriteTransaction writes(state->db);
         // Once per session, counting W4KWK/M as W4KWK. Read fresh: someone
-        // else sharing the session may have logged it.
+        // else sharing the session may have logged it. On a GMRS net, once
+        // per call sign and name: one license covers a whole family.
+        bool gmrs = state->active_net_service == NetService::kGmrs;
+        std::string person = SavedEntryName(state->active_net_service, state->modal_station.name);
         std::string base = BaseCallsign(state->modal_station.callsign);
         for (const CheckIn& existing : state->db->GetCheckInsForNetInstance(state->active_instance.id))
         {
-            if (BaseCallsign(existing.callsign) == base)
+            if (BaseCallsign(existing.callsign) != base ||
+                (gmrs && ToUpperAscii(existing.name) != ToUpperAscii(person)))
             {
-                state->form_error =
-                    state->modal_station.callsign + " is already in this session's log, as " +
-                    (existing.callsign == state->modal_station.callsign ? std::string() : existing.callsign + " ") +
-                    "#" + std::to_string(existing.sequence_number) + ".";
-                return false;
+                continue;
             }
+            std::string who = state->modal_station.callsign + (gmrs && !person.empty() ? " (" + person + ")" : "");
+            state->form_error =
+                who + " is already in this session's log, as " +
+                (existing.callsign == state->modal_station.callsign ? std::string() : existing.callsign + " ") + "#" +
+                std::to_string(existing.sequence_number) + ".";
+            return false;
         }
 
         BackfillCountyFromZip(state, &state->modal_station);
@@ -1778,11 +2431,13 @@ namespace ql
         // same reasoning as LogOperatorCheckIn above -- and this check-in's
         // own remarks become the saved station's new default remarks,
         // prefilled next time it's picked via autocomplete for this net.
-        state->db->SaveNetStation(state->active_instance.net_id, state->modal_station, state->modal_remarks, now);
+        state->db->SaveNetStation(state->active_instance.net_id, state->modal_station, state->modal_remarks, now,
+                                  person);
 
         CheckIn check_in;
         check_in.net_instance_id = state->active_instance.id;
         check_in.callsign = state->modal_station.callsign;
+        check_in.name = person;
         check_in.signal_report = state->modal_signal_report;
         check_in.remarks = state->modal_remarks;
         check_in.comment = state->modal_comment;
@@ -1798,6 +2453,7 @@ namespace ql
             ApplyCheckInRoleDesignation(state, check_in.id, kRoleNone, check_in.designated_role, check_in.callsign);
         }
 
+        writes.Commit();
         RefreshActiveCheckIns(state);
         state->form_error.clear();
         return true;
@@ -1814,6 +2470,10 @@ namespace ql
         std::optional<Station> station = state->db->FindStationByCallsign(check_in.callsign);
         state->edit_checkin_station = station.has_value() ? *station : Station();
         state->edit_checkin_station.callsign = check_in.callsign;
+        if (state->active_net_service == NetService::kGmrs)
+        {
+            state->edit_checkin_station.name = check_in.name;
+        }
         state->edit_checkin_signal_report = check_in.signal_report;
         state->edit_checkin_remarks = check_in.remarks;
         state->edit_checkin_comment = check_in.comment;
@@ -1824,15 +2484,50 @@ namespace ql
         state->show_edit_checkin_modal = true;
     }
 
-    void SaveEditCheckInForm(AppState* state)
+    bool SaveEditCheckInForm(AppState* state)
     {
         if (RefuseViewOnly(state, "edit check-ins"))
         {
-            return;
+            return false;
         }
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
-        state->edit_checkin_station.callsign = state->edit_checkin_original.callsign;
-        state->db->UpdateStationFields(state->edit_checkin_station, now);
+        const std::string& callsign = state->edit_checkin_original.callsign;
+        state->edit_checkin_station.callsign = callsign;
+        // On a GMRS net the Name is this check-in's; the station keeps the
+        // licensee's.
+        bool gmrs = state->active_net_service == NetService::kGmrs;
+        std::string person = SavedEntryName(state->active_net_service, state->edit_checkin_station.name);
+        const std::string& old_person = state->edit_checkin_original.name;
+        bool renamed = gmrs && person != old_person;
+        if (renamed && ToUpperAscii(person) != ToUpperAscii(old_person))
+        {
+            std::string base = BaseCallsign(callsign);
+            for (const CheckIn& other : state->db->GetCheckInsForNetInstance(state->active_instance.id))
+            {
+                if (other.id != state->edit_checkin_original.id && BaseCallsign(other.callsign) == base &&
+                    ToUpperAscii(other.name) == ToUpperAscii(person))
+                {
+                    state->form_error = callsign;
+                    if (!person.empty())
+                    {
+                        state->form_error += " (" + person + ")";
+                    }
+                    state->form_error += " is already in this session's log, as #";
+                    state->form_error += std::to_string(other.sequence_number);
+                    state->form_error += ".";
+                    return false;
+                }
+            }
+        }
+
+        Database::WriteTransaction writes(state->db);
+        Station shared = state->edit_checkin_station;
+        if (gmrs)
+        {
+            std::optional<Station> before = state->db->FindStationByCallsign(callsign);
+            shared.name = before.has_value() ? before->name : std::string();
+        }
+        state->db->UpdateStationFields(shared, now);
 
         int old_role = state->edit_checkin_original.designated_role;
         int new_role = RoleFromRoleChoiceIndex(state, state->edit_checkin_role_choice_index);
@@ -1850,10 +2545,21 @@ namespace ql
         check_in.remarks = state->edit_checkin_remarks;
         check_in.comment = state->edit_checkin_comment;
         check_in.designated_role = new_role;
+        if (gmrs)
+        {
+            check_in.name = person;
+        }
         state->db->UpdateCheckIn(check_in);
+        if (renamed)
+        {
+            state->db->RenameNetSavedStationEntry(state->active_instance.net_id, callsign, old_person, person);
+        }
         ApplyCheckInRoleDesignation(state, check_in.id, old_role, new_role, check_in.callsign);
+        writes.Commit();
 
         RefreshActiveCheckIns(state);
+        state->form_error.clear();
+        return true;
     }
 
     void RefreshNetHistory(AppState* state)
@@ -1863,6 +2569,7 @@ namespace ql
         state->history_instances.clear();
         state->history_instance_cells.clear();
         state->history_instance_labels.clear();
+        state->history_check_ins_read.clear();
 
         std::unordered_map<std::int64_t, std::string> names;
         if (state->history_ad_hoc)
@@ -1881,13 +2588,14 @@ namespace ql
             }
             state->history_instances = state->db->GetNetInstancesForNet(state->nets[state->selected_net_index].id);
         }
+        // Every session's count in one query.
+        std::unordered_map<std::int64_t, std::int64_t> counts =
+            state->db->GetCheckInCounts(state->history_ad_hoc ? 0 : state->nets[state->selected_net_index].id);
         for (const NetInstance& instance : state->history_instances)
         {
-            std::int64_t check_ins = 0;
-            std::int64_t newest_id = 0;
-            state->db->GetCheckInSummary(instance.id, &check_ins, &newest_id);
-            state->history_instance_cells.push_back(
-                NetInstanceCells(instance, names[instance.net_id], check_ins, state->history_ad_hoc));
+            std::unordered_map<std::int64_t, std::int64_t>::const_iterator count = counts.find(instance.id);
+            state->history_instance_cells.push_back(NetInstanceCells(
+                instance, names[instance.net_id], count == counts.end() ? 0 : count->second, state->history_ad_hoc));
         }
         state->history_instance_labels =
             FormatRows(state->history_instance_cells, NetInstanceLayout(state->list_width, state->history_ad_hoc));
@@ -1915,9 +2623,51 @@ namespace ql
         }
 
         const NetInstance& selected = state->history_instances[state->selected_history_index];
+        // Before reading: a change made meanwhile makes what's kept out of
+        // date at once.
+        std::int64_t version = state->db->DataVersion();
         state->history_check_ins = state->db->GetCheckInsForNetInstance(selected.id);
         state->history_check_in_cells = CheckInCells(state->db, state->history_check_ins);
         state->history_check_in_labels = FormatCheckInList(state->history_check_in_cells, state->list_width);
+        // Kept for moving back to it; an open session can still change.
+        if (selected.status == NetInstanceStatus::kClosed)
+        {
+            if (state->history_check_ins_read.size() >= 32 || version != state->history_check_ins_read_version)
+            {
+                state->history_check_ins_read.clear();
+                state->history_check_ins_read_version = version;
+            }
+            state->history_check_ins_read[selected.id] = {state->history_check_ins, state->history_check_in_cells};
+        }
+        else
+        {
+            state->history_check_ins_read.erase(selected.id);
+        }
+    }
+
+    void ShowHistoryCheckIns(AppState* state)
+    {
+        // Someone else changed something: what's kept may be out of date.
+        if (!state->history_check_ins_read.empty() && state->db->DataVersion() != state->history_check_ins_read_version)
+        {
+            state->history_check_ins_read.clear();
+        }
+        if (state->selected_history_index < static_cast<int>(state->history_instances.size()))
+        {
+            const NetInstance& selected = state->history_instances[state->selected_history_index];
+            std::unordered_map<std::int64_t,
+                               std::pair<std::vector<CheckIn>, std::vector<std::vector<std::string>>>>::const_iterator
+                read = state->history_check_ins_read.find(selected.id);
+            if (selected.status == NetInstanceStatus::kClosed && read != state->history_check_ins_read.end())
+            {
+                state->history_check_ins = read->second.first;
+                state->history_check_in_cells = read->second.second;
+                state->history_check_in_labels = FormatCheckInList(state->history_check_in_cells, state->list_width);
+                state->selected_history_check_in_index = 0;
+                return;
+            }
+        }
+        RefreshHistoryCheckIns(state);
     }
 
     void DeleteSelectedNetInstance(AppState* state)
@@ -1971,14 +2721,32 @@ namespace ql
         return text;
     }
 
-    void OfferZmodemSend(AppState* state, const std::string& path)
+    void OfferZmodemSend(AppState* state, const std::string& path, std::int64_t push_net_id,
+                         std::int64_t push_instance_id)
     {
-        OfferZmodemSendFiles(state, {path});
+        OfferZmodemSendFiles(state, {path}, push_net_id, push_instance_id);
     }
 
-    void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths)
+    // The export modal with only a push to offer (see kPushOnly), after a
+    // "Saved to" message; none if there's no push either.
+    static void OfferPushOnly(AppState* state, const std::vector<std::string>& paths)
+    {
+        if (ExportOffersPush(state))
+        {
+            state->zmodem_action = ZmodemAction::kPushOnly;
+            state->zmodem_send_paths = paths;
+            state->show_zmodem_confirm_modal = true;
+        }
+    }
+
+    void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths, std::int64_t push_net_id,
+                              std::int64_t push_instance_id)
     {
         state->zmodem_zip_contents.clear();
+        // Only with an upstream to push to, from the console.
+        bool can_push = CanPushUpstream(state);
+        state->export_push_net_id = can_push ? push_net_id : 0;
+        state->export_push_instance_id = can_push ? push_instance_id : 0;
         // The files are already on this computer: nothing to send, but the
         // folder can be opened for the operator.
         if (IsLocalTerminal(state->is_console_session))
@@ -1989,7 +2757,16 @@ namespace ql
                 state->zmodem_action = ZmodemAction::kShowFolder;
                 state->zmodem_send_paths = paths;
                 state->show_zmodem_confirm_modal = true;
+                return;
             }
+            OfferPushOnly(state, paths);
+            return;
+        }
+        // Mosh can't carry ZMODEM (see AppState::over_mosh).
+        if (state->over_mosh)
+        {
+            state->status_message = "Saved to " + ListPaths(paths) + ". Over Mosh, copy files with scp or sftp.";
+            OfferPushOnly(state, paths);
             return;
         }
         // No ZMODEM on this system at all (Windows, Alpine), so there's
@@ -1997,11 +2774,13 @@ namespace ql
         if (NoZmodemOnThisSystem())
         {
             state->status_message = "Saved to " + ListPaths(paths) + ".";
+            OfferPushOnly(state, paths);
             return;
         }
         if (!ZmodemSendAvailable())
         {
             state->status_message = "Saved to " + ListPaths(paths) + " (install 'sz'/lrzsz for ZMODEM download).";
+            OfferPushOnly(state, paths);
             return;
         }
 
@@ -2072,11 +2851,43 @@ namespace ql
         return saved;
     }
 
+    bool ExportOffersPush(const AppState* state)
+    {
+        return state->export_push_net_id != 0 || state->export_push_instance_id != 0;
+    }
+
+    void PushExport(AppState* state)
+    {
+        std::int64_t net_id = state->export_push_net_id;
+        std::int64_t instance_id = state->export_push_instance_id;
+        state->export_push_net_id = 0;
+        state->export_push_instance_id = 0;
+        state->show_zmodem_confirm_modal = false;
+        // A session's .zip for ZMODEM isn't needed now.
+        if (state->zmodem_action == ZmodemAction::kSend)
+        {
+            state->status_message = "Saved to " + ListPaths(SavedAfterZmodem(state)) + ".";
+        }
+        if (net_id != 0)
+        {
+            StartNetPush(state, net_id, "");
+        }
+        else if (instance_id != 0)
+        {
+            StartPush(state, instance_id, "");
+        }
+    }
+
     void ConfirmZmodemAction(AppState* state)
     {
         state->show_zmodem_confirm_modal = false;
         std::string error;
 
+        if (state->zmodem_action == ZmodemAction::kPushOnly)
+        {
+            PushExport(state);
+            return;
+        }
         if (state->zmodem_action == ZmodemAction::kShowFolder)
         {
             if (!ShowInFileManager(state->zmodem_send_paths, &error))
@@ -2127,7 +2938,7 @@ namespace ql
     void CancelZmodemAction(AppState* state)
     {
         state->show_zmodem_confirm_modal = false;
-        if (state->zmodem_action == ZmodemAction::kShowFolder)
+        if (state->zmodem_action == ZmodemAction::kShowFolder || state->zmodem_action == ZmodemAction::kPushOnly)
         {
             return;
         }
@@ -2525,7 +3336,13 @@ namespace ql
                 state->row_delete_lines.emplace_back("Remove " + station.callsign +
                                                      (station.name.empty() ? "" : " (" + station.name + ")") +
                                                      " from this net's saved stations?");
-                if (state->db->IsStationUsedOutsideNet(station.callsign, state->edit_net_id))
+                // On a GMRS net, saved here under another name too?
+                int entries = 0;
+                for (const Station& other : state->edit_net_saved_stations)
+                {
+                    entries += other.callsign == station.callsign ? 1 : 0;
+                }
+                if (entries > 1 || state->db->IsStationUsedOutsideNet(station.callsign, state->edit_net_id))
                 {
                     state->row_delete_lines.emplace_back(
                         "It's saved to another net or has checked in, so its details stay and "
@@ -2713,7 +3530,7 @@ namespace ql
                 return;
             }
             case RowPickAction::kEditSavedStation:
-                LoadSavedStationIntoForm(state, state->edit_net_saved_stations[index]);
+                LoadSavedStationIntoForm(state, index);
                 return;
             case RowPickAction::kEditUser:
                 OpenUserKeys(state, index);
@@ -2840,7 +3657,12 @@ namespace ql
         state->selected_user_index = index;
         state->user_keys_username = state->manage_user_names[index];
         state->rename_username = state->user_keys_username;
-        state->edit_user_access_index = state->db->IsUserViewOnly(state->user_keys_username) ? 1 : 0;
+        // Its reads share one snapshot and one lock; access comes with the keys.
+        Database::ReadTransaction reads(state->db);
+        std::vector<User> keys = state->db->GetUserKeys(state->user_keys_username);
+        state->edit_user_access_index = !keys.empty() && keys[0].view_only ? 1 : 0;
+        state->edit_user_amateur_callsign = keys.empty() ? std::string() : keys[0].amateur_callsign;
+        state->edit_user_gmrs_callsign = keys.empty() ? std::string() : keys[0].gmrs_callsign;
         state->selected_user_key_index = 0;
         state->new_key_text.clear();
         state->form_error.clear();
@@ -2868,17 +3690,19 @@ namespace ql
             return;
         }
         std::string old_username = state->user_keys_username;
-        std::string new_username = NormalizeCallsign(state->rename_username);
+        std::string new_username = Spaceless(state->rename_username);
         state->rename_username = new_username;
         state->status_message.clear();
         bool renaming = new_username != old_username;
-        if (renaming && !UsernameIsCallsign(new_username))
+        if (renaming && !IsValidUsername(new_username))
         {
-            state->form_error = new_username.empty() || new_username.find('/') != std::string::npos
-                                    ? "A username is the user's call sign alone, without /M, "
-                                      "/P or the like."
-                                    : "A username is the user's call sign: " + new_username +
-                                          " isn't a valid US or Canadian call sign.";
+            state->form_error = kUsernameRule;
+            return;
+        }
+        std::string amateur = state->edit_user_amateur_callsign;
+        std::string gmrs = state->edit_user_gmrs_callsign;
+        if (!CheckUserCallsigns(state, &amateur, &gmrs))
+        {
             return;
         }
         if (renaming && !state->db->RenameUser(old_username, new_username))
@@ -2898,6 +3722,14 @@ namespace ql
         {
             state->db->SetUserViewOnly(new_username, view_only);
         }
+        std::vector<User> keys = state->db->GetUserKeys(new_username);
+        bool callsigns_changed =
+            !keys.empty() && (keys[0].amateur_callsign != amateur || keys[0].gmrs_callsign != gmrs);
+        if (callsigns_changed)
+        {
+            state->db->SetUserCallsigns(new_username, amateur, gmrs);
+            access_changed = true;
+        }
 
         CloseUserKeys(state);
         RefreshUsers(state);
@@ -2914,7 +3746,7 @@ namespace ql
         if (renaming && access_changed)
         {
             state->status_message =
-                "Renamed " + old_username + " to " + new_username + ", now " + access + ", from their next login.";
+                "Renamed " + old_username + " to " + new_username + " and saved, from their next login.";
         }
         else if (renaming)
         {
@@ -2922,7 +3754,7 @@ namespace ql
         }
         else if (access_changed)
         {
-            state->status_message = new_username + " is now " + access + ", from their next login.";
+            state->status_message = "Saved " + new_username + " (" + access + "), from their next login.";
         }
         else
         {
@@ -2975,9 +3807,43 @@ namespace ql
                                          : "Removed a key of \"" + key.username + "\" (" + DescribeUserKey(key) + ").";
     }
 
-    bool UsernameIsCallsign(const std::string& username)
+    bool IsValidUsername(const std::string& username)
     {
-        return username.find('/') == std::string::npos && IsValidCallsign(username);
+        if (username.empty() || username.size() > 32 || std::isalnum(static_cast<unsigned char>(username[0])) == 0)
+        {
+            return false;
+        }
+        for (char c : username)
+        {
+            if (std::isalnum(static_cast<unsigned char>(c)) == 0 && c != '.' && c != '_' && c != '-')
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool CheckUserCallsigns(AppState* state, std::string* amateur, std::string* gmrs)
+    {
+        *amateur = NormalizeCallsign(*amateur);
+        *gmrs = NormalizeCallsign(*gmrs);
+        if (amateur->empty() && gmrs->empty())
+        {
+            state->form_error = "At least one call sign is required: Amateur Radio or GMRS.";
+            return false;
+        }
+        if (!amateur->empty() && (amateur->find('/') != std::string::npos || !IsValidCallsign(*amateur)))
+        {
+            state->form_error =
+                *amateur + " isn't a valid US or Canadian amateur call sign (without /M, /P or the like).";
+            return false;
+        }
+        if (!gmrs->empty() && !IsValidGmrsCallsign(*gmrs))
+        {
+            state->form_error = *gmrs + " isn't a valid GMRS call sign.";
+            return false;
+        }
+        return true;
     }
 
     void AddUserFromForm(AppState* state)
@@ -2986,20 +3852,24 @@ namespace ql
         {
             return;
         }
-        state->new_user_username = NormalizeCallsign(state->new_user_username);
+        state->new_user_username = Spaceless(state->new_user_username);
         if (state->new_user_username.empty() || state->new_user_public_key.empty())
         {
             state->status_message.clear();
             state->form_error = "Username and public key are both required.";
             return;
         }
-        if (!UsernameIsCallsign(state->new_user_username))
+        if (!IsValidUsername(state->new_user_username))
         {
             state->status_message.clear();
-            state->form_error = state->new_user_username.find('/') != std::string::npos
-                                    ? "A username is the user's call sign alone, without /M, /P or the like."
-                                    : "A username is the user's call sign: " + state->new_user_username +
-                                          " isn't a valid US or Canadian call sign.";
+            state->form_error = kUsernameRule;
+            return;
+        }
+        // Another key for a user keeps their call signs.
+        bool existing = !state->db->GetUserKeys(state->new_user_username).empty();
+        if (!existing && !CheckUserCallsigns(state, &state->new_user_amateur_callsign, &state->new_user_gmrs_callsign))
+        {
+            state->status_message.clear();
             return;
         }
         std::string public_key;
@@ -3016,11 +3886,15 @@ namespace ql
         user.public_key = public_key;
         user.created_at = static_cast<std::int64_t>(std::time(nullptr));
         user.view_only = state->new_user_access_index == 1;
-        bool had_keys = CountUserKeys(state, user.username) > 0;
+        user.amateur_callsign = state->new_user_amateur_callsign;
+        user.gmrs_callsign = state->new_user_gmrs_callsign;
+        bool had_keys = existing;
         bool added = state->db->CreateUser(user);
 
         state->new_user_username.clear();
         state->new_user_public_key.clear();
+        state->new_user_amateur_callsign.clear();
+        state->new_user_gmrs_callsign.clear();
         state->new_user_access_index = 0;
         RefreshUsers(state);
         state->form_error.clear();
@@ -3097,11 +3971,11 @@ namespace ql
                 }
                 AdifContact& contact = contacts.emplace_back();
                 contact.check_in = &check_in;
-                std::vector<Station>::const_iterator found =
+                std::vector<Station>::const_iterator station_at =
                     std::lower_bound(stations.begin(), stations.end(), check_in.callsign, StationCallsignBefore);
-                if (found != stations.end() && found->callsign == check_in.callsign)
+                if (station_at != stations.end() && station_at->callsign == check_in.callsign)
                 {
-                    contact.station = &*found;
+                    contact.station = &*station_at;
                 }
             }
         }
@@ -3148,9 +4022,8 @@ namespace ql
         std::vector<std::string> rows = FormatRows(cells, layout);
         lines.insert(lines.end(), rows.begin(), rows.end());
 
-        std::string stem = SessionExportsDir(state->db_path, state->ssh_username) + "/" +
-                           SanitizeFilenameComponent(net_name) + "_" +
-                           SanitizeFilenameComponent(instance.instance_date);
+        std::string stem =
+            SessionExportsDir(state->db_path, state->ssh_username) + "/" + SessionFileStem(net_name, instance);
         std::string log_path = stem + "_log.txt";
         if (!WriteExportLines(state, log_path, lines))
         {
@@ -3166,21 +4039,31 @@ namespace ql
             state->form_error = "Saved " + log_path + ", but not " + session_path + ": " + error;
             return;
         }
-        // And for a logging program (see BuildAdif).
-        std::string adif_path = stem + ".adi";
-        if (!WriteSessionAdif(state, instance, check_ins, adif_path, &error))
+        std::vector<std::string> paths{log_path, session_path};
+        // A closed session can be pushed upstream from the window that follows.
+        std::int64_t push_instance_id = instance.status == NetInstanceStatus::kClosed ? instance.id : 0;
+        // And for a logging program (see BuildAdif), except a GMRS session:
+        // ADIF is for amateur contacts.
+        std::optional<Net> net = state->db->GetNetById(instance.net_id);
+        if (!net.has_value() || net->service != NetService::kGmrs)
         {
-            state->status_message.clear();
-            state->form_error = "Saved " + log_path + " and " + session_path + ", but not " + adif_path + ": " + error;
-            return;
+            std::string adif_path = stem + ".adi";
+            if (!WriteSessionAdif(state, instance, check_ins, adif_path, &error))
+            {
+                state->status_message.clear();
+                state->form_error =
+                    "Saved " + log_path + " and " + session_path + ", but not " + adif_path + ": " + error;
+                return;
+            }
+            paths.push_back(adif_path);
         }
-        std::vector<std::string> paths{log_path, session_path, adif_path};
         // Sent over ZMODEM as one .zip, so there's one file to receive. With
         // no ZMODEM (at the console, on Windows, or without sz), the files
         // are all there is.
-        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || !ZmodemSendAvailable())
+        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || !ZmodemSendAvailable() ||
+            state->over_mosh)
         {
-            OfferZmodemSendFiles(state, paths);
+            OfferZmodemSendFiles(state, paths, 0, push_instance_id);
             return;
         }
         std::string zip_path = stem + ".zip";
@@ -3190,28 +4073,22 @@ namespace ql
             state->form_error = "Saved " + ListPaths(paths) + ", but not " + zip_path + ": " + error;
             return;
         }
-        OfferZmodemSendFiles(state, {zip_path});
+        OfferZmodemSendFiles(state, {zip_path}, 0, push_instance_id);
         state->zmodem_zip_contents = paths;
         state->status_message = "Saved to " + ListPaths(paths) + ".";
     }
 
-    void ExportSavedStations(AppState* state, const std::string& net_name, const std::vector<Station>& saved_stations)
+    void ExportSavedStations(AppState* state, const std::string& net_name)
     {
-        Database::ReadTransaction reads(state->db);
         std::vector<std::string> lines;
         lines.push_back("Net: " + net_name);
         lines.emplace_back("Saved Stations:");
         lines.emplace_back("");
-        // Every column, as in ExportNetLog.
-        std::vector<std::vector<std::string>> cells;
-        for (const Station& station : saved_stations)
-        {
-            cells.push_back(
-                SavedStationCells(station, state->db->GetSavedNetStationRemarks(state->edit_net_id, station.callsign)));
-        }
+        // Every column, as in ExportNetLog, from the cells the list was
+        // made from (see RefreshEditNetSavedStations): nothing to read again.
         ListLayout layout = ExportListLayout(SavedStationColumns(), 1);
         lines.push_back(FormatListHeading(SavedStationColumns(), layout));
-        std::vector<std::string> rows = FormatRows(cells, layout);
+        std::vector<std::string> rows = FormatRows(state->saved_station_cells, layout);
         lines.insert(lines.end(), rows.begin(), rows.end());
 
         std::string path = SessionExportsDir(state->db_path, state->ssh_username) + "/" +
@@ -3234,7 +4111,7 @@ namespace ql
         }
 
         state->form_error.clear();
-        OfferZmodemSend(state, path);
+        OfferZmodemSend(state, path, net.id);
     }
 
     void RefreshImportNetFiles(AppState* state)
@@ -3401,10 +4278,13 @@ namespace ql
         }
         state->merge_station_callsign_texts.clear();
         state->merge_station_difference_texts.clear();
+        state->merge_station_callsign_texts.reserve(state->merge_plan.station_conflicts.size());
+        state->merge_station_difference_texts.reserve(state->merge_plan.station_conflicts.size());
         for (const MergeStationConflict& conflict : state->merge_plan.station_conflicts)
         {
             state->merge_station_callsign_texts.push_back("  " + conflict.file_station->callsign);
             std::vector<std::string> differences;
+            differences.reserve(conflict.differences.size());
             for (const StationDetailDifference& difference : conflict.differences)
             {
                 differences.push_back("         " + std::string(difference.field) + ": " + difference.here + " here, " +
@@ -3532,13 +4412,30 @@ namespace ql
         // probably the same one (imported before, or set up by hand), so
         // the operator chooses: merge, or import it as a new net anyway.
         bool taken = !ExistingNetNamed(state, slice->net.name).empty();
+        // Merging only ever joins nets of one service (Amateur Radio or
+        // GMRS); a name taken on the other one can't be merged into or
+        // shared.
+        if (taken)
+        {
+            for (const Net& net : state->nets)
+            {
+                if (NetNamesAreTheSame(slice->net.name, net.name) && net.service != slice->net.service)
+                {
+                    state->status_message.clear();
+                    state->form_error = "You already have a net named \"" + net.name + "\" on " +
+                                        ServiceLabel(net.service) + "; this one is on " +
+                                        ServiceLabel(slice->net.service) + ". Rename yours to import it.";
+                    return;
+                }
+            }
+        }
         if (taken || !names_checked)
         {
             std::vector<Net> alike;
             for (const Net& net : state->nets)
             {
-                if (NetNamesAreTheSame(slice->net.name, net.name) ||
-                    NetNamesLookAlike(slice->net.name, net.name, false))
+                if (net.service == slice->net.service && (NetNamesAreTheSame(slice->net.name, net.name) ||
+                                                          NetNamesLookAlike(slice->net.name, net.name, false)))
                 {
                     alike.push_back(net);
                 }
@@ -3563,7 +4460,7 @@ namespace ql
         }
         RefreshNets(state);
         state->form_error.clear();
-        state->status_message = "Imported \"" + slice->net.name + "\". It's listed with today's date as \"imported\".";
+        state->status_message = "Imported \"" + slice->net.name + R"(". It's listed with today's date as "imported".)";
         state->page = kPageNetList;
     }
 
@@ -3645,6 +4542,20 @@ namespace ql
             return;
         }
 
+        // Never across services: an Amateur Radio session doesn't go into a
+        // GMRS net's History, or the other way round.
+        if (!state->import_session_ad_hoc)
+        {
+            std::optional<Net> target = state->db->GetNetById(state->import_session_net_id);
+            if (target.has_value() && target->service != slice->net.service)
+            {
+                state->status_message.clear();
+                state->form_error = "This session was logged on " + std::string(ServiceLabel(slice->net.service)) +
+                                    ", and " + target->name + " is on " + ServiceLabel(target->service) + ".";
+                return;
+            }
+        }
+
         // Logged under a name nothing like this net's: probably the wrong
         // net's History, so ask first.
         if (!name_checked && !state->import_session_ad_hoc &&
@@ -3669,31 +4580,13 @@ namespace ql
         {
             if (state->import_session_ad_hoc)
             {
-                // Imported before: an ad hoc net of the same name with the
-                // same session.
-                const NetInstance& session = slice->instances[0];
-                for (const NetInstance& existing : state->db->GetAdHocNetInstances())
-                {
-                    std::optional<Net> existing_net = state->db->GetNetById(existing.net_id);
-                    if (existing_net.has_value() && existing_net->name == slice->net.name &&
-                        existing.instance_date == session.instance_date && existing.started_at == session.started_at)
-                    {
-                        state->status_message.clear();
-                        state->form_error =
-                            "The ad hoc net " + slice->net.name + " already has that session, so nothing was imported.";
-                        return;
-                    }
-                }
-                // A new ad hoc net, as it was defined where it was logged.
-                Net net = slice->net;
-                net.is_ad_hoc = true;
-                net.imported_at = now;
-                net.default_location = ExtractZipCode(net.default_location);
-                MoveBadFrequencyToComments(&net.default_frequency, &net.comments);
-                net_id = state->db->CreateNet(net);
-                net_name = net.name;
+                instance_id = ApplyAdHocSessionSlice(state->db, *slice, now, &net_id, &error);
+                net_name = slice->net.name;
             }
-            instance_id = ApplySessionSlice(state->db, *slice, net_id, &error);
+            else
+            {
+                instance_id = ApplySessionSlice(state->db, *slice, net_id, &error);
+            }
             if (instance_id != 0)
             {
                 transaction.Commit();
@@ -3734,15 +4627,339 @@ namespace ql
         state->page = kPageNetHistory;
     }
 
+    // ---- Pulling from the upstream ----------------------------------------
+
+    bool CanPullUpstream(const AppState* state)
+    {
+        return state->is_console_session && state->pull_runner != nullptr && !state->settings.upstream_host.empty();
+    }
+
+    static Upstream UpstreamFromSettings(const AppState* state)
+    {
+        Upstream upstream;
+        upstream.host = state->settings.upstream_host;
+        upstream.user = state->settings.upstream_user;
+        upstream.port = state->settings.upstream_port;
+        return upstream;
+    }
+
+    static void RemovePullDirectory(AppState* state)
+    {
+        if (state->pull_sessions && !state->pull_dir.empty())
+        {
+            std::error_code ignored;
+            std::filesystem::remove_all(state->pull_dir, ignored);
+        }
+        state->pull_dir.clear();
+    }
+
+    static void CloseTheWindow(AppState* state)
+    {
+        state->pull_stage = PullStage::kNone;
+        state->show_pull_modal = false;
+        state->pull_nets.clear();
+        state->pull_net_labels.clear();
+        state->selected_pull_net = 0;
+    }
+
+    void OpenPullWindow(AppState* state)
+    {
+        if (RefuseViewOnly(state, "import files"))
+        {
+            return;
+        }
+        if (!CanPullUpstream(state))
+        {
+            state->status_message.clear();
+            state->form_error = "Set up an upstream server in Settings (F5) first.";
+            return;
+        }
+        if (state->import_session && state->import_session_ad_hoc)
+        {
+            state->status_message.clear();
+            state->form_error = "Sessions are pulled into a recurring net's History.";
+            return;
+        }
+        if (!UpstreamToolsAvailable())
+        {
+            state->status_message.clear();
+            state->form_error = kNoSshMessage;
+            return;
+        }
+        state->pull_sessions = state->import_session;
+        CloseTheWindow(state);
+        state->pull_stage = PullStage::kListing;
+        state->show_pull_modal = true;
+        ++state->pull_generation;
+        state->form_error.clear();
+        state->status_message.clear();
+        state->pull_runner->ListNets(UpstreamFromSettings(state), state->pull_generation);
+    }
+
+    // How a net reads in the Pull window: "Skywarn  (12 sessions)", with its
+    // service if it isn't Amateur Radio.
+    static std::string PullNetLabel(const UpstreamNet& net)
+    {
+        std::string label = net.name + "  (" + Count(net.sessions, "session", "sessions") + ")";
+        if (net.service == "gmrs")
+        {
+            label += "  GMRS";
+        }
+        return label;
+    }
+
+    void FinishPullList(AppState* state, const PullResult& result, int generation)
+    {
+        if (generation != state->pull_generation || state->pull_stage != PullStage::kListing)
+        {
+            return;
+        }
+        if (result.kind != PullResultKind::kNets)
+        {
+            CloseTheWindow(state);
+            state->status_message.clear();
+            state->form_error = result.message;
+            return;
+        }
+
+        // The sessions of a net only go into a net on the same service.
+        std::optional<Net> target;
+        if (state->pull_sessions)
+        {
+            target = state->db->GetNetById(state->import_session_net_id);
+        }
+        state->pull_nets.clear();
+        state->pull_net_labels.clear();
+        state->selected_pull_net = 0;
+        bool selected_same = false;
+        bool selected_alike = false;
+        for (const UpstreamNet& net : result.nets)
+        {
+            if (target.has_value() && (net.service == "gmrs") != (target->service == NetService::kGmrs))
+            {
+                continue;
+            }
+            // Its own name first, else the first one that looks like it.
+            int index = static_cast<int>(state->pull_nets.size());
+            if (state->pull_sessions && !selected_same && NetNamesAreTheSame(net.name, state->import_session_net_name))
+            {
+                state->selected_pull_net = index;
+                selected_same = true;
+            }
+            else if (state->pull_sessions && !selected_same && !selected_alike &&
+                     NetNamesLookAlike(state->import_session_net_name, net.name))
+            {
+                state->selected_pull_net = index;
+                selected_alike = true;
+            }
+            state->pull_nets.push_back(net);
+            state->pull_net_labels.push_back(PullNetLabel(net));
+        }
+        if (state->pull_nets.empty())
+        {
+            CloseTheWindow(state);
+            state->status_message.clear();
+            state->form_error = state->settings.upstream_host + " has no nets" +
+                                (target.has_value() ? std::string(" on ") + ServiceLabel(target->service) : "") + ".";
+            return;
+        }
+        state->pull_stage = PullStage::kChoosing;
+    }
+
+    void MovePullHighlight(AppState* state, int delta)
+    {
+        if (state->pull_stage == PullStage::kChoosing && !state->pull_nets.empty())
+        {
+            state->selected_pull_net =
+                std::clamp(state->selected_pull_net + delta, 0, static_cast<int>(state->pull_nets.size()) - 1);
+            state->form_error.clear();
+        }
+    }
+
+    void ChoosePullNet(AppState* state)
+    {
+        if (state->pull_stage != PullStage::kChoosing || state->pull_nets.empty())
+        {
+            return;
+        }
+        const UpstreamNet& net = state->pull_nets[static_cast<std::size_t>(state->selected_pull_net)];
+        if (state->pull_sessions && net.sessions == 0)
+        {
+            state->form_error = net.name + " has no closed sessions to pull.";
+            return;
+        }
+        state->pull_net_name = net.name;
+        std::string imports = SessionImportsDir(state->db_path, state->ssh_username);
+        // A net's file goes where received files go, to be imported like
+        // one; the sessions' go in a folder of their own, which the list of
+        // files to import never shows, and which goes when they're in.
+        state->pull_dir = state->pull_sessions ? imports + "/.pull" : imports;
+        if (state->pull_sessions)
+        {
+            std::error_code ignored;
+            std::filesystem::remove_all(state->pull_dir, ignored);
+        }
+        state->form_error.clear();
+        state->pull_stage = PullStage::kFetching;
+        ++state->pull_generation;
+        state->pull_runner->Fetch(UpstreamFromSettings(state), net.name, state->pull_sessions, state->pull_dir,
+                                  state->pull_generation);
+    }
+
+    // Adds the pulled sessions to the net whose History opened the import
+    // page, skipping the ones it has.
+    static void ImportPulledSessions(AppState* state, const PullResult& result)
+    {
+        std::optional<Net> target = state->db->GetNetById(state->import_session_net_id);
+        if (!target.has_value())
+        {
+            state->status_message.clear();
+            state->form_error = "That net no longer exists.";
+            return;
+        }
+        int added = 0;
+        int already = 0;
+        int other_service = 0;
+        int unreadable = 0;
+        try
+        {
+            Database::WriteTransaction transaction(state->db);
+            // Oldest first, so they're numbered in the order they happened.
+            for (std::size_t i = result.files.size(); i > 0; --i)
+            {
+                std::string error;
+                std::optional<NetSlice> slice = ReadSessionSliceFile(result.files[i - 1], &error);
+                if (!slice.has_value())
+                {
+                    ++unreadable;
+                    continue;
+                }
+                if (slice->net.service != target->service)
+                {
+                    ++other_service;
+                    continue;
+                }
+                const NetInstance& source = slice->instances[0];
+                if (state->db->HasNetInstance(target->id, source.instance_date, source.started_at))
+                {
+                    ++already;
+                    continue;
+                }
+                if (ApplySessionSlice(state->db, *slice, target->id, &error) == 0)
+                {
+                    ++unreadable;
+                    continue;
+                }
+                ++added;
+            }
+            transaction.Commit();
+        }
+        catch (const std::exception& e)
+        {
+            state->status_message.clear();
+            state->form_error = std::string("Import failed, so nothing was added: ") + e.what();
+            return;
+        }
+
+        std::string message;
+        if (added == 0)
+        {
+            message =
+                "Nothing new: " + state->settings.upstream_host + "'s sessions of " + result.net + " are here already.";
+        }
+        else
+        {
+            message = "Added " + Count(added, "session", "sessions") + " of " + result.net + " from " +
+                      state->settings.upstream_host + "; " + std::to_string(already) + " here already.";
+        }
+        if (other_service > 0)
+        {
+            message += " " + Count(other_service, "session", "sessions") + " on the other service skipped.";
+        }
+        if (unreadable > 0)
+        {
+            message += " " + Count(unreadable, "session", "sessions") + " couldn't be read.";
+        }
+        if (result.not_sent > 0)
+        {
+            message += " " + std::to_string(result.not_sent) + " not sent (still open, or over the limit).";
+        }
+        state->import_session = false;
+        RefreshNetHistory(state);
+        state->form_error.clear();
+        state->status_message = std::move(message);
+        state->page = kPageNetHistory;
+    }
+
+    void FinishPullFiles(AppState* state, const PullResult& result, int generation)
+    {
+        if (generation != state->pull_generation || state->pull_stage != PullStage::kFetching)
+        {
+            return;
+        }
+        CloseTheWindow(state);
+        if (result.kind != PullResultKind::kFiles)
+        {
+            RemovePullDirectory(state);
+            state->status_message.clear();
+            state->form_error = result.message;
+            return;
+        }
+        if (result.files.empty())
+        {
+            RemovePullDirectory(state);
+            state->status_message.clear();
+            state->form_error =
+                state->settings.upstream_host + " has no closed sessions of " + result.net + " to send.";
+            return;
+        }
+
+        if (state->pull_sessions)
+        {
+            ImportPulledSessions(state, result);
+            RemovePullDirectory(state);
+            return;
+        }
+        // The net's file is among the received ones now: highlight it and
+        // import it as any is, which asks about a net it looks like.
+        const std::string& path = result.files[0];
+        std::string name = path.substr(path.find_last_of('/') + 1);
+        RefreshImportNetFiles(state);
+        for (std::size_t i = 0; i < state->import_net_files.size(); ++i)
+        {
+            if (state->import_net_files[i] == name)
+            {
+                state->selected_import_file_index = static_cast<int>(i);
+            }
+        }
+        state->pull_dir.clear();
+        state->form_error.clear();
+        state->status_message = "Pulled " + result.net + " from " + state->settings.upstream_host + ".";
+        ImportSelectedNetSlice(state);
+    }
+
+    void ClosePullWindow(AppState* state)
+    {
+        if (state->pull_runner != nullptr)
+        {
+            state->pull_runner->Cancel();
+        }
+        ++state->pull_generation;
+        CloseTheWindow(state);
+        RemovePullDirectory(state);
+        state->form_error.clear();
+    }
+
     void StartZmodemReceive(AppState* state)
     {
         if (RefuseViewOnly(state, "import files"))
         {
             return;
         }
-        // Nobody on the other end of a local terminal to send one, and no
-        // ZMODEM at all on some systems (Windows, Alpine).
-        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem())
+        // Nobody on the other end of a local terminal to send one, no
+        // ZMODEM at all on some systems (Windows, Alpine), and none over
+        // Mosh.
+        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || state->over_mosh)
         {
             return;
         }
@@ -3751,9 +4968,12 @@ namespace ql
     }
 
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed, const std::string& net_zip,
-                                           bool partial, std::size_t max_suggestions, std::vector<Station>* suggestions,
-                                           std::vector<std::string>* sources);
-    static void AppendCanadianSuggestions(AppState* state, const std::string& typed, bool partial,
+                                           bool partial, NetService service, std::size_t max_suggestions,
+                                           std::vector<Station>* suggestions, std::vector<std::string>* sources);
+    static void AppendNearbyIsedSuggestions(AppState* state, const std::string& typed, bool partial,
+                                            std::size_t max_suggestions, std::vector<Station>* suggestions,
+                                            std::vector<std::string>* sources);
+    static void AppendCanadianSuggestions(const AppState* state, const std::string& typed, bool partial,
                                           std::size_t max_suggestions, std::vector<Station>* suggestions,
                                           std::vector<std::string>* sources);
     static bool LooksCanadian(const std::string& typed);
@@ -3765,9 +4985,9 @@ namespace ql
     // call sign that didn't make the list (a station beyond the Nearby
     // Radius, say), it's added at the bottom, with where it came from, for
     // the operator to move down to; the ">" stays on the best match.
-    static void MarkTypedCallsignMatch(AppState* state, const std::string& typed, std::size_t max_suggestions,
-                                       std::vector<Station>* suggestions, std::vector<std::string>* sources,
-                                       int* selected)
+    static void MarkTypedCallsignMatch(AppState* state, const std::string& typed, NetService service,
+                                       std::size_t max_suggestions, std::vector<Station>* suggestions,
+                                       std::vector<std::string>* sources, int* selected)
     {
         if (suggestions->empty())
         {
@@ -3791,7 +5011,7 @@ namespace ql
         }
         else
         {
-            known = state->db->FindLicensedStationByCallsign(callsign);
+            known = FindLicensee(state->db, callsign, service);
             if (!known.has_value())
             {
                 return;
@@ -3803,11 +5023,13 @@ namespace ql
                 origin = ZipCentroid{state->nearby_zips_origin, state->nearby_zips_origin_lat,
                                      state->nearby_zips_origin_lon};
             }
+            std::string station_key = ZipCentroidKey(known->zip);
             std::optional<ZipCentroid> station_zip =
-                known->zip.size() >= 5 ? state->db->FindZipCentroid(known->zip.substr(0, 5)) : std::nullopt;
-            if (!LooksCanadian(callsign) && origin.has_value() && station_zip.has_value())
+                station_key.empty() ? std::nullopt : state->db->FindZipCentroid(station_key);
+            if (origin.has_value() && station_zip.has_value())
             {
-                source = UlsSource(DistanceMiles(origin->lat, origin->lon, station_zip->lat, station_zip->lon));
+                double miles = DistanceMiles(origin->lat, origin->lon, station_zip->lat, station_zip->lon);
+                source = LooksCanadian(callsign) ? IsedSource(miles) : UlsSource(miles);
             }
         }
         if (suggestions->size() >= max_suggestions)
@@ -3847,7 +5069,8 @@ namespace ql
         // are dropped as repeats, so enough to fill the rest after those.
         std::vector<Station> other_matches = state->db->SearchStationsByCallsignSubstring(
             state->modal_station.callsign, max_suggestions + static_cast<int>(tier1_count));
-        AppendNewSuggestions(&state->modal_callsign_suggestions, &other_matches, kMaxSuggestions);
+        AppendNewSuggestions(&state->modal_callsign_suggestions, &other_matches, kMaxSuggestions,
+                             state->active_net_service);
 
         if (state->modal_callsign_suggestions.size() > kMaxSuggestions)
         {
@@ -3860,16 +5083,26 @@ namespace ql
             bool is_this_net = i < tier1_count;
             state->modal_callsign_suggestion_sources.push_back(KnownStationSource(is_this_net));
         }
+        OfferNewGmrsName(state->active_net_service, state->modal_station.callsign, kMaxSuggestions,
+                         &state->modal_callsign_suggestions, &state->modal_callsign_suggestion_sources);
 
-        // Tier 3: licensed stations near the net, from the FCC data.
+        // Tier 3: licensed stations near the net, from the FCC data (its
+        // GMRS licensees, on a GMRS net).
         AppendNearbyUlsSuggestions(state, state->modal_station.callsign, state->active_net_zip,
-                                   !state->active_net_partial_match_canada, kMaxSuggestions,
+                                   !state->active_net_partial_match_canada, state->active_net_service, kMaxSuggestions,
                                    &state->modal_callsign_suggestions, &state->modal_callsign_suggestion_sources);
-        // Tier 4: Canadian call signs, from ISED's data.
-        AppendCanadianSuggestions(state, state->modal_station.callsign, state->active_net_partial_match_canada,
-                                  kMaxSuggestions, &state->modal_callsign_suggestions,
-                                  &state->modal_callsign_suggestion_sources);
-        MarkTypedCallsignMatch(state, state->modal_station.callsign, kMaxSuggestions,
+        // Tier 4: Canadian call signs, from ISED's data -- those near the net
+        // first, then the rest. Canada has no GMRS.
+        if (state->active_net_service != NetService::kGmrs)
+        {
+            AppendNearbyIsedSuggestions(state, state->modal_station.callsign, state->active_net_partial_match_canada,
+                                        kMaxSuggestions, &state->modal_callsign_suggestions,
+                                        &state->modal_callsign_suggestion_sources);
+            AppendCanadianSuggestions(state, state->modal_station.callsign, state->active_net_partial_match_canada,
+                                      kMaxSuggestions, &state->modal_callsign_suggestions,
+                                      &state->modal_callsign_suggestion_sources);
+        }
+        MarkTypedCallsignMatch(state, state->modal_station.callsign, state->active_net_service, kMaxSuggestions,
                                &state->modal_callsign_suggestions, &state->modal_callsign_suggestion_sources,
                                &state->selected_suggestion_index);
         state->modal_callsign_suggestion_labels = FormatMatches(
@@ -3890,7 +5123,8 @@ namespace ql
         BackfillGridFromZip(state, &state->modal_station);
 
         std::string default_remarks =
-            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, state->modal_station.callsign);
+            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, state->modal_station.callsign,
+                                                 SavedEntryName(state->active_net_service, state->modal_station.name));
         if (!default_remarks.empty())
         {
             state->modal_remarks = std::move(default_remarks);
@@ -3919,6 +5153,10 @@ namespace ql
         state->edit_net_recurrence = net.recurrence_description;
         state->edit_net_comments = net.comments;
         state->edit_net_partial_match_index = net.partial_match_canada ? 1 : 0;
+        state->edit_net_gmrs = net.service == NetService::kGmrs;
+        state->edit_net_amateur = !state->edit_net_gmrs;
+        int channel = FindGmrsChannel(net.default_frequency, net.repeater_offset);
+        state->edit_net_gmrs_channel = channel < 0 ? 0 : channel;
 
         CloseSavedStationForm(state);
         state->status_message.clear();
@@ -3938,8 +5176,8 @@ namespace ql
             state->form_error = "Net name is required.";
             return false;
         }
-        if (!CheckNetRadio(state, state->edit_net_frequency, state->edit_net_offset, &state->edit_net_tone) ||
-            !CheckNetZip(state, state->edit_net_location))
+        Net net;
+        if (!ReadEditNetRadio(state, &net) || !CheckNetZip(state, state->edit_net_location))
         {
             return false;
         }
@@ -3956,17 +5194,11 @@ namespace ql
             }
         }
 
-        Net net;
         net.id = state->edit_net_id;
         net.name = state->edit_net_name;
-        net.mode = NetModes()[static_cast<std::size_t>(state->edit_net_mode_index)];
-        net.default_frequency = state->edit_net_frequency;
-        net.repeater_offset = state->edit_net_offset;
-        net.pl_tone = state->edit_net_tone;
-        net.default_location = state->edit_net_location;
+        net.default_location = NormalizeZipOrPostalCode(state->edit_net_location);
         net.recurrence_description = state->edit_net_recurrence;
         net.comments = state->edit_net_comments;
-        net.partial_match_canada = state->edit_net_partial_match_index == 1;
         state->db->UpdateNet(net);
 
         RefreshNets(state);
@@ -3980,13 +5212,21 @@ namespace ql
     {
         // Its reads share one snapshot and one lock.
         Database::ReadTransaction reads(state->db);
-        state->edit_net_saved_stations = state->db->GetSavedStationsForNet(state->edit_net_id);
-
+        std::vector<SavedNetStation> entries = state->db->GetSavedNetEntries(state->edit_net_id);
+        state->edit_net_saved_stations.clear();
+        state->edit_net_saved_entry_names.clear();
+        state->edit_net_saved_remarks.clear();
         state->saved_station_cells.clear();
-        for (const Station& station : state->edit_net_saved_stations)
+        for (SavedNetStation& entry : entries)
         {
-            state->saved_station_cells.push_back(
-                SavedStationCells(station, state->db->GetSavedNetStationRemarks(state->edit_net_id, station.callsign)));
+            if (!entry.name.empty())
+            {
+                entry.station.name = entry.name;
+            }
+            state->saved_station_cells.push_back(SavedStationCells(entry.station, entry.default_remarks));
+            state->edit_net_saved_stations.push_back(std::move(entry.station));
+            state->edit_net_saved_entry_names.push_back(std::move(entry.name));
+            state->edit_net_saved_remarks.push_back(std::move(entry.default_remarks));
         }
         state->edit_net_saved_station_labels =
             FormatRows(state->saved_station_cells, SavedStationLayout(state->list_width));
@@ -4009,18 +5249,39 @@ namespace ql
             state->form_error = "Callsign is required.";
             return false;
         }
-        if (!CheckCallsign(state, state->saved_station.callsign))
+        if (!CheckNetCallsign(state, state->saved_station.callsign,
+                              state->edit_net_gmrs ? NetService::kGmrs : NetService::kAmateur))
         {
             return false;
         }
-        bool already_saved = false;
-        for (const Station& existing : state->edit_net_saved_stations)
+        // Already saved: the same call sign, or on a GMRS net the same
+        // call sign and name (one license covers a family).
+        NetService service = state->edit_net_gmrs ? NetService::kGmrs : NetService::kAmateur;
+        bool loaded = CallsignsEqual(state->saved_station_loaded_callsign, state->saved_station.callsign);
+        std::string person = SavedEntryName(service, state->saved_station.name);
+        int found = -1;
+        for (std::size_t i = 0; i < state->edit_net_saved_stations.size() && found < 0; ++i)
         {
-            if (CallsignsEqual(existing.callsign, state->saved_station.callsign))
+            if (CallsignsEqual(state->edit_net_saved_stations[i].callsign, state->saved_station.callsign) &&
+                ToUpperAscii(state->edit_net_saved_entry_names[i]) == ToUpperAscii(person))
             {
-                already_saved = true;
-                break;
+                found = static_cast<int>(i);
             }
+        }
+        std::string old_name;
+        bool already_saved = found >= 0 || (loaded && service == NetService::kGmrs);
+        if (found >= 0)
+        {
+            old_name = state->edit_net_saved_entry_names[static_cast<std::size_t>(found)];
+            if (loaded && ToUpperAscii(old_name) != ToUpperAscii(state->saved_station_loaded_name))
+            {
+                state->form_error = state->saved_station.callsign + " (" + person + ") is already saved to this net.";
+                return false;
+            }
+        }
+        else if (already_saved)
+        {
+            old_name = state->saved_station_loaded_name;  // Renamed.
         }
         // A new one gets what's known about it, even if it wasn't picked
         // from the matches. (One already saved is being edited: a field
@@ -4028,6 +5289,7 @@ namespace ql
         if (!already_saved)
         {
             FillSavedStationFromKnownStation(state);
+            person = SavedEntryName(service, state->saved_station.name);
         }
 
         BackfillCountyFromZip(state, &state->saved_station);
@@ -4035,16 +5297,20 @@ namespace ql
         if (already_saved)
         {
             state->db->UpdateSavedNetStation(state->edit_net_id, state->saved_station, state->saved_station_remarks,
-                                             now);
+                                             now, old_name, person);
         }
         else
         {
-            state->db->SaveNetStation(state->edit_net_id, state->saved_station, state->saved_station_remarks, now);
+            state->db->SaveNetStation(state->edit_net_id, state->saved_station, state->saved_station_remarks, now,
+                                      person);
         }
 
-        state->status_message = "Saved " + state->saved_station.callsign + ".";
+        state->status_message =
+            "Saved " + state->saved_station.callsign + (person.empty() ? "" : " (" + person + ")") + ".";
         state->saved_station = Station();
         state->saved_station_remarks.clear();
+        state->saved_station_loaded_callsign.clear();
+        state->saved_station_loaded_name.clear();
         state->saved_station_suggestions.clear();
         state->saved_station_suggestion_labels.clear();
         state->saved_station_suggestion_sources.clear();
@@ -4062,11 +5328,17 @@ namespace ql
         return true;
     }
 
-    void LoadSavedStationIntoForm(AppState* state, const Station& saved)
+    void LoadSavedStationIntoForm(AppState* state, std::size_t index)
     {
+        if (index >= state->edit_net_saved_stations.size())
+        {
+            return;
+        }
         CloseSavedStationForm(state);
-        state->saved_station = saved;
-        state->saved_station_remarks = state->db->GetSavedNetStationRemarks(state->edit_net_id, saved.callsign);
+        state->saved_station = state->edit_net_saved_stations[index];
+        state->saved_station_remarks = state->edit_net_saved_remarks[index];
+        state->saved_station_loaded_callsign = state->saved_station.callsign;
+        state->saved_station_loaded_name = state->edit_net_saved_entry_names[index];
         state->show_saved_station_modal = true;
         if (state->saved_station_callsign_input)
         {
@@ -4093,6 +5365,8 @@ namespace ql
     {
         state->saved_station = Station();
         state->saved_station_remarks.clear();
+        state->saved_station_loaded_callsign.clear();
+        state->saved_station_loaded_name.clear();
         state->saved_station_suggestions.clear();
         state->saved_station_suggestion_labels.clear();
         state->saved_station_suggestion_sources.clear();
@@ -4112,8 +5386,9 @@ namespace ql
             return;
         }
 
-        std::string callsign = state->edit_net_saved_stations[state->selected_saved_station_index].callsign;
-        state->db->RemoveSavedNetStation(state->edit_net_id, callsign);
+        std::size_t index = static_cast<std::size_t>(state->selected_saved_station_index);
+        std::string callsign = state->edit_net_saved_stations[index].callsign;
+        state->db->RemoveSavedNetStation(state->edit_net_id, callsign, state->edit_net_saved_entry_names[index]);
         state->form_error.clear();
         state->status_message = state->db->FindStationByCallsign(callsign).has_value()
                                     ? "Removed " + callsign + " from this net's saved stations."
@@ -4160,13 +5435,15 @@ namespace ql
         state->nearby_zips_net_zip = net_zip;
         state->nearby_zips_home_zip = state->settings.location;
         std::optional<ZipCentroid> origin;
-        if (IsFiveDigitZip(net_zip))
+        std::string net_key = ZipCentroidKey(net_zip);
+        if (!net_key.empty())
         {
-            origin = state->db->FindZipCentroid(net_zip);
+            origin = state->db->FindZipCentroid(net_key);
         }
-        if (!origin.has_value() && IsFiveDigitZip(state->settings.location))
+        std::string home_key = ZipCentroidKey(state->settings.location);
+        if (!origin.has_value() && !home_key.empty())
         {
-            origin = state->db->FindZipCentroid(state->settings.location);
+            origin = state->db->FindZipCentroid(home_key);
         }
         std::string origin_zip = origin.has_value() ? origin->zip : "";
 
@@ -4182,6 +5459,7 @@ namespace ql
         state->nearby_zips_radius = radius;
         // The nearby licensees loaded for the old ZIPs no longer apply.
         state->nearby_uls_origin.clear();
+        state->nearby_ised_origin.clear();
         if (!origin.has_value())
         {
             return;
@@ -4204,6 +5482,62 @@ namespace ql
     // How long AppState::nearby_uls_callsigns is trusted before it's
     // reloaded, so a long session picks up the weekly station data refresh.
     static constexpr std::int64_t kNearbyUlsReloadSeconds = 3600;
+
+    static bool NearbyCallsignMatches(const NearbyUlsCallsign& candidate, const std::string& upper, bool anywhere);
+
+    // The shared end of the nearby tiers: the `candidates` (nearest first)
+    // that match `typed`, up to `max_suggestions` in all, skipping
+    // call signs already in `suggestions`, and their records in one query --
+    // from ISED's table when `canadian`, else the FCC's `table`.
+    static void AppendNearbyMatches(Database* db, const std::vector<NearbyUlsCallsign>& candidates,
+                                    const std::string& typed, bool partial, bool canadian, LicenseTable table,
+                                    std::size_t max_suggestions, std::vector<Station>* suggestions,
+                                    std::vector<std::string>* sources)
+    {
+        // The matches, nearest first, then their records in one query.
+        std::string upper = ToUpperAscii(typed);
+        std::vector<const NearbyUlsCallsign*> matches;
+        std::vector<std::string> match_callsigns;
+        for (const NearbyUlsCallsign& candidate : candidates)
+        {
+            if (suggestions->size() + matches.size() >= max_suggestions)
+            {
+                break;
+            }
+            if (!NearbyCallsignMatches(candidate, upper, partial))
+            {
+                continue;
+            }
+            bool already_known = false;
+            for (const Station& existing : *suggestions)
+            {
+                if (existing.callsign == candidate.callsign)
+                {
+                    already_known = true;
+                    break;
+                }
+            }
+            if (!already_known)
+            {
+                matches.push_back(&candidate);
+                match_callsigns.emplace_back(candidate.callsign);
+            }
+        }
+        std::vector<Station> records = canadian ? db->FindIsedStationsByCallsigns(match_callsigns)
+                                                : db->FindUlsStationsByCallsigns(match_callsigns, table);
+        for (const NearbyUlsCallsign* match : matches)
+        {
+            std::string callsign = match->callsign;
+            std::vector<Station>::const_iterator found =
+                std::lower_bound(records.begin(), records.end(), callsign, StationCallsignBefore);
+            // Gone if the station data was refreshed since the list loaded.
+            if (found != records.end() && found->callsign == callsign)
+            {
+                suggestions->push_back(*found);
+                sources->push_back(canadian ? IsedSource(match->miles) : UlsSource(match->miles));
+            }
+        }
+    }
 
     // Autocomplete's last tier, shared by the New Station modal and the
     // saved-station form: ULS-imported stations matching `typed` whose ZIP is
@@ -4248,8 +5582,8 @@ namespace ql
     }
 
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed, const std::string& net_zip,
-                                           bool partial, std::size_t max_suggestions, std::vector<Station>* suggestions,
-                                           std::vector<std::string>* sources)
+                                           bool partial, NetService service, std::size_t max_suggestions,
+                                           std::vector<Station>* suggestions, std::vector<std::string>* sources)
     {
         if (suggestions->size() >= max_suggestions)
         {
@@ -4262,49 +5596,45 @@ namespace ql
         }
 
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
-        if (state->nearby_uls_origin != state->nearby_zips_origin ||
+        LicenseTable table = service == NetService::kGmrs ? LicenseTable::kGmrs : LicenseTable::kAmateur;
+        if (state->nearby_uls_origin != state->nearby_zips_origin || state->nearby_uls_table != table ||
             now - state->nearby_uls_loaded_at > kNearbyUlsReloadSeconds)
         {
             state->nearby_uls_callsigns =
-                state->db->ListNearbyUlsCallsigns(state->nearby_zips, state->nearby_zip3_prefixes);
+                state->db->ListNearbyUlsCallsigns(state->nearby_zips, state->nearby_zip3_prefixes, table);
             state->nearby_uls_callsigns.shrink_to_fit();
             state->nearby_uls_origin = state->nearby_zips_origin;
+            state->nearby_uls_table = table;
             state->nearby_uls_loaded_at = now;
         }
 
-        std::string upper = ToUpperAscii(typed);
-        for (const NearbyUlsCallsign& candidate : state->nearby_uls_callsigns)
+        AppendNearbyMatches(state->db, state->nearby_uls_callsigns, typed, partial, false, table, max_suggestions,
+                            suggestions, sources);
+    }
+
+    // Canadian licensees near the same origin, from ISED's data: the same
+    // tier as the FCC's, with distances by FSA (see Database::
+    // ListNearbyIsedCallsigns). Only loaded when what's typed can match a
+    // Canadian call sign: it looks like one, or Partial Matching is Canada.
+    static void AppendNearbyIsedSuggestions(AppState* state, const std::string& typed, bool partial,
+                                            std::size_t max_suggestions, std::vector<Station>* suggestions,
+                                            std::vector<std::string>* sources)
+    {
+        if (suggestions->size() >= max_suggestions || state->nearby_zips.empty() || (!partial && !LooksCanadian(typed)))
         {
-            if (suggestions->size() >= max_suggestions)
-            {
-                break;
-            }
-            if (!NearbyCallsignMatches(candidate, upper, partial))
-            {
-                continue;
-            }
-            bool already_known = false;
-            for (const Station& existing : *suggestions)
-            {
-                if (existing.callsign == candidate.callsign)
-                {
-                    already_known = true;
-                    break;
-                }
-            }
-            if (already_known)
-            {
-                continue;
-            }
-            // Gone if the station data was refreshed since the list loaded.
-            std::optional<Station> station = state->db->FindUlsStationByCallsign(candidate.callsign);
-            if (!station.has_value())
-            {
-                continue;
-            }
-            suggestions->push_back(*station);
-            sources->push_back(UlsSource(candidate.miles));
+            return;
         }
+        std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+        if (state->nearby_ised_origin != state->nearby_zips_origin ||
+            now - state->nearby_ised_loaded_at > kNearbyUlsReloadSeconds)
+        {
+            state->nearby_ised_callsigns = state->db->ListNearbyIsedCallsigns(state->nearby_zips);
+            state->nearby_ised_callsigns.shrink_to_fit();
+            state->nearby_ised_origin = state->nearby_zips_origin;
+            state->nearby_ised_loaded_at = now;
+        }
+        AppendNearbyMatches(state->db, state->nearby_ised_callsigns, typed, partial, true, LicenseTable::kAmateur,
+                            max_suggestions, suggestions, sources);
     }
 
     // True if `typed` can only be (the start of) a Canadian call sign: in
@@ -4324,7 +5654,7 @@ namespace ql
     // those starting with it, looked up only for a call sign that looks
     // Canadian (LooksCanadian). Skips callsigns already in `suggestions`;
     // stops at `max_suggestions`.
-    static void AppendCanadianSuggestions(AppState* state, const std::string& typed, bool partial,
+    static void AppendCanadianSuggestions(const AppState* state, const std::string& typed, bool partial,
                                           std::size_t max_suggestions, std::vector<Station>* suggestions,
                                           std::vector<std::string>* sources)
     {
@@ -4350,7 +5680,7 @@ namespace ql
             if (!already_known)
             {
                 suggestions->push_back(match);
-                sources->push_back(kIsedSource);
+                sources->emplace_back(kIsedSource);
             }
         }
     }
@@ -4382,7 +5712,8 @@ namespace ql
         // enough to fill the rest after tier 1's repeats.
         std::vector<Station> other_matches = state->db->SearchStationsByCallsignSubstring(
             state->saved_station.callsign, max_suggestions + static_cast<int>(tier1_count));
-        AppendNewSuggestions(&state->saved_station_suggestions, &other_matches, kMaxSuggestions);
+        NetService service = state->edit_net_gmrs ? NetService::kGmrs : NetService::kAmateur;
+        AppendNewSuggestions(&state->saved_station_suggestions, &other_matches, kMaxSuggestions, service);
 
         if (state->saved_station_suggestions.size() > kMaxSuggestions)
         {
@@ -4395,17 +5726,25 @@ namespace ql
             bool is_this_net = i < tier1_count;
             state->saved_station_suggestion_sources.push_back(KnownStationSource(is_this_net));
         }
+        OfferNewGmrsName(service, state->saved_station.callsign, kMaxSuggestions, &state->saved_station_suggestions,
+                         &state->saved_station_suggestion_sources);
 
         // Tier 3: nearby ULS-imported stations.
         AppendNearbyUlsSuggestions(state, state->saved_station.callsign, state->edit_net_location,
-                                   state->edit_net_partial_match_index == 0, kMaxSuggestions,
+                                   state->edit_net_partial_match_index == 0, service, kMaxSuggestions,
                                    &state->saved_station_suggestions, &state->saved_station_suggestion_sources);
         // And Canadian call signs, from ISED's data.
-        AppendCanadianSuggestions(state, state->saved_station.callsign, state->edit_net_partial_match_index == 1,
-                                  kMaxSuggestions, &state->saved_station_suggestions,
-                                  &state->saved_station_suggestion_sources);
-        MarkTypedCallsignMatch(state, state->saved_station.callsign, kMaxSuggestions, &state->saved_station_suggestions,
-                               &state->saved_station_suggestion_sources,
+        if (service != NetService::kGmrs)
+        {
+            AppendNearbyIsedSuggestions(state, state->saved_station.callsign, state->edit_net_partial_match_index == 1,
+                                        kMaxSuggestions, &state->saved_station_suggestions,
+                                        &state->saved_station_suggestion_sources);
+            AppendCanadianSuggestions(state, state->saved_station.callsign, state->edit_net_partial_match_index == 1,
+                                      kMaxSuggestions, &state->saved_station_suggestions,
+                                      &state->saved_station_suggestion_sources);
+        }
+        MarkTypedCallsignMatch(state, state->saved_station.callsign, service, kMaxSuggestions,
+                               &state->saved_station_suggestions, &state->saved_station_suggestion_sources,
                                &state->selected_saved_station_suggestion_index);
         state->saved_station_suggestion_labels =
             FormatMatches(state->saved_station_suggestions, state->saved_station_suggestion_sources, state->list_width);
@@ -4430,7 +5769,7 @@ namespace ql
         state->saved_station_suggestion_sources.clear();
     }
 
-    void BackfillCountyFromZip(AppState* state, Station* station)
+    void BackfillCountyFromZip(const AppState* state, Station* station)
     {
         if (!station->county.empty() || station->zip.empty())
         {
@@ -4456,23 +5795,19 @@ namespace ql
         station->county = state->db->FindZipCounty(zip5);
     }
 
-    void BackfillGridFromZip(AppState* state, Station* station)
+    void BackfillGridFromZip(const AppState* state, Station* station)
     {
-        if (!station->grid_square.empty() || station->zip.size() < 5)
+        if (!station->grid_square.empty())
         {
             return;
         }
-        // A US ZIP is 5 digits, or 9 with the +4; a Canadian postal code
-        // is not, and has no centroid.
-        std::string zip5 = station->zip.substr(0, 5);
-        for (char c : zip5)
+        // A US ZIP's centroid, or a Canadian postal code's FSA centroid.
+        std::string key = ZipCentroidKey(station->zip);
+        if (key.empty())
         {
-            if (c < '0' || c > '9')
-            {
-                return;
-            }
+            return;
         }
-        std::optional<ZipCentroid> centroid = state->db->FindZipCentroid(zip5);
+        std::optional<ZipCentroid> centroid = state->db->FindZipCentroid(key);
         if (centroid.has_value())
         {
             station->grid_square = MaidenheadGrid4(centroid->lat, centroid->lon);
@@ -4627,6 +5962,32 @@ namespace ql
         return station.has_value() ? station->name : "";
     }
 
+    // The names on file for `callsigns`, by callsign, read in one query.
+    static std::unordered_map<std::string, std::string> StationNames(const Database* db,
+                                                                     const std::vector<std::string>& callsigns)
+    {
+        std::vector<std::string> upper;
+        upper.reserve(callsigns.size());
+        for (const std::string& callsign : callsigns)
+        {
+            upper.push_back(ToUpperAscii(callsign));
+        }
+        std::unordered_map<std::string, std::string> names;
+        for (Station& station : db->FindStationsByCallsigns(upper))
+        {
+            names[station.callsign] = std::move(station.name);
+        }
+        return names;
+    }
+
+    static const std::string& NameOf(const std::unordered_map<std::string, std::string>& names,
+                                     const std::string& callsign)
+    {
+        static const std::string kNone;
+        std::unordered_map<std::string, std::string>::const_iterator found = names.find(ToUpperAscii(callsign));
+        return found == names.end() ? kNone : found->second;
+    }
+
     // "13 of the last 20", "1 of 1".
     static std::string OutOf(int part, int whole)
     {
@@ -4634,7 +5995,7 @@ namespace ql
     }
 
     // The active net's other sessions, newest first.
-    static std::vector<NetInstance> OtherSessions(AppState* state)
+    static std::vector<NetInstance> OtherSessions(const AppState* state)
     {
         std::vector<NetInstance> sessions;
         for (const NetInstance& session : state->db->GetNetInstancesForNet(state->active_instance.net_id))
@@ -4719,30 +6080,51 @@ namespace ql
         {
             sessions.resize(10);
         }
+        // Each is a call sign, or on a GMRS net a call sign and name (see
+        // CheckInKey), with that check-in's call sign and name alongside.
+        std::vector<std::string> keys;
         std::vector<std::string> callsigns;
+        std::vector<std::string> names;
         std::vector<int> counts;
         std::vector<std::string> last_seen;
-        for (const NetInstance& session : sessions)
+        // Each key's place in those, and the sessions' check-ins in one query.
+        std::unordered_map<std::string, std::size_t> index_of;
+        std::unordered_map<std::int64_t, std::size_t> session_of;
+        std::vector<std::int64_t> session_ids;
+        for (std::size_t i = 0; i < sessions.size(); ++i)
         {
-            std::vector<std::string> in_session;
-            for (const CheckIn& check_in : state->db->GetCheckInsForNetInstance(session.id))
+            session_of[sessions[i].id] = i;
+            session_ids.push_back(sessions[i].id);
+        }
+        std::vector<std::vector<const CheckIn*>> by_session(sessions.size());
+        std::vector<CheckIn> session_check_ins = state->db->GetCheckInsForNetInstances(session_ids);
+        for (const CheckIn& check_in : session_check_ins)
+        {
+            by_session[session_of[check_in.net_instance_id]].push_back(&check_in);
+        }
+        for (std::size_t s = 0; s < sessions.size(); ++s)
+        {
+            std::unordered_set<std::string> in_session;
+            for (const CheckIn* check_in : by_session[s])
             {
-                if (std::find(in_session.begin(), in_session.end(), check_in.callsign) != in_session.end())
+                std::string key = CheckInKey(check_in->callsign, check_in->name);
+                if (!in_session.insert(key).second)
                 {
                     continue;  // Counted once per session.
                 }
-                in_session.push_back(check_in.callsign);
-                std::vector<std::string>::iterator found =
-                    std::find(callsigns.begin(), callsigns.end(), check_in.callsign);
-                if (found == callsigns.end())
+                std::unordered_map<std::string, std::size_t>::iterator found = index_of.find(key);
+                if (found == index_of.end())
                 {
-                    callsigns.push_back(check_in.callsign);
+                    index_of.emplace(key, keys.size());
+                    keys.push_back(key);
+                    callsigns.push_back(check_in->callsign);
+                    names.push_back(check_in->name);
                     counts.push_back(1);
-                    last_seen.push_back(session.instance_date);  // Newest first.
+                    last_seen.push_back(sessions[s].instance_date);  // Newest first.
                 }
                 else
                 {
-                    ++counts[static_cast<std::size_t>(found - callsigns.begin())];
+                    ++counts[found->second];
                 }
             }
         }
@@ -4750,14 +6132,14 @@ namespace ql
         // Regulars: at least half the sessions looked at, not yet here.
         std::vector<std::size_t> regulars;
         int total = static_cast<int>(sessions.size());
-        for (std::size_t i = 0; i < callsigns.size(); ++i)
+        std::unordered_set<std::string> here;
+        for (const CheckIn& check_in : state->active_check_ins)
         {
-            bool here = false;
-            for (const CheckIn& check_in : state->active_check_ins)
-            {
-                here = here || check_in.callsign == callsigns[i];
-            }
-            if (!here && counts[i] * 2 >= total)
+            here.insert(CheckInKey(check_in.callsign, check_in.name));
+        }
+        for (std::size_t i = 0; i < keys.size(); ++i)
+        {
+            if (here.count(keys[i]) == 0 && counts[i] * 2 >= total)
             {
                 regulars.push_back(i);
             }
@@ -4766,9 +6148,9 @@ namespace ql
         for (std::size_t i = 1; i < regulars.size(); ++i)
         {
             std::size_t j = i;
-            while (j > 0 && (counts[regulars[j]] > counts[regulars[j - 1]] ||
-                             (counts[regulars[j]] == counts[regulars[j - 1]] &&
-                              callsigns[regulars[j]] < callsigns[regulars[j - 1]])))
+            while (j > 0 &&
+                   (counts[regulars[j]] > counts[regulars[j - 1]] ||
+                    (counts[regulars[j]] == counts[regulars[j - 1]] && keys[regulars[j]] < keys[regulars[j - 1]])))
             {
                 std::swap(regulars[j], regulars[j - 1]);
                 --j;
@@ -4777,11 +6159,27 @@ namespace ql
 
         std::vector<std::vector<std::string>> rows;
         state->info_stations.clear();
+        // Their details in one query.
+        std::vector<std::string> regular_callsigns;
+        regular_callsigns.reserve(regulars.size());
+        rows.reserve(regulars.size());
+        state->info_stations.reserve(regulars.size());
         for (std::size_t index : regulars)
         {
-            std::optional<Station> found = state->db->FindStationByCallsign(callsigns[index]);
-            Station station = found.has_value() ? *found : Station();
+            regular_callsigns.push_back(ToUpperAscii(callsigns[index]));
+        }
+        std::vector<Station> on_file = state->db->FindStationsByCallsigns(regular_callsigns);
+        for (std::size_t index : regulars)
+        {
+            std::string upper = ToUpperAscii(callsigns[index]);
+            std::vector<Station>::const_iterator found =
+                std::lower_bound(on_file.begin(), on_file.end(), upper, StationCallsignBefore);
+            Station station = found != on_file.end() && found->callsign == upper ? *found : Station();
             station.callsign = callsigns[index];
+            if (!names[index].empty())
+            {
+                station.name = names[index];
+            }
             rows.push_back({station.callsign, station.name, OutOf(counts[index], total), last_seen[index]});
             state->info_stations.push_back(station);
         }
@@ -4828,7 +6226,8 @@ namespace ql
         state->modal_station = std::move(station);
         BackfillCountyFromZip(state, &state->modal_station);
         state->modal_remarks =
-            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, state->modal_station.callsign);
+            state->db->GetSavedNetStationRemarks(state->active_instance.net_id, state->modal_station.callsign,
+                                                 SavedEntryName(state->active_net_service, state->modal_station.name));
         state->show_new_station_modal = true;
         if (state->modal_callsign_input)
         {
@@ -4841,7 +6240,9 @@ namespace ql
         // Its reads share one snapshot and one lock.
         Database::ReadTransaction reads(state->db);
         std::optional<Station> known = state->db->FindStationByCallsign(callsign);
-        std::optional<Station> licensed = state->db->FindLicensedStationByCallsign(callsign);
+        bool gmrs = IsValidGmrsCallsign(callsign);
+        std::optional<Station> licensed =
+            FindLicensee(state->db, callsign, gmrs ? NetService::kGmrs : NetService::kAmateur);
         Station station = known.has_value() ? *known : (licensed.has_value() ? *licensed : Station());
         StationActivity activity = state->db->GetStationActivity(callsign);
 
@@ -4857,7 +6258,8 @@ namespace ql
         summary.push_back("County:         " + station.county);
         summary.push_back("Grid Square:    " + station.grid_square);
         summary.push_back("Member ID:      " + station.member_id);
-        summary.push_back("License Class:  " + (licensed.has_value() && !licensed->license_class.empty()
+        summary.push_back("License Class:  " + (licensed.has_value() && gmrs ? std::string("GMRS")
+                                                : licensed.has_value() && !licensed->license_class.empty()
                                                     ? licensed->license_class
                                                     : std::string("(not in the FCC or ISED data)")));
         if (activity.check_ins == 0)
@@ -4883,20 +6285,33 @@ namespace ql
     {
         // Its reads share one snapshot and one lock.
         Database::ReadTransaction reads(state->db);
-        std::vector<std::vector<std::string>> rows;
+        // First-timers: in no other session of this net. Each read in one
+        // query, not one per check-in.
+        std::unordered_set<std::string> seen_before;
+        for (std::string& callsign :
+             state->db->GetCallsignsInOtherSessions(state->active_instance.net_id, state->active_instance.id))
+        {
+            seen_before.insert(ToUpperAscii(callsign));
+        }
+        std::vector<const CheckIn*> first_timers;
+        std::vector<std::string> first_timer_callsigns;
+        first_timers.reserve(state->active_check_ins.size());
+        first_timer_callsigns.reserve(state->active_check_ins.size());
         for (const CheckIn& check_in : state->active_check_ins)
         {
-            bool first_time = true;
-            for (const StationCheckInRecord& record :
-                 state->db->GetStationCheckInsForNet(state->active_instance.net_id, check_in.callsign))
+            if (seen_before.count(ToUpperAscii(check_in.callsign)) == 0)
             {
-                first_time = first_time && record.instance.id == state->active_instance.id;
+                first_timers.push_back(&check_in);
+                first_timer_callsigns.push_back(check_in.callsign);
             }
-            if (first_time)
-            {
-                rows.push_back({std::to_string(check_in.sequence_number), check_in.callsign,
-                                StationName(state->db, check_in.callsign)});
-            }
+        }
+        std::unordered_map<std::string, std::string> names = StationNames(state->db, first_timer_callsigns);
+        std::vector<std::vector<std::string>> rows;
+        rows.reserve(first_timers.size());
+        for (const CheckIn* check_in : first_timers)
+        {
+            rows.push_back(
+                {std::to_string(check_in->sequence_number), check_in->callsign, NameOf(names, check_in->callsign)});
         }
 
         std::vector<std::string> summary;
@@ -4913,11 +6328,12 @@ namespace ql
         {
             std::int64_t sum = 0;
             std::int64_t most = 0;
+            std::unordered_map<std::int64_t, std::int64_t> counts =
+                state->db->GetCheckInCounts(state->active_instance.net_id);
             for (const NetInstance& session : sessions)
             {
-                std::int64_t count = 0;
-                std::int64_t newest_id = 0;
-                state->db->GetCheckInSummary(session.id, &count, &newest_id);
+                std::unordered_map<std::int64_t, std::int64_t>::const_iterator found = counts.find(session.id);
+                std::int64_t count = found == counts.end() ? 0 : found->second;
                 sum += count;
                 most = std::max(most, count);
             }
@@ -4966,11 +6382,11 @@ namespace ql
         std::vector<std::string> months;
         std::vector<int> month_sessions;
         std::vector<std::int64_t> month_check_ins;
+        std::unordered_map<std::int64_t, std::int64_t> counts = state->db->GetCheckInCounts(net.id);
         for (const NetInstance& session : sessions)
         {
-            std::int64_t count = 0;
-            std::int64_t newest_id = 0;
-            state->db->GetCheckInSummary(session.id, &count, &newest_id);
+            std::unordered_map<std::int64_t, std::int64_t>::const_iterator found = counts.find(session.id);
+            std::int64_t count = found == counts.end() ? 0 : found->second;
             sum += count;
             if (count > most)
             {
@@ -5004,10 +6420,19 @@ namespace ql
         summary.emplace_back("Most frequent stations:");
 
         std::vector<std::vector<std::string>> rows;
-        for (const CallsignTally& tally : state->db->GetTopCallsignsForNet(net.id, 15))
+        std::vector<CallsignTally> top = state->db->GetTopCallsignsForNet(net.id, 15);
+        std::vector<std::string> top_callsigns;
+        top_callsigns.reserve(top.size());
+        rows.reserve(top.size());
+        for (const CallsignTally& tally : top)
+        {
+            top_callsigns.push_back(tally.callsign);
+        }
+        std::unordered_map<std::string, std::string> names = StationNames(state->db, top_callsigns);
+        for (const CallsignTally& tally : top)
         {
             rows.push_back(
-                {tally.callsign, StationName(state->db, tally.callsign), std::to_string(tally.count), tally.last_date});
+                {tally.callsign, NameOf(names, tally.callsign), std::to_string(tally.count), tally.last_date});
         }
         ShowInfoWindow(
             state, InfoWindow::kNetStatistics, "Net Statistics: " + net.name, std::move(summary),
@@ -5036,14 +6461,25 @@ namespace ql
         }
         std::vector<StationCheckInRecord> records =
             state->db->FindCheckInsByCallsign(state->info_query, kStationSearchLimit);
+        // Their names in one query, not one per row, on every keystroke.
+        std::vector<std::string> callsigns;
+        std::unordered_set<std::string> listed;
+        for (const StationCheckInRecord& record : records)
+        {
+            if (listed.insert(record.check_in.callsign).second)
+            {
+                callsigns.push_back(record.check_in.callsign);
+            }
+        }
+        std::unordered_map<std::string, std::string> names = StationNames(state->db, callsigns);
         for (const StationCheckInRecord& record : records)
         {
             state->info_cells.push_back({record.instance.instance_date, record.net_name, record.check_in.callsign,
-                                         StationName(state->db, record.check_in.callsign),
+                                         NameOf(names, record.check_in.callsign),
                                          RoleAbbreviation(record.check_in.designated_role), record.check_in.remarks});
             // Ad hoc nets aren't on the Recurring Nets list, so say which
             // these are (see the Ad Hoc page for them).
-            state->info_cell_tags.push_back(record.net_is_ad_hoc ? " (ad hoc)" : "");
+            state->info_cell_tags.emplace_back(record.net_is_ad_hoc ? " (ad hoc)" : "");
         }
         state->info_tag_column = 1;
         state->info_summary.push_back(records.empty() ? std::string("No check-ins found.")
@@ -5071,7 +6507,7 @@ namespace ql
     {
         // Its reads share one snapshot and one lock.
         Database::ReadTransaction reads(state->db);
-        std::string cutoff = FormatLocalDate(static_cast<std::int64_t>(std::time(nullptr)) - 182 * 24 * 3600);
+        std::string cutoff = FormatLocalDate(static_cast<std::int64_t>(std::time(nullptr)) - 182LL * 24 * 3600);
         std::vector<CallsignTally> tallies = state->db->GetSavedStationActivity(state->edit_net_id);
         std::vector<std::vector<std::string>> rows;
         for (const CallsignTally& tally : tallies)
@@ -5080,8 +6516,8 @@ namespace ql
             {
                 continue;
             }
-            rows.push_back({tally.callsign, StationName(state->db, tally.callsign),
-                            tally.last_date.empty() ? "never" : tally.last_date, std::to_string(tally.count)});
+            rows.push_back({tally.callsign, tally.name, tally.last_date.empty() ? "never" : tally.last_date,
+                            std::to_string(tally.count)});
         }
         std::vector<std::string> summary;
         summary.push_back(OutOf(static_cast<int>(rows.size()), static_cast<int>(tallies.size())) +
@@ -5113,7 +6549,7 @@ namespace ql
                 case kPageNetList:
                     return {
                         {"F3/Enter", "View the highlighted net's open session.", false},
-                        {"F4", "Settings: your callsign, home ZIP and time format.", false},
+                        {"F4", "Settings: your call signs, home ZIP and time format.", false},
                         {"F5", "Ad hoc nets: view an open one, or see their history.", false},
                         {"F6", "History of the highlighted net: view and export.", false},
                         {"F8", "Export the highlighted net to a file to share.", false},
@@ -5151,7 +6587,7 @@ namespace ql
                 return {
                     {"F2", "Create a new recurring net.", false},
                     {"F3/Enter", "Log the highlighted net, or join or view its open session.", false},
-                    {"F4", "Settings: your callsign, home ZIP and time format.", false},
+                    {"F4", "Settings: your call signs, home ZIP and time format.", false},
                     {"F5", "Ad hoc nets: log one, resume one, or see their history.", false},
                     {"F6", "History of the highlighted net: view, export, delete.", false},
                     {"F7", "Edit a net (by number): its details and saved stations.", false},
@@ -5165,7 +6601,7 @@ namespace ql
                     {"F2", "Save the new net.", false},
                     {"Esc", "Cancel.", false},
                     {"Tab", "Move to the next field (Up/Down too).", false},
-                    {"Left/Right", "Change the Mode, or Partial Matching: US or Canada.", false},
+                    {"Left/Right", "Change the Service, Mode, Channel or Partial Matching.", false},
                 };
             case kPageSelectRole:
                 return {
@@ -5195,7 +6631,10 @@ namespace ql
                 return {
                     {"F2", "Check in a station (the New Check-In window).", false},
                     {"F3", "Edit a check-in, chosen by its #.", false},
-                    {"F4", "Close this session; it moves to History.", false},
+                    {"F4",
+                     CanPushUpstream(state) ? "Close this session (F3 there also pushes it upstream)."
+                                            : "Close this session; it moves to History.",
+                     false},
                     {"F5", "Delete a check-in, chosen by its #.", false},
                     {"F7", "Export this session: its log, .qlsession and ADIF (.adi).", false},
                     {"F6", "A station's other check-ins to this net (by #).", true},
@@ -5215,6 +6654,7 @@ namespace ql
 #if defined(QUICKLOGGER_WITH_SSH)
                 lines.push_back({"F4", "Manage SSH users (console only).", false});
 #endif
+                lines.push_back({"F5", "Upstream Server: where closed sessions are pushed (console only).", false});
                 lines.push_back(
                     {"Left/Right",
                      state->is_console_session ? "Change the time format or Update Check." : "Change the time format.",
@@ -5227,10 +6667,11 @@ namespace ql
                     {"F3", "Resume an ad hoc session left open (by number).", false},
                     {"F6", "History of every ad hoc net.", false},
                     {"Esc", "Back to the net list.", false},
-                    {"Left/Right", "Change the Mode, or Partial Matching: US or Canada.", false},
+                    {"Left/Right", "Change the Service, Mode, Channel or Partial Matching.", false},
                 };
             case kPageNetHistory:
-                return {
+            {
+                std::vector<HelpLine> lines = {
                     {"Up/Down", "Choose a session; its check-ins show below.", false},
                     {"F5", "Delete a check-in from that session (by #).", false},
                     {"F6", "Import a session exported elsewhere (.qlsession).", false},
@@ -5241,6 +6682,8 @@ namespace ql
                     {"F12", "The highlighted session's notes, to read or edit.", true},
                     {"Esc", "Back.", false},
                 };
+                return lines;
+            }
             case kPageEditNet:
                 return {
                     {"F2", "Save the net's details and return to the list.", false},
@@ -5251,21 +6694,26 @@ namespace ql
                     {"F8", "Delete this net and all its history.", false},
                     {"F5", "Saved stations that haven't checked in lately.", true},
                     {"Esc", "Back without saving.", false},
-                    {"Left/Right", "Change the Mode, or Partial Matching: US or Canada.", false},
+                    {"Left/Right", "Change the Mode, Channel or Partial Matching.", false},
                 };
             case kPageImportNet:
-                if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem())
+            {
+                std::vector<HelpLine> lines;
+                lines.push_back({"F2/Enter", "Import the highlighted file.", false});
+                if (!(IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || state->over_mosh))
                 {
-                    return {
-                        {"F2/Enter", "Import the highlighted file.", false},
-                        {"Esc", state->import_session ? "Back to History." : "Back.", false},
-                    };
+                    lines.push_back({"F3", "Receive a file from your terminal (ZMODEM).", false});
                 }
-                return {
-                    {"F2/Enter", "Import the highlighted file.", false},
-                    {"F3", "Receive a file from your terminal (ZMODEM).", false},
-                    {"Esc", state->import_session ? "Back to History." : "Back.", false},
-                };
+                if (CanPullUpstream(state) && !(state->import_session && state->import_session_ad_hoc))
+                {
+                    lines.push_back({"F4",
+                                     state->import_session ? "Pull a net's sessions from the upstream server."
+                                                           : "Pull a net from the upstream server.",
+                                     false});
+                }
+                lines.push_back({"Esc", state->import_session ? "Back to History." : "Back.", false});
+                return lines;
+            }
             case kPageManageUsers:
                 if (state->show_user_keys_modal)
                 {

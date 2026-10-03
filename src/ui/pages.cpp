@@ -15,6 +15,7 @@
 #include <ftxui/screen/terminal.hpp>
 
 #include "../date_utils.hpp"
+#include "../gmrs_channels.hpp"
 #include "../show_folder.hpp"
 #include "../zmodem_send.hpp"
 #include "../uls_import.hpp"
@@ -175,6 +176,89 @@ namespace ql
         return std::make_shared<IgnoreTab>(ftxui::Menu(&state->mode_labels, index, option));
     }
 
+    // The Service toggle's on_change (New Recurring Net, Ad Hoc Net).
+    class NewNetServiceChangedHandler
+    {
+    public:
+        explicit NewNetServiceChangedHandler(AppState* state) : state_(state) {}
+
+        void operator()() const
+        {
+            SetNewNetService(state_);
+        }
+
+    private:
+        AppState* state_;
+    };
+
+    // A new net's Service: Amateur Radio or GMRS (AppState::service_labels).
+    // Left/Right change it, and with it which radio fields show.
+    static ftxui::Component ServiceToggle(AppState* state)
+    {
+        ftxui::MenuOption option = ftxui::MenuOption::Toggle();
+        option.entries_option.transform = ToggleEntryTransform;
+        option.elements_infix = ToggleGap;
+        option.focused_entry = &state->new_net_service_index;
+        option.on_change = NewNetServiceChangedHandler(state);
+        return std::make_shared<IgnoreTab>(ftxui::Menu(&state->service_labels, &state->new_net_service_index, option));
+    }
+
+    // A GMRS net's channel, one of GmrsChannels(): Left/Right step through
+    // them (1 to 22, then 15R to 22R), wrapping around. There's no typing a
+    // frequency in.
+    class GmrsChannelPicker : public ftxui::ComponentBase
+    {
+    public:
+        explicit GmrsChannelPicker(int* index) : index_(index) {}
+
+        ftxui::Element Render() override
+        {
+#if defined(_WIN32)
+            const char* before = "< ";
+            const char* after = " >";
+#else
+            const char* before = "◀ ";
+            const char* after = " ▶";
+#endif
+            const GmrsChannel& channel = GmrsChannels()[static_cast<std::size_t>(*index_)];
+            ftxui::Element element =
+                ftxui::text(before + DescribeGmrsChannel(channel) + after) | ftxui::color(kColorData);
+            if (Focused())
+            {
+                element = element | ftxui::inverted | ftxui::focus;
+            }
+            return element;
+        }
+
+        bool OnEvent(ftxui::Event event) override
+        {
+            if (!Focused())
+            {
+                return false;
+            }
+            int count = static_cast<int>(GmrsChannels().size());
+            if (event == ftxui::Event::ArrowRight)
+            {
+                *index_ = (*index_ + 1) % count;
+                return true;
+            }
+            if (event == ftxui::Event::ArrowLeft)
+            {
+                *index_ = (*index_ + count - 1) % count;
+                return true;
+            }
+            return false;
+        }
+
+        bool Focusable() const override
+        {
+            return true;
+        }
+
+    private:
+        int* index_;
+    };
+
     static ftxui::Element PartialMatchRow(const std::string& label, const ftxui::Component& toggle)
     {
         return ftxui::hbox({FieldLabel(label), toggle->Render()});
@@ -262,7 +346,7 @@ namespace ql
         inputs.city = ftxui::Input(&station->city, "City", SingleLineInputOption());
         inputs.county = ftxui::Input(&station->county, "County", SingleLineInputOption());
         inputs.state = ftxui::Input(&station->state, "State", SingleLineInputOption());
-        inputs.zip = ftxui::Input(&station->zip, "Zip", SingleLineInputOption());
+        inputs.zip = ftxui::Input(&station->zip, "Postal Code", SingleLineInputOption());
         inputs.grid_square = ftxui::Input(&station->grid_square, "Grid Square", SingleLineInputOption());
         return inputs;
     }
@@ -303,7 +387,7 @@ namespace ql
         rows.push_back(ftxui::hbox({FieldLabel("City:          "), inputs.city->Render()}));
         rows.push_back(ftxui::hbox({FieldLabel("County:        "), inputs.county->Render()}));
         rows.push_back(ftxui::hbox({FieldLabel("State:         "), inputs.state->Render()}));
-        rows.push_back(ftxui::hbox({FieldLabel("Zip:           "), inputs.zip->Render()}));
+        rows.push_back(ftxui::hbox({FieldLabel("Postal Code:   "), inputs.zip->Render()}));
         rows.push_back(ftxui::hbox({FieldLabel("Grid Square:   "), inputs.grid_square->Render()}));
         return rows;
     }
@@ -386,7 +470,10 @@ namespace ql
         ftxui::Element operator()() const
         {
             ftxui::Elements rows;
-            if (state_->zmodem_action == ZmodemAction::kShowFolder)
+            // After an export of a net or closed session with an upstream set: F3 pushes it.
+            bool can_push = ExportOffersPush(state_);
+            const char* push_label = "Push to upstream";
+            if (state_->zmodem_action == ZmodemAction::kShowFolder || state_->zmodem_action == ZmodemAction::kPushOnly)
             {
                 rows.push_back(Heading("Exported"));
                 rows.push_back(DialogSeparator());
@@ -396,7 +483,18 @@ namespace ql
                     rows.push_back(ftxui::text("  " + path) | ftxui::color(kColorLabel));
                 }
                 rows.push_back(DialogSeparator());
-                rows.push_back(KeyHintRow({{"F2/Enter", "Show Folder"}, {"Esc", "Close"}}));
+                if (state_->zmodem_action == ZmodemAction::kPushOnly)
+                {
+                    rows.push_back(KeyHintRow({{"F2/Enter", push_label}, {"Esc", "Close"}}));
+                }
+                else if (can_push)
+                {
+                    rows.push_back(KeyHintRow({{"F2/Enter", "Show Folder"}, {"F3", push_label}, {"Esc", "Close"}}));
+                }
+                else
+                {
+                    rows.push_back(KeyHintRow({{"F2/Enter", "Show Folder"}, {"Esc", "Close"}}));
+                }
                 return ftxui::vbox(std::move(rows)) | ftxui::color(kColorHeading) |
                        ftxui::borderStyled(kColorDialogBorder);
             }
@@ -414,7 +512,14 @@ namespace ql
                 rows.push_back(ftxui::text("press Enter to start. Gives up after about 25s if"));
                 rows.push_back(ftxui::text("nothing responds."));
                 rows.push_back(DialogSeparator());
-                rows.push_back(KeyHintRow({{"F2/Enter", "Send"}, {"Esc", "Skip"}}));
+                if (can_push)
+                {
+                    rows.push_back(KeyHintRow({{"F2/Enter", "Send"}, {"F3", push_label}, {"Esc", "Skip"}}));
+                }
+                else
+                {
+                    rows.push_back(KeyHintRow({{"F2/Enter", "Send"}, {"Esc", "Skip"}}));
+                }
             }
             else
             {
@@ -681,6 +786,15 @@ namespace ql
             {
                 rows.push_back(KeyHintRow({{"F2/Enter", "Import Anyway"}, {"Esc", "Cancel"}}));
             }
+            else if (state_->confirm_prompt == ConfirmPrompt::kPushToNet)
+            {
+                rows.push_back(KeyHintRow({{"F2/Enter", "Push"}, {"Esc", "Don't Push"}}));
+            }
+            else if (CanPushUpstream(state_))
+            {
+                rows.push_back(
+                    KeyHintRow({{"F2/Enter", "Close Net"}, {"F3", "Close & Push"}, {"Esc", "Keep Logging"}}));
+            }
             else
             {
                 rows.push_back(KeyHintRow({{"F2/Enter", "Close Net"}, {"Esc", "Keep Logging"}}));
@@ -693,11 +807,9 @@ namespace ql
         AppState* state_;
     };
 
-    // Wraps `page` so a ConfirmPrompt can pop up over it.
-    static ftxui::Component WithConfirmPrompt(AppState* state, ftxui::Component page)
+    ftxui::Component BuildConfirmPrompt(AppState* state)
     {
-        ftxui::Component modal = ftxui::Renderer(ftxui::Container::Vertical({}), ConfirmPromptRenderer(state));
-        return LayeredModal(std::move(page), modal, &state->show_confirm_prompt);
+        return ftxui::Renderer(ftxui::Container::Vertical({}), ConfirmPromptRenderer(state));
     }
 
     // ---- Net list page ---------------------------------------------------
@@ -720,11 +832,19 @@ namespace ql
                     : PickableRows(state_, PickList::kNets, state_->net_names, state_->selected_net_index, net_menu_) |
                           ftxui::yframe | ftxui::vscroll_indicator;
 
+            // Your call signs: the amateur one, the GMRS one, or both.
+            const std::string& amateur = state_->settings.callsign;
+            const std::string& gmrs = state_->settings.gmrs_callsign;
             ftxui::Element callsign_hint =
-                state_->settings.callsign.empty()
-                    ? ftxui::text("No callsign set -- see Settings (F4)") | ftxui::color(kColorLabel)
+                amateur.empty() && gmrs.empty()
+                    ? ftxui::text("No call sign set -- see Settings (F4)") | ftxui::color(kColorLabel)
                     : ftxui::hbox({ftxui::text("Operating as ") | ftxui::color(kColorLabel),
-                                   ftxui::text(state_->settings.callsign) | ftxui::bold | ftxui::color(kColorData),
+                                   ftxui::text(amateur) | ftxui::bold | ftxui::color(kColorData),
+                                   ftxui::text(gmrs.empty()      ? ""
+                                               : amateur.empty() ? "GMRS "
+                                                                 : ", GMRS ") |
+                                       ftxui::color(kColorLabel),
+                                   ftxui::text(gmrs) | ftxui::bold | ftxui::color(kColorData),
                                    state_->view_only_user ? ftxui::text("  (view-only)") | ftxui::color(kColorLabel)
                                                           : ftxui::emptyElement()});
 
@@ -814,21 +934,79 @@ namespace ql
 
         ftxui::Component root = ftxui::Container::Vertical({net_menu});
         ftxui::Component main_view = ftxui::Renderer(root, NetListRenderer(state, net_menu));
-        return WithConfirmPrompt(
-            state, LayeredModal(main_view, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal));
+        return LayeredModal(main_view, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal);
     }
 
     // ---- Create-net page ---------------------------------------------------
 
+    // The radio fields of New Recurring Net and Ad Hoc Net: Service, then
+    // for Amateur Radio Mode, Frequency and Offset, for GMRS the Channel;
+    // PL Tone either way, and Partial Matching for Amateur Radio. The
+    // fields of the other service are left out of Tab order (Maybe).
+    struct NewNetRadioInputs
+    {
+        ftxui::Component service;
+        ftxui::Component mode;
+        ftxui::Component frequency;
+        ftxui::Component offset;
+        ftxui::Component channel;
+        ftxui::Component tone;
+        ftxui::Component partial_match;
+    };
+
+    static NewNetRadioInputs BuildNewNetRadioInputs(AppState* state)
+    {
+        NewNetRadioInputs inputs;
+        inputs.service = ServiceToggle(state);
+        inputs.mode = ftxui::Maybe(ModeToggle(state, &state->new_net_mode_index), &state->new_net_amateur);
+        inputs.frequency = ftxui::Maybe(ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
+                                                     FrequencyInputOption(&state->new_net_frequency)),
+                                        &state->new_net_amateur);
+        inputs.offset = ftxui::Maybe(
+            ftxui::Input(&state->new_net_offset, "e.g. -0.6 (optional)", OffsetInputOption(&state->new_net_offset)),
+            &state->new_net_amateur);
+        inputs.channel =
+            ftxui::Maybe(std::make_shared<GmrsChannelPicker>(&state->new_net_gmrs_channel), &state->new_net_gmrs);
+        inputs.tone =
+            ftxui::Input(&state->new_net_tone, "e.g. 100.0 (optional)", FrequencyInputOption(&state->new_net_tone));
+        inputs.partial_match =
+            ftxui::Maybe(PartialMatchToggle(state, &state->new_net_partial_match_index), &state->new_net_amateur);
+        return inputs;
+    }
+
+    // A net form's radio rows, for the service it's on (`gmrs` or not).
+    static void AppendNewNetRadioRows(bool gmrs, const ftxui::Component& mode, const ftxui::Component& frequency,
+                                      const ftxui::Component& offset, const ftxui::Component& channel,
+                                      const ftxui::Component& tone, ftxui::Elements* rows)
+    {
+        if (gmrs)
+        {
+            rows->push_back(ftxui::hbox({FieldLabel("Mode:             "), ftxui::text("FM") | ftxui::color(kColorData),
+                                         HintText("  (always, on GMRS)")}));
+            rows->push_back(
+                ftxui::hbox({FieldLabel("Channel:          "), channel->Render(), HintText("  Left/Right")}));
+        }
+        else
+        {
+            rows->push_back(ftxui::hbox({FieldLabel("Mode:             "), mode->Render()}));
+            rows->push_back(ftxui::hbox({FieldLabel("Frequency:        "), frequency->Render()}));
+            rows->push_back(ftxui::hbox({FieldLabel("Offset:           "), offset->Render()}));
+        }
+        rows->push_back(ftxui::hbox({FieldLabel("PL Tone:          "), tone->Render()}));
+    }
+
     class CreateNetRenderer
     {
     public:
-        CreateNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
-                          ftxui::Component input_frequency, ftxui::Component input_offset, ftxui::Component input_tone,
-                          ftxui::Component input_location, ftxui::Component input_recurrence,
-                          ftxui::Component input_comments, ftxui::Component partial_match)
+        CreateNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component service,
+                          ftxui::Component input_mode, ftxui::Component input_frequency, ftxui::Component input_offset,
+                          ftxui::Component channel, ftxui::Component input_tone, ftxui::Component input_location,
+                          ftxui::Component input_recurrence, ftxui::Component input_comments,
+                          ftxui::Component partial_match)
             : state_(state),
               input_name_(std::move(input_name)),
+              service_(std::move(service)),
+              channel_(std::move(channel)),
               input_mode_(std::move(input_mode)),
               input_frequency_(std::move(input_frequency)),
               input_offset_(std::move(input_offset)),
@@ -842,18 +1020,21 @@ namespace ql
 
         ftxui::Element operator()() const
         {
-            ftxui::Element content = ftxui::vbox({
+            ftxui::Elements rows = {
                 ftxui::hbox({FieldLabel("Name:             "), input_name_->Render()}),
-                ftxui::hbox({FieldLabel("Mode:             "), input_mode_->Render()}),
-                ftxui::hbox({FieldLabel("Frequency:        "), input_frequency_->Render()}),
-                ftxui::hbox({FieldLabel("Offset:           "), input_offset_->Render()}),
-                ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
-                ftxui::hbox({FieldLabel("ZIP Code:         "), input_location_->Render()}),
-                ftxui::hbox({FieldLabel("Recurrence:       "), input_recurrence_->Render()}),
-                ftxui::hbox({FieldLabel("Comments:         "), input_comments_->Render()}),
-                PartialMatchRow("Partial Matching: ", partial_match_),
-                ErrorLine(state_->form_error),
-            });
+                ftxui::hbox({FieldLabel("Service:          "), service_->Render()}),
+            };
+            AppendNewNetRadioRows(state_->new_net_gmrs, input_mode_, input_frequency_, input_offset_, channel_,
+                                  input_tone_, &rows);
+            rows.push_back(ftxui::hbox({FieldLabel("Postal Code:      "), input_location_->Render()}));
+            rows.push_back(ftxui::hbox({FieldLabel("Recurrence:       "), input_recurrence_->Render()}));
+            rows.push_back(ftxui::hbox({FieldLabel("Comments:         "), input_comments_->Render()}));
+            if (!state_->new_net_gmrs)
+            {
+                rows.push_back(PartialMatchRow("Partial Matching: ", partial_match_));
+            }
+            rows.push_back(ErrorLine(state_->form_error));
+            ftxui::Element content = ftxui::vbox(std::move(rows));
 
             return PageChrome("New Recurring Net", content, {{"F2", "Save"}, {"Esc", "Cancel"}});
         }
@@ -861,6 +1042,8 @@ namespace ql
     private:
         AppState* state_;
         ftxui::Component input_name_;
+        ftxui::Component service_;
+        ftxui::Component channel_;
         ftxui::Component input_mode_;
         ftxui::Component input_frequency_;
         ftxui::Component input_offset_;
@@ -875,40 +1058,35 @@ namespace ql
     {
         ftxui::Component input_name =
             ftxui::Input(&state->new_net_name, "e.g. Weekly Skywarn Net", SingleLineInputOption());
-        ftxui::Component input_mode = ModeToggle(state, &state->new_net_mode_index);
-        ftxui::Component input_frequency = ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
-                                                        FrequencyInputOption(&state->new_net_frequency));
-        ftxui::Component input_offset =
-            ftxui::Input(&state->new_net_offset, "e.g. -0.6 (optional)", OffsetInputOption(&state->new_net_offset));
-        ftxui::Component input_tone =
-            ftxui::Input(&state->new_net_tone, "e.g. 100.0 (optional)", FrequencyInputOption(&state->new_net_tone));
+        NewNetRadioInputs radio = BuildNewNetRadioInputs(state);
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->new_net_location);
         ftxui::Component input_location =
-            ftxui::Input(&state->new_net_location, "5-digit ZIP (optional)", location_option);
+            ftxui::Input(&state->new_net_location, "ZIP/postal (optional)", location_option);
         ftxui::Component input_recurrence =
             ftxui::Input(&state->new_net_recurrence, "e.g. Tuesdays 8pm ET", SingleLineInputOption());
         ftxui::Component input_comments =
             ftxui::Input(&state->new_net_comments, "Anything (optional)", SingleLineInputOption());
-        ftxui::Component partial_match = PartialMatchToggle(state, &state->new_net_partial_match_index);
 
         ftxui::Component root = ftxui::Container::Vertical({
             input_name,
-            input_mode,
-            input_frequency,
-            input_offset,
-            input_tone,
+            radio.service,
+            radio.mode,
+            radio.frequency,
+            radio.offset,
+            radio.channel,
+            radio.tone,
             input_location,
             input_recurrence,
             input_comments,
-            partial_match,
+            radio.partial_match,
         });
 
         state->new_net_name_input = input_name;
 
-        return ftxui::Renderer(
-            root, CreateNetRenderer(state, input_name, input_mode, input_frequency, input_offset, input_tone,
-                                    input_location, input_recurrence, input_comments, partial_match));
+        return ftxui::Renderer(root, CreateNetRenderer(state, input_name, radio.service, radio.mode, radio.frequency,
+                                                       radio.offset, radio.channel, radio.tone, input_location,
+                                                       input_recurrence, input_comments, radio.partial_match));
     }
 
     // ---- Select-role page ---------------------------------------------------
@@ -1278,6 +1456,7 @@ namespace ql
             AppendFormFields(state_, fields, &rows);
             rows.push_back(DialogSeparator());
             AppendCheckInKeyRows(state_, {{"F2", "Save"}, {"Esc", "Cancel"}}, &rows);
+            rows.push_back(ErrorLine(state_->form_error));
 
             return CheckInWindow(state_, ftxui::vbox(std::move(rows)));
         }
@@ -1383,51 +1562,21 @@ namespace ql
             LayeredModal(with_new_station_modal, edit_modal_view, &state->show_edit_checkin_modal);
         ftxui::Component with_notes_modal =
             LayeredModal(with_edit_checkin_modal, BuildSessionNotesModal(state), &state->show_session_notes_modal);
-        return WithConfirmPrompt(
-            state, WithRowDeleteConfirm(state, LayeredModal(with_notes_modal, BuildZmodemConfirmModal(state),
-                                                            &state->show_zmodem_confirm_modal)));
+        return WithRowDeleteConfirm(
+            state, LayeredModal(with_notes_modal, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal));
     }
 
     // ---- Settings page ---------------------------------------------------
 
-    // The station data's status (see DescribeStationDataStatus), a line
-    // each. Read from the database at most once a second, or when the
-    // 12/24-hour setting changes, not on every frame: a read takes a lock,
-    // as for the top bar's notice (StationDataNoticeText in chrome.cpp).
-    static const std::vector<std::string>& StationDataStatusLines(Database* db, std::int64_t now)
-    {
-        static std::int64_t read_at = -1;
-        static bool read_24_hour = false;
-        static std::vector<std::string> lines;
-        if (now != read_at || Use24HourClock() != read_24_hour)
-        {
-            std::string text = DescribeStationDataStatus(db, now);
-            read_at = now;
-            read_24_hour = Use24HourClock();
-            lines.clear();
-            std::size_t start = 0;
-            while (start < text.size())
-            {
-                std::size_t end = text.find('\n', start);
-                if (end == std::string::npos)
-                {
-                    end = text.size();
-                }
-                lines.emplace_back(text, start, end - start);
-                start = end + 1;
-            }
-        }
-        return lines;
-    }
-
     class SettingsRenderer
     {
     public:
-        SettingsRenderer(AppState* state, ftxui::Component input_callsign, ftxui::Component input_location,
-                         ftxui::Component input_radius, ftxui::Component time_format_toggle,
-                         ftxui::Component update_check_toggle)
+        SettingsRenderer(AppState* state, ftxui::Component input_callsign, ftxui::Component input_gmrs,
+                         ftxui::Component input_location, ftxui::Component input_radius,
+                         ftxui::Component time_format_toggle, ftxui::Component update_check_toggle)
             : state_(state),
               input_callsign_(std::move(input_callsign)),
+              input_gmrs_(std::move(input_gmrs)),
               input_location_(std::move(input_location)),
               input_radius_(std::move(input_radius)),
               time_format_toggle_(std::move(time_format_toggle)),
@@ -1456,8 +1605,7 @@ namespace ql
                                              std::string(kReleasesPageUrl))});
             }
             // The station data's status: one paragraph per line of it.
-            const std::vector<std::string>& status_text =
-                StationDataStatusLines(state_->db, static_cast<std::int64_t>(std::time(nullptr)));
+            const std::vector<std::string>& status_text = state_->station_status_lines;
             ftxui::Elements status_lines;
             status_lines.reserve(status_text.size());
             for (const std::string& status_line : status_text)
@@ -1468,29 +1616,43 @@ namespace ql
             // Two columns, even at 80 columns, to leave room below: Tab
             // goes across each row (see BuildSettingsPage). Time Format's
             // choices are too wide for a column, so it has a row of its own.
+            // Your call signs: the console's own to set; an SSH user's set in
+            // Manage Users.
+            ftxui::Element amateur_row;
+            ftxui::Element gmrs_row;
+            if (state_->callsign_editable)
+            {
+                amateur_row = ftxui::hbox({FieldLabel("Amateur Call*: "), input_callsign_->Render()});
+                gmrs_row = ftxui::hbox({FieldLabel("GMRS Call*:    "), input_gmrs_->Render()});
+            }
+            else
+            {
+                amateur_row = ftxui::hbox({FieldLabel("Amateur Call:  "), LockedCallsign(state_->settings.callsign)});
+                gmrs_row = ftxui::hbox({FieldLabel("GMRS Call:     "), LockedCallsign(state_->settings.gmrs_callsign)});
+            }
             ftxui::Element left_column = ftxui::vbox({
-                state_->callsign_editable
-                    ? ftxui::hbox({FieldLabel("My Callsign*:  "), input_callsign_->Render()})
-                    : ftxui::hbox({FieldLabel("My Callsign:   "),
-                                   ftxui::text(state_->settings_form.callsign) | ftxui::color(kColorData),
-                                   HintText("  (your username)")}),
+                amateur_row,
+                gmrs_row,
                 ftxui::hbox({FieldLabel("Nearby Radius: "),
                              input_radius_->Render() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 4),
                              ftxui::text("miles")}),
             });
             ftxui::Element right_column = ftxui::vbox({
-                ftxui::hbox({FieldLabel("My ZIP Code*:  "), input_location_->Render()}),
+                ftxui::hbox({FieldLabel("Postal Code*:  "), input_location_->Render()}),
                 update_check_row,
             });
             ftxui::Element content = ftxui::vbox({
                 ftxui::hbox({left_column | ftxui::xflex, ftxui::text("   "), right_column | ftxui::xflex}),
                 ftxui::hbox({FieldLabel("Time Format:   "), time_format_toggle_->Render()}),
-                HintText("* Required"),
+                HintText(state_->callsign_editable ? "* Required: the postal code, and one call sign or both"
+                                                   : "* Required. Your call signs are set by the server's operator."),
                 Separator(),
-                HintParagraph("My ZIP Code (5 digits) finds nearby licensed stations for nets without a ZIP."),
+                HintParagraph("Postal Code (5-digit ZIP, or Canadian postal code) finds nearby licensed stations "
+                              "for nets without one."),
                 ftxui::text(""),
-                HintParagraph("Nearby Radius (1-250 miles, 70 if blank) is how far from the net's ZIP, or yours, a "
-                              "suggested station can be."),
+                HintParagraph(
+                    "Nearby Radius (1-250 miles, 70 if blank) is how far from the net's postal code, or yours, a "
+                    "suggested station can be."),
                 ftxui::text(""),
                 HintParagraph("Time Format (Left/Right to change) sets how times are shown and exported. Times use "
                               "the time zone of the computer QuickLogger runs on."),
@@ -1511,18 +1673,93 @@ namespace ql
             {
                 hints.push_back({"F4", "Manage Users"});
             }
+            if (state_->is_console_session)
+            {
+                hints.push_back({"F5", "Upstream"});
+            }
             hints.push_back({"Esc", "Cancel"});
             return PageChrome("Settings", content, hints);
         }
 
     private:
+        // An SSH user's call sign, or "(none)".
+        static ftxui::Element LockedCallsign(const std::string& callsign)
+        {
+            return callsign.empty() ? HintText("(none)") : ftxui::text(callsign) | ftxui::color(kColorData);
+        }
+
         AppState* state_;
         ftxui::Component input_callsign_;
+        ftxui::Component input_gmrs_;
         ftxui::Component input_location_;
         ftxui::Component input_radius_;
         ftxui::Component time_format_toggle_;
         ftxui::Component update_check_toggle_;
     };
+
+    // The Upstream Server window over Settings (F5, console only).
+    class UpstreamWindowRenderer
+    {
+    public:
+        UpstreamWindowRenderer(AppState* state, ftxui::Component input_host, ftxui::Component input_user,
+                               ftxui::Component input_port)
+            : state_(state),
+              input_host_(std::move(input_host)),
+              input_user_(std::move(input_user)),
+              input_port_(std::move(input_port))
+        {
+        }
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Elements rows;
+            rows.push_back(Heading("Upstream Server"));
+            rows.push_back(DialogSeparator());
+            rows.push_back(ftxui::hbox({FieldLabel("Host:      "), input_host_->Render()}));
+            rows.push_back(ftxui::hbox({FieldLabel("Username:  "), input_user_->Render()}));
+            rows.push_back(ftxui::hbox(
+                {FieldLabel("Port:      "), input_port_->Render() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 6)}));
+            rows.push_back(DialogSeparator());
+            rows.push_back(
+                HintParagraph("Push sessions and nets here from an Export window (F3), or when closing a "
+                              "net (F3). Pull them with F4 on an Import page. A blank host means none."));
+            rows.push_back(ftxui::text(""));
+            rows.push_back(
+                HintParagraph("Pushing and pulling use this computer's ssh and your own ssh key. Log in there "
+                              "once with ssh first. A key with a passphrase must be in ssh-agent."));
+            if (!state_->upstream_tools_available)
+            {
+                rows.push_back(ftxui::text(""));
+                rows.push_back(ErrorLine(kNoSshMessage));
+            }
+            rows.push_back(DialogSeparator());
+            rows.push_back(KeyHintRow({{"F2", "Save"}, {"Esc", "Cancel"}}));
+            rows.push_back(ErrorLine(state_->form_error));
+            return CheckInWindow(state_, ftxui::vbox(std::move(rows)));
+        }
+
+    private:
+        AppState* state_;
+        ftxui::Component input_host_;
+        ftxui::Component input_user_;
+        ftxui::Component input_port_;
+    };
+
+    static ftxui::Component BuildUpstreamWindow(AppState* state)
+    {
+        ftxui::InputOption host_option = SingleLineInputOption();
+        host_option.cursor_position = &state->upstream_host_cursor;
+        ftxui::Component input_host = ftxui::Input(&state->upstream_host_text, "upstream.example.org", host_option);
+        ftxui::InputOption user_option = SingleLineInputOption();
+        user_option.cursor_position = &state->upstream_user_cursor;
+        ftxui::Component input_user = ftxui::Input(&state->upstream_user_text, "Your username there", user_option);
+        ftxui::InputOption port_option = SingleLineInputOption();
+        port_option.cursor_position = &state->upstream_port_cursor;
+        port_option.on_change = DigitsFieldHandler(&state->upstream_port_text, 5);
+        ftxui::Component input_port = ftxui::Input(&state->upstream_port_text, "22", port_option);
+        return ftxui::Renderer(ftxui::Container::Vertical({input_host, input_user, input_port}, &state->upstream_focus),
+                               UpstreamWindowRenderer(state, input_host, input_user, input_port));
+    }
 
     ftxui::Component BuildSettingsPage(AppState* state)
     {
@@ -1531,10 +1768,15 @@ namespace ql
         // Can't be focused or typed into while the callsign is the SSH
         // user's username (see AppState::callsign_editable).
         ftxui::Component input_callsign = ftxui::Maybe(
-            ftxui::Input(&state->settings_form.callsign, "Your callsign", callsign_option), &state->callsign_editable);
+            ftxui::Input(&state->settings_form.callsign, "e.g. W4KWK", callsign_option), &state->callsign_editable);
+        ftxui::InputOption gmrs_option = SingleLineInputOption();
+        gmrs_option.on_change = UppercaseFieldHandler(&state->settings_form.gmrs_callsign);
+        ftxui::Component input_gmrs = ftxui::Maybe(
+            ftxui::Input(&state->settings_form.gmrs_callsign, "e.g. WSIP663", gmrs_option), &state->callsign_editable);
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->settings_form.location);
-        ftxui::Component input_location = ftxui::Input(&state->settings_form.location, "5-digit ZIP", location_option);
+        ftxui::Component input_location =
+            ftxui::Input(&state->settings_form.location, "ZIP or postal code", location_option);
         ftxui::InputOption radius_option = SingleLineInputOption();
         radius_option.on_change = DigitsFieldHandler(&state->settings_radius_text, 3);
         ftxui::Component input_radius = ftxui::Input(&state->settings_radius_text, "70", radius_option);
@@ -1558,16 +1800,21 @@ namespace ql
 
         // In the order they're drawn: across each row of the two columns,
         // then Time Format below them.
-        ftxui::Component root = ftxui::Container::Vertical({
-            input_callsign,
-            input_location,
-            input_radius,
-            update_check_toggle,
-            time_format_toggle,
-        });
+        ftxui::Component root = ftxui::Container::Vertical(
+            {
+                input_callsign,
+                input_location,
+                input_gmrs,
+                update_check_toggle,
+                input_radius,
+                time_format_toggle,
+            },
+            &state->settings_focus);
 
-        return ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_location, input_radius,
-                                                      time_format_toggle, update_check_toggle));
+        ftxui::Component page =
+            ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_gmrs, input_location, input_radius,
+                                                   time_format_toggle, update_check_toggle));
+        return LayeredModal(page, BuildUpstreamWindow(state), &state->show_upstream_window);
     }
 
     // ---- Ad hoc net page ---------------------------------------------------
@@ -1575,18 +1822,18 @@ namespace ql
     class AdHocNetRenderer
     {
     public:
-        AdHocNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
-                         ftxui::Component input_frequency, ftxui::Component input_offset, ftxui::Component input_tone,
-                         ftxui::Component input_location, ftxui::Component partial_match,
-                         ftxui::Component open_session_menu)
+        AdHocNetRenderer(AppState* state, ftxui::Component input_name, const NewNetRadioInputs& radio,
+                         ftxui::Component input_location, ftxui::Component open_session_menu)
             : state_(state),
               input_name_(std::move(input_name)),
-              input_mode_(std::move(input_mode)),
-              input_frequency_(std::move(input_frequency)),
-              input_offset_(std::move(input_offset)),
-              input_tone_(std::move(input_tone)),
+              service_(radio.service),
+              input_mode_(radio.mode),
+              input_frequency_(radio.frequency),
+              input_offset_(radio.offset),
+              channel_(radio.channel),
+              input_tone_(radio.tone),
               input_location_(std::move(input_location)),
-              partial_match_(std::move(partial_match)),
+              partial_match_(radio.partial_match),
               open_session_menu_(std::move(open_session_menu))
         {
         }
@@ -1614,13 +1861,15 @@ namespace ql
                     HintParagraph("Logs an ad hoc (non-recurring) net; F6 shows history."),
                     Separator(),
                     ftxui::hbox({FieldLabel("Name:             "), input_name_->Render()}),
-                    ftxui::hbox({FieldLabel("Mode:             "), input_mode_->Render()}),
-                    ftxui::hbox({FieldLabel("Frequency:        "), input_frequency_->Render()}),
-                    ftxui::hbox({FieldLabel("Offset:           "), input_offset_->Render()}),
-                    ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
-                    ftxui::hbox({FieldLabel("ZIP Code:         "), input_location_->Render()}),
-                    PartialMatchRow("Partial Matching: ", partial_match_),
+                    ftxui::hbox({FieldLabel("Service:          "), service_->Render()}),
                 };
+                AppendNewNetRadioRows(state_->new_net_gmrs, input_mode_, input_frequency_, input_offset_, channel_,
+                                      input_tone_, &rows);
+                rows.push_back(ftxui::hbox({FieldLabel("Postal Code:      "), input_location_->Render()}));
+                if (!state_->new_net_gmrs)
+                {
+                    rows.push_back(PartialMatchRow("Partial Matching: ", partial_match_));
+                }
                 hints.push_back({"F2", "Log Net"});
             }
             if (!state_->open_ad_hoc_sessions.empty())
@@ -1663,9 +1912,11 @@ namespace ql
 
         AppState* state_;
         ftxui::Component input_name_;
+        ftxui::Component service_;
         ftxui::Component input_mode_;
         ftxui::Component input_frequency_;
         ftxui::Component input_offset_;
+        ftxui::Component channel_;
         ftxui::Component input_tone_;
         ftxui::Component input_location_;
         ftxui::Component partial_match_;
@@ -1675,27 +1926,22 @@ namespace ql
     ftxui::Component BuildAdHocNetPage(AppState* state)
     {
         ftxui::Component input_name = ftxui::Input(&state->new_net_name, "e.g. Tailgate Net", SingleLineInputOption());
-        ftxui::Component input_mode = ModeToggle(state, &state->new_net_mode_index);
-        ftxui::Component input_frequency = ftxui::Input(&state->new_net_frequency, "MHz, e.g. 146.940",
-                                                        FrequencyInputOption(&state->new_net_frequency));
-        ftxui::Component input_offset =
-            ftxui::Input(&state->new_net_offset, "e.g. -0.6 (optional)", OffsetInputOption(&state->new_net_offset));
-        ftxui::Component input_tone =
-            ftxui::Input(&state->new_net_tone, "e.g. 100.0 (optional)", FrequencyInputOption(&state->new_net_tone));
+        NewNetRadioInputs radio = BuildNewNetRadioInputs(state);
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->new_net_location);
         ftxui::Component input_location =
-            ftxui::Input(&state->new_net_location, "5-digit ZIP (optional)", location_option);
-        ftxui::Component partial_match = PartialMatchToggle(state, &state->new_net_partial_match_index);
+            ftxui::Input(&state->new_net_location, "ZIP/postal (optional)", location_option);
 
         ftxui::Component root = ftxui::Container::Vertical({
             input_name,
-            input_mode,
-            input_frequency,
-            input_offset,
-            input_tone,
+            radio.service,
+            radio.mode,
+            radio.frequency,
+            radio.offset,
+            radio.channel,
+            radio.tone,
             input_location,
-            partial_match,
+            radio.partial_match,
         });
 
         state->ad_hoc_net_name_input = input_name;
@@ -1710,10 +1956,7 @@ namespace ql
             state,
             ftxui::Menu(&state->open_ad_hoc_labels, &state->selected_open_ad_hoc_index, open_session_menu_option));
 
-        return WithConfirmPrompt(
-            state,
-            ftxui::Renderer(root, AdHocNetRenderer(state, input_name, input_mode, input_frequency, input_offset,
-                                                   input_tone, input_location, partial_match, open_session_menu)));
+        return ftxui::Renderer(root, AdHocNetRenderer(state, input_name, radio, input_location, open_session_menu));
     }
 
     // ---- Net history page ---------------------------------------------------
@@ -1814,10 +2057,12 @@ namespace ql
                 return PageChrome("History: " + net_name, content,
                                   InKeyOrder(AddExtraKeysThatFit({{"F7", "Export"}, {"Esc", "Back"}}, extras, 1)));
             }
-            return PageChrome(
-                "History: " + net_name, content,
-                InKeyOrder(AddExtraKeysThatFit(
-                    {{"F5", "Del Check-In"}, {"F6", "Import"}, {"F7", "Export"}, {"Esc", "Back"}}, extras, 1)));
+            std::vector<KeyHint> hints;
+            hints.push_back({"F5", "Del Check-In"});
+            hints.push_back({"F6", "Import"});
+            hints.push_back({"F7", "Export"});
+            hints.push_back({"Esc", "Back"});
+            return PageChrome("History: " + net_name, content, InKeyOrder(AddExtraKeysThatFit(hints, extras, 1)));
         }
 
     private:
@@ -1909,8 +2154,8 @@ namespace ql
     {
     public:
         EditNetRenderer(AppState* state, ftxui::Component input_name, ftxui::Component input_mode,
-                        ftxui::Component input_frequency, ftxui::Component input_offset, ftxui::Component input_tone,
-                        ftxui::Component input_location, ftxui::Component input_recurrence,
+                        ftxui::Component input_frequency, ftxui::Component input_offset, ftxui::Component channel,
+                        ftxui::Component input_tone, ftxui::Component input_location, ftxui::Component input_recurrence,
                         ftxui::Component input_comments, ftxui::Component partial_match,
                         ftxui::Component saved_station_menu)
             : state_(state),
@@ -1918,6 +2163,7 @@ namespace ql
               input_mode_(std::move(input_mode)),
               input_frequency_(std::move(input_frequency)),
               input_offset_(std::move(input_offset)),
+              channel_(std::move(channel)),
               input_tone_(std::move(input_tone)),
               input_location_(std::move(input_location)),
               input_recurrence_(std::move(input_recurrence)),
@@ -1940,25 +2186,41 @@ namespace ql
             // fit in half of it; the rest in two columns when there's room.
             ftxui::Elements rows{
                 ftxui::hbox({FieldLabel("Name:             "), input_name_->Render()}),
-                ftxui::hbox({FieldLabel("Mode:             "), input_mode_->Render()}),
             };
-            if (state_->edit_net_mode_was_blank)
+            ftxui::Elements fields;
+            if (state_->edit_net_gmrs)
             {
-                rows.push_back(HintText("                  The old mode wasn't one of these. Pick one."));
+                // A GMRS net: FM, on one of the channels, and the FCC's data.
+                rows.push_back(ftxui::hbox({FieldLabel("Service:          "),
+                                            ftxui::text("GMRS") | ftxui::color(kColorData), HintText("   Mode: FM")}));
+                fields = {
+                    ftxui::hbox({FieldLabel("Channel:          "), channel_->Render()}),
+                    ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
+                    ftxui::hbox({FieldLabel("Postal Code:      "), input_location_->Render()}),
+                    ftxui::hbox({FieldLabel("Recurrence:       "), input_recurrence_->Render()}),
+                    ftxui::hbox({FieldLabel("Comments:         "), input_comments_->Render()}),
+                };
             }
-            AppendFormFields(state_,
-                             {
-                                 ftxui::hbox({FieldLabel("Frequency:        "), input_frequency_->Render()}),
-                                 ftxui::hbox({FieldLabel("Offset:           "), input_offset_->Render()}),
-                                 ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
-                                 ftxui::hbox({FieldLabel("ZIP Code:         "), input_location_->Render()}),
-                                 ftxui::hbox({FieldLabel("Recurrence:       "), input_recurrence_->Render()}),
-                                 ftxui::hbox({FieldLabel("Comments:         "), input_comments_->Render()}),
-                                 // Last, in Tab order too: at the bottom of the right
-                                 // column when the form is in two.
-                                 PartialMatchRow("Partial Matching: ", partial_match_),
-                             },
-                             &rows);
+            else
+            {
+                rows.push_back(ftxui::hbox({FieldLabel("Mode:             "), input_mode_->Render()}));
+                if (state_->edit_net_mode_was_blank)
+                {
+                    rows.push_back(HintText("                  The old mode wasn't one of these. Pick one."));
+                }
+                fields = {
+                    ftxui::hbox({FieldLabel("Frequency:        "), input_frequency_->Render()}),
+                    ftxui::hbox({FieldLabel("Offset:           "), input_offset_->Render()}),
+                    ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
+                    ftxui::hbox({FieldLabel("Postal Code:      "), input_location_->Render()}),
+                    ftxui::hbox({FieldLabel("Recurrence:       "), input_recurrence_->Render()}),
+                    ftxui::hbox({FieldLabel("Comments:         "), input_comments_->Render()}),
+                    // Last, in Tab order too: at the bottom of the right
+                    // column when the form is in two.
+                    PartialMatchRow("Partial Matching: ", partial_match_),
+                };
+            }
+            AppendFormFields(state_, fields, &rows);
             rows.push_back(Separator());
             rows.push_back(Heading("Saved Stations:"));
             rows.push_back(
@@ -2006,6 +2268,7 @@ namespace ql
         ftxui::Component input_mode_;
         ftxui::Component input_frequency_;
         ftxui::Component input_offset_;
+        ftxui::Component channel_;
         ftxui::Component input_tone_;
         ftxui::Component input_location_;
         ftxui::Component input_recurrence_;
@@ -2061,22 +2324,29 @@ namespace ql
     {
         ftxui::Component input_name =
             ftxui::Input(&state->edit_net_name, "e.g. Weekly Skywarn Net", SingleLineInputOption());
-        ftxui::Component input_mode = ModeToggle(state, &state->edit_net_mode_index);
-        ftxui::Component input_frequency = ftxui::Input(&state->edit_net_frequency, "MHz, e.g. 146.940",
-                                                        FrequencyInputOption(&state->edit_net_frequency));
-        ftxui::Component input_offset =
-            ftxui::Input(&state->edit_net_offset, "e.g. -0.6 (optional)", OffsetInputOption(&state->edit_net_offset));
+        // An Amateur Radio net's radio fields, or a GMRS net's Channel.
+        ftxui::Component input_mode =
+            ftxui::Maybe(ModeToggle(state, &state->edit_net_mode_index), &state->edit_net_amateur);
+        ftxui::Component input_frequency = ftxui::Maybe(ftxui::Input(&state->edit_net_frequency, "MHz, e.g. 146.940",
+                                                                     FrequencyInputOption(&state->edit_net_frequency)),
+                                                        &state->edit_net_amateur);
+        ftxui::Component input_offset = ftxui::Maybe(
+            ftxui::Input(&state->edit_net_offset, "e.g. -0.6 (optional)", OffsetInputOption(&state->edit_net_offset)),
+            &state->edit_net_amateur);
+        ftxui::Component channel =
+            ftxui::Maybe(std::make_shared<GmrsChannelPicker>(&state->edit_net_gmrs_channel), &state->edit_net_gmrs);
         ftxui::Component input_tone =
             ftxui::Input(&state->edit_net_tone, "e.g. 100.0 (optional)", FrequencyInputOption(&state->edit_net_tone));
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->edit_net_location);
         ftxui::Component input_location =
-            ftxui::Input(&state->edit_net_location, "5-digit ZIP (optional)", location_option);
+            ftxui::Input(&state->edit_net_location, "ZIP/postal (optional)", location_option);
         ftxui::Component input_recurrence =
             ftxui::Input(&state->edit_net_recurrence, "e.g. Tuesdays 8pm ET", SingleLineInputOption());
         ftxui::Component input_comments =
             ftxui::Input(&state->edit_net_comments, "Anything (optional)", SingleLineInputOption());
-        ftxui::Component partial_match = PartialMatchToggle(state, &state->edit_net_partial_match_index);
+        ftxui::Component partial_match =
+            ftxui::Maybe(PartialMatchToggle(state, &state->edit_net_partial_match_index), &state->edit_net_amateur);
 
         ftxui::MenuOption saved_station_menu_option;
         saved_station_menu_option.focused_entry = &state->selected_saved_station_index;
@@ -2091,6 +2361,7 @@ namespace ql
             input_mode,
             input_frequency,
             input_offset,
+            channel,
             input_tone,
             input_location,
             input_recurrence,
@@ -2100,7 +2371,7 @@ namespace ql
         });
         state->edit_net_name_input = input_name;
         ftxui::Component main_view = ftxui::Renderer(
-            root, EditNetRenderer(state, input_name, input_mode, input_frequency, input_offset, input_tone,
+            root, EditNetRenderer(state, input_name, input_mode, input_frequency, input_offset, channel, input_tone,
                                   input_location, input_recurrence, input_comments, partial_match, saved_station_menu));
 
         ftxui::InputOption callsign_option = SingleLineInputOption();
@@ -2126,6 +2397,25 @@ namespace ql
 
     // ---- Import net page ---------------------------------------------------
 
+    // What the Import page says while it has no files to list.
+    static std::string EmptyImportListHint(const AppState* state, const std::string& pattern)
+    {
+        if (CanPullUpstream(state) && !(state->import_session && state->import_session_ad_hoc))
+        {
+            return "No " + pattern + " files in imports/ yet. Press F4 to pull one from " +
+                   state->settings.upstream_host + ".";
+        }
+        if (state->ssh_username.empty())
+        {
+            return "No " + pattern + " files in imports/ yet. Press F3 to receive one via ZMODEM.";
+        }
+        if (state->over_mosh)
+        {
+            return "No " + pattern + " files received yet. Upload one to /imports with scp or sftp.";
+        }
+        return "No " + pattern + " files received yet. Press F3 to receive one via ZMODEM.";
+    }
+
     class ImportNetRenderer
     {
     public:
@@ -2137,14 +2427,9 @@ namespace ql
         {
             bool session = state_->import_session;
             std::string pattern = session ? "*.qlsession" : "*.qlnet";
-            ftxui::Element file_list =
-                state_->import_net_files.empty()
-                    ? HintText(state_->ssh_username.empty()
-                                   ? "No " + pattern +
-                                         " files in imports/ yet. Press F3 to receive one via "
-                                         "ZMODEM."
-                                   : "No " + pattern + " files received yet. Press F3 to receive one via ZMODEM.")
-                    : file_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator;
+            ftxui::Element file_list = state_->import_net_files.empty()
+                                           ? HintText(EmptyImportListHint(state_, pattern))
+                                           : file_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator;
 
             ftxui::Elements rows;
             if (session)
@@ -2164,19 +2449,94 @@ namespace ql
             std::string title = !session                        ? "Import Net"
                                 : state_->import_session_ad_hoc ? "Import Ad Hoc Session"
                                                                 : "Import Session: " + state_->import_session_net_name;
+            std::vector<KeyHint> hints;
+            hints.push_back({"F2/Enter", "Import"});
             // No ZMODEM at a local terminal: there's no one to receive from.
-            // Nor where the system has none (Windows, Alpine).
-            if (IsLocalTerminal(state_->is_console_session) || NoZmodemOnThisSystem())
+            // Nor where the system has none (Windows, Alpine), or over Mosh.
+            if (!(IsLocalTerminal(state_->is_console_session) || NoZmodemOnThisSystem() || state_->over_mosh))
             {
-                return PageChrome(title, ftxui::vbox(std::move(rows)), {{"F2/Enter", "Import"}, {"Esc", "Back"}});
+                hints.push_back({"F3", "Receive (ZMODEM)"});
             }
-            return PageChrome(title, ftxui::vbox(std::move(rows)),
-                              {{"F2/Enter", "Import"}, {"F3", "Receive (ZMODEM)"}, {"Esc", "Back"}});
+            // From the upstream server, set up in Settings; ad hoc nets have
+            // no History there to pull from.
+            if (CanPullUpstream(state_) && !(session && state_->import_session_ad_hoc))
+            {
+                hints.push_back({"F4", "Pull"});
+            }
+            hints.push_back({"Esc", "Back"});
+            return PageChrome(title, ftxui::vbox(std::move(rows)), hints);
         }
 
     private:
         AppState* state_;
         ftxui::Component file_menu_;
+    };
+
+    // The Pull window (see PullStage): the upstream's nets, to pick the one
+    // to pull.
+    class PullModalRenderer
+    {
+    public:
+        explicit PullModalRenderer(AppState* state) : state_(state) {}
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Elements rows;
+            rows.push_back(Heading(state_->pull_sessions ? "Pull Sessions" : "Pull Net"));
+            rows.push_back(DialogSeparator());
+            if (state_->pull_stage == PullStage::kChoosing)
+            {
+                rows.push_back(ftxui::paragraph(state_->pull_sessions
+                                                    ? std::string("Select an upstream net to pull sessions from:")
+                                                    : std::string("Select an upstream net to import:")) |
+                               ftxui::bold | ftxui::color(kColorLabel));
+                if (state_->pull_sessions)
+                {
+                    rows.push_back(ftxui::paragraph("Adds its closed sessions to " + state_->import_session_net_name +
+                                                    "'s History; duplicates are skipped.") |
+                                   ftxui::color(kColorHint));
+                }
+                rows.push_back(NetList());
+                rows.push_back(DialogSeparator());
+                rows.push_back(KeyHintRow({{"F2/Enter", "Pull"}, {"Esc", "Cancel"}}));
+            }
+            else
+            {
+                std::string working = state_->pull_stage == PullStage::kFetching
+                                          ? "Fetching " + state_->pull_net_name + " from upstream..."
+                                          : std::string("Asking upstream for its nets...");
+                rows.push_back(ftxui::paragraph(working) | ftxui::color(kColorLabel));
+                rows.push_back(DialogSeparator());
+                rows.push_back(KeyHintRow({{"Esc", "Cancel"}}));
+            }
+            rows.push_back(ErrorLine(state_->form_error));
+            int width = std::max(40, std::min(FrameTerminalSize().dimx - 4, 80));
+            return ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) |
+                   ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder);
+        }
+
+    private:
+        // The nets, the highlighted one marked and kept in view.
+        ftxui::Element NetList() const
+        {
+            ftxui::Elements rows;
+            for (std::size_t i = 0; i < state_->pull_net_labels.size(); ++i)
+            {
+                bool marked = static_cast<int>(i) == state_->selected_pull_net;
+                ftxui::Element row =
+                    ftxui::hbox({ftxui::text(marked ? "> " : "  "),
+                                 ftxui::text(state_->pull_net_labels[i]) | ftxui::color(kColorListRow)});
+                rows.push_back(marked ? row | ftxui::inverted | ftxui::focus : row);
+            }
+            // The window's other rows: its border, title, two paragraphs, the
+            // list's frame, a separator, the keys and the error line.
+            int room = std::max(2, FrameTerminalSize().dimy - 14);
+            int height = std::min(static_cast<int>(rows.size()), room);
+            return DialogFramed(ftxui::vbox(std::move(rows)) | ftxui::yframe | ftxui::vscroll_indicator |
+                                ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height));
+        }
+
+        AppState* state_;
     };
 
     // The Import or Merge window (see MergeStage): first the nets here that
@@ -2444,8 +2804,9 @@ namespace ql
         ftxui::Component main_view = ftxui::Renderer(root, ImportNetRenderer(state, file_menu));
         ftxui::Component merge_modal = ftxui::Renderer(ftxui::Container::Vertical({}), NetMergeModalRenderer(state));
         ftxui::Component with_merge = LayeredModal(main_view, merge_modal, &state->show_merge_modal);
-        return WithConfirmPrompt(
-            state, LayeredModal(with_merge, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal));
+        ftxui::Component pull_modal = ftxui::Renderer(ftxui::Container::Vertical({}), PullModalRenderer(state));
+        ftxui::Component with_pull = LayeredModal(with_merge, pull_modal, &state->show_pull_modal);
+        return LayeredModal(with_pull, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal);
     }
 
     // ---- Manage users page --------------------------------------------------
@@ -2460,10 +2821,13 @@ namespace ql
     {
     public:
         ManageUsersRenderer(AppState* state, ftxui::Component user_menu, ftxui::Component input_username,
+                            ftxui::Component input_amateur, ftxui::Component input_gmrs,
                             ftxui::Component input_public_key, ftxui::Component access_toggle)
             : state_(state),
               user_menu_(std::move(user_menu)),
               input_username_(std::move(input_username)),
+              input_amateur_(std::move(input_amateur)),
+              input_gmrs_(std::move(input_gmrs)),
               input_public_key_(std::move(input_public_key)),
               access_toggle_(std::move(access_toggle))
         {
@@ -2486,14 +2850,18 @@ namespace ql
                 Framed(user_list) | ftxui::flex,
                 PickPrompt(state_, PickList::kUsers),
                 Separator(),
-                ftxui::hbox({FieldLabel("Username:    "), input_username_->Render()}),
-                ftxui::hbox({FieldLabel("Public Key:  "), input_public_key_->Render()}),
-                ftxui::hbox({FieldLabel("Access:      "), access_toggle_->Render()}),
+                ftxui::hbox({FieldLabel("Username:      "), input_username_->Render()}),
+                ftxui::hbox({FieldLabel("Amateur Call:  "), input_amateur_->Render()}),
+                ftxui::hbox({FieldLabel("GMRS Call:     "), input_gmrs_->Render()}),
+                ftxui::hbox({FieldLabel("Public Key:    "), input_public_key_->Render()}),
+                ftxui::hbox({FieldLabel("Access:        "), access_toggle_->Render()}),
+                HintParagraph("A username is any login name. Give one call sign or both; each service's nets "
+                              "are logged with its own, and watched without one."),
                 HintParagraph("Paste a full authorized_keys-style line, e.g. from "
                               "~/.ssh/id_ed25519.pub -- \"ssh-ed25519 AAAA... comment\"."),
                 HintParagraph("A view-only user can watch open net sessions, look at and "
                               "export history, and change their own settings -- nothing else. "
-                              "F4 (or Enter) edits a user: their username, access and keys."),
+                              "F4 (or Enter) edits a user: their username, call signs, access and keys."),
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
@@ -2515,6 +2883,8 @@ namespace ql
         AppState* state_;
         ftxui::Component user_menu_;
         ftxui::Component input_username_;
+        ftxui::Component input_amateur_;
+        ftxui::Component input_gmrs_;
         ftxui::Component input_public_key_;
         ftxui::Component access_toggle_;
     };
@@ -2525,10 +2895,13 @@ namespace ql
     class UserKeysModalRenderer
     {
     public:
-        UserKeysModalRenderer(AppState* state, ftxui::Component input_username, ftxui::Component access_toggle,
-                              ftxui::Component key_menu, ftxui::Component input_key)
+        UserKeysModalRenderer(AppState* state, ftxui::Component input_username, ftxui::Component input_amateur,
+                              ftxui::Component input_gmrs, ftxui::Component access_toggle, ftxui::Component key_menu,
+                              ftxui::Component input_key)
             : state_(state),
               input_username_(std::move(input_username)),
+              input_amateur_(std::move(input_amateur)),
+              input_gmrs_(std::move(input_gmrs)),
               access_toggle_(std::move(access_toggle)),
               key_menu_(std::move(key_menu)),
               input_key_(std::move(input_key))
@@ -2541,6 +2914,8 @@ namespace ql
             rows.push_back(Heading("Edit User: " + state_->user_keys_username));
             rows.push_back(DialogSeparator());
             rows.push_back(ftxui::hbox({FieldLabel("Username:   "), input_username_->Render()}));
+            rows.push_back(ftxui::hbox({FieldLabel("Amateur:    "), input_amateur_->Render()}));
+            rows.push_back(ftxui::hbox({FieldLabel("GMRS:       "), input_gmrs_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Access:     "), access_toggle_->Render()}));
             rows.push_back(
                 HintParagraph("F2 saves these; they apply from the user's next "
@@ -2573,6 +2948,8 @@ namespace ql
     private:
         AppState* state_;
         ftxui::Component input_username_;
+        ftxui::Component input_amateur_;
+        ftxui::Component input_gmrs_;
         ftxui::Component access_toggle_;
         ftxui::Component key_menu_;
         ftxui::Component input_key_;
@@ -2585,9 +2962,16 @@ namespace ql
         user_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component user_menu = ClickableList(
             state, ftxui::Menu(&state->manage_users_labels, &state->selected_user_index, user_menu_option));
-        ftxui::InputOption username_option = SingleLineInputOption();
-        username_option.on_change = UppercaseFieldHandler(&state->new_user_username);
-        ftxui::Component input_username = ftxui::Input(&state->new_user_username, "Their call sign", username_option);
+        ftxui::Component input_username =
+            ftxui::Input(&state->new_user_username, "Their login name", SingleLineInputOption());
+        ftxui::InputOption amateur_option = SingleLineInputOption();
+        amateur_option.on_change = UppercaseFieldHandler(&state->new_user_amateur_callsign);
+        ftxui::Component input_amateur =
+            ftxui::Input(&state->new_user_amateur_callsign, "e.g. W4KWK (optional)", amateur_option);
+        ftxui::InputOption gmrs_option = SingleLineInputOption();
+        gmrs_option.on_change = UppercaseFieldHandler(&state->new_user_gmrs_callsign);
+        ftxui::Component input_gmrs =
+            ftxui::Input(&state->new_user_gmrs_callsign, "e.g. WSIP663 (optional)", gmrs_option);
         ftxui::Component input_public_key =
             ftxui::Input(&state->new_user_public_key, "ssh-ed25519 AAAA... comment", SingleLineInputOption());
 
@@ -2598,14 +2982,22 @@ namespace ql
         ftxui::Component access_toggle = std::make_shared<IgnoreTab>(
             ftxui::Menu(&state->new_user_access_labels, &state->new_user_access_index, access_option));
 
-        ftxui::Component root =
-            ftxui::Container::Vertical({user_menu, input_username, input_public_key, access_toggle});
-        ftxui::Component main_view = ftxui::Renderer(
-            root, ManageUsersRenderer(state, user_menu, input_username, input_public_key, access_toggle));
+        ftxui::Component root = ftxui::Container::Vertical(
+            {user_menu, input_username, input_amateur, input_gmrs, input_public_key, access_toggle});
+        ftxui::Component main_view =
+            ftxui::Renderer(root, ManageUsersRenderer(state, user_menu, input_username, input_amateur, input_gmrs,
+                                                      input_public_key, access_toggle));
 
-        ftxui::InputOption rename_option = SingleLineInputOption();
-        rename_option.on_change = UppercaseFieldHandler(&state->rename_username);
-        ftxui::Component input_rename = ftxui::Input(&state->rename_username, "Their call sign", rename_option);
+        ftxui::Component input_rename =
+            ftxui::Input(&state->rename_username, "Their login name", SingleLineInputOption());
+        ftxui::InputOption edit_amateur_option = SingleLineInputOption();
+        edit_amateur_option.on_change = UppercaseFieldHandler(&state->edit_user_amateur_callsign);
+        ftxui::Component input_edit_amateur =
+            ftxui::Input(&state->edit_user_amateur_callsign, "e.g. W4KWK (optional)", edit_amateur_option);
+        ftxui::InputOption edit_gmrs_option = SingleLineInputOption();
+        edit_gmrs_option.on_change = UppercaseFieldHandler(&state->edit_user_gmrs_callsign);
+        ftxui::Component input_edit_gmrs =
+            ftxui::Input(&state->edit_user_gmrs_callsign, "e.g. WSIP663 (optional)", edit_gmrs_option);
         ftxui::MenuOption edit_access_option = ftxui::MenuOption::Toggle();
         edit_access_option.entries_option.transform = ToggleEntryTransform;
         edit_access_option.elements_infix = ToggleGap;
@@ -2620,8 +3012,10 @@ namespace ql
         key_option.on_enter = AddUserKeyHandler(state);
         ftxui::Component input_key = ftxui::Input(&state->new_key_text, "ssh-ed25519 AAAA... comment", key_option);
         ftxui::Component keys_modal =
-            ftxui::Renderer(ftxui::Container::Vertical({input_rename, edit_access_toggle, key_menu, input_key}),
-                            UserKeysModalRenderer(state, input_rename, edit_access_toggle, key_menu, input_key));
+            ftxui::Renderer(ftxui::Container::Vertical({input_rename, input_edit_amateur, input_edit_gmrs,
+                                                        edit_access_toggle, key_menu, input_key}),
+                            UserKeysModalRenderer(state, input_rename, input_edit_amateur, input_edit_gmrs,
+                                                  edit_access_toggle, key_menu, input_key));
 
         return WithRowDeleteConfirm(state, LayeredModal(main_view, keys_modal, &state->show_user_keys_modal));
     }

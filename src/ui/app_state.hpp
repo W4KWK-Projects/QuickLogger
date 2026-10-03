@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -13,6 +14,8 @@
 #include "../models.hpp"
 #include "../net_slice.hpp"
 #include "../settings.hpp"
+#include "../upstream_pull.hpp"
+#include "../upstream_push.hpp"
 #include "list_columns.hpp"
 
 namespace ql
@@ -44,6 +47,10 @@ namespace ql
         kSend,
         kReceive,
         kShowFolder,
+        // Neither ZMODEM nor a folder to show (a console with no file manager,
+        // Mosh, Windows): the modal only offers pushing the exported net
+        // upstream (AppState::export_push_net_id).
+        kPushOnly,
     };
 
     // Edit and delete on a list work by number: the key (e.g. F5 Delete
@@ -100,6 +107,27 @@ namespace ql
         // Importing a session logged under a net name nothing like the
         // History it's going into (see NetNamesLookAlike).
         kImportOtherNet,
+        // The upstream has no net of the pushed session's name, but one that
+        // looks like it (AppState::push_upstream_net): push it there?
+        kPushToNet,
+    };
+
+    // Runs a push (PushSessionFile) on a thread of its own and hands the
+    // result back to the UI thread (FinishPush); see push_runner.hpp.
+    class PushRunner;
+
+    // Runs a pull step (PullNetList, PullNetFiles) on a thread of its own and
+    // hands the result back to the UI thread; see pull_runner.hpp.
+    class PullRunner;
+
+    // The Pull window over the import page (F4): asking the upstream for its
+    // nets, choosing one, then fetching what's wanted from it.
+    enum class PullStage
+    {
+        kNone,
+        kListing,   // Waiting for the list of nets.
+        kChoosing,  // The nets are listed; one is highlighted.
+        kFetching,  // Waiting for the files.
     };
 
     // Importing a .qlnet that looks like a net already here (see
@@ -153,6 +181,14 @@ namespace ql
         // kPageManageUsers) is reachable at all, deliberately never over
         // SSH, so there's no admin/permission concept to build or attack.
         bool is_console_session = true;
+        // An SSH user's session over Mosh (see mosh_bridge.hpp). Mosh keeps
+        // the screen in step rather than passing bytes through, so ZMODEM
+        // can't work: files are copied with scp or sftp instead.
+        bool over_mosh = false;
+        // The shared station data's status, a line each, as Settings shows
+        // it (see ShowStationDataStatus): kept here so its renderer never
+        // reads the database.
+        std::vector<std::string> station_status_lines;
         // A view-only SSH user (see User::view_only): they can watch open
         // net sessions, look at and export history, and change their own
         // settings -- nothing else. Every page shows only the keys they
@@ -163,11 +199,14 @@ namespace ql
         // received files go in their own directories, cleaned up after a
         // while (see SessionExportsDir).
         std::string ssh_username;
-        // False when My Callsign is fixed as the SSH user's username (see
-        // UsernameIsCallsign): shown on Settings, but not editable. The
-        // console, and a user from before usernames had to be callsigns,
-        // edit it as always.
+        // False for an SSH user: their call signs are set in Manage Users
+        // (User::amateur_callsign), shown on Settings but not editable
+        // there. The console edits its own.
         bool callsign_editable = true;
+        // Which of the Settings page's fields has focus, in the order its
+        // container lists them (see BuildSettingsPage). An SSH user starts
+        // on My ZIP Code: their call sign fields can't be focused.
+        int settings_focus = 0;
 
         int page = kPageNetList;
         std::string form_error;
@@ -347,8 +386,14 @@ namespace ql
         std::string new_key_text;
         std::string rename_username;
         int edit_user_access_index = 0;
+        // The user's call signs in the Edit User window (see
+        // User::amateur_callsign), saved with its F2.
+        std::string edit_user_amateur_callsign;
+        std::string edit_user_gmrs_callsign;
         std::string new_user_username;
         std::string new_user_public_key;
+        std::string new_user_amateur_callsign;
+        std::string new_user_gmrs_callsign;
         // The add-user form's Access choice: 0 full access, 1 view-only.
         int new_user_access_index = 0;
         std::vector<std::string> new_user_access_labels{"Full access", "View-only"};
@@ -373,6 +418,67 @@ namespace ql
         // The Settings page's Nearby Radius field, in miles (digits only);
         // copied into settings_form.nearby_radius_miles on save.
         std::string settings_radius_text;
+
+        // The Upstream Server window over Settings (F5, console only): the
+        // upstream QuickLogger sessions are pushed to (Federated Logging,
+        // see upstream_push.hpp). Its fields, saved into `settings` (and
+        // settings_form) with its own F2.
+        bool show_upstream_window = false;
+        std::string upstream_host_text;
+        std::string upstream_user_text;
+        std::string upstream_port_text;
+        // Where each field's cursor is: put at the end of what's there when
+        // the window opens.
+        int upstream_host_cursor = 0;
+        int upstream_user_cursor = 0;
+        int upstream_port_cursor = 0;
+        // Which field has the focus: Host (0) when the window opens.
+        int upstream_focus = 0;
+        // Whether ssh and scp were found when the window opened.
+        bool upstream_tools_available = true;
+
+        // Pushing a session upstream (console only). `push_runner` is the
+        // console session's, null elsewhere. While `push_running`, another
+        // push is refused. The push's session, the .qlsession made for it
+        // (removed once the push is over), the name it's uploaded as, the
+        // session's own net name, and for kPushToNet the upstream's net to
+        // confirm.
+        PushRunner* push_runner = nullptr;
+        bool push_running = false;
+        std::int64_t push_instance_id = 0;
+        std::string push_local_path;
+        std::string push_remote_name;
+        std::string push_session_net;
+        std::string push_upstream_net;
+        // The push is of a whole net (push_net_id, as a .qlnet), not a session.
+        bool push_is_net = false;
+        std::int64_t push_net_id = 0;
+        // After an export with an upstream set: the net (F8) or the closed
+        // session (F7 in History) that the export modal then offers to push
+        // (F3); 0 otherwise. At most one is set.
+        std::int64_t export_push_net_id = 0;
+        std::int64_t export_push_instance_id = 0;
+
+        // Pulling from the upstream (console only): the Pull window over the
+        // import page (F4), for a whole net (pull_sessions false) or the
+        // sessions of the net whose History opened the page (true).
+        // `pull_runner` is the console session's, null elsewhere.
+        // `pull_generation` goes up each time a step starts or the window
+        // closes, so a late answer to an abandoned step is ignored. The
+        // nets the upstream offered (labels kept in step), the highlighted
+        // one, the one chosen, and the folder a session pull's files go in
+        // (removed once they're imported). show_pull_modal is
+        // pull_stage != kNone, for LayeredModal.
+        PullRunner* pull_runner = nullptr;
+        PullStage pull_stage = PullStage::kNone;
+        bool show_pull_modal = false;
+        bool pull_sessions = false;
+        int pull_generation = 0;
+        std::vector<UpstreamNet> pull_nets;
+        std::vector<std::string> pull_net_labels;
+        int selected_pull_net = 0;
+        std::string pull_net_name;
+        std::string pull_dir;
 
         // Net list page: the recurring nets a user can select and start (never
         // ad hoc ones -- see Net::is_ad_hoc).
@@ -403,6 +509,14 @@ namespace ql
         std::vector<std::vector<std::string>> active_check_in_cells;
         std::vector<std::vector<std::string>> history_instance_cells;
         std::vector<std::vector<std::string>> history_check_in_cells;
+        // Closed sessions' check-ins and cells already read, by session id,
+        // so moving back and forth through History doesn't read them again
+        // (see ShowHistoryCheckIns). Emptied whenever History is reloaded,
+        // and whenever anyone else has changed the database since they were
+        // read (Database::DataVersion, as it was before reading them).
+        std::unordered_map<std::int64_t, std::pair<std::vector<CheckIn>, std::vector<std::vector<std::string>>>>
+            history_check_ins_read;
+        std::int64_t history_check_ins_read_version = 0;
         std::vector<std::vector<std::string>> saved_station_cells;
         // Where each autocomplete match came from ("(this net)", "(ULS, ~4
         // mi)"...), one per entry of modal_callsign_suggestions /
@@ -430,6 +544,16 @@ namespace ql
         std::vector<std::string> partial_match_labels{"US", "Canada"};
         // The Mode choice's entries, on the same three pages: NetModes().
         std::vector<std::string> mode_labels = NetModes();
+        // New Recurring Net and Ad Hoc Net: Amateur Radio (0) or GMRS (1),
+        // an index into service_labels, and which of the two sets of radio
+        // fields is showing (see SetNewNetService). A GMRS net's frequency
+        // is one of GmrsChannels() (gmrs_channels.hpp), new_net_gmrs_channel
+        // an index into it; its mode is always FM.
+        std::vector<std::string> service_labels{"Amateur Radio", "GMRS"};
+        int new_net_service_index = 0;
+        bool new_net_amateur = true;
+        bool new_net_gmrs = false;
+        int new_net_gmrs_channel = 0;
 
         // The net being started or resumed: set by StartSelectedNet, the Ad
         // Hoc page and the resume prompt, and read by the Select Role and
@@ -468,6 +592,9 @@ namespace ql
         std::string active_net_zip;
         // The active net's Partial Matching (see Net::partial_match_canada).
         bool active_net_partial_match_canada = false;
+        // The active net's service (see Net::service): which call signs and
+        // licensee data its check-ins use.
+        NetService active_net_service = NetService::kAmateur;
         // The active net's frequency, offset and PL tone as the session page
         // shows them (see DescribeNetRadio).
         std::string active_net_radio;
@@ -586,7 +713,16 @@ namespace ql
         std::string edit_net_recurrence;
         std::string edit_net_comments;
         int edit_net_partial_match_index = 0;  // As new_net_partial_match_index.
+        // The net's service, which Edit Net shows but doesn't change, and
+        // for a GMRS net its channel (as new_net_gmrs_channel).
+        bool edit_net_amateur = true;
+        bool edit_net_gmrs = false;
+        int edit_net_gmrs_channel = 0;
         std::vector<Station> edit_net_saved_stations;
+        // Alongside each: its entry name (see SavedNetStation; it's the
+        // Name shown when not blank) and its default remarks.
+        std::vector<std::string> edit_net_saved_entry_names;
+        std::vector<std::string> edit_net_saved_remarks;
         std::vector<std::string> edit_net_saved_station_labels;  // Kept in sync by RefreshEditNetSavedStations.
         int selected_saved_station_index = 0;
 
@@ -597,6 +733,11 @@ namespace ql
         // autocomplete for this net.
         Station saved_station;
         std::string saved_station_remarks;
+        // The saved station loaded into the form for editing (see
+        // LoadSavedStationIntoForm): its call sign and entry name. Blank for
+        // a new one.
+        std::string saved_station_loaded_callsign;
+        std::string saved_station_loaded_name;
         // The saved-station callsign Input, so LoadSavedStationHandler can
         // TakeFocus() it after loading a row, jumping straight into editing.
         ftxui::Component saved_station_callsign_input;
@@ -646,7 +787,13 @@ namespace ql
         // once, that query was most of the server's CPU. A few hundred KB.
         std::vector<NearbyUlsCallsign> nearby_uls_callsigns;
         std::string nearby_uls_origin;
+        // Which licensees those are: amateur, or GMRS for a GMRS net.
+        LicenseTable nearby_uls_table = LicenseTable::kAmateur;
         std::int64_t nearby_uls_loaded_at = 0;
+        // The same for Canadian licensees (ISED's), by FSA.
+        std::vector<NearbyUlsCallsign> nearby_ised_callsigns;
+        std::string nearby_ised_origin;
+        std::int64_t nearby_ised_loaded_at = 0;
         // Autocomplete candidates for the saved-station mini-form (see
         // RefreshSavedStationSuggestions), refreshed live as the operator
         // types the callsign: tier 1 (already known to this net, real
@@ -725,8 +872,13 @@ namespace ql
 
     // Closes the active session and returns to the net list. If someone
     // else closed it in the meantime, their end time is kept, and it says
-    // so (ShowSessionClosedPrompt).
-    void CloseActiveNet(AppState* state);
+    // so (ShowSessionClosedPrompt). Returns true if it was closed here.
+    bool CloseActiveNet(AppState* state);
+
+    // F3 on the Close Net prompt, when there's an upstream (CanPushUpstream):
+    // closes the session as F2 does, then pushes it (StartPush). It's closed
+    // whatever becomes of the push.
+    void CloseActiveNetAndPush(AppState* state);
 
     // True if AppState::active_instance is still open for logging. If
     // someone else has closed or deleted it (it may be shared -- see
@@ -837,9 +989,21 @@ namespace ql
     // Persists the Edit Check-in modal's fields: a direct update to the
     // Station's editable fields (blank values are saved as-is, since this is
     // an explicit correction, unlike the New Station modal) and to the
-    // CheckIn's Signal Report/Remarks/Comment. There's no required field, so
-    // this always succeeds.
-    void SaveEditCheckInForm(AppState* state);
+    // CheckIn's Signal Report/Remarks/Comment. On a GMRS net the Name is
+    // the check-in's own (see CheckIn::name), and renaming it to another
+    // check-in's under the same call sign is refused: false, with
+    // form_error set.
+    bool SaveEditCheckInForm(AppState* state);
+
+    // Shows the station data's status: the top bar's `notice` (see
+    // DescribeStationDataNotice) and Settings' `status` (see
+    // DescribeStationDataStatus), split into its lines. On the UI thread.
+    void ShowStationDataStatus(AppState* state, const std::string& notice, bool is_problem, const std::string& status);
+
+    // Reads the station data's status from AppState::db and shows it (see
+    // ShowStationDataStatus): before the first frame, and when the 12/24-hour
+    // setting changes the times in it. ScreenTicker keeps it current after.
+    void ReadStationDataStatus(AppState* state);
 
     // ---- Lists laid out for the terminal's width (see list_columns.hpp) ----
 
@@ -877,6 +1041,10 @@ namespace ql
     // in sync as the user moves between instances.
     void RefreshHistoryCheckIns(AppState* state);
 
+    // The same, for moving the highlight: a closed session already read
+    // (AppState::history_check_ins_read) is shown without reading it again.
+    void ShowHistoryCheckIns(AppState* state);
+
     // Permanently deletes the highlighted net instance
     // (AppState::selected_history_index) and all of its check-ins, then
     // refreshes the list. Refuses (setting AppState::form_error) if there's
@@ -910,7 +1078,7 @@ namespace ql
     // list shows on screen (not every field on the underlying Station
     // record -- this mirrors FormatSavedStationRow, which only ever showed
     // those three).
-    void ExportSavedStations(AppState* state, const std::string& net_name, const std::vector<Station>& saved_stations);
+    void ExportSavedStations(AppState* state, const std::string& net_name);
 
     // Writes everything about `net` -- its own definition, every station
     // saved to it or that's ever checked in, its instances, and their
@@ -933,9 +1101,14 @@ namespace ql
     // local terminal (IsLocalTerminal) ZMODEM is never offered; with a
     // desktop to show it on, the modal offers F2 Show Folder instead
     // (zmodem_action = kShowFolder).
-    void OfferZmodemSend(AppState* state, const std::string& path);
+    // With `push_net_id` (or `push_instance_id`, a closed session), the modal
+    // also offers F3 to push that net (session) to the upstream, and appears
+    // when nothing else is on offer (see kPushOnly).
+    void OfferZmodemSend(AppState* state, const std::string& path, std::int64_t push_net_id = 0,
+                         std::int64_t push_instance_id = 0);
     // The same for several files written together, sent as one batch.
-    void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths);
+    void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths, std::int64_t push_net_id = 0,
+                              std::int64_t push_instance_id = 0);
 
     // Reloads AppState::import_net_files from whatever *.qlnet files (or
     // *.qlsession, when AppState::import_session) are currently sitting
@@ -1090,9 +1263,10 @@ namespace ql
     // and closes the window. A new username renames them in the users
     // table, and their settings file and export and import directories
     // with it (see MoveSshUserFiles); it's refused, with AppState::form_error
-    // set and nothing saved, if it isn't a call sign (see
-    // UsernameIsCallsign) or is already someone else's. Access applies to
-    // every key of theirs. Both take effect from their next login.
+    // set and nothing saved, if it isn't a valid username (see
+    // IsValidUsername) or is already someone else's. Their access and call
+    // signs (CheckUserCallsigns) apply to every key of theirs. All of it
+    // takes effect from their next login.
     void SaveEditedUser(AppState* state);
 
     // Deletes the highlighted key in the Keys window
@@ -1104,10 +1278,16 @@ namespace ql
     // `terminal_width`-column terminal, with the Menu gutter.
     const std::string& UserKeyListHeader(int terminal_width);
 
-    // True if `username` is a callsign an SSH username can be: a valid US
-    // or Canadian call sign (see IsValidCallsign), with no portable
-    // indicator.
-    bool UsernameIsCallsign(const std::string& username);
+    // True if `username` can be an SSH username: 1 to 32 letters, digits,
+    // dots, hyphens and underscores, starting with a letter or digit. Any
+    // login name, not necessarily a call sign (see User::amateur_callsign).
+    bool IsValidUsername(const std::string& username);
+
+    // Normalizes and checks a user's call signs as Manage Users and Settings
+    // take them: at least one, the amateur one a US or Canadian call sign
+    // without portable indicators, the GMRS one a GMRS call sign. Otherwise
+    // sets AppState::form_error and returns false.
+    bool CheckUserCallsigns(AppState* state, std::string* amateur, std::string* gmrs);
 
     // F2 on the Manage Users page: adds the key in
     // AppState::new_user_public_key to AppState::new_user_username -- a new
@@ -1135,6 +1315,79 @@ namespace ql
     // and only in a build with the SSH server (so never on Windows), since
     // the users it manages exist only to log in over SSH.
     bool CanManageUsers(const AppState* state);
+
+    // Whether this session can push sessions upstream: only the local
+    // console (the push runs as the account QuickLogger runs under, with
+    // its ~/.ssh), and only once an upstream is set (Settings, F5).
+    bool CanPushUpstream(const AppState* state);
+
+    // F5 on Settings, at the console: opens the Upstream Server window with
+    // the saved upstream.
+    void OpenUpstreamWindow(AppState* state);
+    // F2 in it: checks and saves the upstream (a blank host is none) and
+    // closes it.
+    void SaveUpstreamWindow(AppState* state);
+    // Esc in it: closes it, saving nothing.
+    void CloseUpstreamWindow(AppState* state);
+
+    // Pushes closed session `instance_id` upstream on PushRunner's thread,
+    // confirming `confirm_net` if it isn't blank: writes its .qlsession
+    // under the console's exports/, and says "Pushing to <host>...". Says
+    // why not instead if it can't (no upstream, no ssh, a push already
+    // running).
+    bool StartPush(AppState* state, std::int64_t instance_id, const std::string& confirm_net);
+
+    // Pushes net `net_id` upstream (as a .qlnet, its closed sessions only)
+    // on PushRunner's thread, merging into the upstream's net `confirm_net`
+    // if it isn't blank. Says why not instead if it can't.
+    bool StartNetPush(AppState* state, std::int64_t net_id, const std::string& confirm_net);
+
+    // True while the export modal offers a push (F3).
+    bool ExportOffersPush(const AppState* state);
+
+    // F3 on the export modal: pushes the net or session just exported.
+    void PushExport(AppState* state);
+
+    // On the UI thread once a push has ended: records pushed_at, or asks
+    // about the upstream's look-alike net (ConfirmPrompt::kPushToNet), or
+    // says why it failed; then removes the .qlsession unless it's needed
+    // for the confirmation.
+    void FinishPush(AppState* state, const PushResult& result);
+
+    // F2/Enter and Esc on ConfirmPrompt::kPushToNet.
+    void ConfirmPushToNet(AppState* state);
+    void DeclinePushToNet(AppState* state);
+
+    // True at the console with an upstream set: the import page offers F4.
+    bool CanPullUpstream(const AppState* state);
+
+    // F4 on the import page: opens the Pull window and asks the upstream
+    // (Settings, F5) for its nets. Says why not instead if it can't (no
+    // ssh, view-only).
+    void OpenPullWindow(AppState* state);
+
+    // On the UI thread once the upstream has answered list-nets: lists its
+    // nets for choosing (in a session pull, the one with this net's name,
+    // or the first that looks like it, is highlighted), or says why not.
+    // Ignored if the window was closed or reopened since (`generation`).
+    void FinishPullList(AppState* state, const PullResult& result, int generation);
+
+    // Up/Down in the Pull window.
+    void MovePullHighlight(AppState* state, int delta);
+
+    // F2/Enter in the Pull window: has the upstream export the highlighted
+    // net and fetches what it wrote: for a net, its .qlnet, then imported as
+    // a file received any other way is; for sessions, each of its closed
+    // sessions, added to this net's History (the ones it already has are
+    // skipped).
+    void ChoosePullNet(AppState* state);
+
+    // On the UI thread once the files are here (or the fetch failed).
+    // Ignored if the window was closed since (`generation`).
+    void FinishPullFiles(AppState* state, const PullResult& result, int generation);
+
+    // Esc in the Pull window: stops whatever is running and closes it.
+    void ClosePullWindow(AppState* state);
 
     // Reloads AppState::modal_callsign_suggestions/_labels from
     // AppState::modal_station.callsign: tier 1 (SearchNetStationsByCallsignSubstring
@@ -1224,8 +1477,10 @@ namespace ql
     // existing saved station (direct-set via Database::UpdateSavedNetStation, so a
     // cleared field actually clears); otherwise it's a new saved station (merge-upsert
     // via Database::SaveNetStation, so a blank field just means "I don't have
-    // that detail yet" rather than "erase it"). Returns false (and sets
-    // AppState::form_error) without changing anything if the callsign is empty.
+    // that detail yet" rather than "erase it"). On a GMRS net an entry is a
+    // call sign and name, and the one loaded can be renamed. Returns false
+    // (and sets AppState::form_error) without changing anything if the
+    // callsign is empty, or is renamed to another entry's name.
     bool SaveNetStationForm(AppState* state);
 
     // Opens the Saved Station window with `saved`'s fields (and its current
@@ -1233,7 +1488,7 @@ namespace ql
     // existing saved station created with only a callsign can have more
     // details filled in and saved via SaveNetStationForm rather than retyped
     // from scratch.
-    void LoadSavedStationIntoForm(AppState* state, const Station& saved);
+    void LoadSavedStationIntoForm(AppState* state, std::size_t index);
 
     // Opens the Saved Station window empty, for a new station (F6).
     void OpenNewSavedStationForm(AppState* state);
@@ -1313,6 +1568,10 @@ namespace ql
     // false.
     bool CheckCallsign(AppState* state, const std::string& callsign);
 
+    // The same for a call sign on a net of `service`: on a GMRS net, a GMRS
+    // call sign (IsValidGmrsCallsign) instead.
+    bool CheckNetCallsign(AppState* state, const std::string& callsign, NetService service);
+
     // `net`'s frequency, offset and PL tone for the session page, those
     // that are set: "146.940 MHz  -0.6  PL 100.0". Blank if none are.
     std::string DescribeNetRadio(const Net& net);
@@ -1323,6 +1582,40 @@ namespace ql
     // otherwise sets AppState::form_error.
     bool CheckNetRadio(AppState* state, const std::string& frequency, const std::string& offset, std::string* tone);
 
+    // "Amateur Radio" or "GMRS".
+    const char* ServiceLabel(NetService service);
+
+    // A saved station's or check-in's own name on a net of `service`: on a
+    // GMRS net `name` (trimmed), which tells family members sharing a call
+    // sign apart; on an Amateur Radio net blank, the station's own name
+    // standing. See Database::SaveNetStation and CheckIn::name.
+    std::string SavedEntryName(NetService service, const std::string& name);
+
+    // A call sign's licensee in the FCC's data for `service`: GMRS
+    // licenses for GMRS, else the amateur ones (FCC, then ISED).
+    std::optional<Station> FindLicensee(Database* db, const std::string& callsign, NetService service);
+
+    // The operator's own call sign for nets of `service` (Settings, or for
+    // an SSH user Manage Users): AppSettings::callsign or gmrs_callsign.
+    // Blank if they have none.
+    const std::string& OwnCallsign(const AppState* state, NetService service);
+
+    // True, with AppState::form_error saying so, if the operator has no
+    // call sign for `service`: they can watch its nets but not log one.
+    bool RefuseWithoutCallsign(AppState* state, NetService service);
+
+    // The Service toggle on New Recurring Net and Ad Hoc Net: shows the
+    // radio fields for AppState::new_net_service_index.
+    void SetNewNetService(AppState* state);
+
+    // Fills in `net`'s service, mode, frequency, offset, PL tone and
+    // Partial Matching from the New Recurring Net / Ad Hoc Net form, or from
+    // Edit Net's, checking them as CheckNetRadio does. A GMRS net gets its
+    // channel's frequency and offset, and FM. False (with form_error set)
+    // if something's wrong.
+    bool ReadNewNetRadio(AppState* state, Net* net);
+    bool ReadEditNetRadio(AppState* state, Net* net);
+
     // True if `zip` is acceptable as a net's ZIP: blank or 5 digits.
     // Otherwise sets AppState::form_error and returns false.
     bool CheckNetZip(AppState* state, const std::string& zip);
@@ -1332,7 +1625,7 @@ namespace ql
     // database so a net someone else just made counts; empty if there's
     // none. No two recurring nets may share a name. Ad hoc nets don't
     // count, and may share names freely.
-    std::string ExistingNetNamed(AppState* state, const std::string& name, std::int64_t except_net_id = 0);
+    std::string ExistingNetNamed(const AppState* state, const std::string& name, std::int64_t except_net_id = 0);
 
     // Reloads AppState::saved_station_suggestions/_labels from
     // AppState::saved_station.callsign, same three-tier priority as
@@ -1365,11 +1658,11 @@ namespace ql
     // call it right before RecordManualCheckInStation/SaveNetStation for any
     // Station that might be ULS-sourced (or manually entered with a ZIP but
     // no county).
-    void BackfillCountyFromZip(AppState* state, Station* station);
+    void BackfillCountyFromZip(const AppState* state, Station* station);
 
     // Fills a blank Grid Square with the 4-character grid of the station's
     // ZIP centroid, so a picked or looked-up station comes with an
     // approximate grid. US 5-digit ZIPs only; a typed grid is never touched.
-    void BackfillGridFromZip(AppState* state, Station* station);
+    void BackfillGridFromZip(const AppState* state, Station* station);
 
 }  // namespace ql

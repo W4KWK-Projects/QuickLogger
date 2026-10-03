@@ -17,6 +17,8 @@ namespace ql
         kUls = 2,
         // Canada's amateur call sign database (ISED); see uls_import.hpp.
         kIsed = 3,
+        // The FCC's GMRS licenses (gmrs_stations); see uls_import.hpp.
+        kGmrs = 4,
     };
 
     // A callsign the logger has ever seen, independent of any particular net.
@@ -56,6 +58,14 @@ namespace ql
 
     // A recurring net definition, e.g. "Skywarn Net, Tuesdays 8pm ET".
     // Holds the defaults that seed each new NetInstance.
+    // The radio service a net is on: what its frequencies, call signs and
+    // licensee data are. Stored as nets.service, 'amateur' or 'gmrs'.
+    enum class NetService
+    {
+        kAmateur,
+        kGmrs,
+    };
+
     struct Net
     {
         std::int64_t id = 0;
@@ -96,6 +106,9 @@ namespace ql
         // it. False is the FCC's US data (the default, and every net from
         // before 1.7.0), true is ISED's Canadian data.
         bool partial_match_canada = false;
+        // Amateur Radio or GMRS, chosen when the net is created (Ad Hoc
+        // included) and not changed after.
+        NetService service = NetService::kAmateur;
     };
 
     enum class NetInstanceStatus
@@ -131,6 +144,11 @@ namespace ql
         // e.g. what an emergency net was stood up for. Not in the text log;
         // travels in .qlsession and .qlnet files.
         std::string notes;
+        // Unix timestamp of the last time it was pushed to the upstream
+        // QuickLogger (Federated Logging); 0 if never. This database's own
+        // record: CreateNetInstance doesn't write it, so it never travels in
+        // a .qlsession or .qlnet file.
+        std::int64_t pushed_at = 0;
     };
 
     // One station's check-in during a specific NetInstance. Signal report
@@ -151,6 +169,11 @@ namespace ql
         // most one check-in per NetInstance holds a given role at a time;
         // see ApplyCheckInRoleDesignation.
         int designated_role = kRoleNone;
+        // On a GMRS net, the name this check-in was logged under: one GMRS
+        // license covers a whole family, so a call sign can check in more
+        // than once, each time someone else, told apart by name. Blank on an
+        // Amateur Radio net, where the station's own name stands.
+        std::string name;
     };
 
     // Persisted state of one background data job, keyed by `source`. Two
@@ -217,9 +240,24 @@ namespace ql
     };
 
     // A callsign's check-in count (in some scope) and latest session date.
+    // One station saved to a net: the station as on file, with its
+    // default remarks there and the entry's own name. That name is blank
+    // except on a GMRS net, where one call sign may be saved once for each
+    // person on the license (see Database::SaveNetStation).
+    struct SavedNetStation
+    {
+        Station station;
+        std::string name;
+        std::string default_remarks;
+    };
+
     struct CallsignTally
     {
         std::string callsign;
+        // The name shown for it: a saved GMRS entry's own (see
+        // Database::SaveNetStation), else the station's. Blank where a
+        // tally doesn't carry one.
+        std::string name;
         int count = 0;
         std::string last_date;
     };
@@ -294,6 +332,13 @@ namespace ql
         // change nothing but their own settings. Belongs to the username:
         // every one of its keys carries the same value.
         bool view_only = false;
+        // The user's own call signs, set in Manage Users: an amateur one, a
+        // GMRS one, or both (never neither). Like view_only, they belong to
+        // the username, every key carrying the same. A net is logged with
+        // the call sign for its service (see Net::service); without one,
+        // that service's nets can only be watched.
+        std::string amateur_callsign;
+        std::string gmrs_callsign;
     };
 
 }  // namespace ql

@@ -141,74 +141,36 @@ namespace ql
         return KeyHintRowOf(hints, 0, hints.size());
     }
 
-    static Database* g_notice_db = nullptr;
+    static std::string g_station_notice;
+    static bool g_station_notice_problem = false;
+    static std::string g_available_update;
 
-    void SetTopBarNoticeDatabase(Database* db)
+    void SetStationDataNotice(const std::string& notice, bool is_problem)
     {
-        g_notice_db = db;
+        g_station_notice = notice;
+        g_station_notice_problem = is_problem;
     }
 
-    // The station-data notice's text (empty if there's none), and whether
-    // it's a problem rather than just news. Read from the database at most
-    // once a second, not on every frame: it changes only every few seconds
-    // (ScreenTicker redraws when it does), and a read takes a lock.
-    static const std::string& StationDataNoticeText(bool* is_problem, std::int64_t now)
+    void SetAvailableUpdateForDisplay(const std::string& version)
     {
-        static std::int64_t read_at = -1;
-        static std::string text;
-        static bool problem = false;
-        if (now != read_at)
-        {
-            read_at = now;
-            problem = false;
-            text.clear();
-            if (g_notice_db != nullptr)
-            {
-                try
-                {
-                    text = DescribeStationDataNotice(g_notice_db, now, &problem);
-                }
-                catch (const std::exception&)
-                {
-                    text.clear();
-                    problem = false;
-                }
-            }
-        }
-        *is_problem = problem;
-        return text;
-    }
-
-    // The newer release found, read at most once a second, not on every
-    // frame: it changes every few hours at most, and a read takes a lock
-    // and a copy.
-    static const std::string& CachedUpdate(std::int64_t now)
-    {
-        static std::int64_t read_at = -1;
-        static std::string version;
-        if (now != read_at)
-        {
-            read_at = now;
-            version = AvailableUpdate();
-        }
-        return version;
+        g_available_update = version;
     }
 
     const std::string& AvailableUpdateForDisplay()
     {
-        return CachedUpdate(static_cast<std::int64_t>(std::time(nullptr)));
+        return g_available_update;
     }
 
     // The update notice's text ("v1.8.0 available"), or "" if there's none;
     // remade only when the version found changes.
     // `*short_text` is the same notice shortened ("New v1.8.0"), for when
     // the full one would cut the page title.
-    static const std::string& UpdateNoticeText(std::int64_t now, const std::string** short_text)
+    static const std::string& UpdateNoticeText(const std::string** short_text)
     {
         static std::string shown_version;
         static std::string text;
         static std::string short_form;
-        const std::string& version = CachedUpdate(now);
+        const std::string& version = g_available_update;
         if (version != shown_version)
         {
             shown_version = version;
@@ -268,11 +230,11 @@ namespace ql
     ftxui::Element TopBar(const std::string& page_title, const std::string& status)
     {
         std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
-        bool is_problem = false;
-        const std::string& notice = StationDataNoticeText(&is_problem, now);
+        bool is_problem = g_station_notice_problem;
+        const std::string& notice = g_station_notice;
         // A newer release, found at the console (see update_check.hpp).
         const std::string* update_short = nullptr;
-        const std::string* update = &UpdateNoticeText(now, &update_short);
+        const std::string* update = &UpdateNoticeText(&update_short);
         // Local time, to the minute. ScreenTicker (interactive_session.cpp)
         // is what makes a redraw happen when the minute changes.
         const std::string& clock = ClockText(now);

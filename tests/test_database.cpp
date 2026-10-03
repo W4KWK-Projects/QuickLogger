@@ -54,7 +54,7 @@ namespace ql
                                std::string("SELECT COUNT(*) FROM sqlite_schema WHERE name='") + table + "'"),
                      std::int64_t{1});
         }
-        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{13});
+        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{16});
         CHECK_EQ(CountRows(dir.File("q.db"),
                            "SELECT COUNT(*) FROM pragma_table_info('import_runs') WHERE name IN "
                            "('phase','percent','heartbeat_at','requested_at')"),
@@ -115,7 +115,7 @@ namespace ql
         )sql");
 
         Database db(path);
-        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{13});
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{16});
         std::vector<Net> nets = db.GetAllNets();
         REQUIRE(nets.size() == 3);
         // Sorted by name: Fusion Net, Mystery Net, Old Net. Known spellings
@@ -175,6 +175,41 @@ namespace ql
         // And the net can now be deleted.
         db.DeleteNetCompletely(1);
         CHECK(!db.GetNetById(1).has_value());
+    }
+
+    QL_TEST(EveryUserBeforeGmrsIsGivenTheirUsernameAsTheirAmateurCallSign)
+    {
+        TempDir dir;
+        std::string path = dir.File("q.db");
+        {
+            Database db(path);
+        }
+        // A users table as 1.8 left it: a username was a call sign.
+        RunSql(path, R"sql(
+            DROP TABLE users;
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                public_key TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT 0,
+                last_login_at INTEGER NOT NULL DEFAULT 0,
+                view_only INTEGER NOT NULL DEFAULT 0);
+            INSERT INTO users (username, public_key) VALUES ('W4KWK', 'ssh-ed25519 AAAA one');
+            INSERT INTO users (username, public_key) VALUES ('W4KWK', 'ssh-ed25519 AAAA two');
+            INSERT INTO users (username, public_key, view_only) VALUES ('kb4vew', 'ssh-ed25519 AAAA three', 1);
+            PRAGMA user_version = 14;
+        )sql");
+
+        Database db(path);
+        for (const User& key : db.GetUserKeys("W4KWK"))
+        {
+            CHECK_EQ(key.amateur_callsign, std::string("W4KWK"));
+            CHECK(key.gmrs_callsign.empty());
+        }
+        std::vector<User> viewer = db.GetUserKeys("KB4VEW");
+        REQUIRE(viewer.size() == 1);
+        CHECK_EQ(viewer[0].amateur_callsign, std::string("KB4VEW"));
+        CHECK(viewer[0].view_only);
     }
 
     QL_TEST(OldNetFrequenciesMoveToComments)
@@ -745,15 +780,15 @@ namespace ql
         db.UpsertStation(typed);
         db.UpsertStation(no_centroid);
         db.UpsertStation(canadian);
-        std::vector<ZipCentroid> centroids = {{"37415", 35.10, -85.28}};
+        std::vector<ZipCentroid> centroids = {{"37415", 35.10, -85.28}, {"K1A", 45.40, -75.70}};
         db.BulkUpsertZipCentroids(centroids);
 
-        CHECK_EQ(db.FillBlankGridSquaresFromZip(), 2);
+        CHECK_EQ(db.FillBlankGridSquaresFromZip(), 3);
         CHECK_EQ(db.FindStationByCallsign("K1AAA")->grid_square, std::string("EM75"));
         CHECK_EQ(db.FindStationByCallsign("K1BBB")->grid_square, std::string("EM75"));
         CHECK_EQ(db.FindStationByCallsign("K1CCC")->grid_square, std::string("EM74xx"));
         CHECK_EQ(db.FindStationByCallsign("K1DDD")->grid_square, std::string());
-        CHECK_EQ(db.FindStationByCallsign("VE3AAA")->grid_square, std::string());
+        CHECK_EQ(db.FindStationByCallsign("VE3AAA")->grid_square, std::string("FN25"));
         // Nothing left to fill the next time.
         CHECK_EQ(db.FillBlankGridSquaresFromZip(), 0);
     }

@@ -77,4 +77,8 @@ namespace ql
     std::int64_t AddTestCheckIn(Database* db, std::int64_t instance_id, const std::string& callsign, int sequence,
                                 int designated_role = kRoleNone);
 
+    // Marks every station dataset as loaded at `now`, so no data refresh is
+    // due (PlanDataRefresh).
+    void MarkAllLoaded(Database* db, std::int64_t now);
+
 }  // namespace ql

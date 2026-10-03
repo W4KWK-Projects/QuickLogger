@@ -22,6 +22,7 @@
 #include "date_utils.hpp"
 #include "db/database.hpp"
 #include "file_export.hpp"
+#include "geo_utils.hpp"
 #include "models.hpp"
 #include "text_utils.hpp"
 #include "version.hpp"
@@ -40,6 +41,9 @@ namespace ql
         // but not from GitHub's. The FCC itself is the fallback.
         sources.uls_zip_url = "https://github.com/W4KWK-Projects/QuickLogger/releases/download/fcc-data/l_amat.zip";
         sources.uls_zip_fallback_url = "https://data.fcc.gov/download/pub/uls/complete/l_amat.zip";
+        // The FCC's GMRS licenses, mirrored the same way (fcc-mirror.yml).
+        sources.gmrs_zip_url = "https://github.com/W4KWK-Projects/QuickLogger/releases/download/fcc-data/l_gmrs.zip";
+        sources.gmrs_zip_fallback_url = "https://data.fcc.gov/download/pub/uls/complete/l_gmrs.zip";
         // ISED's amateur call sign database, republished daily: one
         // semicolon-delimited file of every Canadian amateur and club call
         // sign (see LoadIsed).
@@ -55,6 +59,11 @@ namespace ql
             "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2023_Gazetteer/"
             "2023_Gaz_zcta_national.zip";
         sources.zip_gazetteer_file_name = "2023_Gaz_zcta_national.txt";
+        // GeoNames' Canadian postal codes (CC BY 4.0): one lat/lon per FSA,
+        // the first three characters of a postal code. Rough in rural
+        // areas, decent in cities.
+        sources.ca_postal_url = "https://download.geonames.org/export/zip/CA.zip";
+        sources.ca_postal_file_name = "CA.txt";
         // The three Census files the ZIP-to-county data is built from (see
         // FetchAndLoadZipCounties). FCC's ULS data has no county field
         // anywhere in it (confirmed against a real downloaded l_amat.zip:
@@ -353,9 +362,29 @@ namespace ql
 
     // ---- FCC ULS license data ----------------------------------------------
 
-    static bool ExtractUlsZip(const std::string& cache_dir, const std::string& zip_path, std::string* error)
+    // One of the FCC's license files: the amateur one (l_amat.zip) or the
+    // GMRS one (l_gmrs.zip). Both hold HD.dat and EN.dat in the same layout;
+    // only the amateur one has AM.dat, with the license class.
+    struct FccLicenseFile
     {
-        if (!ExtractZipEntries(zip_path, cache_dir, {"HD.dat", "EN.dat", "AM.dat"}, error))
+        std::string url;
+        std::string fallback_url;
+        std::string zip_name;     // As downloaded into the cache.
+        std::string extract_dir;  // Where its .dat files are unpacked.
+        LicenseTable table;
+        bool has_classes;  // AM.dat
+        const char* what;  // "FCC license data", for progress.
+    };
+
+    static bool ExtractUlsZip(const FccLicenseFile& file, const std::string& zip_path, std::string* error)
+    {
+        std::vector<std::string> entries = {"HD.dat", "EN.dat"};
+        if (file.has_classes)
+        {
+            entries.emplace_back("AM.dat");
+        }
+        EnsureDirectory(file.extract_dir);
+        if (!ExtractZipEntries(zip_path, file.extract_dir, entries, error))
         {
             *error = "Failed to extract the FCC ULS archive: " + *error;
             return false;
@@ -551,9 +580,10 @@ namespace ql
         UlsLicenses* licenses_;
     };
 
-    static bool ParseAndImport(const std::string& cache_dir, Database* db, ProgressReporter* reporter,
+    static bool ParseAndImport(const FccLicenseFile& file, Database* db, ProgressReporter* reporter,
                                std::int64_t* out_records, std::string* error)
     {
+        const std::string& cache_dir = file.extract_dir;
         UlsLicenses licenses;
         licenses.records.reserve(900000);
         licenses.ids.reserve(900000);
@@ -569,7 +599,7 @@ namespace ql
         }
         std::sort(licenses.ids.begin(), licenses.ids.end());
         if (!ForEachUlsRecord(cache_dir + "/EN.dat", reporter, 0.15, 0.2, &en_handler) ||
-            !ForEachUlsRecord(cache_dir + "/AM.dat", reporter, 0.35, 0.05, &am_handler))
+            (file.has_classes && !ForEachUlsRecord(cache_dir + "/AM.dat", reporter, 0.35, 0.05, &am_handler)))
         {
             *error = reporter->StopRequested() ? "Interrupted." : "Failed to read the FCC files.";
             return false;
@@ -605,7 +635,7 @@ namespace ql
                 station.license_class = record.license_class;
                 batch.push_back(std::move(station));
             }
-            db->BulkUpsertUlsStations(batch, 0, batch.size(), now);
+            db->BulkUpsertUlsStations(batch, 0, batch.size(), now, file.table);
             reporter->Report(0.4 + 0.6 * static_cast<double>(end) / static_cast<double>(total),
                              static_cast<std::int64_t>(end));
             if (reporter->StopRequested())
@@ -622,49 +652,50 @@ namespace ql
         {
             callsigns.push_back(licenses.Text(record.callsign));
         }
-        db->DeleteUlsStationsNotIn(callsigns);
+        db->DeleteUlsStationsNotIn(callsigns, file.table);
 
         *out_records = static_cast<std::int64_t>(total);
         return true;
     }
 
-    static bool DownloadAndExtractUls(const std::string& url, const std::string& cache_dir, const std::string& zip_path,
+    static bool DownloadAndExtractUls(const FccLicenseFile& file, const std::string& url, const std::string& zip_path,
                                       ProgressReporter* reporter, int base, int download_span, int extract_span,
                                       std::string* error)
     {
-        reporter->BeginStep("Downloading FCC license data", base, download_span);
+        reporter->BeginStep(std::string("Downloading ") + file.what, base, download_span);
         if (!DownloadFile(url, zip_path, 1800L, reporter, error))
         {
             return false;
         }
-        reporter->BeginStep("Unpacking FCC license data", base + download_span, extract_span);
-        return ExtractUlsZip(cache_dir, zip_path, error);
+        reporter->BeginStep(std::string("Unpacking ") + file.what, base + download_span, extract_span);
+        return ExtractUlsZip(file, zip_path, error);
     }
 
-    static bool LoadUls(const DataSources& sources, const std::string& cache_dir, Database* db,
-                        ProgressReporter* reporter, int base, int span, std::int64_t* out_records, std::string* error)
+    static bool LoadFccLicenses(const FccLicenseFile& file, const std::string& cache_dir, Database* db,
+                                ProgressReporter* reporter, int base, int span, std::int64_t* out_records,
+                                std::string* error)
     {
         // Download ~60% of this step's time, extraction ~5%, parsing the
         // rest -- roughly how long each takes on a typical connection.
         int download_span = span * 60 / 100;
         int extract_span = span * 5 / 100;
-        std::string zip_path = cache_dir + "/l_amat.zip";
+        std::string zip_path = cache_dir + "/" + file.zip_name;
 
         // The GitHub copy, then the FCC's own if the copy can't be had (or
         // turns out damaged: unpacking checks every file's CRC).
         std::string first_error;
-        bool fetched = DownloadAndExtractUls(sources.uls_zip_url, cache_dir, zip_path, reporter, base, download_span,
-                                             extract_span, &first_error);
+        bool fetched =
+            DownloadAndExtractUls(file, file.url, zip_path, reporter, base, download_span, extract_span, &first_error);
         if (!fetched)
         {
-            if (sources.uls_zip_fallback_url.empty() || reporter->StopRequested())
+            if (file.fallback_url.empty() || reporter->StopRequested())
             {
                 *error = first_error;
                 return false;
             }
             std::string fallback_error;
-            fetched = DownloadAndExtractUls(sources.uls_zip_fallback_url, cache_dir, zip_path, reporter, base,
-                                            download_span, extract_span, &fallback_error);
+            fetched = DownloadAndExtractUls(file, file.fallback_url, zip_path, reporter, base, download_span,
+                                            extract_span, &fallback_error);
             if (!fetched)
             {
                 *error = "GitHub copy: " + first_error + "; FCC: " + fallback_error;
@@ -672,9 +703,29 @@ namespace ql
             }
         }
 
-        reporter->BeginStep("Importing FCC license data", base + download_span + extract_span,
+        reporter->BeginStep(std::string("Importing ") + file.what, base + download_span + extract_span,
                             span - download_span - extract_span);
-        return ParseAndImport(cache_dir, db, reporter, out_records, error);
+        return ParseAndImport(file, db, reporter, out_records, error);
+    }
+
+    static bool LoadUls(const DataSources& sources, const std::string& cache_dir, Database* db,
+                        ProgressReporter* reporter, int base, int span, std::int64_t* out_records, std::string* error)
+    {
+        FccLicenseFile file{sources.uls_zip_url, sources.uls_zip_fallback_url, "l_amat.zip",
+                            cache_dir,           LicenseTable::kAmateur,       true,
+                            "FCC license data"};
+        return LoadFccLicenses(file, cache_dir, db, reporter, base, span, out_records, error);
+    }
+
+    // The FCC's GMRS licenses, unpacked into a folder of their own (their
+    // HD.dat and EN.dat would replace the amateur ones').
+    static bool LoadGmrs(const DataSources& sources, const std::string& cache_dir, Database* db,
+                         ProgressReporter* reporter, int base, int span, std::int64_t* out_records, std::string* error)
+    {
+        FccLicenseFile file{sources.gmrs_zip_url, sources.gmrs_zip_fallback_url, "l_gmrs.zip",
+                            cache_dir + "/gmrs",  LicenseTable::kGmrs,           false,
+                            "FCC GMRS data"};
+        return LoadFccLicenses(file, cache_dir, db, reporter, base, span, out_records, error);
     }
 
     // ---- ISED (Canadian) call sign data -------------------------------------
@@ -878,6 +929,63 @@ namespace ql
         {
             db->BulkUpsertZipCentroids(batch);
         }
+        return true;
+    }
+
+    static bool FetchAndLoadCaPostalCentroids(const DataSources& sources, const std::string& cache_dir, Database* db,
+                                              ProgressReporter* reporter, std::string* error)
+    {
+        std::string zip_path = cache_dir + "/ca_postal.zip";
+        if (!DownloadFile(sources.ca_postal_url, zip_path, 120L, reporter, error))
+        {
+            return false;
+        }
+        if (!ExtractZipEntries(zip_path, cache_dir, {sources.ca_postal_file_name}, error))
+        {
+            *error = "Failed to extract the Canadian postal code archive: " + *error;
+            return false;
+        }
+        std::string txt_path = cache_dir + "/" + sources.ca_postal_file_name;
+        std::ifstream file(txt_path);
+        if (!file.good())
+        {
+            *error = "Extraction did not produce " + sources.ca_postal_file_name + ".";
+            return false;
+        }
+
+        // Tab-separated, no header: country, postal code, place, province
+        // name, province code, three blank admin columns, latitude,
+        // longitude, accuracy.
+        constexpr std::size_t kCodeField = 1;
+        constexpr std::size_t kLatField = 9;
+        constexpr std::size_t kLonField = 10;
+        constexpr double kNotANumber = 1000.0;  // Outside any real lat/lon.
+        std::vector<ZipCentroid> batch;
+        std::string line;
+        std::vector<std::string_view> fields;
+        while (std::getline(file, line))
+        {
+            SplitFields(line, '\t', &fields);
+            if (fields.size() <= kLonField)
+            {
+                continue;
+            }
+            ZipCentroid centroid;
+            centroid.zip = ZipCentroidKey(std::string(fields[kCodeField]));
+            centroid.lat = ParseDoubleOr(fields[kLatField], kNotANumber);
+            centroid.lon = ParseDoubleOr(fields[kLonField], kNotANumber);
+            if (centroid.zip.size() != 3 || centroid.lat == kNotANumber || centroid.lon == kNotANumber)
+            {
+                continue;
+            }
+            batch.push_back(std::move(centroid));
+        }
+        if (batch.empty())
+        {
+            *error = "The Canadian postal code file had no usable rows.";
+            return false;
+        }
+        db->BulkUpsertZipCentroids(batch);
         return true;
     }
 
@@ -1201,12 +1309,15 @@ namespace ql
 
     DataRefreshPlan PlanDataRefresh(Database* db, std::int64_t now)
     {
+        // Its reads under one snapshot and one lock.
+        Database::ReadTransaction reads(db);
         std::optional<ImportRunStatus> job = db->GetImportRunStatus(kDataRefreshJob);
         bool requested = job.has_value() && job->requested_at > job->started_at;
 
         DataRefreshPlan plan;
 
         plan.uls = IsLicenseDataDue(db->GetImportRunStatus(kUlsDataset), now, requested);
+        plan.gmrs = IsLicenseDataDue(db->GetImportRunStatus(kGmrsDataset), now, requested);
         plan.ised = IsLicenseDataDue(db->GetImportRunStatus(kIsedDataset), now, requested);
 
         if (!db->HasAnyZipCentroids())
@@ -1214,6 +1325,13 @@ namespace ql
             std::optional<ImportRunStatus> centroids = db->GetImportRunStatus(kZipCentroidsDataset);
             plan.zip_centroids =
                 !centroids.has_value() || centroids->status != "failed" || IsRetryDue(*centroids, now, requested);
+        }
+
+        std::optional<ImportRunStatus> ca_postal = db->GetImportRunStatus(kCaPostalDataset);
+        if (!ca_postal.has_value() || ca_postal->status != "complete")
+        {
+            plan.ca_postal =
+                !ca_postal.has_value() || ca_postal->status != "failed" || IsRetryDue(*ca_postal, now, requested);
         }
 
         std::optional<ImportRunStatus> counties = db->GetImportRunStatus(kZipCountyDataset);
@@ -1227,7 +1345,7 @@ namespace ql
 
     bool DataRefreshPlanHasWork(const DataRefreshPlan& plan)
     {
-        return plan.uls || plan.ised || plan.zip_centroids || plan.zip_counties;
+        return plan.uls || plan.gmrs || plan.ised || plan.zip_centroids || plan.ca_postal || plan.zip_counties;
     }
 
     // Records one dataset's outcome. A failure keeps the figures from the
@@ -1271,11 +1389,13 @@ namespace ql
 
         // Each planned step's share of the overall percentage, by roughly how
         // long it takes.
-        int uls_weight = plan.uls ? 86 : 0;
+        int uls_weight = plan.uls ? 80 : 0;
+        int gmrs_weight = plan.gmrs ? 6 : 0;
         int ised_weight = plan.ised ? 4 : 0;
         int centroid_weight = plan.zip_centroids ? 4 : 0;
+        int ca_postal_weight = plan.ca_postal ? 1 : 0;
         int county_weight = plan.zip_counties ? 6 : 0;
-        int total_weight = uls_weight + ised_weight + centroid_weight + county_weight;
+        int total_weight = uls_weight + gmrs_weight + ised_weight + centroid_weight + ca_postal_weight + county_weight;
         if (total_weight == 0)
         {
             return "complete";
@@ -1295,6 +1415,22 @@ namespace ql
                 return "interrupted";
             }
             RecordDatasetOutcome(db, kUlsDataset, ok, started_at, records, error);
+            all_ok = all_ok && ok;
+            base += span;
+        }
+
+        if (plan.gmrs)
+        {
+            int span = 100 * gmrs_weight / total_weight;
+            std::int64_t started_at = Now();
+            std::int64_t records = 0;
+            std::string error;
+            bool ok = LoadGmrs(sources, cache_dir, db, &reporter, base, span, &records, &error);
+            if (reporter.StopRequested())
+            {
+                return "interrupted";
+            }
+            RecordDatasetOutcome(db, kGmrsDataset, ok, started_at, records, error);
             all_ok = all_ok && ok;
             base += span;
         }
@@ -1327,6 +1463,22 @@ namespace ql
                 return "interrupted";
             }
             RecordDatasetOutcome(db, kZipCentroidsDataset, ok, started_at, 0, error);
+            all_ok = all_ok && ok;
+            base += span;
+        }
+
+        if (plan.ca_postal)
+        {
+            int span = 100 * ca_postal_weight / total_weight;
+            std::int64_t started_at = Now();
+            std::string error;
+            reporter.BeginStep("Downloading Canadian postal code locations", base, span);
+            bool ok = FetchAndLoadCaPostalCentroids(sources, cache_dir, db, &reporter, &error);
+            if (reporter.StopRequested())
+            {
+                return "interrupted";
+            }
+            RecordDatasetOutcome(db, kCaPostalDataset, ok, started_at, 0, error);
             all_ok = all_ok && ok;
             base += span;
         }
@@ -1421,10 +1573,27 @@ namespace ql
             message += "\n" + ised_message;
         }
 
+        std::optional<ImportRunStatus> gmrs = db->GetImportRunStatus(kGmrsDataset);
+        if (UlsDataLoaded(gmrs))
+        {
+            message += "\nFCC GMRS license data updated " + FormatLocalDateTime(gmrs->completed_at) + " (" +
+                       std::to_string(gmrs->records_imported) + " records).";
+        }
+        if (gmrs.has_value() && gmrs->status == "failed")
+        {
+            message += "\nGMRS license data failed to load (" + gmrs->last_error + "). Retrying.";
+        }
+
         std::optional<ImportRunStatus> centroids = db->GetImportRunStatus(kZipCentroidsDataset);
         if (centroids.has_value() && centroids->status == "failed" && !db->HasAnyZipCentroids())
         {
             message += "\nZIP location data failed to load (" + centroids->last_error + "); no nearby stations yet.";
+        }
+        std::optional<ImportRunStatus> ca_postal = db->GetImportRunStatus(kCaPostalDataset);
+        if (ca_postal.has_value() && ca_postal->status == "failed")
+        {
+            message += "\nCanadian postal code data failed to load (" + ca_postal->last_error +
+                       "); Canadian grids may be missing.";
         }
         std::optional<ImportRunStatus> counties = db->GetImportRunStatus(kZipCountyDataset);
         if (counties.has_value() && counties->status == "failed")

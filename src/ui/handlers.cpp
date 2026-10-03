@@ -44,6 +44,25 @@ namespace ql
 
     void ZipCodeFieldHandler::operator()() const
     {
+        // Starting with a letter, it's a Canadian postal code: letters and
+        // digits, upper-cased, at most six.
+        if (!field_->empty() && std::isalpha(static_cast<unsigned char>((*field_)[0])))
+        {
+            std::string kept;
+            for (char c : *field_)
+            {
+                if (std::isalnum(static_cast<unsigned char>(c)))
+                {
+                    kept.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+                }
+            }
+            if (kept.size() > 6)
+            {
+                kept.resize(6);
+            }
+            *field_ = kept;
+            return;
+        }
         KeepDigits(field_, 5);
     }
 
@@ -119,22 +138,15 @@ namespace ql
             state_->form_error = "You already have a net named \"" + taken + "\".";
             return;
         }
-        if (!CheckNetRadio(state_, state_->new_net_frequency, state_->new_net_offset, &state_->new_net_tone) ||
-            !CheckNetZip(state_, state_->new_net_location))
+        Net net;
+        if (!ReadNewNetRadio(state_, &net) || !CheckNetZip(state_, state_->new_net_location))
         {
             return;
         }
-
-        Net net;
         net.name = state_->new_net_name;
-        net.mode = NetModes()[static_cast<std::size_t>(state_->new_net_mode_index)];
-        net.default_frequency = state_->new_net_frequency;
-        net.repeater_offset = state_->new_net_offset;
-        net.pl_tone = state_->new_net_tone;
-        net.default_location = state_->new_net_location;
+        net.default_location = NormalizeZipOrPostalCode(state_->new_net_location);
         net.recurrence_description = state_->new_net_recurrence;
         net.comments = state_->new_net_comments;
-        net.partial_match_canada = state_->new_net_partial_match_index == 1;
         net.created_at = static_cast<std::int64_t>(std::time(nullptr));
         state_->db->CreateNet(net);
 
@@ -247,7 +259,7 @@ namespace ql
 
     void HistoryInstanceChangedHandler::operator()() const
     {
-        RefreshHistoryCheckIns(state_);
+        ShowHistoryCheckIns(state_);
     }
 
     void NetHistoryBackHandler::operator()() const
@@ -280,6 +292,12 @@ namespace ql
     {
         if (state_->show_zmodem_confirm_modal)
         {
+            // After F7 Export of a closed session, with an upstream set.
+            if (event == ftxui::Event::F3 && ExportOffersPush(state_))
+            {
+                PushExport(state_);
+                return true;
+            }
             if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
             {
                 ConfirmZmodemActionHandler confirm(state_);
@@ -390,7 +408,7 @@ namespace ql
 
     void ExportSavedStationsHandler::operator()() const
     {
-        ExportSavedStations(state_, state_->edit_net_name, state_->edit_net_saved_stations);
+        ExportSavedStations(state_, state_->edit_net_name);
     }
 
     void InfoQueryChangeHandler::operator()() const
@@ -415,7 +433,7 @@ namespace ql
         {
             return;
         }
-        LoadSavedStationIntoForm(state_, state_->edit_net_saved_stations[state_->selected_saved_station_index]);
+        LoadSavedStationIntoForm(state_, static_cast<std::size_t>(state_->selected_saved_station_index));
     }
 
     void AddNewSavedStationHandler::operator()() const
@@ -601,6 +619,12 @@ namespace ql
     {
         if (state_->show_zmodem_confirm_modal)
         {
+            // After an export, with an upstream set: push what was exported.
+            if (event == ftxui::Event::F3 && ExportOffersPush(state_))
+            {
+                PushExport(state_);
+                return true;
+            }
             if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
             {
                 ConfirmZmodemActionHandler confirm(state_);
@@ -730,6 +754,11 @@ namespace ql
             start_receive();
             return true;
         }
+        if (event == ftxui::Event::F4 && CanPullUpstream(state_))
+        {
+            OpenPullWindow(state_);
+            return true;
+        }
         if (event == ftxui::Event::Escape)
         {
             ImportNetBackHandler back(state_);
@@ -779,7 +808,7 @@ namespace ql
             state_->form_error = "Enter a callsign to continue.";
             return;
         }
-        if (!CheckCallsign(state_, state_->operator_callsign))
+        if (!CheckNetCallsign(state_, state_->operator_callsign, state_->start_net.service))
         {
             return;
         }
@@ -793,7 +822,8 @@ namespace ql
         // "Created By" reflects who is running the software (from Settings),
         // which may differ from whichever role-callsign is entered below --
         // falling back to that role-callsign if Settings hasn't been set up yet.
-        instance.created_by = state_->settings.callsign.empty() ? state_->operator_callsign : state_->settings.callsign;
+        const std::string& own = OwnCallsign(state_, net.service);
+        instance.created_by = own.empty() ? state_->operator_callsign : own;
         instance.operator_role = state_->selected_role_index;
         if (state_->selected_role_index == kRoleNetControl)
         {
@@ -813,6 +843,7 @@ namespace ql
         state_->active_net_name = net.name;
         state_->active_net_zip = net.default_location;
         state_->active_net_partial_match_canada = net.partial_match_canada;
+        state_->active_net_service = net.service;
         state_->active_net_radio = DescribeNetRadio(net);
         state_->active_net_is_ad_hoc = net.is_ad_hoc;
         state_->viewing_only = false;
@@ -875,7 +906,7 @@ namespace ql
         std::optional<Station> station = state_->db->FindStationByCallsign(state_->modal_station.callsign);
         if (!station.has_value())
         {
-            station = state_->db->FindLicensedStationByCallsign(state_->modal_station.callsign);
+            station = FindLicensee(state_->db, state_->modal_station.callsign, state_->active_net_service);
         }
         if (station.has_value())
         {
@@ -884,8 +915,9 @@ namespace ql
             BackfillGridFromZip(state_, &state_->modal_station);
         }
 
-        std::string default_remarks =
-            state_->db->GetSavedNetStationRemarks(state_->active_instance.net_id, state_->modal_station.callsign);
+        std::string default_remarks = state_->db->GetSavedNetStationRemarks(
+            state_->active_instance.net_id, state_->modal_station.callsign,
+            SavedEntryName(state_->active_net_service, state_->modal_station.name));
         if (!default_remarks.empty())
         {
             state_->modal_remarks = default_remarks;
@@ -948,8 +980,10 @@ namespace ql
 
     void SaveEditCheckInHandler::operator()() const
     {
-        SaveEditCheckInForm(state_);
-        state_->show_edit_checkin_modal = false;
+        if (SaveEditCheckInForm(state_))
+        {
+            state_->show_edit_checkin_modal = false;
+        }
     }
 
     void CancelEditCheckInHandler::operator()() const
@@ -1191,11 +1225,11 @@ namespace ql
     void CancelSettingsHandler::operator()() const
     {
         // Settings aren't optional on first launch: refuse to leave until a
-        // callsign and ZIP code are on file, same requirement F2/Save
+        // callsign and postal code are on file, same requirement F2/Save
         // enforces above, so Esc can't be used to bypass it.
         if (!SettingsAreComplete(state_->settings))
         {
-            state_->form_error = "Enter your callsign and ZIP code first.";
+            state_->form_error = "Enter your callsign and postal code first.";
             return;
         }
         state_->form_error.clear();
@@ -1306,6 +1340,30 @@ namespace ql
 
     bool SettingsKeyHandler::operator()(const ftxui::Event& event) const
     {
+        // The Upstream Server window takes its own keys; typing goes to its
+        // fields, and every other F-key is swallowed.
+        if (state_->show_upstream_window)
+        {
+            if (event == ftxui::Event::F2)
+            {
+                SaveUpstreamWindow(state_);
+                return true;
+            }
+            if (event == ftxui::Event::Escape)
+            {
+                CloseUpstreamWindow(state_);
+                return true;
+            }
+            return event == ftxui::Event::F1 || event == ftxui::Event::F3 || event == ftxui::Event::F4 ||
+                   event == ftxui::Event::F5 || event == ftxui::Event::F6 || event == ftxui::Event::F7 ||
+                   event == ftxui::Event::F8 || event == ftxui::Event::F9 || event == ftxui::Event::F10 ||
+                   event == ftxui::Event::F11 || event == ftxui::Event::F12;
+        }
+        if (event == ftxui::Event::F5 && state_->is_console_session)
+        {
+            OpenUpstreamWindow(state_);
+            return true;
+        }
         if (event == ftxui::Event::F2)
         {
             SaveSettingsHandler save(state_);
@@ -1411,6 +1469,17 @@ namespace ql
                 LeaveClosedSession(state);
             }
         }
+        else if (state->confirm_prompt == ConfirmPrompt::kPushToNet)
+        {
+            if (yes)
+            {
+                ConfirmPushToNet(state);
+            }
+            else if (event == ftxui::Event::Escape)
+            {
+                DeclinePushToNet(state);
+            }
+        }
         else if (event == ftxui::Event::Escape)
         {
             CancelConfirmPrompt(state);
@@ -1433,6 +1502,11 @@ namespace ql
         else if (state->confirm_prompt == ConfirmPrompt::kCloseNet && yes)
         {
             CloseActiveNet(state);
+        }
+        else if (state->confirm_prompt == ConfirmPrompt::kCloseNet && event == ftxui::Event::F3 &&
+                 CanPushUpstream(state))
+        {
+            CloseActiveNetAndPush(state);
         }
         else if (state->confirm_prompt == ConfirmPrompt::kImportOtherNet && yes)
         {
@@ -1484,7 +1558,8 @@ namespace ql
     {
         return state->show_new_station_modal || state->show_edit_checkin_modal || state->show_saved_station_modal ||
                state->show_zmodem_confirm_modal || state->show_delete_net_confirm_modal ||
-               state->show_session_notes_modal || state->show_merge_modal;
+               state->show_session_notes_modal || state->show_merge_modal || state->show_upstream_window ||
+               state->show_pull_modal;
     }
 
     // Keys in the Import or Merge window (see MergeStage); it takes them
@@ -1518,6 +1593,24 @@ namespace ql
                  event == ftxui::Event::Return || event == ftxui::Event::Character(' '))
         {
             ToggleMergeReplace(state);
+        }
+        return event != ftxui::Event::Custom;
+    }
+
+    // Keys in the Pull window (see PullStage); it takes them all.
+    static bool HandlePullKey(AppState* state, const ftxui::Event& event)
+    {
+        if (event == ftxui::Event::Escape)
+        {
+            ClosePullWindow(state);
+        }
+        else if (event == ftxui::Event::ArrowUp || event == ftxui::Event::ArrowDown)
+        {
+            MovePullHighlight(state, event == ftxui::Event::ArrowUp ? -1 : 1);
+        }
+        else if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
+        {
+            ChoosePullNet(state);
         }
         return event != ftxui::Event::Custom;
     }
@@ -1581,6 +1674,10 @@ namespace ql
         if (state_->show_session_notes_modal)
         {
             return HandleSessionNotesKey(state_, event);
+        }
+        if (state_->pull_stage != PullStage::kNone)
+        {
+            return HandlePullKey(state_, event);
         }
         if (state_->merge_stage != MergeStage::kNone)
         {

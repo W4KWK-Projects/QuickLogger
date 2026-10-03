@@ -18,7 +18,7 @@
 # 1-byte writes was a packet of its own: 17 or so per move through a list,
 # while FTXUI's Menu animates its highlight.
 #
-# Version 3 (QuickLogger 1.8.4): the animation thread sends its task only
+# Version 3 (QuickLogger 2.0): the animation thread sends its task only
 # after a frame asks for animation (RequestAnimationFrame), instead of every
 # 15 ms whether or not anything is animating. Idle, it posted ~66 tasks a
 # second that the UI loop woke up just to drop, for every session.

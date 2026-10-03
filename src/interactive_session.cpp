@@ -30,6 +30,8 @@
 #include "ui/handlers.hpp"
 #include "ui/mouse.hpp"
 #include "ui/pages.hpp"
+#include "ui/pull_runner.hpp"
+#include "ui/push_runner.hpp"
 
 namespace ql
 {
@@ -100,6 +102,53 @@ namespace ql
         std::int64_t instance_id_;
     };
 
+    // Posted to the UI thread by ScreenTicker when the station data's status
+    // has changed: shows it (see ShowStationDataStatus) and redraws.
+    class StationDataStatusTask
+    {
+    public:
+        StationDataStatusTask(AppState* state, std::string notice, bool is_problem, std::string status)
+            : state_(state), notice_(std::move(notice)), is_problem_(is_problem), status_(std::move(status))
+        {
+        }
+
+        void operator()() const
+        {
+            ShowStationDataStatus(state_, notice_, is_problem_, status_);
+            if (state_->screen != nullptr)
+            {
+                state_->screen->PostEvent(ftxui::Event::Custom);
+            }
+        }
+
+    private:
+        AppState* state_;
+        std::string notice_;
+        bool is_problem_;
+        std::string status_;
+    };
+
+    // Posted to the UI thread by UpdateChecker when it finds a newer release
+    // (or no longer does): shows it and redraws.
+    class AvailableUpdateTask
+    {
+    public:
+        AvailableUpdateTask(ftxui::ScreenInteractive* screen, std::string version)
+            : screen_(screen), version_(std::move(version))
+        {
+        }
+
+        void operator()() const
+        {
+            SetAvailableUpdateForDisplay(version_);
+            screen_->PostEvent(ftxui::Event::Custom);
+        }
+
+    private:
+        ftxui::ScreenInteractive* screen_;
+        std::string version_;
+    };
+
     // Redraws the screen when -- and only when -- something it shows has
     // changed on its own, without a keypress: the top bar's clock ticking
     // over to a new minute, the shared station data's status (see
@@ -145,26 +194,25 @@ namespace ql
             return static_cast<std::int64_t>(std::time(nullptr));
         }
 
-        // Everything about the station data that's shown anywhere, as one
-        // string to compare; empty if the database can't be read.
-        static std::string StatusSignature(Database* db, bool* busy)
+        // Everything about the station data that's shown anywhere: the top
+        // bar's notice (and whether it's a problem) and Settings' status.
+        // False if the database can't be read.
+        static bool ReadStatus(Database* db, std::string* notice, bool* is_problem, std::string* status)
         {
-            *busy = false;
             if (db == nullptr)
             {
-                return "";
+                return false;
             }
             try
             {
                 std::int64_t now = Now();
-                bool is_problem = false;
-                std::string notice = DescribeStationDataNotice(db, now, &is_problem);
-                *busy = !notice.empty();
-                return notice + "|" + DescribeStationDataStatus(db, now);
+                *notice = DescribeStationDataNotice(db, now, is_problem);
+                *status = DescribeStationDataStatus(db, now);
+                return true;
             }
             catch (const std::exception&)
             {
-                return "";
+                return false;
             }
         }
 
@@ -184,8 +232,27 @@ namespace ql
             }
 
             std::int64_t drawn_minute = Now() / 60;
-            bool busy = false;
-            std::string drawn_status = StatusSignature(db.get(), &busy);
+            // What the UI thread read before the first frame (see
+            // ReadStationDataStatus), read again here to compare against.
+            std::string drawn_notice;
+            bool drawn_problem = false;
+            std::string drawn_status;
+            ReadStatus(db.get(), &drawn_notice, &drawn_problem, &drawn_status);
+            // The open nets the list was just loaded with, so the first tick
+            // doesn't reload it for nothing.
+            if (db != nullptr)
+            {
+                try
+                {
+                    shown_open_net_ids_ = db->GetNetIdsWithOpenInstances();
+                    std::sort(shown_open_net_ids_.begin(), shown_open_net_ids_.end());
+                }
+                // NOLINTNEXTLINE(bugprone-empty-catch): the first tick reloads it then.
+                catch (const std::exception&)
+                {
+                }
+            }
+            bool busy = !drawn_notice.empty();
             std::chrono::system_clock::time_point next_status_check =
                 std::chrono::system_clock::now() + kStatusPollIdle;
             while (true)
@@ -241,12 +308,20 @@ namespace ql
                 }
                 if (std::chrono::system_clock::now() >= next_status_check)
                 {
-                    std::string status = StatusSignature(db.get(), &busy);
-                    if (status != drawn_status)
+                    std::string notice;
+                    bool is_problem = false;
+                    std::string status;
+                    if (ReadStatus(db.get(), &notice, &is_problem, &status) &&
+                        (notice != drawn_notice || is_problem != drawn_problem || status != drawn_status))
                     {
+                        drawn_notice = notice;
+                        drawn_problem = is_problem;
                         drawn_status = status;
-                        changed = true;
+                        // It redraws, so this tick needn't.
+                        screen_->Post(StationDataStatusTask(state_, notice, is_problem, status));
+                        changed = false;
                     }
+                    busy = !drawn_notice.empty();
                     next_status_check = std::chrono::system_clock::now() + (busy ? kStatusPollBusy : kStatusPollIdle);
                 }
                 if (changed)
@@ -288,7 +363,7 @@ namespace ql
         // yet (or is showing ones since deleted), asks the UI thread to
         // reload them; it redraws only then. If someone else has closed or
         // deleted the session, asks it to say so instead.
-        void CheckWatchedSession(Database* db)
+        void CheckWatchedSession(Database* db) const
         {
             std::int64_t instance_id = state_->watched_instance_id;
             if (db == nullptr || instance_id == 0)
@@ -405,7 +480,7 @@ namespace ql
                         if (found != AvailableUpdate())
                         {
                             SetAvailableUpdate(found);
-                            screen_->PostEvent(ftxui::Event::Custom);
+                            screen_->Post(AvailableUpdateTask(screen_, found));
                         }
                         next = kUpdateCheckInterval;
                     }
@@ -429,7 +504,7 @@ namespace ql
     };
 
     void RunInteractiveSession(const std::string& settings_path, bool is_console_session,
-                               const std::string& ssh_username)
+                               const std::string& ssh_username, bool over_mosh)
     {
         // Each frame goes to the terminal in one write. Standard output to a
         // terminal is otherwise line-buffered, and FTXUI ends every screen
@@ -452,18 +527,25 @@ namespace ql
         state.db_path = "quicklogger.db";
         state.screen = &screen;
         state.is_console_session = is_console_session;
+        state.over_mosh = over_mosh;
         // Decided once, at login: a change in Manage Users applies from
         // the user's next login.
         state.ssh_username = is_console_session ? std::string() : ssh_username;
         state.view_only_user = !is_console_session && !ssh_username.empty() && db.IsUserViewOnly(ssh_username);
         state.settings_path = settings_path;
         state.settings = ql::LoadSettings(state.settings_path);
-        // An SSH user's callsign is their username (usernames are
-        // callsigns), and isn't theirs to change.
-        if (!state.ssh_username.empty() && ql::UsernameIsCallsign(state.ssh_username))
+        // An SSH user's call signs are set in Manage Users, not theirs to
+        // change.
+        if (!state.ssh_username.empty())
         {
-            state.callsign_editable = false;
-            state.settings.callsign = state.ssh_username;
+            std::vector<ql::User> keys = db.GetUserKeys(state.ssh_username);
+            if (!keys.empty())
+            {
+                state.callsign_editable = false;
+                state.settings_focus = 1;
+                state.settings.callsign = keys[0].amateur_callsign;
+                state.settings.gmrs_callsign = keys[0].gmrs_callsign;
+            }
         }
         ql::SetUse24HourClock(state.settings.use_24_hour_clock);
         // Only the console checks for updates: an SSH user can't install one.
@@ -522,11 +604,15 @@ namespace ql
         // because another connection -- another session, or the station data
         // updater -- is mid-transaction) taking down the whole session.
         // Help and the seldom-used windows open over whichever page is up.
-        ftxui::Component with_info_window = ql::LayeredModal(tab, ql::BuildInfoWindow(&state), &state.show_info_window);
+        ftxui::Component with_confirm_prompt =
+            ql::LayeredModal(tab, ql::BuildConfirmPrompt(&state), &state.show_confirm_prompt);
+        ftxui::Component with_info_window =
+            ql::LayeredModal(with_confirm_prompt, ql::BuildInfoWindow(&state), &state.show_info_window);
         ftxui::Component ui = ftxui::Make<ql::SafeAppEventDispatcher>(with_info_window, &state);
 
-        // The top bar's station-data notice reads this session's database.
-        SetTopBarNoticeDatabase(&db);
+        // The station data's status as of the first frame; ScreenTicker
+        // keeps it current.
+        ReadStationDataStatus(&state);
 
         // Declared after `screen` so it is stopped and joined before `screen`
         // is destroyed.
@@ -535,6 +621,20 @@ namespace ql
         if (is_console_session)
         {
             update_checker = std::make_unique<UpdateChecker>(&screen);
+        }
+        // At the console: pushing sessions upstream, off this thread.
+        std::unique_ptr<PushRunner> push_runner;
+        if (is_console_session)
+        {
+            push_runner = std::make_unique<PushRunner>(&screen, &state);
+            state.push_runner = push_runner.get();
+        }
+        // And pulling nets and sessions from it.
+        std::unique_ptr<PullRunner> pull_runner;
+        if (is_console_session)
+        {
+            pull_runner = std::make_unique<PullRunner>(&screen, &state);
+            state.pull_runner = pull_runner.get();
         }
 
         screen.Loop(ui);

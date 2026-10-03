@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "../models.hpp"
@@ -17,6 +18,14 @@ namespace ql
 
     // Owns the sqlite3 connection for QuickLogger's local database and
     // creates the schema (if it doesn't already exist) on construction.
+    // The FCC's two licensee tables: amateur (uls_stations, l_amat.zip) and
+    // GMRS (gmrs_stations, l_gmrs.zip), which have the same columns.
+    enum class LicenseTable
+    {
+        kAmateur,
+        kGmrs,
+    };
+
     class Database
     {
     public:
@@ -97,7 +106,7 @@ namespace ql
         std::optional<Station> FindStationByCallsign(const std::string& callsign);
         // The stations here with any of `callsigns` (upper case), sorted by
         // callsign: a few queries for the lot rather than one per callsign.
-        std::vector<Station> FindStationsByCallsigns(const std::vector<std::string>& callsigns);
+        std::vector<Station> FindStationsByCallsigns(const std::vector<std::string>& callsigns) const;
         // Every station checked into net instance `instance_id`, sorted by
         // callsign: one query where looking each check-in's station up in
         // turn would be one per check-in.
@@ -115,8 +124,9 @@ namespace ql
         // or been explicitly saved to it (see SaveNetStation) -- e.g. imported
         // from another logging program's history. This is autocomplete's first
         // tier: prefer callers already known to this specific net before
-        // broadening to SearchStationsByCallsignSubstring (other nets).
-        // At most `limit` of them (-1: all).
+        // broadening to SearchStationsByCallsignSubstring (other nets). On a
+        // GMRS net each name a call sign checked in or was saved under is a
+        // match of its own, under that name. At most `limit` of them (-1: all).
         std::vector<Station> SearchNetStationsByCallsignSubstring(std::int64_t net_id, const std::string& substring,
                                                                   int limit = -1);
         // Associates `station.callsign` with `net_id` as "known to this net"
@@ -126,20 +136,35 @@ namespace ql
         // `default_remarks` is carried on the net/callsign association (not
         // the Station), and gets copied into the New Station modal's Remarks
         // field when this station is picked via autocomplete for this net.
+        //
+        // Every saved-station method here also takes the entry's own
+        // `name`: on a GMRS net, where a call sign may be saved more than
+        // once (one license covers a family), the person's name, which tells
+        // the entries apart; on an Amateur Radio net blank (the default), the
+        // station's own name standing. See SavedEntryName in app_state.hpp.
         void SaveNetStation(std::int64_t net_id, const Station& station, const std::string& default_remarks,
-                            std::int64_t updated_at);
+                            std::int64_t updated_at, const std::string& name = "");
         // Directly sets an already-saved station's fields and default remarks
         // to exactly what's given in `station`/`default_remarks`, including
         // blanking any of them out. Unlike SaveNetStation, this never preserves
         // a previous value -- it's for explicitly editing a station the
         // operator already saved to this net (e.g. adding details they didn't
         // have when they first saved just the callsign), not adding a new one.
+        // `old_name` names the entry; it's renamed to `new_name`.
         void UpdateSavedNetStation(std::int64_t net_id, const Station& station, const std::string& default_remarks,
-                                   std::int64_t updated_at);
+                                   std::int64_t updated_at, const std::string& old_name = "",
+                                   const std::string& new_name = "");
         // Removes a station's saved association with a net. Never touches
         // check-in history. Like every delete here, it then drops any
         // station record nothing refers to any more (see DeleteUnusedStations).
-        void RemoveSavedNetStation(std::int64_t net_id, const std::string& callsign);
+        void RemoveSavedNetStation(std::int64_t net_id, const std::string& callsign, const std::string& name = "");
+        // After a GMRS check-in's name changed from `old_name` to `new_name`:
+        // `callsign`'s entry on net `net_id` under the old name is renamed,
+        // or, while another check-in to the net still goes by the old name,
+        // copied (default remarks too) under the new one. Nothing if
+        // `callsign` wasn't saved under the old name.
+        void RenameNetSavedStationEntry(std::int64_t net_id, const std::string& callsign, const std::string& old_name,
+                                        const std::string& new_name);
         // Whether `callsign` is saved to some net other than `net_id`, or has
         // checked in anywhere -- i.e. whether its station record would
         // survive being removed from `net_id`'s saved stations.
@@ -153,13 +178,19 @@ namespace ql
         int DeleteUnusedStations();
         // Stations explicitly saved to `net_id` (not those merely known via
         // real check-in history) -- for the edit-net page's saved-station list.
+        // An entry with a name of its own has that as its Station::name.
+        // By call sign, then name.
         std::vector<Station> GetSavedStationsForNet(std::int64_t net_id);
+        // The same, each with its entry name and default remarks (the
+        // station's own name left as on file), in one query.
+        std::vector<SavedNetStation> GetSavedNetEntries(std::int64_t net_id);
         // The default remarks saved for `callsign` on `net_id`, or an empty
         // string if there's no saved row or no default was set. Used to
         // prefill the New Station modal's Remarks field when autocomplete
         // picks a station that was saved (rather than genuinely checked in)
         // for this net.
-        std::string GetSavedNetStationRemarks(std::int64_t net_id, const std::string& callsign);
+        std::string GetSavedNetStationRemarks(std::int64_t net_id, const std::string& callsign,
+                                              const std::string& name = "");
         // Adds `station` to the stations table, or for one already there,
         // fills in only the fields it has blank: what's known here is never
         // replaced. For merging a net from a file (see ApplyNetMerge).
@@ -168,7 +199,7 @@ namespace ql
         // `default_remarks`, unless it's saved there already, in which case
         // nothing changes. True if it was added.
         bool AddNetSavedStationIfMissing(std::int64_t net_id, const std::string& callsign,
-                                         const std::string& default_remarks);
+                                         const std::string& default_remarks, const std::string& name = "");
 
         // Nets (recurring net definitions).
         std::int64_t CreateNet(const Net& net);
@@ -189,7 +220,19 @@ namespace ql
         std::vector<NetInstance> GetNetInstancesForNet(std::int64_t net_id);
         // Every session of every ad hoc net (Net::is_ad_hoc), newest first.
         std::vector<NetInstance> GetAdHocNetInstances();
+        // The session of an ad hoc net named exactly `net_name` on
+        // `instance_date` that started at `started_at`, if there is one: a
+        // .qlsession already imported as an ad hoc net (see
+        // ApplyAdHocSessionSlice).
+        // True if net `net_id` has a session of that date and start time: the
+        // same session, imported or pushed again.
+        bool HasNetInstance(std::int64_t net_id, const std::string& instance_date, std::int64_t started_at);
+        std::optional<NetInstance> FindAdHocSession(const std::string& net_name, const std::string& instance_date,
+                                                    std::int64_t started_at);
         std::optional<NetInstance> GetNetInstanceById(std::int64_t instance_id);
+        // Records that the session was pushed upstream at `pushed_at`
+        // (see NetInstance::pushed_at).
+        void SetNetInstancePushedAt(std::int64_t instance_id, std::int64_t pushed_at);
         // Closes an open instance as of `closed_at`. Returns false, changing
         // nothing, if it's already closed (someone else got there first, and
         // their end time stands) or no longer exists.
@@ -224,8 +267,10 @@ namespace ql
         // check-ins -- check_ins.net_instance_id references net_instances(id)
         // with foreign keys enforced, so the check-ins must go first. Wrapped
         // in one transaction so a failure can't leave check-ins orphaned from
-        // a half-deleted instance.
-        void DeleteNetInstance(std::int64_t instance_id);
+        // a half-deleted instance. Then the stations nothing refers to any
+        // more go too (DeleteUnusedStations), unless `remove_unused_stations`
+        // is false: for deleting several in a row, then removing them once.
+        void DeleteNetInstance(std::int64_t instance_id, bool remove_unused_stations = true);
 
         // Check-ins (one station's check-in during one NetInstance).
         std::int64_t AddCheckIn(const CheckIn& check_in);
@@ -252,7 +297,8 @@ namespace ql
         // The callsigns that have checked in to net `net_id` most often, with
         // how many times and their latest session's date.
         std::vector<CallsignTally> GetTopCallsignsForNet(std::int64_t net_id, int limit);
-        // Each station saved to net `net_id`, with how many times it has
+        // Each station saved to net `net_id` (each entry, on a GMRS net, with
+        // its own name and check-ins), with how many times it has
         // checked in to that net and the date of the latest (empty if never),
         // least recent first.
         std::vector<CallsignTally> GetSavedStationActivity(std::int64_t net_id);
@@ -262,6 +308,16 @@ namespace ql
         // How many check-ins a session has and the newest one's id -- enough
         // to tell cheaply whether someone else has logged or deleted one.
         void GetCheckInSummary(std::int64_t net_instance_id, std::int64_t* count, std::int64_t* newest_id);
+        // How many check-ins each session of net `net_id` has, by session id,
+        // in one query (a session with none isn't listed). With `net_id` 0,
+        // every ad hoc net's sessions.
+        std::unordered_map<std::int64_t, std::int64_t> GetCheckInCounts(std::int64_t net_id);
+        // Every call sign that has checked in to net `net_id` in a session
+        // other than `instance_id`, once each.
+        std::vector<std::string> GetCallsignsInOtherSessions(std::int64_t net_id, std::int64_t instance_id);
+        // The check-ins of a few sessions, in one query, by session then
+        // number.
+        std::vector<CheckIn> GetCheckInsForNetInstances(const std::vector<std::int64_t>& instance_ids) const;
         void UpdateCheckIn(const CheckIn& check_in);
         // Removes one check-in entry entirely (e.g. logged in error). Does not
         // touch the Station record. In an open session the others keep their
@@ -307,14 +363,18 @@ namespace ql
         // Writes stations[begin, end) in one transaction for performance, so
         // callers should pass a few thousand at a time. Rows whose data is
         // unchanged are left alone.
+        //
+        // Every FCC licensee method here takes a LicenseTable: the amateur
+        // table by default, or the GMRS one, which is alike in every column.
         void BulkUpsertUlsStations(const std::vector<Station>& stations, std::size_t begin, std::size_t end,
-                                   std::int64_t updated_at);
+                                   std::int64_t updated_at, LicenseTable table = LicenseTable::kAmateur);
         // Deletes every ULS row whose callsign isn't in `current` -- run after
         // a full import, so a license that has expired or been cancelled
         // since the last one stops turning up in autocomplete. Returns how
         // many were deleted.
         int DeleteUlsStationsNotIn(const std::vector<Station>& current);
-        int DeleteUlsStationsNotIn(const std::vector<std::string_view>& current_callsigns);
+        int DeleteUlsStationsNotIn(const std::vector<std::string_view>& current_callsigns,
+                                   LicenseTable table = LicenseTable::kAmateur);
         // Autocomplete's FCC tier: ULS stations whose callsign contains
         // `substring` (case-insensitive) and who live near the operator,
         // nearest first (then by callsign), at most `limit` of them (-1 for
@@ -325,17 +385,32 @@ namespace ql
         // Box ZIP) that starts with one of `zip3_prefixes`.
         std::vector<NearbyUlsStation> SearchNearbyUlsStations(const std::string& substring,
                                                               const std::vector<NearbyZip>& nearby_zips,
-                                                              const std::vector<std::string>& zip3_prefixes, int limit);
+                                                              const std::vector<std::string>& zip3_prefixes, int limit,
+                                                              LicenseTable table = LicenseTable::kAmateur) const;
         // Every station SearchNearbyUlsStations("") would return, in the same
         // order, as just its callsign and distance: what autocomplete keeps
         // in memory (see AppState::nearby_uls_callsigns). Read from the
         // (zip, callsign) index alone, never the table's rows.
         std::vector<NearbyUlsCallsign> ListNearbyUlsCallsigns(const std::vector<NearbyZip>& nearby_zips,
-                                                              const std::vector<std::string>& zip3_prefixes);
+                                                              const std::vector<std::string>& zip3_prefixes,
+                                                              LicenseTable table = LicenseTable::kAmateur);
+        // The same for Canada's licensees (ISED), found by the first three
+        // characters of their postal code: those in the nearby entries of
+        // `nearby_zips` that are FSAs (the US ZIPs among them are skipped).
+        // Licensees with no postal code on file are left out.
+        std::vector<NearbyUlsCallsign> ListNearbyIsedCallsigns(const std::vector<NearbyZip>& nearby_zips);
         // Exact-callsign lookup against the ULS table, for resolving a
         // specific operator's info (see LogOperatorCheckIn) rather than
         // searching/ranking candidates.
-        std::optional<Station> FindUlsStationByCallsign(const std::string& callsign);
+        std::optional<Station> FindUlsStationByCallsign(const std::string& callsign,
+                                                        LicenseTable table = LicenseTable::kAmateur);
+        // The same for a few call signs at once (a screenful of autocomplete
+        // matches), sorted by callsign; those not licensed are left out.
+        std::vector<Station> FindUlsStationsByCallsigns(const std::vector<std::string>& callsigns,
+                                                        LicenseTable table = LicenseTable::kAmateur) const;
+
+        // FindUlsStationsByCallsigns for the ISED table.
+        std::vector<Station> FindIsedStationsByCallsigns(const std::vector<std::string>& callsigns) const;
 
         // Canada's amateur call sign database (ISED -- see uls_import.hpp),
         // in its own table like the FCC's. Replaced wholesale on each load,
@@ -386,7 +461,13 @@ namespace ql
         std::string FindZipCounty(const std::string& zip);
         std::string FindZipPlaceCounty(const std::string& zip, const std::string& place);
 
-        bool HasAnyUlsStations();
+        bool HasAnyUlsStations(LicenseTable table = LicenseTable::kAmateur);
+
+        // A number that changes whenever another connection (another
+        // session, the data updater) commits a change to the database, and
+        // never for this connection's own (SQLite's data_version): whether
+        // something read earlier may since have changed under it.
+        std::int64_t DataVersion();
 
         // Login keys for the built-in SSH server (see ssh_server.hpp), one
         // row per key -- global/shared data, like Net, even though each
@@ -402,6 +483,10 @@ namespace ql
         bool CreateUser(const User& user);
         // Makes every key of `username` view-only, or full access.
         void SetUserViewOnly(const std::string& username, bool view_only);
+        // Sets `username`'s call signs (see User::amateur_callsign) on
+        // every key; a new username's come from CreateUser's `user`.
+        void SetUserCallsigns(const std::string& username, const std::string& amateur_callsign,
+                              const std::string& gmrs_callsign);
         // True if `username` is view-only (false for an unknown username).
         bool IsUserViewOnly(const std::string& username);
         // Every key `username` may log in with, oldest first.
@@ -426,6 +511,10 @@ namespace ql
         // than one key (username was its primary key) in the current shape,
         // keeping every row. Part of CreateSchema's one-time upgrade.
         void UpgradeUsersTable();
+        // Rebuilds net_saved_stations from before a GMRS net could save a
+        // call sign more than once (its key was net and call sign) with a
+        // `name` in its key, keeping every row.
+        void UpgradeSavedStationsTable();
         // Replaces each net's default_location with the ZIP code in it
         // (ExtractZipCode), or blank if it has none. Part of CreateSchema's
         // one-time upgrade.

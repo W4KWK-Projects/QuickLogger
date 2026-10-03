@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 # The version shown in the app (see src/version.hpp). A release is tagged
 # "v" + this version, e.g. v1.0.1.
-project(QuickLogger VERSION 1.8.6 LANGUAGES CXX)
+project(QuickLogger VERSION 2.0.0 LANGUAGES CXX)
 
 # The code needs nothing newer than C++17 (checked by compiling every source
 # file as C++17), so that's what it asks for -- a higher standard would only
@@ -120,6 +120,14 @@ set(quicklogger_sources
     src/file_export.cpp
     src/net_slice.cpp
     src/public_key.cpp
+    src/sftp_paths.cpp
+    src/gmrs_channels.cpp
+    src/remote_command.cpp
+    src/scp_server.cpp
+    src/mosh_bridge.cpp
+    src/run_program.cpp
+    src/upstream_push.cpp
+    src/upstream_pull.cpp
     src/zmodem_send.cpp
     src/show_folder.cpp
     src/zip_extract.cpp
@@ -139,6 +147,8 @@ set(quicklogger_sources
     src/ui/mouse.cpp
     src/ui/frame_writer.cpp
     src/ui/notes_editor.cpp
+    src/ui/push_runner.cpp
+    src/ui/pull_runner.cpp
 )
 
 if(QUICKLOGGER_ENABLE_SSH)
@@ -166,7 +176,7 @@ if(QUICKLOGGER_ENABLE_SSH)
                 "or configure with -DQUICKLOGGER_ENABLE_SSH=OFF for a build without "
                 "the built-in SSH server.")
     endif()
-    list(APPEND quicklogger_sources src/ssh_server.cpp)
+    list(APPEND quicklogger_sources src/ssh_server.cpp src/sftp_server.cpp)
 endif()
 
 add_library(quicklogger_core STATIC ${quicklogger_sources})
@@ -240,8 +250,25 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_database.cpp
         tests/test_station_data.cpp
         tests/test_net_slice.cpp
+        tests/test_sftp_paths.cpp
+        tests/test_remote_command.cpp
+        tests/test_scp_server.cpp
+        tests/test_mosh_bridge.cpp
+        tests/test_upstream_push.cpp
+        tests/test_upstream_pull.cpp
+        tests/test_pull_ui.cpp
+        tests/test_push_ui.cpp
+        tests/test_push_end_to_end.cpp
+        tests/test_files_end_to_end.cpp
+        tests/test_ssh_exec_end_to_end.cpp
+        tests/test_sftp_libssh_end_to_end.cpp
+        tests/test_upgrade_from_1_8.cpp
+        tests/test_shared_database.cpp
+        tests/test_gmrs.cpp
         tests/test_app_state.cpp
     )
     target_link_libraries(quicklogger_tests PRIVATE quicklogger_core)
+    # Databases made by earlier versions, for the upgrade tests.
+    target_compile_definitions(quicklogger_tests PRIVATE QL_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
     add_test(NAME quicklogger_tests COMMAND quicklogger_tests)
 endif()

@@ -28,11 +28,13 @@ namespace ql
         std::string* field_;
     };
 
-    // An Input's on_change for a ZIP code field: strips any non-digit
-    // character and truncates to 5 digits as the operator types, so the
-    // field can never hold anything but a plain 5-digit ZIP (or a shorter
-    // in-progress prefix of one) -- e.g. pasting "27601-1234" reads back as
-    // "27601" immediately. Same rationale as UppercaseFieldHandler for
+    // An Input's on_change for a ZIP or postal code field: strips any
+    // non-digit character and truncates to 5 digits as the operator types,
+    // so the field can never hold anything but a plain 5-digit ZIP (or a
+    // shorter in-progress prefix of one) -- e.g. pasting "27601-1234" reads
+    // back as "27601" immediately. A field that starts with a letter is a
+    // Canadian postal code instead: upper-cased letters and digits, at most
+    // six. Same rationale as UppercaseFieldHandler for
     // taking the field directly rather than an AppState*.
     class ZipCodeFieldHandler
     {

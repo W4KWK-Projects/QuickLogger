@@ -1,0 +1,73 @@
+#include "push_runner.hpp"
+
+#include <utility>
+
+namespace ql
+{
+
+    // Posted to the UI thread when a push has ended.
+    class PushFinishedTask
+    {
+    public:
+        PushFinishedTask(AppState* state, PushResult result) : state_(state), result_(std::move(result)) {}
+
+        void operator()() const
+        {
+            FinishPush(state_, result_);
+            if (state_->screen != nullptr)
+            {
+                state_->screen->PostEvent(ftxui::Event::Custom);
+            }
+        }
+
+    private:
+        AppState* state_;
+        PushResult result_;
+    };
+
+    PushRunner::PushRunner(ftxui::ScreenInteractive* screen, AppState* state) : screen_(screen), state_(state) {}
+
+    PushRunner::~PushRunner()
+    {
+        cancel_ = true;
+        if (thread_.joinable())
+        {
+            thread_.join();
+        }
+        if (discard_thread_.joinable())
+        {
+            discard_thread_.join();
+        }
+    }
+
+    void PushRunner::Discard(const Upstream& upstream, const std::string& remote_name)
+    {
+        if (discard_thread_.joinable())
+        {
+            discard_thread_.join();
+        }
+        discard_thread_ = std::thread(&DiscardUpstreamUpload, upstream, remote_name, &cancel_);
+    }
+
+    void PushRunner::Start(const Upstream& upstream, const std::string& local_path, const std::string& remote_name,
+                           const std::string& confirm_net, const std::string& session_net, bool net)
+    {
+        // The last push's thread has posted its result by now; it's ending.
+        if (thread_.joinable())
+        {
+            thread_.join();
+        }
+        thread_ = std::thread(&PushRunner::Run, this, upstream, local_path, remote_name, confirm_net, session_net, net);
+    }
+
+    void PushRunner::Run(Upstream upstream, std::string local_path, std::string remote_name, std::string confirm_net,
+                         std::string session_net, bool net)
+    {
+        PushResult result = PushSessionFile(upstream, local_path, remote_name, confirm_net, session_net, &cancel_, net);
+        if (!cancel_)
+        {
+            screen_->Post(PushFinishedTask(state_, std::move(result)));
+        }
+    }
+
+}  // namespace ql
