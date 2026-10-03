@@ -655,7 +655,7 @@ namespace ql
     {
         if (distance_miles < 0.0)
         {
-            return "(ULS, nearby)";
+            return "(ULS, unknown)";
         }
         // Kept to the Source column's 13 characters (see MatchColumns).
         int miles = static_cast<int>(distance_miles);
