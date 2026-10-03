@@ -508,7 +508,7 @@ namespace ql
 
     // The file's stations (saved and others) also here whose details differ,
     // sorted by callsign. The ones here are read in one go.
-    static std::vector<MergeStationConflict> StationConflicts(Database* db, const NetSlice& slice)
+    static std::vector<MergeStationConflict> StationConflicts(const Database* db, const NetSlice& slice)
     {
         std::vector<const Station*> file_stations;
         file_stations.reserve(slice.saved_stations.size() + slice.other_stations.size());

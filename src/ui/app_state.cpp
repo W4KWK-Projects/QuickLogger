@@ -5429,7 +5429,7 @@ namespace ql
     }
 
     // The names on file for `callsigns`, by callsign, read in one query.
-    static std::unordered_map<std::string, std::string> StationNames(Database* db,
+    static std::unordered_map<std::string, std::string> StationNames(const Database* db,
                                                                      const std::vector<std::string>& callsigns)
     {
         std::vector<std::string> upper;
