@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <cstring>
+#include <chrono>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 #include "../frequency_rules.hpp"
@@ -188,6 +190,24 @@ CREATE TABLE IF NOT EXISTS users (
     // database; see the comment there.
     static constexpr int kSchemaVersion = 16;
 
+    // How SQLite waits for another connection's lock: 1 ms pauses for the
+    // first 20 tries, then 5 ms ones, 5 seconds in all. SQLite's own handler
+    // (sqlite3_busy_timeout) counts nominal milliseconds but sleeps whole
+    // seconds where a build lacks a microsecond sleep (the SQLite in macOS
+    // 15), so its "5 seconds" ran to nearly a minute there.
+    static constexpr int kBusyFastTries = 20;
+    static constexpr int kBusyTries = kBusyFastTries + (5000 - kBusyFastTries) / 5;
+
+    static int WaitForLock(void*, int tries)
+    {
+        if (tries >= kBusyTries)
+        {
+            return 0;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(tries < kBusyFastTries ? 1 : 5));
+        return 1;
+    }
+
     static int ReadUserVersion(sqlite3* db)
     {
         Statement statement(db, "PRAGMA user_version;");
@@ -361,7 +381,7 @@ CREATE TABLE IF NOT EXISTS users (
         // be one, since every write here is a single short statement/
         // transaction, never a held connection waiting on user input.
         statements_.Attach(db_);
-        sqlite3_busy_timeout(db_, 5000);
+        sqlite3_busy_handler(db_, WaitForLock, nullptr);
         sqlite3_exec(db_, "PRAGMA foreign_keys = ON;", nullptr, nullptr, nullptr);
         // Reads go through a memory map of the file rather than into each
         // connection's own page cache: the operating system keeps one copy
