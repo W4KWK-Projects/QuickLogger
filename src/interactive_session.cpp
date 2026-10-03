@@ -362,7 +362,7 @@ namespace ql
         // yet (or is showing ones since deleted), asks the UI thread to
         // reload them; it redraws only then. If someone else has closed or
         // deleted the session, asks it to say so instead.
-        void CheckWatchedSession(Database* db)
+        void CheckWatchedSession(Database* db) const
         {
             std::int64_t instance_id = state_->watched_instance_id;
             if (db == nullptr || instance_id == 0)

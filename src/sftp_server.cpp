@@ -206,7 +206,7 @@ namespace ql
             return true;
         }
 
-        bool ResolveMessagePath(sftp_client_message message, SftpPath* path)
+        bool ResolveMessagePath(sftp_client_message message, SftpPath* path) const
         {
             const char* filename = sftp_client_message_get_filename(message);
             if (filename == nullptr || !ResolveSftpPath(filename, path))
@@ -217,7 +217,7 @@ namespace ql
             return true;
         }
 
-        SftpHandle* FindHandle(sftp_client_message message)
+        SftpHandle* FindHandle(sftp_client_message message) const
         {
             SftpHandle* handle = static_cast<SftpHandle*>(sftp_handle(sftp_, message->handle));
             if (handle == nullptr)
@@ -241,7 +241,7 @@ namespace ql
             ssh_string_free(id);
         }
 
-        void RealPath(sftp_client_message message)
+        void RealPath(sftp_client_message message) const
         {
             SftpPath path;
             if (!ResolveMessagePath(message, &path))
@@ -253,7 +253,7 @@ namespace ql
             sftp_reply_name(message, resolved.c_str(), &attributes);
         }
 
-        void Stat(sftp_client_message message)
+        void Stat(sftp_client_message message) const
         {
             SftpPath path;
             if (!ResolveMessagePath(message, &path))
@@ -271,7 +271,7 @@ namespace ql
             sftp_reply_attr(message, &attributes);
         }
 
-        void FileStat(sftp_client_message message)
+        void FileStat(sftp_client_message message) const
         {
             SftpHandle* handle = FindHandle(message);
             if (handle == nullptr)
@@ -621,7 +621,7 @@ namespace ql
         // Permissions and times are QuickLogger's to decide, but scp sets
         // them after every upload (and fails the copy if it can't), so the
         // request is accepted and ignored.
-        void SetStat(sftp_client_message message)
+        void SetStat(sftp_client_message message) const
         {
             if (sftp_client_message_get_type(message) == SSH_FXP_FSETSTAT)
             {
