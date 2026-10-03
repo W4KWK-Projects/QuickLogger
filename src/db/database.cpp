@@ -2507,15 +2507,18 @@ COMMIT;
         std::vector<NearbyUlsCallsign> results;
         // "K1A 0B1" sorts between "K1A" and "K1A~".
         Statement in_fsa(&statements_, "SELECT callsign FROM ised_stations WHERE zip >= ? AND zip < ?;");
+        std::string upper_bound;
         for (const NearbyZip& nearby : nearby_zips)
         {
             if (nearby.zip.size() != 3)
             {
                 continue;
             }
+            upper_bound.assign(nearby.zip);
+            upper_bound.push_back('~');
             in_fsa.Reset();
             in_fsa.BindText(0, nearby.zip);
-            in_fsa.BindText(1, nearby.zip + "~");
+            in_fsa.BindText(1, upper_bound);
             AppendNearbyCallsigns(&in_fsa, static_cast<float>(nearby.miles), &results);
         }
         std::sort(results.begin(), results.end(), NearbyUlsCallsignComesFirst);
@@ -2573,26 +2576,21 @@ COMMIT;
     {
         // A US ZIP matches on its first five digits (so a ZIP+4 works), a
         // Canadian postal code on its three-character FSA (ZipCentroidKey).
-        Statement blanks(&statements_, "SELECT callsign, zip FROM stations WHERE grid_square = '' AND zip <> '';");
-        Statement find(&statements_, "SELECT lat, lon FROM zip_centroids WHERE zip = ?;");
+        // One join (a digit starts a US ZIP, a letter a postal code), not a
+        // lookup per station.
+        Statement blanks(&statements_, R"sql(
+        SELECT s.callsign, c.lat, c.lon FROM stations s
+        JOIN zip_centroids c ON c.zip = CASE WHEN s.zip GLOB '[0-9]*' THEN substr(s.zip, 1, 5)
+                                             ELSE upper(substr(s.zip, 1, 3)) END
+        WHERE s.grid_square = '';
+    )sql");
         std::vector<std::pair<std::string, std::string>> grids;
         while (blanks.Step())
         {
-            std::string key = ZipCentroidKey(blanks.ColumnText(1));
-            if (key.empty())
-            {
-                continue;
-            }
-            find.Reset();
-            find.BindText(0, key);
-            if (!find.Step())
-            {
-                continue;
-            }
-            std::string grid = MaidenheadGrid4(find.ColumnDouble(0), find.ColumnDouble(1));
+            std::string grid = MaidenheadGrid4(blanks.ColumnDouble(1), blanks.ColumnDouble(2));
             if (!grid.empty())
             {
-                grids.emplace_back(blanks.ColumnText(0), grid);
+                grids.emplace_back(blanks.ColumnText(0), std::move(grid));
             }
         }
         if (grids.empty())
