@@ -12,6 +12,7 @@
 #include <ctime>
 #include <filesystem>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "../src/db/database.hpp"
@@ -79,6 +80,12 @@ namespace ql
         user.amateur_callsign = "K4VIEW";
         user.view_only = true;
         REQUIRE(upstream.CreateUser(user));
+        // A second ordinary user, for pushes made at the same time as W4KWK's.
+        user.username = "K4TWO";
+        user.amateur_callsign = "K4TWO";
+        user.view_only = false;
+        REQUIRE(upstream.CreateUser(user));
+        AddTestNet(&upstream, "Concurrent Net");
 
         Database local(LocalDbPath(dir));
         std::int64_t tag = AddTestNet(&local, "TAG Skywarn");
@@ -92,6 +99,14 @@ namespace ql
         AddClosedSession(&local, dixie, "2026-09-27", 1790553600, 2);
         AddClosedSession(&local, dixie, "2026-09-28", 1790640000, 2);
         AddClosedSession(&local, AddTestNet(&local, "220 EOR net"), "2026-09-23", 1790208000, 2);
+        // For the pushes made at the same time (PushConcurrentEndToEnd):
+        // a session a day from 2026-11-01 to 2026-11-30, 2 to 5 stations.
+        std::int64_t concurrent = AddTestNet(&local, "Concurrent Net");
+        for (int day = 1; day <= 30; ++day)
+        {
+            std::string date = std::string("2026-11-") + (day < 10 ? "0" : "") + std::to_string(day);
+            AddClosedSession(&local, concurrent, date, 1793491200 + day * 86400, 2 + day % 4);
+        }
     }
 
     // The local database tests/push_screens.py drives the real program on:
@@ -115,15 +130,22 @@ namespace ql
         AddTestCheckIn(&local, open, "K4TB", 2);
     }
 
-    // Writes the local session on `date` as a .qlsession, the way a push
-    // does, and pushes it as `user`, to `host` on QL_PUSH_E2E_PORT.
-    static PushResult PushSession(const std::string& dir, const std::string& date, const std::string& user,
-                                  const std::string& confirm_net, const std::string& host = "127.0.0.1",
-                                  int port_offset = 0)
+    // A local session written as a .qlsession, ready to push.
+    struct PreparedSession
     {
+        std::string local_path;
+        std::string remote_name;
+        std::string net_name;
+        std::string error;
+    };
+
+    // Writes the local session on `date` as a .qlsession, the way a push
+    // does; `error` says why not, if it can't.
+    static PreparedSession PrepareSession(const std::string& dir, const std::string& date)
+    {
+        PreparedSession prepared;
         Database local(LocalDbPath(dir));
         std::int64_t instance_id = 0;
-        std::string net_name;
         for (const Net& net : local.GetAllNets())
         {
             for (const NetInstance& instance : local.GetNetInstancesForNet(net.id))
@@ -131,30 +153,49 @@ namespace ql
                 if (instance.instance_date == date)
                 {
                     instance_id = instance.id;
-                    net_name = net.name;
+                    prepared.net_name = net.name;
                 }
             }
         }
-        PushResult missing;
-        missing.message = "no local session on " + date;
         if (instance_id == 0)
         {
-            return missing;
+            prepared.error = "no local session on " + date;
+            return prepared;
         }
-
-        std::string remote_name = SanitizeFilenameComponent(net_name) + "_" + date + ".qlsession";
-        std::string local_path = dir + "/local/" + remote_name;
+        prepared.remote_name = SanitizeFilenameComponent(prepared.net_name) + "_" + date + ".qlsession";
+        prepared.local_path = dir + "/local/" + prepared.remote_name;
         std::string error;
-        if (!WriteNetSliceFile(local_path, GatherSessionSlice(&local, instance_id), &error))
+        if (!WriteNetSliceFile(prepared.local_path, GatherSessionSlice(&local, instance_id), &error))
         {
-            missing.message = error;
-            return missing;
+            prepared.error = error;
         }
+        return prepared;
+    }
+
+    static Upstream UpstreamFor(const std::string& user, const std::string& host = "127.0.0.1", int port_offset = 0)
+    {
         Upstream upstream;
         upstream.host = host;
         upstream.user = user;
         upstream.port = std::atoi(std::getenv("QL_PUSH_E2E_PORT")) + port_offset;
-        return PushSessionFile(upstream, local_path, remote_name, confirm_net, net_name, nullptr);
+        return upstream;
+    }
+
+    // Pushes the local session on `date` as `user`, to `host` on
+    // QL_PUSH_E2E_PORT.
+    static PushResult PushSession(const std::string& dir, const std::string& date, const std::string& user,
+                                  const std::string& confirm_net, const std::string& host = "127.0.0.1",
+                                  int port_offset = 0)
+    {
+        PreparedSession prepared = PrepareSession(dir, date);
+        if (!prepared.error.empty())
+        {
+            PushResult missing;
+            missing.message = prepared.error;
+            return missing;
+        }
+        return PushSessionFile(UpstreamFor(user, host, port_offset), prepared.local_path, prepared.remote_name,
+                               confirm_net, prepared.net_name, nullptr);
     }
 
     // How many check-ins the upstream's `net` has on `date`; -1 if it has
@@ -310,6 +351,137 @@ namespace ql
                              "it."));
         CHECK_EQ(PushSession(dir, "2026-09-22", "W4KWK", "", "127.0.0.1", 1).message,
                  std::string("Couldn't reach 127.0.0.1."));
+    }
+
+    // How many sessions the upstream's `net` has on `date`.
+    static int UpstreamSessionsOn(const std::string& dir, const std::string& net, const std::string& date)
+    {
+        Database upstream(UpstreamDbPath(dir));
+        int sessions = 0;
+        for (const Net& candidate : upstream.GetAllNets())
+        {
+            if (candidate.name != net)
+            {
+                continue;
+            }
+            for (const NetInstance& instance : upstream.GetNetInstancesForNet(candidate.id))
+            {
+                sessions += instance.instance_date == date ? 1 : 0;
+            }
+        }
+        return sessions;
+    }
+
+    // One push to start on its own thread: the result is kept for the main
+    // thread, since the test framework's checks belong there.
+    struct ConcurrentPush
+    {
+        std::string date;
+        std::string user;
+        PreparedSession prepared;
+        PushResult result;
+    };
+
+    // Starts every push at once (after all are prepared) and waits for them.
+    static void PushAllAtOnce(const std::string& dir, std::vector<ConcurrentPush>* pushes)
+    {
+        for (ConcurrentPush& push : *pushes)
+        {
+            push.prepared = PrepareSession(dir, push.date);
+            REQUIRE(push.prepared.error.empty());
+        }
+        std::vector<std::thread> threads;
+        for (ConcurrentPush& push : *pushes)
+        {
+            ConcurrentPush* mine = &push;
+            threads.emplace_back(
+                [dir, mine]()
+                {
+                    mine->result = PushSessionFile(UpstreamFor(mine->user), mine->prepared.local_path,
+                                                   mine->prepared.remote_name, "", mine->prepared.net_name, nullptr);
+                });
+        }
+        for (std::thread& thread : threads)
+        {
+            thread.join();
+        }
+    }
+
+    // Real ssh and scp clients pushing to one upstream at the same moment.
+    QL_TEST(PushConcurrentEndToEnd)
+    {
+        std::string dir = EndToEndDir();
+        if (dir.empty())
+        {
+            return;
+        }
+        REQUIRE(std::getenv("QL_PUSH_E2E_PORT") != nullptr);
+
+        // Eight different sessions of one net, four from each of two users.
+        std::vector<ConcurrentPush> different;
+        for (int day = 1; day <= 8; ++day)
+        {
+            ConcurrentPush push;
+            push.date = std::string("2026-11-0") + std::to_string(day);
+            push.user = day % 2 == 0 ? "W4KWK" : "K4TWO";
+            different.push_back(push);
+        }
+        PushAllAtOnce(dir, &different);
+        for (const ConcurrentPush& push : different)
+        {
+            CHECK(push.result.kind == PushResultKind::kPushed);
+            CHECK_EQ(push.result.message, std::string("Pushed to Concurrent Net on 127.0.0.1."));
+            CHECK_EQ(UpstreamSessionsOn(dir, "Concurrent Net", push.date), 1);
+            CHECK(!FileExists(SessionImportsDir(UpstreamDbPath(dir), push.user) + "/" + push.prepared.remote_name));
+        }
+
+        // The same session from two clients of one user, several times over
+        // (the two share one name in their /imports). Whichever import runs
+        // second may find the upload already taken and deleted by the first;
+        // it is then told the upstream refused the session. The session must
+        // still arrive exactly once, with nothing left in /imports.
+        for (int round = 0; round < 5; ++round)
+        {
+            std::vector<ConcurrentPush> same;
+            for (int copy = 0; copy < 2; ++copy)
+            {
+                ConcurrentPush push;
+                push.date = std::string("2026-11-") + std::to_string(11 + round);
+                push.user = "W4KWK";
+                same.push_back(push);
+            }
+            PushAllAtOnce(dir, &same);
+            int pushed = 0;
+            for (const ConcurrentPush& push : same)
+            {
+                pushed += push.result.kind == PushResultKind::kPushed ? 1 : 0;
+                CHECK(push.result.kind == PushResultKind::kPushed ||
+                      push.result.message == "127.0.0.1 refused the session.");
+            }
+            CHECK(pushed >= 1);
+            CHECK_EQ(UpstreamSessionsOn(dir, "Concurrent Net", same[0].date), 1);
+            CHECK(!FileExists(SessionImportsDir(UpstreamDbPath(dir), "W4KWK") + "/" + same[0].prepared.remote_name));
+        }
+
+        // The same session from two different users, several times over.
+        for (int round = 0; round < 5; ++round)
+        {
+            std::vector<ConcurrentPush> same;
+            for (const char* user : {"W4KWK", "K4TWO"})
+            {
+                ConcurrentPush push;
+                push.date = std::string("2026-11-") + std::to_string(21 + round);
+                push.user = user;
+                same.push_back(push);
+            }
+            PushAllAtOnce(dir, &same);
+            for (const ConcurrentPush& push : same)
+            {
+                CHECK(push.result.kind == PushResultKind::kPushed);
+            }
+            CHECK_EQ(UpstreamSessionsOn(dir, "Concurrent Net", same[0].date), 1);
+            CHECK_EQ(UpstreamCheckIns(dir, "Concurrent Net", same[0].date), 2 + (21 + round) % 4);
+        }
     }
 
 }  // namespace ql
