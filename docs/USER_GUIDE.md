@@ -183,10 +183,10 @@ In the New Check-In and Saved Station windows, matches appear as you type any pa
 
 1. Stations known to **this net** (checked in before, or saved to it), marked *(this net)*.
 2. Stations known to **other nets**, marked *(other net)*.
-3. **Licensed stations nearby**, from the FCC data: within your Nearby Radius (70 miles unless you change it in Settings) of the net's ZIP (or your home ZIP), nearest first, marked *(ULS, ~N mi)*. Stations whose ZIP has no location on file (usually a PO Box) follow, marked *(ULS, nearby)*.
+3. **Licensed stations nearby**, from the FCC data: within your Nearby Radius (70 miles unless you change it in Settings) of the net's ZIP (or your home ZIP), nearest first, marked *(ULS, ~N mi)*. Stations whose ZIP has no location on file (usually a PO Box) follow, marked *(ULS, unknown)*.
 4. **Canadian callsigns**, from Canada's ISED database, in order, marked *(ISED)*. ISED's data has no locations, so these aren't limited to your Nearby Radius.
 
-A GMRS net's nearby licensed stations are GMRS licensees, and it has no Canadian ones (see [GMRS nets](#gmrs-nets)).
+A GMRS net's nearby licensed stations are GMRS licensees, and it has no Canadian ones (see [GMRS nets](#gmrs-nets)).~~~~
 
 **Partial Matching** is set for each net, on New Recurring Net, Ad Hoc Net and Edit Net: **US** (the FCC data) or **Canada** (ISED's data). **Left/Right** change it. The licensed-station list it names (3 or 4 above) matches wherever what you've typed appears in a callsign; the other matches only callsigns starting with what you've typed.
 
