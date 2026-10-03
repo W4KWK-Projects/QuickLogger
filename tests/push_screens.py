@@ -28,7 +28,8 @@ KEYS = {
     "F2": "\x1bOQ", "F3": "\x1bOR", "F4": "\x1bOS", "F6": "\x1b[17~",
     "Esc": "\x1b", "Enter": "\r", "Down": "\x1b[B", "Up": "\x1b[A",
 }
-COLS, ROWS = 100, 30
+COLS = int(os.environ.get("QL_SCREEN_COLS", "100"))
+ROWS = int(os.environ.get("QL_SCREEN_ROWS", "30"))
 failures = []
 
 
@@ -142,7 +143,8 @@ def main():
     program.expect("Your user on 127.0.0.1 is view-only.", "view-only: push says so")
     check(upstream_check_ins(directory, "TAG Skywarn", "2026-10-06") is None,
           "view-only: nothing reached the upstream")
-    check("pushed" not in program.text().split("Check-ins")[1].split("\n")[1],
+    selected = [line for line in program.text().split("\n") if line.startswith("\u2502>")]
+    check(selected and "pushed" not in selected[0],
           "view-only: the session isn't marked pushed")
     program.quit()
 
