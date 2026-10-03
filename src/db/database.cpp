@@ -381,7 +381,20 @@ CREATE TABLE IF NOT EXISTS users (
         {
             sqlite3_exec(db_, "PRAGMA journal_mode = WAL;", nullptr, nullptr, nullptr);
         }
-        CreateSchema();
+        try
+        {
+            CreateSchema();
+        }
+        catch (...)
+        {
+            // A constructor that throws never runs its destructor: close the
+            // connection here, or the file (a non-database someone uploaded,
+            // say) stays open and Windows can't delete it.
+            statements_.Clear();
+            sqlite3_close(db_);
+            db_ = nullptr;
+            throw;
+        }
     }
 
     // Ends the open transaction without keeping its changes. For the
