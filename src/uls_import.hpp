@@ -24,6 +24,9 @@ namespace ql
     // The FCC's GMRS licenses (l_gmrs.zip), for GMRS nets.
     constexpr const char* kGmrsDataset = "gmrs";
     constexpr const char* kZipCentroidsDataset = "zip_centroids";
+    // GeoNames' Canadian postal-code centroids, one per FSA (the first
+    // three characters), kept in the same zip_centroids table.
+    constexpr const char* kCaPostalDataset = "ca_postal_centroids";
     // Named "_data" rather than reusing the older "zip_counties" row, which
     // described an earlier, less accurate way of building the same table --
     // a database carrying only that older row gets the new data loaded once.
@@ -57,6 +60,8 @@ namespace ql
         std::string ised_zip_url;
         std::string zip_gazetteer_url;
         std::string zip_gazetteer_file_name;  // The file inside that zip.
+        std::string ca_postal_url;
+        std::string ca_postal_file_name;  // The file inside that zip.
         std::string zcta_county_url;
         std::string zcta_county_population_url;
         std::string zcta_county_subdivision_url;
@@ -70,6 +75,7 @@ namespace ql
         bool gmrs = false;
         bool ised = false;
         bool zip_centroids = false;
+        bool ca_postal = false;
         bool zip_counties = false;
     };
 

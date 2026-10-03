@@ -65,7 +65,7 @@ namespace ql
     // True if `settings` has every field QuickLogger requires before the
     // operator can use the rest of the app: a call sign (amateur or GMRS,
     // or both) and a well-formed
-    // 5-digit home ZIP code (AppSettings::location -- needed for the
+    // home ZIP or Canadian postal code (AppSettings::location -- needed for the
     // nearby-station autocomplete). Checked at startup to
     // force a first-run trip to Settings, and again before letting Settings be
     // left without saving.

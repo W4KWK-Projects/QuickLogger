@@ -249,6 +249,7 @@ namespace ql
         db->UpsertImportRunStatus(LoadedStatus(kGmrsDataset, now, 100));
         db->UpsertImportRunStatus(LoadedStatus(kIsedDataset, now, 100));
         db->UpsertImportRunStatus(LoadedStatus(kZipCountyDataset, now, 0));
+        db->UpsertImportRunStatus(LoadedStatus(kCaPostalDataset, now, 0));
         ZipCentroid centroid;
         centroid.zip = "37415";
         centroid.lat = 35.1;

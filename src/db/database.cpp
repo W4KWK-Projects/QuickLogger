@@ -149,6 +149,10 @@ CREATE TABLE IF NOT EXISTS ised_stations (
     last_updated INTEGER NOT NULL DEFAULT 0
 );
 
+-- By postal code, to find the licensees in an FSA: a range on its first
+-- three characters, read from the index alone (ListNearbyIsedCallsigns).
+CREATE INDEX IF NOT EXISTS idx_ised_stations_zip_callsign ON ised_stations(zip, callsign);
+
 CREATE TABLE IF NOT EXISTS zip_centroids (
     zip TEXT PRIMARY KEY,
     lat REAL NOT NULL,
@@ -2498,6 +2502,54 @@ COMMIT;
         return stations;
     }
 
+    std::vector<NearbyUlsCallsign> Database::ListNearbyIsedCallsigns(const std::vector<NearbyZip>& nearby_zips)
+    {
+        std::vector<NearbyUlsCallsign> results;
+        // "K1A 0B1" sorts between "K1A" and "K1A~".
+        Statement in_fsa(&statements_, "SELECT callsign FROM ised_stations WHERE zip >= ? AND zip < ?;");
+        for (const NearbyZip& nearby : nearby_zips)
+        {
+            if (nearby.zip.size() != 3)
+            {
+                continue;
+            }
+            in_fsa.Reset();
+            in_fsa.BindText(0, nearby.zip);
+            in_fsa.BindText(1, nearby.zip + "~");
+            AppendNearbyCallsigns(&in_fsa, static_cast<float>(nearby.miles), &results);
+        }
+        std::sort(results.begin(), results.end(), NearbyUlsCallsignComesFirst);
+        return results;
+    }
+
+    std::vector<Station> Database::FindIsedStationsByCallsigns(const std::vector<std::string>& callsigns) const
+    {
+        std::vector<Station> stations;
+        if (callsigns.empty())
+        {
+            return stations;
+        }
+        std::string sql =
+            "SELECT callsign, name, street_address, city, state, zip, license_class, last_updated "
+            "FROM ised_stations WHERE callsign IN (";
+        for (std::size_t i = 0; i < callsigns.size(); ++i)
+        {
+            sql.append(i == 0 ? "?" : ",?");
+        }
+        sql.append(");");
+        Statement statement(db_, sql);
+        for (std::size_t i = 0; i < callsigns.size(); ++i)
+        {
+            statement.BindText(static_cast<int>(i), ToUpperAscii(callsigns[i]));
+        }
+        while (statement.Step())
+        {
+            stations.push_back(ReadLicensedStationRow(statement, StationDataSource::kIsed));
+        }
+        std::sort(stations.begin(), stations.end(), StationsByCallsign());
+        return stations;
+    }
+
     void Database::BulkUpsertZipCentroids(const std::vector<ZipCentroid>& batch)
     {
         Statement statement(&statements_, R"sql(
@@ -2519,17 +2571,25 @@ COMMIT;
 
     int Database::FillBlankGridSquaresFromZip()
     {
-        // zip_centroids holds only 5-digit US ZIPs, so a Canadian postal
-        // code never matches; a ZIP+4 matches on its first five digits.
-        Statement blanks(&statements_, R"sql(
-        SELECT s.callsign, c.lat, c.lon FROM stations s
-        JOIN zip_centroids c ON c.zip = substr(s.zip, 1, 5)
-        WHERE s.grid_square = '';
-    )sql");
+        // A US ZIP matches on its first five digits (so a ZIP+4 works), a
+        // Canadian postal code on its three-character FSA (ZipCentroidKey).
+        Statement blanks(&statements_, "SELECT callsign, zip FROM stations WHERE grid_square = '' AND zip <> '';");
+        Statement find(&statements_, "SELECT lat, lon FROM zip_centroids WHERE zip = ?;");
         std::vector<std::pair<std::string, std::string>> grids;
         while (blanks.Step())
         {
-            std::string grid = MaidenheadGrid4(blanks.ColumnDouble(1), blanks.ColumnDouble(2));
+            std::string key = ZipCentroidKey(blanks.ColumnText(1));
+            if (key.empty())
+            {
+                continue;
+            }
+            find.Reset();
+            find.BindText(0, key);
+            if (!find.Step())
+            {
+                continue;
+            }
+            std::string grid = MaidenheadGrid4(find.ColumnDouble(0), find.ColumnDouble(1));
             if (!grid.empty())
             {
                 grids.emplace_back(blanks.ColumnText(0), grid);

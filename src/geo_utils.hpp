@@ -17,6 +17,12 @@ namespace ql
     // neighboring square from where the station really is.
     std::string MaidenheadGrid4(double lat, double lon);
 
+    // The key a station's ZIP or postal code has in the zip_centroids table:
+    // its first five digits for a US ZIP (so a ZIP+4 works), or its first
+    // three characters (the FSA), upper-cased, for a Canadian postal code
+    // ("K1A 0B1" -> "K1A"). "" when it is neither.
+    std::string ZipCentroidKey(const std::string& zip);
+
     // The ZIP codes among `centroids` within `radius_miles` of
     // (origin_lat, origin_lon), with their distances, nearest first. The
     // radius is the operator's Nearby Radius setting

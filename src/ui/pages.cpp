@@ -346,7 +346,7 @@ namespace ql
         inputs.city = ftxui::Input(&station->city, "City", SingleLineInputOption());
         inputs.county = ftxui::Input(&station->county, "County", SingleLineInputOption());
         inputs.state = ftxui::Input(&station->state, "State", SingleLineInputOption());
-        inputs.zip = ftxui::Input(&station->zip, "Zip", SingleLineInputOption());
+        inputs.zip = ftxui::Input(&station->zip, "Postal Code", SingleLineInputOption());
         inputs.grid_square = ftxui::Input(&station->grid_square, "Grid Square", SingleLineInputOption());
         return inputs;
     }
@@ -387,7 +387,7 @@ namespace ql
         rows.push_back(ftxui::hbox({FieldLabel("City:          "), inputs.city->Render()}));
         rows.push_back(ftxui::hbox({FieldLabel("County:        "), inputs.county->Render()}));
         rows.push_back(ftxui::hbox({FieldLabel("State:         "), inputs.state->Render()}));
-        rows.push_back(ftxui::hbox({FieldLabel("Zip:           "), inputs.zip->Render()}));
+        rows.push_back(ftxui::hbox({FieldLabel("Postal Code:   "), inputs.zip->Render()}));
         rows.push_back(ftxui::hbox({FieldLabel("Grid Square:   "), inputs.grid_square->Render()}));
         return rows;
     }
@@ -1026,7 +1026,7 @@ namespace ql
             };
             AppendNewNetRadioRows(state_->new_net_gmrs, input_mode_, input_frequency_, input_offset_, channel_,
                                   input_tone_, &rows);
-            rows.push_back(ftxui::hbox({FieldLabel("ZIP Code:         "), input_location_->Render()}));
+            rows.push_back(ftxui::hbox({FieldLabel("Postal Code:      "), input_location_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Recurrence:       "), input_recurrence_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Comments:         "), input_comments_->Render()}));
             if (!state_->new_net_gmrs)
@@ -1062,7 +1062,7 @@ namespace ql
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->new_net_location);
         ftxui::Component input_location =
-            ftxui::Input(&state->new_net_location, "5-digit ZIP (optional)", location_option);
+            ftxui::Input(&state->new_net_location, "ZIP/postal (optional)", location_option);
         ftxui::Component input_recurrence =
             ftxui::Input(&state->new_net_recurrence, "e.g. Tuesdays 8pm ET", SingleLineInputOption());
         ftxui::Component input_comments =
@@ -1638,19 +1638,21 @@ namespace ql
                              ftxui::text("miles")}),
             });
             ftxui::Element right_column = ftxui::vbox({
-                ftxui::hbox({FieldLabel("My ZIP Code*:  "), input_location_->Render()}),
+                ftxui::hbox({FieldLabel("Postal Code*:  "), input_location_->Render()}),
                 update_check_row,
             });
             ftxui::Element content = ftxui::vbox({
                 ftxui::hbox({left_column | ftxui::xflex, ftxui::text("   "), right_column | ftxui::xflex}),
                 ftxui::hbox({FieldLabel("Time Format:   "), time_format_toggle_->Render()}),
-                HintText(state_->callsign_editable ? "* Required: the ZIP code, and one call sign or both"
+                HintText(state_->callsign_editable ? "* Required: the postal code, and one call sign or both"
                                                    : "* Required. Your call signs are set by the server's operator."),
                 Separator(),
-                HintParagraph("My ZIP Code (5 digits) finds nearby licensed stations for nets without a ZIP."),
+                HintParagraph("Postal Code (a 5-digit ZIP, or a Canadian postal code) finds nearby licensed stations "
+                              "for nets without one."),
                 ftxui::text(""),
-                HintParagraph("Nearby Radius (1-250 miles, 70 if blank) is how far from the net's ZIP, or yours, a "
-                              "suggested station can be."),
+                HintParagraph(
+                    "Nearby Radius (1-250 miles, 70 if blank) is how far from the net's postal code, or yours, a "
+                    "suggested station can be."),
                 ftxui::text(""),
                 HintParagraph("Time Format (Left/Right to change) sets how times are shown and exported. Times use "
                               "the time zone of the computer QuickLogger runs on."),
@@ -1773,7 +1775,8 @@ namespace ql
             ftxui::Input(&state->settings_form.gmrs_callsign, "e.g. WSIP663", gmrs_option), &state->callsign_editable);
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->settings_form.location);
-        ftxui::Component input_location = ftxui::Input(&state->settings_form.location, "5-digit ZIP", location_option);
+        ftxui::Component input_location =
+            ftxui::Input(&state->settings_form.location, "ZIP or postal code", location_option);
         ftxui::InputOption radius_option = SingleLineInputOption();
         radius_option.on_change = DigitsFieldHandler(&state->settings_radius_text, 3);
         ftxui::Component input_radius = ftxui::Input(&state->settings_radius_text, "70", radius_option);
@@ -1862,7 +1865,7 @@ namespace ql
                 };
                 AppendNewNetRadioRows(state_->new_net_gmrs, input_mode_, input_frequency_, input_offset_, channel_,
                                       input_tone_, &rows);
-                rows.push_back(ftxui::hbox({FieldLabel("ZIP Code:         "), input_location_->Render()}));
+                rows.push_back(ftxui::hbox({FieldLabel("Postal Code:      "), input_location_->Render()}));
                 if (!state_->new_net_gmrs)
                 {
                     rows.push_back(PartialMatchRow("Partial Matching: ", partial_match_));
@@ -1927,7 +1930,7 @@ namespace ql
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->new_net_location);
         ftxui::Component input_location =
-            ftxui::Input(&state->new_net_location, "5-digit ZIP (optional)", location_option);
+            ftxui::Input(&state->new_net_location, "ZIP/postal (optional)", location_option);
 
         ftxui::Component root = ftxui::Container::Vertical({
             input_name,
@@ -2193,7 +2196,7 @@ namespace ql
                 fields = {
                     ftxui::hbox({FieldLabel("Channel:          "), channel_->Render()}),
                     ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
-                    ftxui::hbox({FieldLabel("ZIP Code:         "), input_location_->Render()}),
+                    ftxui::hbox({FieldLabel("Postal Code:      "), input_location_->Render()}),
                     ftxui::hbox({FieldLabel("Recurrence:       "), input_recurrence_->Render()}),
                     ftxui::hbox({FieldLabel("Comments:         "), input_comments_->Render()}),
                 };
@@ -2209,7 +2212,7 @@ namespace ql
                     ftxui::hbox({FieldLabel("Frequency:        "), input_frequency_->Render()}),
                     ftxui::hbox({FieldLabel("Offset:           "), input_offset_->Render()}),
                     ftxui::hbox({FieldLabel("PL Tone:          "), input_tone_->Render()}),
-                    ftxui::hbox({FieldLabel("ZIP Code:         "), input_location_->Render()}),
+                    ftxui::hbox({FieldLabel("Postal Code:      "), input_location_->Render()}),
                     ftxui::hbox({FieldLabel("Recurrence:       "), input_recurrence_->Render()}),
                     ftxui::hbox({FieldLabel("Comments:         "), input_comments_->Render()}),
                     // Last, in Tab order too: at the bottom of the right
@@ -2337,7 +2340,7 @@ namespace ql
         ftxui::InputOption location_option = SingleLineInputOption();
         location_option.on_change = ZipCodeFieldHandler(&state->edit_net_location);
         ftxui::Component input_location =
-            ftxui::Input(&state->edit_net_location, "5-digit ZIP (optional)", location_option);
+            ftxui::Input(&state->edit_net_location, "ZIP/postal (optional)", location_option);
         ftxui::Component input_recurrence =
             ftxui::Input(&state->edit_net_recurrence, "e.g. Tuesdays 8pm ET", SingleLineInputOption());
         ftxui::Component input_comments =

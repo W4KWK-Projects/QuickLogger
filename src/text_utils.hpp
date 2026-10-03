@@ -30,9 +30,22 @@ namespace ql
     // Settings, a net's ZIP).
     bool IsFiveDigitZip(const std::string& value);
 
+    // True if `value` is a Canadian postal code, "K1A 0B1" or "K1A0B1" in
+    // either case, or just its first three characters (the FSA, "K1A").
+    bool IsCanadianPostalCode(const std::string& value);
+
+    // True if `value` is a 5-digit ZIP or a Canadian postal code: what
+    // Settings and a net's location accept.
+    bool IsZipOrPostalCode(const std::string& value);
+
+    // `value` as it's stored: a Canadian postal code upper-cased with its
+    // space ("k1a0b1" -> "K1A 0B1"); anything else unchanged.
+    std::string NormalizeZipOrPostalCode(const std::string& value);
+
     // The ZIP code in free text such as "Chattanooga, TN 37415-2623": the
     // last run of exactly five digits, or the first five of a run of nine (a
-    // ZIP+4 written without its dash). Empty if there's none -- "Hamilton
+    // ZIP+4 written without its dash). Failing that, a Canadian postal code
+    // ("Ottawa ON K1A 0B1"), normalized. Empty if there's none -- "Hamilton
     // County" or "1234 Main St" have no ZIP.
     std::string ExtractZipCode(const std::string& text);
 

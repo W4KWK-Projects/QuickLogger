@@ -140,6 +140,10 @@ namespace ql
         job.completed_at = Now();
         job.percent = 100;
         db->UpsertImportRunStatus(job);
+        if (plan.zip_centroids || plan.ca_postal)
+        {
+            db->FillBlankGridSquaresFromZip();
+        }
         return true;
     }
 

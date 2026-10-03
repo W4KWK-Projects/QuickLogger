@@ -508,6 +508,37 @@ namespace ql
         CHECK(DistanceMiles(33.7490, -84.3880, 35.0456, -85.3097) - miles < 0.0001);
     }
 
+    QL_TEST(PostalCodesAreAcceptedWhereZipsAre)
+    {
+        CHECK(IsZipOrPostalCode("37415"));
+        CHECK(IsZipOrPostalCode("K1A 0B1"));
+        CHECK(IsZipOrPostalCode("k1a0b1"));
+        CHECK(IsZipOrPostalCode("K1A"));
+        CHECK(!IsZipOrPostalCode("3741"));
+        CHECK(!IsZipOrPostalCode("K1A 0B"));
+        CHECK(!IsZipOrPostalCode("1A1 0B1"));
+        CHECK(!IsZipOrPostalCode("374152623"));
+        CHECK_EQ(NormalizeZipOrPostalCode("k1a0b1"), std::string("K1A 0B1"));
+        CHECK_EQ(NormalizeZipOrPostalCode("m5v 2t6"), std::string("M5V 2T6"));
+        CHECK_EQ(NormalizeZipOrPostalCode("37415"), std::string("37415"));
+        CHECK_EQ(ExtractZipCode("Ottawa ON K1A0B1"), std::string("K1A 0B1"));
+        CHECK_EQ(ExtractZipCode("Ottawa, ON  k1a 0b1 Canada"), std::string("K1A 0B1"));
+        CHECK_EQ(ExtractZipCode("Chattanooga, TN 37415-2623"), std::string("37415"));
+        CHECK_EQ(ExtractZipCode("Hamilton County"), std::string());
+    }
+
+    QL_TEST(ZipCentroidKeyIsAZipOrAnFsa)
+    {
+        CHECK_EQ(ZipCentroidKey("37415"), std::string("37415"));
+        CHECK_EQ(ZipCentroidKey("374152623"), std::string("37415"));
+        CHECK_EQ(ZipCentroidKey("K1A 0B1"), std::string("K1A"));
+        CHECK_EQ(ZipCentroidKey("m5v2t6"), std::string("M5V"));
+        CHECK_EQ(ZipCentroidKey("K1A"), std::string("K1A"));
+        CHECK_EQ(ZipCentroidKey("3741"), std::string());
+        CHECK_EQ(ZipCentroidKey("1A1 0B1"), std::string());
+        CHECK_EQ(ZipCentroidKey(""), std::string());
+    }
+
     QL_TEST(MaidenheadGrid4MatchesKnownLocations)
     {
         // Well-known reference points.

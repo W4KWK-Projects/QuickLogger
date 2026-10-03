@@ -22,6 +22,7 @@
 #include "date_utils.hpp"
 #include "db/database.hpp"
 #include "file_export.hpp"
+#include "geo_utils.hpp"
 #include "models.hpp"
 #include "text_utils.hpp"
 #include "version.hpp"
@@ -58,6 +59,11 @@ namespace ql
             "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2023_Gazetteer/"
             "2023_Gaz_zcta_national.zip";
         sources.zip_gazetteer_file_name = "2023_Gaz_zcta_national.txt";
+        // GeoNames' Canadian postal codes (CC BY 4.0): one lat/lon per FSA,
+        // the first three characters of a postal code. Rough in rural
+        // areas, decent in cities.
+        sources.ca_postal_url = "https://download.geonames.org/export/zip/CA.zip";
+        sources.ca_postal_file_name = "CA.txt";
         // The three Census files the ZIP-to-county data is built from (see
         // FetchAndLoadZipCounties). FCC's ULS data has no county field
         // anywhere in it (confirmed against a real downloaded l_amat.zip:
@@ -926,6 +932,63 @@ namespace ql
         return true;
     }
 
+    static bool FetchAndLoadCaPostalCentroids(const DataSources& sources, const std::string& cache_dir, Database* db,
+                                              ProgressReporter* reporter, std::string* error)
+    {
+        std::string zip_path = cache_dir + "/ca_postal.zip";
+        if (!DownloadFile(sources.ca_postal_url, zip_path, 120L, reporter, error))
+        {
+            return false;
+        }
+        if (!ExtractZipEntries(zip_path, cache_dir, {sources.ca_postal_file_name}, error))
+        {
+            *error = "Failed to extract the Canadian postal code archive: " + *error;
+            return false;
+        }
+        std::string txt_path = cache_dir + "/" + sources.ca_postal_file_name;
+        std::ifstream file(txt_path);
+        if (!file.good())
+        {
+            *error = "Extraction did not produce " + sources.ca_postal_file_name + ".";
+            return false;
+        }
+
+        // Tab-separated, no header: country, postal code, place, province
+        // name, province code, three blank admin columns, latitude,
+        // longitude, accuracy.
+        constexpr std::size_t kCodeField = 1;
+        constexpr std::size_t kLatField = 9;
+        constexpr std::size_t kLonField = 10;
+        constexpr double kNotANumber = 1000.0;  // Outside any real lat/lon.
+        std::vector<ZipCentroid> batch;
+        std::string line;
+        std::vector<std::string_view> fields;
+        while (std::getline(file, line))
+        {
+            SplitFields(line, '\t', &fields);
+            if (fields.size() <= kLonField)
+            {
+                continue;
+            }
+            ZipCentroid centroid;
+            centroid.zip = ZipCentroidKey(std::string(fields[kCodeField]));
+            centroid.lat = ParseDoubleOr(fields[kLatField], kNotANumber);
+            centroid.lon = ParseDoubleOr(fields[kLonField], kNotANumber);
+            if (centroid.zip.size() != 3 || centroid.lat == kNotANumber || centroid.lon == kNotANumber)
+            {
+                continue;
+            }
+            batch.push_back(std::move(centroid));
+        }
+        if (batch.empty())
+        {
+            *error = "The Canadian postal code file had no usable rows.";
+            return false;
+        }
+        db->BulkUpsertZipCentroids(batch);
+        return true;
+    }
+
     // ---- ZIP to county -----------------------------------------------------
 
     // The relationship files spell out the county's full legal name (e.g.
@@ -1264,6 +1327,13 @@ namespace ql
                 !centroids.has_value() || centroids->status != "failed" || IsRetryDue(*centroids, now, requested);
         }
 
+        std::optional<ImportRunStatus> ca_postal = db->GetImportRunStatus(kCaPostalDataset);
+        if (!ca_postal.has_value() || ca_postal->status != "complete")
+        {
+            plan.ca_postal =
+                !ca_postal.has_value() || ca_postal->status != "failed" || IsRetryDue(*ca_postal, now, requested);
+        }
+
         std::optional<ImportRunStatus> counties = db->GetImportRunStatus(kZipCountyDataset);
         if (!counties.has_value() || counties->status != "complete")
         {
@@ -1275,7 +1345,7 @@ namespace ql
 
     bool DataRefreshPlanHasWork(const DataRefreshPlan& plan)
     {
-        return plan.uls || plan.gmrs || plan.ised || plan.zip_centroids || plan.zip_counties;
+        return plan.uls || plan.gmrs || plan.ised || plan.zip_centroids || plan.ca_postal || plan.zip_counties;
     }
 
     // Records one dataset's outcome. A failure keeps the figures from the
@@ -1323,8 +1393,9 @@ namespace ql
         int gmrs_weight = plan.gmrs ? 6 : 0;
         int ised_weight = plan.ised ? 4 : 0;
         int centroid_weight = plan.zip_centroids ? 4 : 0;
+        int ca_postal_weight = plan.ca_postal ? 1 : 0;
         int county_weight = plan.zip_counties ? 6 : 0;
-        int total_weight = uls_weight + gmrs_weight + ised_weight + centroid_weight + county_weight;
+        int total_weight = uls_weight + gmrs_weight + ised_weight + centroid_weight + ca_postal_weight + county_weight;
         if (total_weight == 0)
         {
             return "complete";
@@ -1392,6 +1463,22 @@ namespace ql
                 return "interrupted";
             }
             RecordDatasetOutcome(db, kZipCentroidsDataset, ok, started_at, 0, error);
+            all_ok = all_ok && ok;
+            base += span;
+        }
+
+        if (plan.ca_postal)
+        {
+            int span = 100 * ca_postal_weight / total_weight;
+            std::int64_t started_at = Now();
+            std::string error;
+            reporter.BeginStep("Downloading Canadian postal code locations", base, span);
+            bool ok = FetchAndLoadCaPostalCentroids(sources, cache_dir, db, &reporter, &error);
+            if (reporter.StopRequested())
+            {
+                return "interrupted";
+            }
+            RecordDatasetOutcome(db, kCaPostalDataset, ok, started_at, 0, error);
             all_ok = all_ok && ok;
             base += span;
         }
@@ -1501,6 +1588,12 @@ namespace ql
         if (centroids.has_value() && centroids->status == "failed" && !db->HasAnyZipCentroids())
         {
             message += "\nZIP location data failed to load (" + centroids->last_error + "); no nearby stations yet.";
+        }
+        std::optional<ImportRunStatus> ca_postal = db->GetImportRunStatus(kCaPostalDataset);
+        if (ca_postal.has_value() && ca_postal->status == "failed")
+        {
+            message += "\nCanadian postal code data failed to load (" + ca_postal->last_error +
+                       "); Canadian grids may be missing.";
         }
         std::optional<ImportRunStatus> counties = db->GetImportRunStatus(kZipCountyDataset);
         if (counties.has_value() && counties->status == "failed")

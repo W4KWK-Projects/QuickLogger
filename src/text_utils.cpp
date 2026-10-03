@@ -35,6 +35,67 @@ namespace ql
         return true;
     }
 
+    static bool IsLetter(char c)
+    {
+        return std::isalpha(static_cast<unsigned char>(c)) != 0;
+    }
+
+    static bool IsDigit(char c)
+    {
+        return std::isdigit(static_cast<unsigned char>(c)) != 0;
+    }
+
+    // `value` without spaces, or "" if it has any other character that is
+    // not a letter or digit.
+    static std::string WithoutSpaces(const std::string& value)
+    {
+        std::string result;
+        for (char c : value)
+        {
+            if (c != ' ')
+            {
+                result.push_back(c);
+            }
+        }
+        return result;
+    }
+
+    bool IsCanadianPostalCode(const std::string& value)
+    {
+        std::string code = WithoutSpaces(value);
+        if (code.size() != 3 && code.size() != 6)
+        {
+            return false;
+        }
+        for (std::size_t i = 0; i < code.size(); ++i)
+        {
+            if (i % 2 == 0 ? !IsLetter(code[i]) : !IsDigit(code[i]))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool IsZipOrPostalCode(const std::string& value)
+    {
+        return IsFiveDigitZip(value) || IsCanadianPostalCode(value);
+    }
+
+    std::string NormalizeZipOrPostalCode(const std::string& value)
+    {
+        if (!IsCanadianPostalCode(value))
+        {
+            return value;
+        }
+        std::string code = ToUpperAscii(WithoutSpaces(value));
+        if (code.size() == 6)
+        {
+            code.insert(3, " ");
+        }
+        return code;
+    }
+
     std::string ExtractZipCode(const std::string& text)
     {
         std::string zip;
@@ -55,6 +116,21 @@ namespace ql
             if (length == 5 || length == 9)
             {
                 zip = text.substr(start, 5);
+            }
+        }
+        if (!zip.empty())
+        {
+            return zip;
+        }
+        // No ZIP: a Canadian postal code, "K1A 0B1" or "K1A0B1".
+        for (std::size_t i = 0; i + 6 <= text.size(); ++i)
+        {
+            std::size_t length = i + 7 <= text.size() && text[i + 3] == ' ' ? 7 : 6;
+            if (i + length <= text.size() && IsCanadianPostalCode(text.substr(i, length)) &&
+                WithoutSpaces(text.substr(i, length)).size() == 6 && (i == 0 || !IsLetter(text[i - 1])) &&
+                (i + length == text.size() || !IsLetter(text[i + length])))
+            {
+                return NormalizeZipOrPostalCode(text.substr(i, length));
             }
         }
         return zip;

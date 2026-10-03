@@ -790,6 +790,10 @@ namespace ql
         // Which licensees those are: amateur, or GMRS for a GMRS net.
         LicenseTable nearby_uls_table = LicenseTable::kAmateur;
         std::int64_t nearby_uls_loaded_at = 0;
+        // The same for Canadian licensees (ISED's), by FSA.
+        std::vector<NearbyUlsCallsign> nearby_ised_callsigns;
+        std::string nearby_ised_origin;
+        std::int64_t nearby_ised_loaded_at = 0;
         // Autocomplete candidates for the saved-station mini-form (see
         // RefreshSavedStationSuggestions), refreshed live as the operator
         // types the callsign: tier 1 (already known to this net, real

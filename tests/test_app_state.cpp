@@ -1684,6 +1684,59 @@ namespace ql
         CHECK(shows_class);
     }
 
+    QL_TEST(CanadianCallSignsNearTheNetsPostalCodeShowTheirDistance)
+    {
+        Fixture f;
+        LoadZipData(f.db());
+        std::vector<ZipCentroid> fsas = {{"K1A", 45.40, -75.70}, {"K2P", 45.41, -75.69}, {"M5V", 43.64, -79.40}};
+        f.db()->BulkUpsertZipCentroids(fsas);
+        Station near_a = MakeStation("VE3AAA", "Able, Ann");
+        near_a.zip = "K1A 0B1";
+        Station near_b = MakeStation("VE3BBB", "Baker, Bob");
+        near_b.zip = "K2P 1A1";
+        Station far_c = MakeStation("VE3CCC", "Cole, Cy");
+        far_c.zip = "M5V 2T6";
+        f.db()->ReplaceIsedStations({near_a, near_b, far_c, MakeStation("VE3DDD", "Dunn, Di")}, 1);
+        f.StartNet("Skywarn");
+        f.state.active_net_zip = "K1A 0B1";
+        ClearModalFields(&f.state);
+        f.state.modal_station.callsign = "ve3";
+        RefreshCallsignSuggestions(&f.state);
+
+        // The two in Ottawa first, with distances; the rest as before.
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 4);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("VE3AAA"));
+        CHECK_EQ(f.state.modal_callsign_suggestion_sources[0], std::string("(ISED ~0 mi)"));
+        CHECK_EQ(f.state.modal_callsign_suggestions[1].callsign, std::string("VE3BBB"));
+        CHECK_EQ(f.state.modal_callsign_suggestion_sources[1].find("(ISED ~"), std::size_t{0});
+        CHECK_EQ(f.state.modal_callsign_suggestion_sources[2], std::string("(ISED)"));
+        CHECK_EQ(f.state.modal_callsign_suggestion_sources[3], std::string("(ISED)"));
+
+        // Picking one fills its grid from the FSA.
+        f.state.selected_suggestion_index = 0;
+        ApplySelectedCallsignSuggestion(&f.state);
+        CHECK_EQ(f.state.modal_station.grid_square, std::string("FN25"));
+    }
+
+    QL_TEST(APostalCodeIsAcceptedAndKeptTidyInSettings)
+    {
+        Fixture f;
+        f.state.settings_path = f.dir().File("settings.txt");
+        OpenSettingsForm(&f.state);
+        f.state.settings_form.location = "k1a0b1";
+        REQUIRE(SaveSettingsForm(&f.state));
+        CHECK_EQ(f.state.settings.location, std::string("K1A 0B1"));
+        CHECK_EQ(LoadSettings(f.state.settings_path).location, std::string("K1A 0B1"));
+        CHECK(SettingsAreComplete(f.state.settings));
+
+        f.state.settings_form.location = "K1A 0B";
+        CHECK(!SaveSettingsForm(&f.state));
+        CHECK(!CheckNetZip(&f.state, "K1A 0B"));
+        CHECK(CheckNetZip(&f.state, "K1A 0B1"));
+        CHECK(CheckNetZip(&f.state, "37415"));
+        CHECK(CheckNetZip(&f.state, ""));
+    }
+
     QL_TEST(PartialMatchingIsSetPerNetToUsOrCanadianData)
     {
         Fixture f;

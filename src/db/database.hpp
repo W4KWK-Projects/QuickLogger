@@ -394,6 +394,11 @@ namespace ql
         std::vector<NearbyUlsCallsign> ListNearbyUlsCallsigns(const std::vector<NearbyZip>& nearby_zips,
                                                               const std::vector<std::string>& zip3_prefixes,
                                                               LicenseTable table = LicenseTable::kAmateur);
+        // The same for Canada's licensees (ISED), found by the first three
+        // characters of their postal code: those in the nearby entries of
+        // `nearby_zips` that are FSAs (the US ZIPs among them are skipped).
+        // Licensees with no postal code on file are left out.
+        std::vector<NearbyUlsCallsign> ListNearbyIsedCallsigns(const std::vector<NearbyZip>& nearby_zips);
         // Exact-callsign lookup against the ULS table, for resolving a
         // specific operator's info (see LogOperatorCheckIn) rather than
         // searching/ranking candidates.
@@ -403,6 +408,9 @@ namespace ql
         // matches), sorted by callsign; those not licensed are left out.
         std::vector<Station> FindUlsStationsByCallsigns(const std::vector<std::string>& callsigns,
                                                         LicenseTable table = LicenseTable::kAmateur) const;
+
+        // FindUlsStationsByCallsigns for the ISED table.
+        std::vector<Station> FindIsedStationsByCallsigns(const std::vector<std::string>& callsigns) const;
 
         // Canada's amateur call sign database (ISED -- see uls_import.hpp),
         // in its own table like the FCC's. Replaced wholesale on each load,

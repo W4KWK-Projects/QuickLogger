@@ -44,6 +44,25 @@ namespace ql
 
     void ZipCodeFieldHandler::operator()() const
     {
+        // Starting with a letter, it's a Canadian postal code: letters and
+        // digits, upper-cased, at most six.
+        if (!field_->empty() && std::isalpha(static_cast<unsigned char>((*field_)[0])))
+        {
+            std::string kept;
+            for (char c : *field_)
+            {
+                if (std::isalnum(static_cast<unsigned char>(c)))
+                {
+                    kept.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+                }
+            }
+            if (kept.size() > 6)
+            {
+                kept.resize(6);
+            }
+            *field_ = kept;
+            return;
+        }
         KeepDigits(field_, 5);
     }
 
@@ -125,7 +144,7 @@ namespace ql
             return;
         }
         net.name = state_->new_net_name;
-        net.default_location = state_->new_net_location;
+        net.default_location = NormalizeZipOrPostalCode(state_->new_net_location);
         net.recurrence_description = state_->new_net_recurrence;
         net.comments = state_->new_net_comments;
         net.created_at = static_cast<std::int64_t>(std::time(nullptr));
@@ -1206,11 +1225,11 @@ namespace ql
     void CancelSettingsHandler::operator()() const
     {
         // Settings aren't optional on first launch: refuse to leave until a
-        // callsign and ZIP code are on file, same requirement F2/Save
+        // callsign and postal code are on file, same requirement F2/Save
         // enforces above, so Esc can't be used to bypass it.
         if (!SettingsAreComplete(state_->settings))
         {
-            state_->form_error = "Enter your callsign and ZIP code first.";
+            state_->form_error = "Enter your callsign and postal code first.";
             return;
         }
         state_->form_error.clear();

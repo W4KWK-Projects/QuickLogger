@@ -143,7 +143,7 @@ namespace ql
 
     bool SettingsAreComplete(const AppSettings& settings)
     {
-        return (!settings.callsign.empty() || !settings.gmrs_callsign.empty()) && IsFiveDigitZip(settings.location);
+        return (!settings.callsign.empty() || !settings.gmrs_callsign.empty()) && IsZipOrPostalCode(settings.location);
     }
 
 }  // namespace ql

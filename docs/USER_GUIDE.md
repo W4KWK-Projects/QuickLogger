@@ -31,7 +31,7 @@ Every page has a **top bar** (the page's name, **F1 Help** and the clock; while 
 - **F1** on any page explains every key the page has.
 - A **red** line under a form says why something wasn't done; a **green** one confirms what was.
 
-On first run you're taken straight to Settings, since a call sign (amateur, GMRS or both) and home ZIP are required. After that you start on the **Recurring Nets** list. **F10** there quits.
+On first run you're taken straight to Settings, since a call sign (amateur, GMRS or both) and home postal code are required. After that you start on the **Recurring Nets** list. **F10** there quits.
 
 ## Settings
 
@@ -40,8 +40,8 @@ On first run you're taken straight to Settings, since a call sign (amateur, GMRS
 | Field | What it's for |
 |---|---|
 | Amateur Call, GMRS Call | Your amateur and GMRS call signs. At least one is required. Each is filled in when you start a net of its kind; without one, you can only watch that kind of net. An SSH user's are set in Manage Users, and Settings only shows them. |
-| My ZIP Code | Your home ZIP. Nearby-station autocomplete measures distance from it when a net has no ZIP of its own. |
-| Nearby Radius | How far, in miles, a licensed station can be from the net's ZIP (or your home ZIP) and still be suggested by autocomplete. 1 to 250; the default is 70, which is also used if you leave it blank. Raise it for a net that covers a wide area, or lower it in a crowded city to keep suggestions local. |
+| Postal Code | Your home 5-digit ZIP or Canadian postal code (like K1A 0B1). Nearby-station autocomplete measures distance from it when a net has no postal code of its own. Canadian distances are by the first three characters, so they're rough outside cities. |
+| Nearby Radius | How far, in miles, a licensed station can be from the net's postal code (or your home one) and still be suggested by autocomplete. 1 to 250; the default is 70, which is also used if you leave it blank. Raise it for a net that covers a wide area, or lower it in a crowded city to keep suggestions local. |
 | Time Format | 12-hour (3:42 PM, the default) or 24-hour (15:42), for every time shown or exported. **Left/Right** change it. |
 | Update Check | At the local console only: **On** (the default) or **Off**. While on, QuickLogger asks GitHub for its latest release shortly after it starts and every 6 hours after that, and when there's a newer one the top bar says so (*v1.8.0 available*) and Settings shows where to get it. Clicking that notice opens the download page in your web browser (on a computer with a desktop; elsewhere it shows the address). It only looks; it never downloads or installs anything. SSH users never see it, since they can't update the server; a server set up with `deploy/freebsd` or `deploy/linux` updates itself. |
 
@@ -51,7 +51,7 @@ On first run you're taken straight to Settings, since a call sign (amateur, GMRS
 
 A recurring net is one you run again and again: a weekly Skywarn net, a club's Tuesday net. Its sessions and check-ins build up its history, and the stations that check in are remembered for autocomplete.
 
-- **Create:** **F2** on Recurring Nets. Only the name is required; Frequency, ZIP Code (5 digits) and Recurrence ("Tuesdays 8pm ET") are optional. A net's ZIP centers nearby-station autocomplete on where the net meets.
+- **Create:** **F2** on Recurring Nets. Only the name is required; Frequency, Postal Code (a 5-digit ZIP or a Canadian postal code) and Recurrence ("Tuesdays 8pm ET") are optional. A net's postal code centers nearby-station autocomplete on where the net meets.
 - **Service** is Amateur Radio or GMRS, chosen with **Left/Right** when the net is created. It can't be changed afterwards. Everything below about Mode, Frequency and Offset is for Amateur Radio nets; see [GMRS nets](#gmrs-nets) for the rest.
 - **Mode** is one of FM, SSB, AM, CW, D-STAR, DMR or Fusion, chosen with **Left/Right** (FM to start with). The same list is on the Ad Hoc Net page. It's what a session's ADIF export gives as its mode.
 - **Names are unique:** no two recurring nets can have the same name, counting "Skywarn", "SKYWARN" and " Skywarn " as one name, whether you create a net, rename one or import one. Ad hoc nets can reuse names freely.
@@ -79,7 +79,7 @@ If the net already has a session open, the list says *session open*, a line unde
 | Field | Notes |
 |---|---|
 | Callsign | Required; US or Canadian only. On a GMRS net, a GMRS call sign. |
-| Name, Member ID, Street Addr, City, County, State, Zip, Grid Square | The station's details, kept for next time. County fills in from the ZIP, and so does a blank Grid Square (US ZIPs only): the 4-character grid of the ZIP's center. That is approximate, and near a grid edge it can be the neighboring square. Type your own to override it. Each time QuickLogger starts, it fills in any stored station's blank Grid Square the same way; a grid that's already there is never changed. |
+| Name, Member ID, Street Addr, City, County, State, Postal Code, Grid Square | The station's details, kept for next time. County fills in from the ZIP, and so does a blank Grid Square (US ZIPs only): the 4-character grid of the ZIP's center. That is approximate, and near a grid edge it can be the neighboring square. Type your own to override it. Each time QuickLogger starts, it fills in any stored station's blank Grid Square the same way; a grid that's already there is never changed. |
 | Signal Report, Remarks, Comment | This check-in only. Remarks start out as the station's default remarks for this net, and whatever you log becomes its new default. |
 | Additional Role | Gives this station one of the session's other roles (the ones you don't hold yourself). Only one station holds each role; giving it to another moves it. |
 
@@ -190,8 +190,8 @@ In the New Check-In and Saved Station windows, matches appear as you type any pa
 
 1. Stations known to **this net** (checked in before, or saved to it), marked *(this net)*.
 2. Stations known to **other nets**, marked *(other net)*.
-3. **Licensed stations nearby**, from the FCC data: within your Nearby Radius (70 miles unless you change it in Settings) of the net's ZIP (or your home ZIP), nearest first, marked *(ULS, ~N mi)*. Stations whose ZIP has no location on file (usually a PO Box) follow, marked *(ULS, unknown)*.
-4. **Canadian callsigns**, from Canada's ISED database, in order, marked *(ISED)*. ISED's data has no locations, so these aren't limited to your Nearby Radius.
+3. **Licensed stations nearby**, from the FCC data: within your Nearby Radius (70 miles unless you change it in Settings) of the net's postal code (or your home one), nearest first, marked *(ULS, ~N mi)*. Canadian stations near it come from ISED's data and are marked *(ISED ~N mi)*. Stations whose ZIP has no location on file (usually a PO Box) follow, marked *(ULS, unknown)*.
+4. **Canadian callsigns**, from Canada's ISED database, in order, marked *(ISED)*. Those within your Nearby Radius come first with their distance, found from the first three characters of their postal code. The rest follow without one, so they aren't limited by your Nearby Radius.
 
 A GMRS net's nearby licensed stations are GMRS licensees, and it has no Canadian ones (see [GMRS nets](#gmrs-nets)).~~~~
 
@@ -250,7 +250,7 @@ Exports are written to the `exports/` folder next to QuickLogger's database; imp
 - A session that's here but differs (different check-ins or notes) is listed. **Left/Right** (or Enter) chooses, for each one, to **Keep** yours (the default) or **Replace** it with the file's. A session still open here is never replaced.
 - The file's saved stations that this net doesn't have are added, with their remarks. Stations already here keep their details and remarks; details missing here are filled in from the file without asking.
 - A station whose details are filled in both here and in the file, but differently (a member ID of SP-41 here and SP-42 in the file, say), is listed under the sessions, with each differing detail on its own line. Differences only in capitals ("KNOXVILLE" and "Knoxville") don't count. **Left/Right** chooses **Keep** (yours, the default) or **Replace**, which takes the file's value for just the details listed. **Up/Down** moves through both lists. Each net's remarks for a station always stay its own.
-- The net's own settings (name, frequency, notes, Partial Matching, ZIP) don't change.
+- The net's own settings (name, frequency, notes, Partial Matching, postal code) don't change.
 
 It all happens at once, or not at all if something goes wrong. It can't be undone, so look at the summary first. Merging the same file twice adds nothing the second time.
 
@@ -302,7 +302,7 @@ Resizing the terminal re-lays everything out at once. At 80 columns everything l
 
 ## Station data
 
-QuickLogger keeps its own copy of the FCC's amateur and GMRS license databases and Canada's amateur one (from ISED, Innovation, Science and Economic Development Canada), plus Census data for working out counties, and keeps it current by itself:
+QuickLogger keeps its own copy of the FCC's amateur and GMRS license databases and Canada's amateur one (from ISED, Innovation, Science and Economic Development Canada), plus Census data for working out counties and GeoNames' postal-code locations for Canada (CC BY 4.0, [geonames.org](https://www.geonames.org)), and keeps it current by itself:
 
 - The first download starts when QuickLogger first runs and takes a minute or two. Until it's done, a yellow **Loading station data NN%** notice shows at the top of every screen and callsign lookups find no one; everything else works.
 - After that, the FCC and ISED data are refreshed about weekly (**Updating station data** shows meanwhile; lookups keep working). A failed download is retried hourly.

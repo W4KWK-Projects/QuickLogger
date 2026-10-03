@@ -255,6 +255,7 @@ namespace ql
         CHECK(!plan.zip_centroids);
         CHECK(!plan.zip_counties);
         CHECK(plan.gmrs);
+        CHECK(plan.ca_postal);
         CHECK(db.FindUlsStationByCallsign("W4ZZF").has_value());
     }
 

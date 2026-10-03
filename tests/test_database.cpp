@@ -780,15 +780,15 @@ namespace ql
         db.UpsertStation(typed);
         db.UpsertStation(no_centroid);
         db.UpsertStation(canadian);
-        std::vector<ZipCentroid> centroids = {{"37415", 35.10, -85.28}};
+        std::vector<ZipCentroid> centroids = {{"37415", 35.10, -85.28}, {"K1A", 45.40, -75.70}};
         db.BulkUpsertZipCentroids(centroids);
 
-        CHECK_EQ(db.FillBlankGridSquaresFromZip(), 2);
+        CHECK_EQ(db.FillBlankGridSquaresFromZip(), 3);
         CHECK_EQ(db.FindStationByCallsign("K1AAA")->grid_square, std::string("EM75"));
         CHECK_EQ(db.FindStationByCallsign("K1BBB")->grid_square, std::string("EM75"));
         CHECK_EQ(db.FindStationByCallsign("K1CCC")->grid_square, std::string("EM74xx"));
         CHECK_EQ(db.FindStationByCallsign("K1DDD")->grid_square, std::string());
-        CHECK_EQ(db.FindStationByCallsign("VE3AAA")->grid_square, std::string());
+        CHECK_EQ(db.FindStationByCallsign("VE3AAA")->grid_square, std::string("FN25"));
         // Nothing left to fill the next time.
         CHECK_EQ(db.FillBlankGridSquaresFromZip(), 0);
     }

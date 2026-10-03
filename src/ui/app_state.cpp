@@ -652,6 +652,20 @@ namespace ql
     // A Canadian license, from ISED's data (see AppendCanadianSuggestions).
     static const char* const kIsedSource = "(ISED)";
 
+    static std::string IsedSource(double distance_miles)
+    {
+        if (distance_miles < 0.0)
+        {
+            return kIsedSource;
+        }
+        int miles = static_cast<int>(distance_miles);
+        if (miles >= 1000)
+        {
+            return "(ISED 999+mi)";
+        }
+        return "(ISED ~" + std::to_string(miles) + (miles >= 100 ? "mi)" : " mi)");
+    }
+
     static std::string UlsSource(double distance_miles)
     {
         if (distance_miles < 0.0)
@@ -1474,7 +1488,7 @@ namespace ql
             return;
         }
         net.name = state->new_net_name;
-        net.default_location = state->new_net_location;
+        net.default_location = NormalizeZipOrPostalCode(state->new_net_location);
         net.created_at = static_cast<std::int64_t>(std::time(nullptr));
         net.is_ad_hoc = true;
         net.id = state->db->CreateNet(net);
@@ -1761,11 +1775,12 @@ namespace ql
         {
             return false;
         }
-        if (state->settings_form.location.size() != 5)
+        if (!IsZipOrPostalCode(state->settings_form.location))
         {
-            state->form_error = "Your ZIP code is required and must be 5 digits.";
+            state->form_error = "Your postal code is required: a 5-digit ZIP or a Canadian postal code.";
             return false;
         }
+        state->settings_form.location = NormalizeZipOrPostalCode(state->settings_form.location);
 
         // A blank field means the default, which its placeholder shows.
         int radius = kDefaultNearbyRadiusMiles;
@@ -1978,9 +1993,9 @@ namespace ql
 
     bool CheckNetZip(AppState* state, const std::string& zip)
     {
-        if (!zip.empty() && !IsFiveDigitZip(zip))
+        if (!zip.empty() && !IsZipOrPostalCode(zip))
         {
-            state->form_error = "ZIP code must be 5 digits, or left blank.";
+            state->form_error = "Postal code must be a 5-digit ZIP or a Canadian postal code, or left blank.";
             return false;
         }
         return true;
@@ -4955,6 +4970,9 @@ namespace ql
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed, const std::string& net_zip,
                                            bool partial, NetService service, std::size_t max_suggestions,
                                            std::vector<Station>* suggestions, std::vector<std::string>* sources);
+    static void AppendNearbyIsedSuggestions(AppState* state, const std::string& typed, bool partial,
+                                            std::size_t max_suggestions, std::vector<Station>* suggestions,
+                                            std::vector<std::string>* sources);
     static void AppendCanadianSuggestions(const AppState* state, const std::string& typed, bool partial,
                                           std::size_t max_suggestions, std::vector<Station>* suggestions,
                                           std::vector<std::string>* sources);
@@ -5005,11 +5023,13 @@ namespace ql
                 origin = ZipCentroid{state->nearby_zips_origin, state->nearby_zips_origin_lat,
                                      state->nearby_zips_origin_lon};
             }
+            std::string station_key = ZipCentroidKey(known->zip);
             std::optional<ZipCentroid> station_zip =
-                known->zip.size() >= 5 ? state->db->FindZipCentroid(known->zip.substr(0, 5)) : std::nullopt;
-            if (!LooksCanadian(callsign) && origin.has_value() && station_zip.has_value())
+                station_key.empty() ? std::nullopt : state->db->FindZipCentroid(station_key);
+            if (origin.has_value() && station_zip.has_value())
             {
-                source = UlsSource(DistanceMiles(origin->lat, origin->lon, station_zip->lat, station_zip->lon));
+                double miles = DistanceMiles(origin->lat, origin->lon, station_zip->lat, station_zip->lon);
+                source = LooksCanadian(callsign) ? IsedSource(miles) : UlsSource(miles);
             }
         }
         if (suggestions->size() >= max_suggestions)
@@ -5071,9 +5091,13 @@ namespace ql
         AppendNearbyUlsSuggestions(state, state->modal_station.callsign, state->active_net_zip,
                                    !state->active_net_partial_match_canada, state->active_net_service, kMaxSuggestions,
                                    &state->modal_callsign_suggestions, &state->modal_callsign_suggestion_sources);
-        // Tier 4: Canadian call signs, from ISED's data. Canada has no GMRS.
+        // Tier 4: Canadian call signs, from ISED's data -- those near the net
+        // first, then the rest. Canada has no GMRS.
         if (state->active_net_service != NetService::kGmrs)
         {
+            AppendNearbyIsedSuggestions(state, state->modal_station.callsign, state->active_net_partial_match_canada,
+                                        kMaxSuggestions, &state->modal_callsign_suggestions,
+                                        &state->modal_callsign_suggestion_sources);
             AppendCanadianSuggestions(state, state->modal_station.callsign, state->active_net_partial_match_canada,
                                       kMaxSuggestions, &state->modal_callsign_suggestions,
                                       &state->modal_callsign_suggestion_sources);
@@ -5172,7 +5196,7 @@ namespace ql
 
         net.id = state->edit_net_id;
         net.name = state->edit_net_name;
-        net.default_location = state->edit_net_location;
+        net.default_location = NormalizeZipOrPostalCode(state->edit_net_location);
         net.recurrence_description = state->edit_net_recurrence;
         net.comments = state->edit_net_comments;
         state->db->UpdateNet(net);
@@ -5411,13 +5435,15 @@ namespace ql
         state->nearby_zips_net_zip = net_zip;
         state->nearby_zips_home_zip = state->settings.location;
         std::optional<ZipCentroid> origin;
-        if (IsFiveDigitZip(net_zip))
+        std::string net_key = ZipCentroidKey(net_zip);
+        if (!net_key.empty())
         {
-            origin = state->db->FindZipCentroid(net_zip);
+            origin = state->db->FindZipCentroid(net_key);
         }
-        if (!origin.has_value() && IsFiveDigitZip(state->settings.location))
+        std::string home_key = ZipCentroidKey(state->settings.location);
+        if (!origin.has_value() && !home_key.empty())
         {
-            origin = state->db->FindZipCentroid(state->settings.location);
+            origin = state->db->FindZipCentroid(home_key);
         }
         std::string origin_zip = origin.has_value() ? origin->zip : "";
 
@@ -5433,6 +5459,7 @@ namespace ql
         state->nearby_zips_radius = radius;
         // The nearby licensees loaded for the old ZIPs no longer apply.
         state->nearby_uls_origin.clear();
+        state->nearby_ised_origin.clear();
         if (!origin.has_value())
         {
             return;
@@ -5455,6 +5482,62 @@ namespace ql
     // How long AppState::nearby_uls_callsigns is trusted before it's
     // reloaded, so a long session picks up the weekly station data refresh.
     static constexpr std::int64_t kNearbyUlsReloadSeconds = 3600;
+
+    static bool NearbyCallsignMatches(const NearbyUlsCallsign& candidate, const std::string& upper, bool anywhere);
+
+    // The shared end of the nearby tiers: the `candidates` (nearest first)
+    // that match `typed`, up to `max_suggestions` in all, skipping
+    // call signs already in `suggestions`, and their records in one query --
+    // from ISED's table when `canadian`, else the FCC's `table`.
+    static void AppendNearbyMatches(Database* db, const std::vector<NearbyUlsCallsign>& candidates,
+                                    const std::string& typed, bool partial, bool canadian, LicenseTable table,
+                                    std::size_t max_suggestions, std::vector<Station>* suggestions,
+                                    std::vector<std::string>* sources)
+    {
+        // The matches, nearest first, then their records in one query.
+        std::string upper = ToUpperAscii(typed);
+        std::vector<const NearbyUlsCallsign*> matches;
+        std::vector<std::string> match_callsigns;
+        for (const NearbyUlsCallsign& candidate : candidates)
+        {
+            if (suggestions->size() + matches.size() >= max_suggestions)
+            {
+                break;
+            }
+            if (!NearbyCallsignMatches(candidate, upper, partial))
+            {
+                continue;
+            }
+            bool already_known = false;
+            for (const Station& existing : *suggestions)
+            {
+                if (existing.callsign == candidate.callsign)
+                {
+                    already_known = true;
+                    break;
+                }
+            }
+            if (!already_known)
+            {
+                matches.push_back(&candidate);
+                match_callsigns.emplace_back(candidate.callsign);
+            }
+        }
+        std::vector<Station> records = canadian ? db->FindIsedStationsByCallsigns(match_callsigns)
+                                                : db->FindUlsStationsByCallsigns(match_callsigns, table);
+        for (const NearbyUlsCallsign* match : matches)
+        {
+            std::string callsign = match->callsign;
+            std::vector<Station>::const_iterator found =
+                std::lower_bound(records.begin(), records.end(), callsign, StationCallsignBefore);
+            // Gone if the station data was refreshed since the list loaded.
+            if (found != records.end() && found->callsign == callsign)
+            {
+                suggestions->push_back(*found);
+                sources->push_back(canadian ? IsedSource(match->miles) : UlsSource(match->miles));
+            }
+        }
+    }
 
     // Autocomplete's last tier, shared by the New Station modal and the
     // saved-station form: ULS-imported stations matching `typed` whose ZIP is
@@ -5525,48 +5608,33 @@ namespace ql
             state->nearby_uls_loaded_at = now;
         }
 
-        // The matches, nearest first, then their records in one query.
-        std::string upper = ToUpperAscii(typed);
-        std::vector<const NearbyUlsCallsign*> matches;
-        std::vector<std::string> match_callsigns;
-        for (const NearbyUlsCallsign& candidate : state->nearby_uls_callsigns)
+        AppendNearbyMatches(state->db, state->nearby_uls_callsigns, typed, partial, false, table, max_suggestions,
+                            suggestions, sources);
+    }
+
+    // Canadian licensees near the same origin, from ISED's data: the same
+    // tier as the FCC's, with distances by FSA (see Database::
+    // ListNearbyIsedCallsigns). Only loaded when what's typed can match a
+    // Canadian call sign: it looks like one, or Partial Matching is Canada.
+    static void AppendNearbyIsedSuggestions(AppState* state, const std::string& typed, bool partial,
+                                            std::size_t max_suggestions, std::vector<Station>* suggestions,
+                                            std::vector<std::string>* sources)
+    {
+        if (suggestions->size() >= max_suggestions || state->nearby_zips.empty() || (!partial && !LooksCanadian(typed)))
         {
-            if (suggestions->size() + matches.size() >= max_suggestions)
-            {
-                break;
-            }
-            if (!NearbyCallsignMatches(candidate, upper, partial))
-            {
-                continue;
-            }
-            bool already_known = false;
-            for (const Station& existing : *suggestions)
-            {
-                if (existing.callsign == candidate.callsign)
-                {
-                    already_known = true;
-                    break;
-                }
-            }
-            if (!already_known)
-            {
-                matches.push_back(&candidate);
-                match_callsigns.emplace_back(candidate.callsign);
-            }
+            return;
         }
-        std::vector<Station> records = state->db->FindUlsStationsByCallsigns(match_callsigns, table);
-        for (const NearbyUlsCallsign* match : matches)
+        std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
+        if (state->nearby_ised_origin != state->nearby_zips_origin ||
+            now - state->nearby_ised_loaded_at > kNearbyUlsReloadSeconds)
         {
-            std::string callsign = match->callsign;
-            std::vector<Station>::const_iterator found =
-                std::lower_bound(records.begin(), records.end(), callsign, StationCallsignBefore);
-            // Gone if the station data was refreshed since the list loaded.
-            if (found != records.end() && found->callsign == callsign)
-            {
-                suggestions->push_back(*found);
-                sources->push_back(UlsSource(match->miles));
-            }
+            state->nearby_ised_callsigns = state->db->ListNearbyIsedCallsigns(state->nearby_zips);
+            state->nearby_ised_callsigns.shrink_to_fit();
+            state->nearby_ised_origin = state->nearby_zips_origin;
+            state->nearby_ised_loaded_at = now;
         }
+        AppendNearbyMatches(state->db, state->nearby_ised_callsigns, typed, partial, true, LicenseTable::kAmateur,
+                            max_suggestions, suggestions, sources);
     }
 
     // True if `typed` can only be (the start of) a Canadian call sign: in
@@ -5668,6 +5736,9 @@ namespace ql
         // And Canadian call signs, from ISED's data.
         if (service != NetService::kGmrs)
         {
+            AppendNearbyIsedSuggestions(state, state->saved_station.callsign, state->edit_net_partial_match_index == 1,
+                                        kMaxSuggestions, &state->saved_station_suggestions,
+                                        &state->saved_station_suggestion_sources);
             AppendCanadianSuggestions(state, state->saved_station.callsign, state->edit_net_partial_match_index == 1,
                                       kMaxSuggestions, &state->saved_station_suggestions,
                                       &state->saved_station_suggestion_sources);
@@ -5726,21 +5797,17 @@ namespace ql
 
     void BackfillGridFromZip(const AppState* state, Station* station)
     {
-        if (!station->grid_square.empty() || station->zip.size() < 5)
+        if (!station->grid_square.empty())
         {
             return;
         }
-        // A US ZIP is 5 digits, or 9 with the +4; a Canadian postal code
-        // is not, and has no centroid.
-        std::string zip5 = station->zip.substr(0, 5);
-        for (char c : zip5)
+        // A US ZIP's centroid, or a Canadian postal code's FSA centroid.
+        std::string key = ZipCentroidKey(station->zip);
+        if (key.empty())
         {
-            if (c < '0' || c > '9')
-            {
-                return;
-            }
+            return;
         }
-        std::optional<ZipCentroid> centroid = state->db->FindZipCentroid(zip5);
+        std::optional<ZipCentroid> centroid = state->db->FindZipCentroid(key);
         if (centroid.has_value())
         {
             station->grid_square = MaidenheadGrid4(centroid->lat, centroid->lon);

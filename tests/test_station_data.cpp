@@ -43,6 +43,7 @@ namespace ql
         CHECK(plan.gmrs);
         CHECK(plan.ised);
         CHECK(plan.zip_centroids);
+        CHECK(plan.ca_postal);
         CHECK(plan.zip_counties);
         CHECK(DataRefreshPlanHasWork(plan));
     }
@@ -199,6 +200,15 @@ namespace ql
                                 "99999\t1\t1\t1\t1\tnot-a-number\t-85\n" + "short\n";
         WriteZipFile(dir.File("gaz.zip"), {{"gaz.txt", gazetteer, true}});
 
+        // GeoNames' Canadian file: no header, blank admin columns, one row
+        // per FSA. The last two rows are unusable.
+        std::string ca_postal =
+            "CA\tK1A\tOttawa\tOntario\tON\t\t\t\t\t45.4\t-75.7\t6\n"
+            "CA\tM5V\tToronto\tOntario\tON\t\t\t\t\t43.64\t-79.4\t6\n"
+            "CA\tBAD\tNowhere\tOntario\tON\t\t\t\t\tnot-a-number\t-79.4\t6\n"
+            "CA\t12345\tNowhere\tOntario\tON\t\t\t\t\t40\t-79.4\t6\n";
+        WriteZipFile(dir.File("CA.zip"), {{"CA.txt", ca_postal, true}});
+
         // ZIP -> county (2020). 37415 is all Hamilton. 02467 straddles
         // three counties; Norfolk has the most land but Middlesex the most
         // people. 30752 has no population figures, so land decides (Dade).
@@ -246,6 +256,8 @@ namespace ql
         sources.ised_zip_url = FileUrl(dir.File("amateur_delim.zip"));
         sources.zip_gazetteer_url = FileUrl(dir.File("gaz.zip"));
         sources.zip_gazetteer_file_name = "gaz.txt";
+        sources.ca_postal_url = FileUrl(dir.File("CA.zip"));
+        sources.ca_postal_file_name = "CA.txt";
         sources.zcta_county_url = FileUrl(dir.File("county.txt"));
         sources.zcta_county_population_url = FileUrl(dir.File("population.txt"));
         sources.zcta_county_subdivision_url = FileUrl(dir.File("towns.txt"));
@@ -259,6 +271,7 @@ namespace ql
         plan.gmrs = true;
         plan.ised = true;
         plan.zip_centroids = true;
+        plan.ca_postal = true;
         plan.zip_counties = true;
         return plan;
     }
@@ -362,8 +375,11 @@ namespace ql
 
         // Gazetteer: good rows only, padded last column and all.
         std::vector<ZipCentroid> centroids = db.GetAllZipCentroids();
-        CHECK_EQ(centroids.size(), std::size_t{2});
+        CHECK_EQ(centroids.size(), std::size_t{4});  // Two ZIPs, two FSAs.
         CHECK_EQ(db.GetImportRunStatus(kZipCentroidsDataset)->status, std::string("complete"));
+        CHECK_EQ(db.GetImportRunStatus(kCaPostalDataset)->status, std::string("complete"));
+        CHECK(db.FindZipCentroid("K1A").has_value());
+        CHECK(!db.FindZipCentroid("BAD").has_value());
 
         // Counties: by population where known, by land where not.
         CHECK_EQ(CountyFor(&db, "37415"), std::string("Hamilton"));
