@@ -646,7 +646,7 @@ namespace ql
     }
 
     // `distance_miles` < 0 means "unknown" (the station's own ZIP has no
-    // centroid on file) -- shown as "(ULS, nearby)" rather than a fabricated
+    // centroid on file) -- shown as "(ULS, unknown)" rather than a fabricated
     // number, since it only passed the coarser ZIP3-prefix pre-filter.
     // A Canadian license, from ISED's data (see AppendCanadianSuggestions).
     static const char* const kIsedSource = "(ISED)";
