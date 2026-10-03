@@ -2,6 +2,7 @@
 // a command line, and import-session against a test database.
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -85,6 +86,15 @@ namespace ql
         CHECK(command.has_confirm_net);
         CHECK_EQ(command.confirm_net, std::string("Sky Warn"));
         CHECK_EQ(command.file, std::string("Net.qlsession"));
+
+        REQUIRE(ParseRemoteCommand("list-nets", &command, &error));
+        CHECK(command.kind == RemoteCommandKind::kListNets);
+        REQUIRE(ParseRemoteCommand("export-net \"Sky Warn\"", &command, &error));
+        CHECK(command.kind == RemoteCommandKind::kExportNet);
+        CHECK_EQ(command.file, std::string("Sky Warn"));
+        REQUIRE(ParseRemoteCommand("export-sessions Skywarn", &command, &error));
+        CHECK(command.kind == RemoteCommandKind::kExportSessions);
+        CHECK_EQ(command.file, std::string("Skywarn"));
     }
 
     QL_TEST(RemoteCommandsRefuseAnythingElse)
@@ -100,6 +110,11 @@ namespace ql
         CHECK(ParseError("import-session --force a.qlsession") != "(parsed)");
         CHECK(ParseError("import-session a.qlsession --confirm-net Skywarn") != "(parsed)");
         CHECK(ParseError("import-session x; ls") != "(parsed)");
+        CHECK(ParseError("list-nets all") != "(parsed)");
+        CHECK(ParseError("export-net") != "(parsed)");
+        CHECK(ParseError("export-net \"\"") != "(parsed)");
+        CHECK(ParseError("export-net Sky Warn") != "(parsed)");
+        CHECK(ParseError("export-sessions Sky; ls") != "(parsed)");
     }
 
     QL_TEST(AParseErrorIsAResult)
@@ -127,6 +142,11 @@ namespace ql
         std::string ImportsDir() const
         {
             return SessionImportsDir(db_path_, "W4KWK");
+        }
+
+        std::string ExportsDir() const
+        {
+            return SessionExportsDir(db_path_, "W4KWK");
         }
 
         // Writes `file` into /imports: one session of a net named `net_name`
@@ -279,7 +299,8 @@ namespace ql
         WriteTextFile(fixture.ImportsDir() + "/Junk.qlsession", "not a database");
 
         CHECK_EQ(fixture.Run("import-session Sky.qlsession", /*view_only=*/true).exit_status, kRemoteExitRefused);
-        CHECK_EQ(fixture.Run("version", /*view_only=*/true).exit_status, kRemoteExitRefused);
+        // Reading doesn't change anything here, so version is theirs.
+        CHECK_EQ(fixture.Run("version", /*view_only=*/true).exit_status, kRemoteExitOk);
         CHECK_EQ(fixture.Run("import-session Sky.qlnet").exit_status, kRemoteExitRefused);
         CHECK_EQ(fixture.Run("import-session ../Sky.qlsession").exit_status, kRemoteExitRefused);
         CHECK_EQ(fixture.Run("import-session /exports/Sky.qlsession").exit_status, kRemoteExitRefused);
@@ -326,6 +347,124 @@ namespace ql
         CHECK_EQ(fixture.Run("discard-upload Other.qlsession Sky.qlnet").exit_status, kRemoteExitError);
         CHECK(fixture.Uploaded("Other.qlsession"));
         CHECK(fixture.Uploaded("Sky.qlnet"));
+    }
+
+    // `count` closed sessions of net `net_id`, one a week from `first_started`,
+    // and (if `open`) one still open; returns their ids, oldest first.
+    static std::vector<std::int64_t> AddClosedSessions(Database* db, std::int64_t net_id, int count, bool open)
+    {
+        std::vector<std::int64_t> ids;
+        for (int i = 0; i < count; ++i)
+        {
+            std::int64_t started = 1789428600 + std::int64_t{604800} * i;
+            std::string date = "2026-09-" + std::string(i < 9 ? "0" : "") + std::to_string(i + 1);
+            std::int64_t instance = AddTestInstance(db, net_id, date, started, "K4ABC");
+            AddTestCheckIn(db, instance, "K4ABC", 1);
+            db->CloseNetInstance(instance, started + 1800);
+            ids.push_back(instance);
+        }
+        if (open)
+        {
+            std::int64_t instance = AddTestInstance(db, net_id, "2026-12-01", 1799000000, "K4ABC");
+            AddTestCheckIn(db, instance, "K4ABC", 1);
+        }
+        return ids;
+    }
+
+    QL_TEST(ListNetsNamesEveryRecurringNetWithItsClosedSessions)
+    {
+        ImportFixture fixture;
+        std::int64_t sky = AddTestNet(fixture.db(), "TAG Skywarn");
+        AddTestNet(fixture.db(), "Hamilton County ARES");
+        Net ad_hoc;
+        ad_hoc.name = "Storm Watch";
+        ad_hoc.is_ad_hoc = true;
+        fixture.db()->CreateNet(ad_hoc);
+        AddClosedSessions(fixture.db(), sky, 2, /*open=*/true);
+
+        // A view-only user may read it, as they may take an export by ZMODEM.
+        RemoteCommandResult result = fixture.Run("list-nets", /*view_only=*/true);
+        CHECK_EQ(result.exit_status, kRemoteExitOk);
+        CHECK_EQ(result.output,
+                 "QUICKLOGGER-RESULT 1\nstatus: ok\n"
+                 "net: Hamilton County ARES\nservice: amateur\nsessions: 0\n"
+                 "net: TAG Skywarn\nservice: amateur\nsessions: 2\n"
+                 "message: 2 nets.\n");
+    }
+
+    QL_TEST(ExportNetWritesTheNetIntoExports)
+    {
+        ImportFixture fixture;
+        std::int64_t sky = AddTestNet(fixture.db(), "TAG Skywarn");
+        AddClosedSessions(fixture.db(), sky, 2, /*open=*/true);
+
+        RemoteCommandResult result = fixture.Run("export-net \"tag  skywarn\"", /*view_only=*/true);
+        CHECK_EQ(result.exit_status, kRemoteExitOk);
+        CHECK(result.output.find("status: ok\nnet: TAG Skywarn\nnet-id: " + std::to_string(sky) + "\n") !=
+              std::string::npos);
+        CHECK(result.output.find("file: TAG_Skywarn.qlnet\n") != std::string::npos);
+        std::string error;
+        std::optional<NetSlice> slice = ReadNetSliceFile(fixture.ExportsDir() + "/TAG_Skywarn.qlnet", &error);
+        REQUIRE(slice.has_value());
+        CHECK_EQ(slice->net.name, std::string("TAG Skywarn"));
+        CHECK_EQ(slice->instances.size(), std::size_t(3));
+
+        // Named exactly (capitals and spacing aside): never a look-alike.
+        result = fixture.Run("export-net Skywarn");
+        CHECK_EQ(result.exit_status, kRemoteExitNoMatch);
+        CHECK(result.output.find("status: no-match\n") != std::string::npos);
+        CHECK_EQ(fixture.Run("export-sessions Skywarn").exit_status, kRemoteExitNoMatch);
+    }
+
+    QL_TEST(ExportSessionsWritesEachClosedSession)
+    {
+        ImportFixture fixture;
+        std::int64_t sky = AddTestNet(fixture.db(), "TAG Skywarn");
+        std::vector<std::int64_t> ids = AddClosedSessions(fixture.db(), sky, 3, /*open=*/true);
+
+        RemoteCommandResult result = fixture.Run("export-sessions \"TAG Skywarn\"", /*view_only=*/true);
+        CHECK_EQ(result.exit_status, kRemoteExitOk);
+        CHECK(result.output.find("sessions: 3\nnot-sent: 1\n") != std::string::npos);
+        // Newest first, named for the net, date and UTC start time.
+        std::size_t newest = result.output.find("file: TAG_Skywarn_2026-09-03_");
+        std::size_t oldest = result.output.find("file: TAG_Skywarn_2026-09-01_");
+        CHECK(newest != std::string::npos);
+        CHECK(oldest != std::string::npos);
+        CHECK(newest < oldest);
+        CHECK_EQ(ListFilesWithExtension(fixture.ExportsDir(), ".qlsession").size(), std::size_t(3));
+        std::string error;
+        std::optional<NetSlice> slice =
+            ReadSessionSliceFile(fixture.ExportsDir() + "/TAG_Skywarn_2026-09-01_233000.qlsession", &error);
+        REQUIRE(slice.has_value());
+        CHECK_EQ(slice->instances[0].instance_date, std::string("2026-09-01"));
+        CHECK_EQ(slice->check_ins.size(), std::size_t(1));
+        (void)ids;
+    }
+
+    QL_TEST(ExportSessionsGivesTwoSessionsOfOneMomentNamesOfTheirOwn)
+    {
+        ImportFixture fixture;
+        std::int64_t sky = AddTestNet(fixture.db(), "TAG Skywarn");
+        // No start time recorded (old sessions): the date alone would name both.
+        for (int i = 0; i < 2; ++i)
+        {
+            std::int64_t instance = AddTestInstance(fixture.db(), sky, "2026-09-14", 0, "K4ABC");
+            AddTestCheckIn(fixture.db(), instance, "K4ABC", 1);
+            fixture.db()->CloseNetInstance(instance, 1789430000);
+        }
+        RemoteCommandResult result = fixture.Run("export-sessions \"TAG Skywarn\"");
+        CHECK(result.output.find("sessions: 2\n") != std::string::npos);
+        CHECK_EQ(ListFilesWithExtension(fixture.ExportsDir(), ".qlsession").size(), std::size_t(2));
+    }
+
+    QL_TEST(ViewOnlyUsersStillCannotImportOrDiscard)
+    {
+        ImportFixture fixture;
+        AddTestNet(fixture.db(), "TAG Skywarn");
+        fixture.WriteSession("Sky.qlsession", "TAG Skywarn");
+        CHECK_EQ(fixture.Run("import-session Sky.qlsession", /*view_only=*/true).exit_status, kRemoteExitRefused);
+        CHECK_EQ(fixture.Run("discard-upload Sky.qlsession", /*view_only=*/true).exit_status, kRemoteExitRefused);
+        CHECK(fixture.Uploaded("Sky.qlsession"));
     }
 
     QL_TEST(VersionNamesTheInterface)

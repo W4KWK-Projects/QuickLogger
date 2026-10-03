@@ -12,7 +12,7 @@ How to use QuickLogger once it's running. For downloading, installing, building 
 6. [Ad hoc nets](#ad-hoc-nets)
 7. [GMRS nets](#gmrs-nets)
 8. [History](#history)
-9. [Pushing to an upstream server](#pushing-to-an-upstream-server)
+9. [Pushing to and pulling from an upstream server](#pushing-to-and-pulling-from-an-upstream-server)
 10. [Editing and deleting by number](#editing-and-deleting-by-number)
 11. [Callsign autocomplete](#callsign-autocomplete)
 12. [Saved stations](#saved-stations)
@@ -45,7 +45,7 @@ On first run you're taken straight to Settings, since a call sign (amateur, GMRS
 | Time Format | 12-hour (3:42 PM, the default) or 24-hour (15:42), for every time shown or exported. **Left/Right** change it. |
 | Update Check | At the local console only: **On** (the default) or **Off**. While on, QuickLogger asks GitHub for its latest release shortly after it starts and every 6 hours after that, and when there's a newer one the top bar says so (*v1.8.0 available*) and Settings shows where to get it. Clicking that notice opens the download page in your web browser (on a computer with a desktop; elsewhere it shows the address). It only looks; it never downloads or installs anything. SSH users never see it, since they can't update the server; a server set up with `deploy/freebsd` or `deploy/linux` updates itself. |
 
-**F2** saves. Each SSH user has their own settings. Times are shown in the time zone of the computer QuickLogger runs on. At the local console only, **F3** refreshes the station data now, **F4** opens Manage Users (see the README's SSH section; Windows has no SSH server, so no Manage Users either) and **F5** sets the upstream server sessions are pushed to (see [Pushing to an upstream server](#pushing-to-an-upstream-server)).
+**F2** saves. Each SSH user has their own settings. Times are shown in the time zone of the computer QuickLogger runs on. At the local console only, **F3** refreshes the station data now, **F4** opens Manage Users (see the README's SSH section; Windows has no SSH server, so no Manage Users either) and **F5** sets the upstream server sessions are pushed to and pulled from (see [Pushing to and pulling from an upstream server](#pushing-to-and-pulling-from-an-upstream-server)).
 
 ## Recurring nets
 
@@ -140,15 +140,15 @@ Every net, recurring or ad hoc, is either Amateur Radio or GMRS: **Service** on 
 - **F6** imports a session logged somewhere else (see below).
 - **F5** deletes one check-in from that session (by its #), as on the session's own page. If it held a role, the role is cleared too.
 - **F4** deletes a whole closed session (by number). An open session has to be resumed and closed first. At 80 columns it isn't on the key bar, but it always works.
-- **F3** pushes the highlighted closed session to the upstream server, once one is set (see [Pushing to an upstream server](#pushing-to-an-upstream-server)). Its Status then reads *pushed*.
+- **F3** pushes the highlighted closed session to the upstream server, once one is set (see [Pushing to and pulling from an upstream server](#pushing-to-and-pulling-from-an-upstream-server)). Its Status then reads *pushed*.
 
-**Importing a session** adds one session to this net's history, without touching the rest of it. It's for a session logged on another QuickLogger: during an outage, say, a net logged on a laptop instead of the server. On the computer where it was logged, **F7** on that session (on the net's page or in History) saves its `.qlsession` file. On this one, put the file in `imports/` (or receive it over SSH with **F3**), open this net's History, press **F6**, highlight the file and press **F2**. The session and its check-ins are added as they were logged: times, roles, remarks and comments, and each station's details, and its stations are saved to this net. It goes into the net whose History you're on, even if the net had another name where it was logged (the message after importing says so). If that name has nothing in common with this net's ("Hamilton County ARES" going into TAG Skywarn, say), QuickLogger asks first, in case you're on the wrong net's History: **F2/Enter** imports it anyway, **Esc** cancels. Small differences, such as "Co." for "County", a typo, a missing word or initials ("TAG" for Tennessee Alabama Georgia), don't ask. A session this net already has, with the same date and start time, is refused. On ad hoc History, an imported session becomes a new ad hoc net with its own name.
+**Importing a session** adds one session to this net's history, without touching the rest of it. It's for a session logged on another QuickLogger: during an outage, say, a net logged on a laptop instead of the server. On the computer where it was logged, **F7** on that session (on the net's page or in History) saves its `.qlsession` file. On this one, put the file in `imports/` (or receive it over SSH with **F3**), open this net's History, press **F6**, highlight the file and press **F2**. The session and its check-ins are added as they were logged: times, roles, remarks and comments, and each station's details, and its stations are saved to this net. It goes into the net whose History you're on, even if the net had another name where it was logged (the message after importing says so). If that name has nothing in common with this net's ("Hamilton County ARES" going into TAG Skywarn, say), QuickLogger asks first, in case you're on the wrong net's History: **F2/Enter** imports it anyway, **Esc** cancels. Small differences, such as "Co." for "County", a typo, a missing word or initials ("TAG" for Tennessee Alabama Georgia), don't ask. A session this net already has, with the same date and start time, is refused. On ad hoc History, an imported session becomes a new ad hoc net with its own name. With an upstream server set, **F4** pulls all of a net's sessions instead (see [Pushing to and pulling from an upstream server](#pushing-to-and-pulling-from-an-upstream-server)).
 
-## Pushing to an upstream server
+## Pushing to and pulling from an upstream server
 
 A QuickLogger that logs on its own, such as a laptop at a field station, can send each closed session to a central QuickLogger, its upstream. The upstream adds it to its net of the same name. This works only at the computer QuickLogger runs on, not over SSH.
 
-**Setting up:** the upstream's operator adds you as an SSH user (Manage Users) with your public key. At this computer, log in to the upstream once with plain `ssh`, such as `ssh -p 2222 you@upstream.example.org`, so `ssh` learns its host key; **F10** quits. Then press **F5** on Settings (Upstream Server) and enter the upstream's host name, your username there and its port, and press **F2**. The port is 22 unless the upstream's operator says otherwise; QuickLogger's own SSH server uses 2222. A blank host turns pushing off.
+**Setting up:** the upstream's operator adds you as an SSH user (Manage Users) with your public key. At this computer, log in to the upstream once with plain `ssh`, such as `ssh -p 2222 you@upstream.example.org`, so `ssh` learns its host key; **F10** quits. Then press **F5** on Settings (Upstream Server) and enter the upstream's host name, your username there and its port, and press **F2**. The port is 22 unless the upstream's operator says otherwise; QuickLogger's own SSH server uses 2222. A blank host turns pushing and pulling off.
 
 QuickLogger keeps no keys of its own: it runs this computer's `ssh` and `scp`, with your own keys and `~/.ssh/config`. It can't ask for a passphrase, so a key that has one must be in ssh-agent (`ssh-add`). `ssh` and `scp` come with macOS, Linux and FreeBSD, and with Windows 10 and 11 (the OpenSSH Client feature).
 
@@ -159,6 +159,12 @@ QuickLogger keeps no keys of its own: it runs this computer's `ssh` and `scp`, w
 **When the names differ:** if the upstream has no net of the session's name but one that looks like it, QuickLogger asks. **F2/Enter** pushes it to that net, **Esc** doesn't. If nothing there looks like it, nothing is pushed.
 
 **When a push fails:** the status line says why in one sentence, such as that the upstream couldn't be reached, refused your key, or has a host key `ssh` doesn't know. Push it again from History once that's fixed.
+
+**Pulling a net:** with an upstream set, **F4 Pull** on the Import page (**F9** on Recurring Nets) lists the upstream's nets with their number of closed sessions. Highlight one and press **F2/Enter**. QuickLogger fetches the net and imports it as a file you received: a net you don't have is added as *imported*, and one that looks like a net you have opens the **Import or Merge?** window. **Esc** cancels.
+
+**Pulling sessions:** **F4 Pull** on a net's Import Session page (**F6** in History) lists the upstream's nets too, with the one named like this net highlighted. **F2/Enter** adds all of that net's closed sessions to this net's History. Sessions it already has, with the same date and start time, are skipped, so pulling again adds only what's new, and the message says how many of each. A session still open on the upstream isn't pulled, nor are any beyond the newest 300 (pull the whole net for those). Ad hoc History has no Pull.
+
+Anyone with an SSH user on the upstream can pull, view-only users too; it changes nothing there. Pulling needs a user here who isn't view-only, since it imports.
 
 ## Editing and deleting by number
 
@@ -234,7 +240,7 @@ Exports are written to the `exports/` folder next to QuickLogger's database; imp
 | A net's saved stations | F7 on Edit Net | `NetName_saved_stations.txt` |
 | A whole net, to share | F8 on Recurring Nets | `NetName.qlnet`: the net, its saved stations and its full history |
 
-**Importing a net:** put the `.qlnet` file in `imports/` (or receive it with **F3**, below), press **F9** on Recurring Nets, highlight the file and press **F2**. It's added as a new net marked *imported*, so it can't overwrite one of yours. If you have a net with the same or a similar name, the **Import or Merge?** window lists them instead: **F2/Enter** imports the file as a new net anyway (not offered when a net has its very name, since no two nets may share one), **F3** merges it into the highlighted net, and **Esc** cancels.
+**Importing a net:** put the `.qlnet` file in `imports/` (or receive it with **F3**, below, or pull it from your upstream server with **F4**), press **F9** on Recurring Nets, highlight the file and press **F2**. It's added as a new net marked *imported*, so it can't overwrite one of yours. If you have a net with the same or a similar name, the **Import or Merge?** window lists them instead: **F2/Enter** imports the file as a new net anyway (not offered when a net has its very name, since no two nets may share one), **F3** merges it into the highlighted net, and **Esc** cancels.
 
 **Merging a net** is for a net that went somewhere else and came back: say you exported it to a laptop, logged on the laptop during an outage, and exported it again to bring back. Before anything changes, a summary says what the merge will do, and **F2** carries it out (**Esc** goes back):
 
@@ -261,7 +267,9 @@ To upload a net for **F9** on Recurring Nets (or a session for **F6** in History
 
 Uploads must be `.qlnet` or `.qlsession` files of up to 25 MB, and `/imports` holds up to 100 MB in all. A view-only user can't upload. `sftp`'s `rm` removes your own uploads. Any `scp` works, including the one built into Windows 10 and 11; it copies single files, not folders.
 
-**Pushing sessions to this server:** another QuickLogger, or an app, can send a closed session here over SSH: it uploads the `.qlsession` to its user's `/imports`, then runs `import-session`. The session goes into the net with the same name, as **F6** in History would put it; when only a similar name matches, nothing is imported until the sender confirms that net. A session from an ad hoc net becomes a new ad hoc net. The sender has to be an SSH user who isn't view-only. The commands and their answers are in [import-session](IMPORT_SESSION.md).
+**Pushing sessions to this server:** another QuickLogger, or an app, can send a closed session here over SSH: it uploads the `.qlsession` to its user's `/imports`, then runs `import-session`. The session goes into the net with the same name, as **F6** in History would put it; when only a similar name matches, nothing is imported until the sender confirms that net. A session from an ad hoc net becomes a new ad hoc net. The sender has to be an SSH user who isn't view-only.
+
+**Pulling from this server:** another QuickLogger, or an app, can ask this server for its nets (`list-nets`), have it write one net (`export-net`) or a net's closed sessions (`export-sessions`) into the user's `/exports`, and fetch the files with `scp` or `sftp`. Any SSH user may, view-only ones included, as they may take an export over ZMODEM. The commands and their answers are in [Upstream commands](IMPORT_SESSION.md).
 
 **ADIF (`.adi`):** one record per check-in, except your own #1, in ADIF 3.1 for importing into a logging program (Log4OM, N1MM, LoTW's TQSL and the like). Each has the station's call sign; the date and time it checked in, in UTC; the frequency (the session's, or the net's) and band; the mode (D-STAR, DMR and Fusion as DIGITALVOICE with their submode); your callsign from Settings as the station callsign; the signal report as RST received; and whatever is known of the station's name (first name first: the FCC's "Shults, Roger D" becomes "Roger D Shults"), city, state, county, grid square, remarks (as COMMENT) and comment (as NOTES). Anything blank is left out. ADIF is plain ASCII, so accents are dropped there ("José" becomes "Jose"); the log and `.qlsession` keep them.
 

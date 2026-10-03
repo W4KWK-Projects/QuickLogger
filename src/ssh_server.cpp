@@ -693,9 +693,9 @@ namespace ql
         RemoteCommandResult result;
         RemoteCommand command;
         std::string error;
-        // A view-only user is refused whatever the command; RunRemoteCommand
-        // says so before looking at it.
-        if (!state.view_only && !ParseRemoteCommand(state.exec_command, &command, &error))
+        // A view-only user may run the commands that only read;
+        // RunRemoteCommand refuses them the rest.
+        if (!ParseRemoteCommand(state.exec_command, &command, &error))
         {
             result = RemoteCommandParseError(error);
         }

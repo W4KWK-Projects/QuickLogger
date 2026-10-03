@@ -106,13 +106,19 @@ namespace ql
         CHECK(result.exit_status != 0);
         CHECK(!Contains(result, "uid="));
 
-        // A view-only user is refused every command, version too.
+        // A view-only user may read (version, list-nets) but not import, and
+        // gets no shell either.
         result = SshCommand("K4VIEW", "version");
         CHECK(!result.stopped);
+        CHECK_EQ(result.exit_status, 0);
+        CHECK(Contains(result, "status: ok\n"));
+        result = SshCommand("K4VIEW", "list-nets");
+        CHECK_EQ(result.exit_status, 0);
+        result = SshCommand("K4VIEW", "import-session Sky.qlsession");
         CHECK_EQ(result.exit_status, 4);
         CHECK(Contains(result, "status: refused\n"));
         result = SshCommand("K4VIEW", "ls");
-        CHECK_EQ(result.exit_status, 4);
+        CHECK_EQ(result.exit_status, 1);
         CHECK(!Contains(result, "settings.txt"));
         CHECK(!FileExists(made));
     }

@@ -1699,10 +1699,11 @@ namespace ql
             rows.push_back(DialogSeparator());
             rows.push_back(
                 HintParagraph("Closed sessions can be pushed to this QuickLogger (F3 when closing a net, "
-                              "or in History). A blank host means none."));
+                              "or in History), and its nets and sessions pulled (F4 on the Import "
+                              "page). A blank host means none."));
             rows.push_back(ftxui::text(""));
             rows.push_back(
-                HintParagraph("Pushing uses this computer's ssh and your own ssh key. Log in there "
+                HintParagraph("Pushing and pulling use this computer's ssh and your own ssh key. Log in there "
                               "once with ssh first. A key with a passphrase must be in ssh-agent."));
             if (!state_->upstream_tools_available)
             {
@@ -2380,6 +2381,11 @@ namespace ql
     // What the Import page says while it has no files to list.
     static std::string EmptyImportListHint(const AppState* state, const std::string& pattern)
     {
+        if (CanPullUpstream(state) && !(state->import_session && state->import_session_ad_hoc))
+        {
+            return "No " + pattern + " files in imports/ yet. Press F4 to pull one from " +
+                   state->settings.upstream_host + ".";
+        }
         if (state->ssh_username.empty())
         {
             return "No " + pattern + " files in imports/ yet. Press F3 to receive one via ZMODEM.";
@@ -2424,19 +2430,96 @@ namespace ql
             std::string title = !session                        ? "Import Net"
                                 : state_->import_session_ad_hoc ? "Import Ad Hoc Session"
                                                                 : "Import Session: " + state_->import_session_net_name;
+            std::vector<KeyHint> hints;
+            hints.push_back({"F2/Enter", "Import"});
             // No ZMODEM at a local terminal: there's no one to receive from.
             // Nor where the system has none (Windows, Alpine), or over Mosh.
-            if (IsLocalTerminal(state_->is_console_session) || NoZmodemOnThisSystem() || state_->over_mosh)
+            if (!(IsLocalTerminal(state_->is_console_session) || NoZmodemOnThisSystem() || state_->over_mosh))
             {
-                return PageChrome(title, ftxui::vbox(std::move(rows)), {{"F2/Enter", "Import"}, {"Esc", "Back"}});
+                hints.push_back({"F3", "Receive (ZMODEM)"});
             }
-            return PageChrome(title, ftxui::vbox(std::move(rows)),
-                              {{"F2/Enter", "Import"}, {"F3", "Receive (ZMODEM)"}, {"Esc", "Back"}});
+            // From the upstream server, set up in Settings; ad hoc nets have
+            // no History there to pull from.
+            if (CanPullUpstream(state_) && !(session && state_->import_session_ad_hoc))
+            {
+                hints.push_back({"F4", "Pull"});
+            }
+            hints.push_back({"Esc", "Back"});
+            return PageChrome(title, ftxui::vbox(std::move(rows)), hints);
         }
 
     private:
         AppState* state_;
         ftxui::Component file_menu_;
+    };
+
+    // The Pull window (see PullStage): the upstream's nets, to pick the one
+    // to pull.
+    class PullModalRenderer
+    {
+    public:
+        explicit PullModalRenderer(AppState* state) : state_(state) {}
+
+        ftxui::Element operator()() const
+        {
+            const std::string& host = state_->settings.upstream_host;
+            ftxui::Elements rows;
+            rows.push_back(Heading(state_->pull_sessions ? "Pull Sessions" : "Pull Net"));
+            rows.push_back(DialogSeparator());
+            if (state_->pull_stage == PullStage::kChoosing)
+            {
+                rows.push_back(ftxui::paragraph(state_->pull_sessions
+                                                    ? "Which of " + host + "'s nets are these sessions of?"
+                                                    : "Which of " + host + "'s nets?") |
+                               ftxui::bold | ftxui::color(kColorLabel));
+                rows.push_back(
+                    ftxui::paragraph(state_->pull_sessions
+                                         ? "Adds its closed sessions to " + state_->import_session_net_name +
+                                               "'s History; the ones it has already are skipped."
+                                         : "Imports it like a file received any other way: you're asked if one here "
+                                           "looks like it.") |
+                    ftxui::color(kColorHint));
+                rows.push_back(NetList());
+                rows.push_back(DialogSeparator());
+                rows.push_back(KeyHintRow({{"F2/Enter", "Pull"}, {"Esc", "Cancel"}}));
+            }
+            else
+            {
+                std::string working = state_->pull_stage == PullStage::kFetching
+                                          ? "Fetching " + state_->pull_net_name + " from " + host + "..."
+                                          : "Asking " + host + " for its nets...";
+                rows.push_back(ftxui::paragraph(working) | ftxui::color(kColorLabel));
+                rows.push_back(DialogSeparator());
+                rows.push_back(KeyHintRow({{"Esc", "Cancel"}}));
+            }
+            rows.push_back(ErrorLine(state_->form_error));
+            int width = std::max(40, std::min(FrameTerminalSize().dimx - 4, 80));
+            return ftxui::vbox(std::move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) |
+                   ftxui::color(kColorHeading) | ftxui::borderStyled(kColorDialogBorder);
+        }
+
+    private:
+        // The nets, the highlighted one marked and kept in view.
+        ftxui::Element NetList() const
+        {
+            ftxui::Elements rows;
+            for (std::size_t i = 0; i < state_->pull_net_labels.size(); ++i)
+            {
+                bool marked = static_cast<int>(i) == state_->selected_pull_net;
+                ftxui::Element row =
+                    ftxui::hbox({ftxui::text(marked ? "> " : "  "),
+                                 ftxui::text(state_->pull_net_labels[i]) | ftxui::color(kColorListRow)});
+                rows.push_back(marked ? row | ftxui::inverted | ftxui::focus : row);
+            }
+            // The window's other rows: its border, title, two paragraphs, the
+            // list's frame, a separator, the keys and the error line.
+            int room = std::max(2, FrameTerminalSize().dimy - 14);
+            int height = std::min(static_cast<int>(rows.size()), room);
+            return DialogFramed(ftxui::vbox(std::move(rows)) | ftxui::yframe | ftxui::vscroll_indicator |
+                                ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, height));
+        }
+
+        AppState* state_;
     };
 
     // The Import or Merge window (see MergeStage): first the nets here that
@@ -2704,7 +2787,9 @@ namespace ql
         ftxui::Component main_view = ftxui::Renderer(root, ImportNetRenderer(state, file_menu));
         ftxui::Component merge_modal = ftxui::Renderer(ftxui::Container::Vertical({}), NetMergeModalRenderer(state));
         ftxui::Component with_merge = LayeredModal(main_view, merge_modal, &state->show_merge_modal);
-        return LayeredModal(with_merge, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal);
+        ftxui::Component pull_modal = ftxui::Renderer(ftxui::Container::Vertical({}), PullModalRenderer(state));
+        ftxui::Component with_pull = LayeredModal(with_merge, pull_modal, &state->show_pull_modal);
+        return LayeredModal(with_pull, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal);
     }
 
     // ---- Manage users page --------------------------------------------------

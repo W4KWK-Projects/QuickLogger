@@ -168,10 +168,34 @@ namespace ql
             *command = std::move(parsed);
             return true;
         }
+        if (words[0] == "list-nets")
+        {
+            if (words.size() != 1)
+            {
+                *error = "list-nets takes no arguments.";
+                return false;
+            }
+            parsed.kind = RemoteCommandKind::kListNets;
+            *command = std::move(parsed);
+            return true;
+        }
+        if (words[0] == "export-net" || words[0] == "export-sessions")
+        {
+            if (words.size() != 2 || words[1].empty())
+            {
+                *error = "Usage: " + words[0] + " \"<net name>\"";
+                return false;
+            }
+            parsed.kind = words[0] == "export-net" ? RemoteCommandKind::kExportNet : RemoteCommandKind::kExportSessions;
+            parsed.file = words[1];
+            *command = std::move(parsed);
+            return true;
+        }
         if (words[0] != "import-session")
         {
-            *error =
-                "Unknown command: " + words[0] + ". QuickLogger runs only import-session, discard-upload and version.";
+            *error = "Unknown command: " + words[0] +
+                     ". QuickLogger runs only import-session, discard-upload, list-nets, export-net, "
+                     "export-sessions and version.";
             return false;
         }
 
@@ -582,15 +606,201 @@ namespace ql
         return Simple("ok", "Discarded " + path.name + ".", kRemoteExitOk);
     }
 
+    static const char* ServiceKey(NetService service)
+    {
+        return service == NetService::kGmrs ? "gmrs" : "amateur";
+    }
+
+    static std::size_t ClosedSessionCount(const std::vector<NetInstance>& instances)
+    {
+        std::size_t closed = 0;
+        for (const NetInstance& instance : instances)
+        {
+            closed += instance.status == NetInstanceStatus::kClosed ? 1 : 0;
+        }
+        return closed;
+    }
+
+    // Every recurring net, for a client to choose from (a pull).
+    static RemoteCommandResult ListNets(Database* db)
+    {
+        Database::ReadTransaction reads(db);
+        std::vector<Net> nets = db->GetAllNets();
+        std::vector<const Net*> recurring;
+        recurring.reserve(nets.size());
+        for (const Net& net : nets)
+        {
+            if (!net.is_ad_hoc)
+            {
+                recurring.emplace_back(&net);
+            }
+        }
+        std::sort(recurring.begin(), recurring.end(), CompareNetNames);
+
+        RemoteCommandResult result;
+        result.output = "QUICKLOGGER-RESULT " + std::to_string(kRemoteCommandInterface) + "\n";
+        AppendLine(&result.output, "status", "ok");
+        for (const Net* net : recurring)
+        {
+            AppendLine(&result.output, "net", net->name);
+            AppendLine(&result.output, "service", ServiceKey(net->service));
+            AppendLine(&result.output, "sessions",
+                       std::to_string(ClosedSessionCount(db->GetNetInstancesForNet(net->id))));
+        }
+        AppendLine(&result.output, "message",
+                   std::to_string(recurring.size()) + (recurring.size() == 1 ? " net." : " nets."));
+        return result;
+    }
+
+    // The recurring net named `name` (NetNamesAreTheSame), if there is one.
+    static std::optional<Net> FindRecurringNet(Database* db, const std::string& name)
+    {
+        std::vector<Net> nets = db->GetAllNets();
+        for (Net& net : nets)
+        {
+            if (!net.is_ad_hoc && NetNamesAreTheSame(net.name, name))
+            {
+                return std::move(net);
+            }
+        }
+        return std::nullopt;
+    }
+
+    static RemoteCommandResult NoNetNamed(const std::string& name)
+    {
+        return Simple("no-match", "No net here is named \"" + name + "\".", kRemoteExitNoMatch);
+    }
+
+    static RemoteCommandResult ExportFailed(const std::string& what, const std::string& error)
+    {
+        return Simple("error", "Couldn't write " + what + ": " + error, kRemoteExitError);
+    }
+
+    // The net as a .qlnet, as F8 Export on the net list writes it.
+    static RemoteCommandResult ExportNet(const RemoteCommand& command, Database* db, const std::string& db_path,
+                                         const std::string& username)
+    {
+        Database::ReadTransaction reads(db);
+        std::optional<Net> net = FindRecurringNet(db, command.file);
+        if (!net.has_value())
+        {
+            return NoNetNamed(command.file);
+        }
+        std::string name = SanitizeFilenameComponent(net->name) + ".qlnet";
+        std::string error;
+        if (!WriteNetSliceFile(SessionExportsDir(db_path, username) + "/" + name, GatherNetSlice(db, net->id), &error))
+        {
+            return ExportFailed(name, error);
+        }
+        RemoteResultFields fields;
+        fields.status = "ok";
+        fields.has_net = true;
+        fields.net = net->name;
+        fields.net_id = net->id;
+        RemoteCommandResult result = MakeResult(fields, kRemoteExitOk);
+        AppendLine(&result.output, "file", name);
+        AppendLine(&result.output, "message", "Exported " + net->name + " as " + name + ".");
+        return result;
+    }
+
+    // The file name stem of an exported session: the net, its date and its
+    // start time (UTC, so it's the same wherever it's read), with the
+    // session's id added if two would otherwise be named alike.
+    static std::string SessionExportName(const Net& net, const NetInstance& instance)
+    {
+        std::string name =
+            SanitizeFilenameComponent(net.name) + "_" + SanitizeFilenameComponent(instance.instance_date);
+        if (instance.started_at > 0)
+        {
+            std::tm utc = UtcTime(static_cast<std::time_t>(instance.started_at));
+            char time[16];
+            std::strftime(time, sizeof(time), "_%H%M%S", &utc);
+            name += time;
+        }
+        return name;
+    }
+
+    // Each closed session as a .qlsession, as F7 Export in History writes
+    // one; the newest kRemoteMaxExportedSessions.
+    static RemoteCommandResult ExportSessions(const RemoteCommand& command, Database* db, const std::string& db_path,
+                                              const std::string& username)
+    {
+        Database::ReadTransaction reads(db);
+        std::optional<Net> net = FindRecurringNet(db, command.file);
+        if (!net.has_value())
+        {
+            return NoNetNamed(command.file);
+        }
+        std::vector<NetInstance> instances = db->GetNetInstancesForNet(net->id);  // Newest first.
+        std::string directory = SessionExportsDir(db_path, username);
+        std::vector<std::string> names;
+        std::size_t not_sent = 0;
+        std::string error;
+        for (const NetInstance& instance : instances)
+        {
+            if (instance.status != NetInstanceStatus::kClosed ||
+                static_cast<int>(names.size()) >= kRemoteMaxExportedSessions)
+            {
+                ++not_sent;
+                continue;
+            }
+            std::string name = SessionExportName(*net, instance);
+            if (std::find(names.begin(), names.end(), name + ".qlsession") != names.end())
+            {
+                name += "_" + std::to_string(instance.id);
+            }
+            name += ".qlsession";
+            if (!WriteNetSliceFile(directory + "/" + name, GatherSessionSlice(db, instance.id), &error))
+            {
+                return ExportFailed(name, error);
+            }
+            names.emplace_back(std::move(name));
+        }
+
+        RemoteResultFields fields;
+        fields.status = "ok";
+        fields.has_net = true;
+        fields.net = net->name;
+        fields.net_id = net->id;
+        RemoteCommandResult result = MakeResult(fields, kRemoteExitOk);
+        AppendLine(&result.output, "sessions", std::to_string(names.size()));
+        if (not_sent > 0)
+        {
+            AppendLine(&result.output, "not-sent", std::to_string(not_sent));
+        }
+        for (const std::string& name : names)
+        {
+            AppendLine(&result.output, "file", name);
+        }
+        AppendLine(&result.output, "message",
+                   "Exported " + std::to_string(names.size()) + " of " + net->name + "'s sessions.");
+        return result;
+    }
+
     RemoteCommandResult RunRemoteCommand(const RemoteCommand& command, Database* db, const std::string& db_path,
                                          const std::string& username, bool view_only, std::int64_t now)
     {
-        if (view_only)
+        // What changes this QuickLogger is for people who can; reading it
+        // out isn't (a view-only user can take an export over ZMODEM too).
+        if (view_only &&
+            (command.kind == RemoteCommandKind::kImportSession || command.kind == RemoteCommandKind::kDiscardUpload))
         {
-            return Simple("refused", "View-only users can't run commands.", kRemoteExitRefused);
+            return Simple("refused", "View-only users can't import or upload.", kRemoteExitRefused);
         }
         try
         {
+            if (command.kind == RemoteCommandKind::kListNets)
+            {
+                return ListNets(db);
+            }
+            if (command.kind == RemoteCommandKind::kExportNet)
+            {
+                return ExportNet(command, db, db_path, username);
+            }
+            if (command.kind == RemoteCommandKind::kExportSessions)
+            {
+                return ExportSessions(command, db, db_path, username);
+            }
             if (command.kind == RemoteCommandKind::kVersion)
             {
                 RemoteCommandResult result;

@@ -127,6 +127,7 @@ set(quicklogger_sources
     src/mosh_bridge.cpp
     src/run_program.cpp
     src/upstream_push.cpp
+    src/upstream_pull.cpp
     src/zmodem_send.cpp
     src/show_folder.cpp
     src/zip_extract.cpp
@@ -147,6 +148,7 @@ set(quicklogger_sources
     src/ui/frame_writer.cpp
     src/ui/notes_editor.cpp
     src/ui/push_runner.cpp
+    src/ui/pull_runner.cpp
 )
 
 if(QUICKLOGGER_ENABLE_SSH)
@@ -253,6 +255,8 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_scp_server.cpp
         tests/test_mosh_bridge.cpp
         tests/test_upstream_push.cpp
+        tests/test_upstream_pull.cpp
+        tests/test_pull_ui.cpp
         tests/test_push_ui.cpp
         tests/test_push_end_to_end.cpp
         tests/test_files_end_to_end.cpp

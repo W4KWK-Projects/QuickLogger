@@ -30,6 +30,7 @@
 #include "ui/handlers.hpp"
 #include "ui/mouse.hpp"
 #include "ui/pages.hpp"
+#include "ui/pull_runner.hpp"
 #include "ui/push_runner.hpp"
 
 namespace ql
@@ -627,6 +628,13 @@ namespace ql
         {
             push_runner = std::make_unique<PushRunner>(&screen, &state);
             state.push_runner = push_runner.get();
+        }
+        // And pulling nets and sessions from it.
+        std::unique_ptr<PullRunner> pull_runner;
+        if (is_console_session)
+        {
+            pull_runner = std::make_unique<PullRunner>(&screen, &state);
+            state.pull_runner = pull_runner.get();
         }
 
         screen.Loop(ui);

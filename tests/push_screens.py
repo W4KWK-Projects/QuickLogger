@@ -3,7 +3,8 @@
 
 Run by tests/ssh_end_to_end.sh after the other end-to-end tests, against the
 upstream it started: Close & Push, History's F3, and the look-alike confirm
-prompt, driven in a pseudo-terminal and read back through pyte.
+prompt, and pulling a net or a net's sessions from the Import page, driven
+in a pseudo-terminal and read back through pyte.
 
   push_screens.py <QuickLogger> <run-dir> <port>
 
@@ -25,7 +26,7 @@ import time
 import pyte
 
 KEYS = {
-    "F2": "\x1bOQ", "F3": "\x1bOR", "F4": "\x1bOS", "F6": "\x1b[17~",
+    "F2": "\x1bOQ", "F3": "\x1bOR", "F4": "\x1bOS", "F6": "\x1b[17~", "F9": "\x1b[20~",
     "Esc": "\x1b", "Enter": "\r", "Down": "\x1b[B", "Up": "\x1b[A",
 }
 COLS = int(os.environ.get("QL_SCREEN_COLS", "100"))
@@ -85,6 +86,15 @@ class Program:
             print("--- screen:\n" + self.text() + "\n---")
         return found
 
+    def highlight(self, needle, presses=8):
+        """Presses Down until the highlighted row has `needle` in it (wrapping round once)."""
+        for _ in range(presses):
+            marked = [line for line in self.text().split("\n") if line.startswith("\u2502>")]
+            if marked and needle in marked[0]:
+                return True
+            self.send("Down")
+        return False
+
     def quit(self):
         os.kill(self.pid, signal.SIGKILL)
         os.waitpid(self.pid, 0)
@@ -99,6 +109,16 @@ def upstream_check_ins(directory, net, date):
             "LEFT JOIN check_ins c ON c.net_instance_id = i.id "
             "WHERE n.name = ? AND i.instance_date = ? GROUP BY i.id", (net, date)).fetchone()
         return None if row is None else row[0]
+    finally:
+        db.close()
+
+
+def upstream_sessions(directory, net):
+    """How many closed sessions the upstream's `net` has."""
+    db = sqlite3.connect("file:" + directory + "/up/quicklogger.db?mode=ro", uri=True)
+    try:
+        return db.execute("SELECT COUNT(*) FROM net_instances i JOIN nets n ON n.id = i.net_id "
+                          "WHERE n.name = ? AND i.status = 1", (net,)).fetchone()[0]
     finally:
         db.close()
 
@@ -120,6 +140,15 @@ def uploads_gone(directory, seconds=10):
             return True
         time.sleep(0.2)
     return False
+
+
+def local_scalar(run_dir, sql, args=()):
+    """One value from the local database the program ran on."""
+    db = sqlite3.connect("file:" + run_dir + "/quicklogger.db?mode=ro", uri=True)
+    try:
+        return db.execute(sql, args).fetchone()[0]
+    finally:
+        db.close()
 
 
 def settings(run_dir, port, user):
@@ -219,6 +248,59 @@ def main():
     check(upstream_check_ins(directory, "220 EOR net", "2026-10-08") is None,
           "no match: nothing reached the upstream")
     check(uploads_gone(directory, 3), "no match: nothing left in the upstream's /imports")
+    program.quit()
+
+    # Pulling: a whole net from the upstream, from the net list's Import page,
+    # then the sessions of a net it has more of, from History's.
+    program = Program(binary, run_dir)
+    program.expect("Recurring Nets", "pull: net list shows")
+    program.send("F9")
+    program.expect("Import Net", "pull: the Import page opens")
+    program.expect("F4  Pull", "pull: the Import page offers Pull")
+    program.send("F4")
+    program.expect("Which of 127.0.0.1's nets?", "pull: the upstream's nets are listed")
+    concurrent = upstream_sessions(directory, "Concurrent Net")
+    program.expect("Concurrent Net  (%d sessions)" % concurrent, "pull: a net's closed sessions are counted")
+    program.send("Enter")  # Concurrent Net, which nothing here is like
+    program.expect("Imported \"Concurrent Net\"", "pull: the net is imported")
+    check(local_scalar(run_dir, "SELECT COUNT(*) FROM net_instances i JOIN nets n ON n.id = i.net_id "
+                                "WHERE n.name = 'Concurrent Net'") == concurrent,
+          "pull: the net's %d sessions are here" % concurrent)
+
+    # Cancelled: nothing changes.
+    program.send("F9")
+    program.send("F4")
+    program.expect("Which of 127.0.0.1's nets?", "pull: the list opens again")
+    program.send("Esc")
+    program.expect("Import Net", "pull: Esc closes the window")
+    program.send("Esc")
+    program.expect("Recurring Nets", "pull: back on the net list")
+
+    # The sessions of TAG Skywarn: the upstream has two this history lacks.
+    before = local_scalar(run_dir, "SELECT COUNT(*) FROM net_instances i JOIN nets n ON n.id = i.net_id "
+                                   "WHERE n.name = 'TAG Skywarn'")
+    check(program.highlight("TAG Skywarn"), "pull sessions: TAG Skywarn highlighted")
+    program.send("F6")
+    program.expect("History: TAG Skywarn", "pull sessions: History opens")
+    program.send("F6")
+    program.expect("Import Session: TAG Skywarn", "pull sessions: the Import page opens")
+    program.send("F4")
+    program.expect("Which of 127.0.0.1's nets are these sessions of?", "pull sessions: asks which net")
+    program.send("Enter")  # TAG Skywarn is highlighted: it has this net's name
+    program.expect("Added 2 sessions of TAG Skywarn from 127.0.0.1; 2 here already.", "pull sessions: two added")
+    program.expect("History: TAG Skywarn", "pull sessions: back in History")
+    check(local_scalar(run_dir, "SELECT COUNT(*) FROM net_instances i JOIN nets n ON n.id = i.net_id "
+                                "WHERE n.name = 'TAG Skywarn'") == before + 2,
+          "pull sessions: the History has the two")
+    check("2026-09-15" in program.text(), "pull sessions: History lists a pulled session")
+    check(not os.path.exists(run_dir + "/imports/.pull"), "pull sessions: the fetch folder is gone")
+
+    # Again: nothing new.
+    program.send("F6")
+    program.send("F4")
+    program.expect("Which of 127.0.0.1's nets are these sessions of?", "pull again: asks which net")
+    program.send("Enter")
+    program.expect("Nothing new:", "pull again: nothing new")
     program.quit()
 
     print("")

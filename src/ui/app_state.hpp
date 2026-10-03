@@ -14,6 +14,7 @@
 #include "../models.hpp"
 #include "../net_slice.hpp"
 #include "../settings.hpp"
+#include "../upstream_pull.hpp"
 #include "../upstream_push.hpp"
 #include "list_columns.hpp"
 
@@ -110,6 +111,20 @@ namespace ql
     // Runs a push (PushSessionFile) on a thread of its own and hands the
     // result back to the UI thread (FinishPush); see push_runner.hpp.
     class PushRunner;
+
+    // Runs a pull step (PullNetList, PullNetFiles) on a thread of its own and
+    // hands the result back to the UI thread; see pull_runner.hpp.
+    class PullRunner;
+
+    // The Pull window over the import page (F4): asking the upstream for its
+    // nets, choosing one, then fetching what's wanted from it.
+    enum class PullStage
+    {
+        kNone,
+        kListing,   // Waiting for the list of nets.
+        kChoosing,  // The nets are listed; one is highlighted.
+        kFetching,  // Waiting for the files.
+    };
 
     // Importing a .qlnet that looks like a net already here (see
     // OpenNetMergeChoice): first which net, and whether to import it as a
@@ -431,6 +446,27 @@ namespace ql
         std::string push_remote_name;
         std::string push_session_net;
         std::string push_upstream_net;
+
+        // Pulling from the upstream (console only): the Pull window over the
+        // import page (F4), for a whole net (pull_sessions false) or the
+        // sessions of the net whose History opened the page (true).
+        // `pull_runner` is the console session's, null elsewhere.
+        // `pull_generation` goes up each time a step starts or the window
+        // closes, so a late answer to an abandoned step is ignored. The
+        // nets the upstream offered (labels kept in step), the highlighted
+        // one, the one chosen, and the folder a session pull's files go in
+        // (removed once they're imported). show_pull_modal is
+        // pull_stage != kNone, for LayeredModal.
+        PullRunner* pull_runner = nullptr;
+        PullStage pull_stage = PullStage::kNone;
+        bool show_pull_modal = false;
+        bool pull_sessions = false;
+        int pull_generation = 0;
+        std::vector<UpstreamNet> pull_nets;
+        std::vector<std::string> pull_net_labels;
+        int selected_pull_net = 0;
+        std::string pull_net_name;
+        std::string pull_dir;
 
         // Net list page: the recurring nets a user can select and start (never
         // ad hoc ones -- see Net::is_ad_hoc).
@@ -1293,6 +1329,37 @@ namespace ql
     // F2/Enter and Esc on ConfirmPrompt::kPushToNet.
     void ConfirmPushToNet(AppState* state);
     void DeclinePushToNet(AppState* state);
+
+    // True at the console with an upstream set: the import page offers F4.
+    bool CanPullUpstream(const AppState* state);
+
+    // F4 on the import page: opens the Pull window and asks the upstream
+    // (Settings, F5) for its nets. Says why not instead if it can't (no
+    // ssh, view-only).
+    void OpenPullWindow(AppState* state);
+
+    // On the UI thread once the upstream has answered list-nets: lists its
+    // nets for choosing (in a session pull, the one with this net's name,
+    // or the first that looks like it, is highlighted), or says why not.
+    // Ignored if the window was closed or reopened since (`generation`).
+    void FinishPullList(AppState* state, const PullResult& result, int generation);
+
+    // Up/Down in the Pull window.
+    void MovePullHighlight(AppState* state, int delta);
+
+    // F2/Enter in the Pull window: has the upstream export the highlighted
+    // net and fetches what it wrote: for a net, its .qlnet, then imported as
+    // a file received any other way is; for sessions, each of its closed
+    // sessions, added to this net's History (the ones it already has are
+    // skipped).
+    void ChoosePullNet(AppState* state);
+
+    // On the UI thread once the files are here (or the fetch failed).
+    // Ignored if the window was closed since (`generation`).
+    void FinishPullFiles(AppState* state, const PullResult& result, int generation);
+
+    // Esc in the Pull window: stops whatever is running and closes it.
+    void ClosePullWindow(AppState* state);
 
     // Reloads AppState::modal_callsign_suggestions/_labels from
     // AppState::modal_station.callsign: tier 1 (SearchNetStationsByCallsignSubstring

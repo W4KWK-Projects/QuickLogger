@@ -728,6 +728,11 @@ namespace ql
             start_receive();
             return true;
         }
+        if (event == ftxui::Event::F4 && CanPullUpstream(state_))
+        {
+            OpenPullWindow(state_);
+            return true;
+        }
         if (event == ftxui::Event::Escape)
         {
             ImportNetBackHandler back(state_);
@@ -1527,7 +1532,8 @@ namespace ql
     {
         return state->show_new_station_modal || state->show_edit_checkin_modal || state->show_saved_station_modal ||
                state->show_zmodem_confirm_modal || state->show_delete_net_confirm_modal ||
-               state->show_session_notes_modal || state->show_merge_modal || state->show_upstream_window;
+               state->show_session_notes_modal || state->show_merge_modal || state->show_upstream_window ||
+               state->show_pull_modal;
     }
 
     // Keys in the Import or Merge window (see MergeStage); it takes them
@@ -1561,6 +1567,24 @@ namespace ql
                  event == ftxui::Event::Return || event == ftxui::Event::Character(' '))
         {
             ToggleMergeReplace(state);
+        }
+        return event != ftxui::Event::Custom;
+    }
+
+    // Keys in the Pull window (see PullStage); it takes them all.
+    static bool HandlePullKey(AppState* state, const ftxui::Event& event)
+    {
+        if (event == ftxui::Event::Escape)
+        {
+            ClosePullWindow(state);
+        }
+        else if (event == ftxui::Event::ArrowUp || event == ftxui::Event::ArrowDown)
+        {
+            MovePullHighlight(state, event == ftxui::Event::ArrowUp ? -1 : 1);
+        }
+        else if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
+        {
+            ChoosePullNet(state);
         }
         return event != ftxui::Event::Custom;
     }
@@ -1624,6 +1648,10 @@ namespace ql
         if (state_->show_session_notes_modal)
         {
             return HandleSessionNotesKey(state_, event);
+        }
+        if (state_->pull_stage != PullStage::kNone)
+        {
+            return HandlePullKey(state_, event);
         }
         if (state_->merge_stage != MergeStage::kNone)
         {

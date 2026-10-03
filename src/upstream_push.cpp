@@ -5,7 +5,7 @@
 namespace ql
 {
 
-    const char* const kNoSshMessage = "Pushing needs ssh and scp, which aren't installed here.";
+    const char* const kNoSshMessage = "Pushing and pulling need ssh and scp, which aren't installed here.";
 
     static bool IsPlainNameCharacter(char c)
     {
@@ -85,8 +85,7 @@ namespace ql
         return quoted;
     }
 
-    std::vector<std::string> UpstreamImportArguments(const Upstream& upstream, const std::string& remote_name,
-                                                     const std::string& confirm_net)
+    std::vector<std::string> UpstreamSshArguments(const Upstream& upstream, const std::string& command)
     {
         std::vector<std::string> arguments;
         arguments.reserve(11);
@@ -97,14 +96,25 @@ namespace ql
         arguments.emplace_back(upstream.user);
         arguments.emplace_back("--");
         arguments.emplace_back(upstream.host);
+        arguments.emplace_back(command);
+        return arguments;
+    }
+
+    std::string QuotedCommandWord(const std::string& text)
+    {
+        return Quoted(text);
+    }
+
+    std::vector<std::string> UpstreamImportArguments(const Upstream& upstream, const std::string& remote_name,
+                                                     const std::string& confirm_net)
+    {
         std::string command = "import-session ";
         if (!confirm_net.empty())
         {
             command += "--confirm-net " + Quoted(confirm_net) + " ";
         }
         command += remote_name;
-        arguments.emplace_back(std::move(command));
-        return arguments;
+        return UpstreamSshArguments(upstream, command);
     }
 
     std::vector<std::string> UpstreamDiscardArguments(const Upstream& upstream, const std::string& remote_name)
@@ -222,23 +232,23 @@ namespace ql
         return result;
     }
 
-    // Why scp or ssh failed, from what it printed.
-    static PushResult ConnectionFailure(const Upstream& upstream, const ProgramResult& run, const char* fallback)
+    std::string UpstreamFailureMessage(const Upstream& upstream, const ProgramResult& run, const char* fallback,
+                                       bool uploading)
     {
         const std::string& host = upstream.host;
         if (!run.started)
         {
-            return Failed(kNoSshMessage);
+            return kNoSshMessage;
         }
         if (run.stopped)
         {
-            return Failed("Couldn't reach " + host + ".");
+            return "Couldn't reach " + host + ".";
         }
         const std::string& errors = run.errors;
         if (Contains(errors, "Host key verification failed") || Contains(errors, "IDENTIFICATION HAS CHANGED") ||
             Contains(errors, "No matching host key") || Contains(errors, "host key is known"))
         {
-            return Failed(host + "'s host key isn't known here or has changed; log in once with ssh to check it.");
+            return host + "'s host key isn't known here or has changed; log in once with ssh to check it.";
         }
         // ssh's own refusal names the methods it tried: "Permission denied
         // (publickey)". A bare "Permission denied" is scp over SFTP, whose
@@ -246,32 +256,38 @@ namespace ql
         // user's (legacy scp says so in words instead).
         if (Contains(errors, "Permission denied ("))
         {
-            return Failed(host + " refused your key.");
+            return host + " refused your key.";
         }
         if (Contains(errors, "Could not resolve hostname") || Contains(errors, "Name or service not known"))
         {
-            return Failed("Couldn't find " + host + ".");
+            return "Couldn't find " + host + ".";
         }
-        if (Contains(errors, "View-only users") || Contains(errors, "Permission denied"))
+        if (uploading && (Contains(errors, "View-only users") || Contains(errors, "Permission denied")))
         {
-            return Failed("Your user on " + host + " is view-only.");
+            return "Your user on " + host + " is view-only.";
         }
-        if (Contains(errors, "over the 25 MB limit"))
+        if (uploading && Contains(errors, "over the 25 MB limit"))
         {
-            return Failed("The session is too big for " + host + ".");
+            return "The session is too big for " + host + ".";
         }
-        if (Contains(errors, "is full"))
+        if (uploading && Contains(errors, "is full"))
         {
-            return Failed("Your /imports on " + host + " is full.");
+            return "Your /imports on " + host + " is full.";
         }
         if (Contains(errors, "Connection refused") || Contains(errors, "timed out") ||
             Contains(errors, "No route to host") || Contains(errors, "unreachable") ||
             Contains(errors, "Connection closed") || Contains(errors, "Connection reset") ||
             Contains(errors, "lost connection"))
         {
-            return Failed("Couldn't reach " + host + ".");
+            return "Couldn't reach " + host + ".";
         }
-        return Failed(std::string(fallback) + " " + host + ".");
+        return std::string(fallback) + " " + host + ".";
+    }
+
+    // Why scp or ssh failed, from what it printed.
+    static PushResult ConnectionFailure(const Upstream& upstream, const ProgramResult& run, const char* fallback)
+    {
+        return Failed(UpstreamFailureMessage(upstream, run, fallback, true));
     }
 
     bool ImportReplyMeansFileMissing(const ImportReply& reply)

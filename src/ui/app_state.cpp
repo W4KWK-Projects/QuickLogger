@@ -35,6 +35,7 @@
 #include "../zmodem_send.hpp"
 #include "chrome.hpp"
 #include "list_columns.hpp"
+#include "pull_runner.hpp"
 #include "push_runner.hpp"
 
 namespace ql
@@ -4468,6 +4469,329 @@ namespace ql
         state->page = kPageNetHistory;
     }
 
+    // ---- Pulling from the upstream ----------------------------------------
+
+    bool CanPullUpstream(const AppState* state)
+    {
+        return state->is_console_session && state->pull_runner != nullptr && !state->settings.upstream_host.empty();
+    }
+
+    static Upstream UpstreamFromSettings(const AppState* state)
+    {
+        Upstream upstream;
+        upstream.host = state->settings.upstream_host;
+        upstream.user = state->settings.upstream_user;
+        upstream.port = state->settings.upstream_port;
+        return upstream;
+    }
+
+    static void RemovePullDirectory(AppState* state)
+    {
+        if (state->pull_sessions && !state->pull_dir.empty())
+        {
+            std::error_code ignored;
+            std::filesystem::remove_all(state->pull_dir, ignored);
+        }
+        state->pull_dir.clear();
+    }
+
+    static void CloseTheWindow(AppState* state)
+    {
+        state->pull_stage = PullStage::kNone;
+        state->show_pull_modal = false;
+        state->pull_nets.clear();
+        state->pull_net_labels.clear();
+        state->selected_pull_net = 0;
+    }
+
+    void OpenPullWindow(AppState* state)
+    {
+        if (RefuseViewOnly(state, "import files"))
+        {
+            return;
+        }
+        if (!CanPullUpstream(state))
+        {
+            state->status_message.clear();
+            state->form_error = "Set up an upstream server in Settings (F5) first.";
+            return;
+        }
+        if (state->import_session && state->import_session_ad_hoc)
+        {
+            state->status_message.clear();
+            state->form_error = "Sessions are pulled into a recurring net's History.";
+            return;
+        }
+        if (!UpstreamToolsAvailable())
+        {
+            state->status_message.clear();
+            state->form_error = kNoSshMessage;
+            return;
+        }
+        state->pull_sessions = state->import_session;
+        CloseTheWindow(state);
+        state->pull_stage = PullStage::kListing;
+        state->show_pull_modal = true;
+        ++state->pull_generation;
+        state->form_error.clear();
+        state->status_message.clear();
+        state->pull_runner->ListNets(UpstreamFromSettings(state), state->pull_generation);
+    }
+
+    // How a net reads in the Pull window: "Skywarn  (12 sessions)", with its
+    // service if it isn't Amateur Radio.
+    static std::string PullNetLabel(const UpstreamNet& net)
+    {
+        std::string label = net.name + "  (" + Count(net.sessions, "session", "sessions") + ")";
+        if (net.service == "gmrs")
+        {
+            label += "  GMRS";
+        }
+        return label;
+    }
+
+    void FinishPullList(AppState* state, const PullResult& result, int generation)
+    {
+        if (generation != state->pull_generation || state->pull_stage != PullStage::kListing)
+        {
+            return;
+        }
+        if (result.kind != PullResultKind::kNets)
+        {
+            CloseTheWindow(state);
+            state->status_message.clear();
+            state->form_error = result.message;
+            return;
+        }
+
+        // The sessions of a net only go into a net on the same service.
+        std::optional<Net> target;
+        if (state->pull_sessions)
+        {
+            target = state->db->GetNetById(state->import_session_net_id);
+        }
+        state->pull_nets.clear();
+        state->pull_net_labels.clear();
+        state->selected_pull_net = 0;
+        bool selected_same = false;
+        bool selected_alike = false;
+        for (const UpstreamNet& net : result.nets)
+        {
+            if (target.has_value() && (net.service == "gmrs") != (target->service == NetService::kGmrs))
+            {
+                continue;
+            }
+            // Its own name first, else the first one that looks like it.
+            int index = static_cast<int>(state->pull_nets.size());
+            if (state->pull_sessions && !selected_same && NetNamesAreTheSame(net.name, state->import_session_net_name))
+            {
+                state->selected_pull_net = index;
+                selected_same = true;
+            }
+            else if (state->pull_sessions && !selected_same && !selected_alike &&
+                     NetNamesLookAlike(state->import_session_net_name, net.name))
+            {
+                state->selected_pull_net = index;
+                selected_alike = true;
+            }
+            state->pull_nets.push_back(net);
+            state->pull_net_labels.push_back(PullNetLabel(net));
+        }
+        if (state->pull_nets.empty())
+        {
+            CloseTheWindow(state);
+            state->status_message.clear();
+            state->form_error = state->settings.upstream_host + " has no nets" +
+                                (target.has_value() ? std::string(" on ") + ServiceLabel(target->service) : "") + ".";
+            return;
+        }
+        state->pull_stage = PullStage::kChoosing;
+    }
+
+    void MovePullHighlight(AppState* state, int delta)
+    {
+        if (state->pull_stage == PullStage::kChoosing && !state->pull_nets.empty())
+        {
+            state->selected_pull_net =
+                std::clamp(state->selected_pull_net + delta, 0, static_cast<int>(state->pull_nets.size()) - 1);
+            state->form_error.clear();
+        }
+    }
+
+    void ChoosePullNet(AppState* state)
+    {
+        if (state->pull_stage != PullStage::kChoosing || state->pull_nets.empty())
+        {
+            return;
+        }
+        const UpstreamNet& net = state->pull_nets[static_cast<std::size_t>(state->selected_pull_net)];
+        if (state->pull_sessions && net.sessions == 0)
+        {
+            state->form_error = net.name + " has no closed sessions to pull.";
+            return;
+        }
+        state->pull_net_name = net.name;
+        std::string imports = SessionImportsDir(state->db_path, state->ssh_username);
+        // A net's file goes where received files go, to be imported like
+        // one; the sessions' go in a folder of their own, which the list of
+        // files to import never shows, and which goes when they're in.
+        state->pull_dir = state->pull_sessions ? imports + "/.pull" : imports;
+        if (state->pull_sessions)
+        {
+            std::error_code ignored;
+            std::filesystem::remove_all(state->pull_dir, ignored);
+        }
+        state->form_error.clear();
+        state->pull_stage = PullStage::kFetching;
+        ++state->pull_generation;
+        state->pull_runner->Fetch(UpstreamFromSettings(state), net.name, state->pull_sessions, state->pull_dir,
+                                  state->pull_generation);
+    }
+
+    // Adds the pulled sessions to the net whose History opened the import
+    // page, skipping the ones it has.
+    static void ImportPulledSessions(AppState* state, const PullResult& result)
+    {
+        std::optional<Net> target = state->db->GetNetById(state->import_session_net_id);
+        if (!target.has_value())
+        {
+            state->status_message.clear();
+            state->form_error = "That net no longer exists.";
+            return;
+        }
+        int added = 0;
+        int already = 0;
+        int other_service = 0;
+        int unreadable = 0;
+        try
+        {
+            Database::WriteTransaction transaction(state->db);
+            // Oldest first, so they're numbered in the order they happened.
+            for (std::size_t i = result.files.size(); i > 0; --i)
+            {
+                std::string error;
+                std::optional<NetSlice> slice = ReadSessionSliceFile(result.files[i - 1], &error);
+                if (!slice.has_value())
+                {
+                    ++unreadable;
+                    continue;
+                }
+                if (slice->net.service != target->service)
+                {
+                    ++other_service;
+                    continue;
+                }
+                const NetInstance& source = slice->instances[0];
+                if (state->db->HasNetInstance(target->id, source.instance_date, source.started_at))
+                {
+                    ++already;
+                    continue;
+                }
+                if (ApplySessionSlice(state->db, *slice, target->id, &error) == 0)
+                {
+                    ++unreadable;
+                    continue;
+                }
+                ++added;
+            }
+            transaction.Commit();
+        }
+        catch (const std::exception& e)
+        {
+            state->status_message.clear();
+            state->form_error = std::string("Import failed, so nothing was added: ") + e.what();
+            return;
+        }
+
+        std::string message;
+        if (added == 0)
+        {
+            message =
+                "Nothing new: " + state->settings.upstream_host + "'s sessions of " + result.net + " are here already.";
+        }
+        else
+        {
+            message = "Added " + Count(added, "session", "sessions") + " of " + result.net + " from " +
+                      state->settings.upstream_host + "; " + std::to_string(already) + " here already.";
+        }
+        if (other_service > 0)
+        {
+            message += " " + Count(other_service, "session", "sessions") + " on the other service skipped.";
+        }
+        if (unreadable > 0)
+        {
+            message += " " + Count(unreadable, "session", "sessions") + " couldn't be read.";
+        }
+        if (result.not_sent > 0)
+        {
+            message += " " + std::to_string(result.not_sent) + " not sent (still open, or over the limit).";
+        }
+        state->import_session = false;
+        RefreshNetHistory(state);
+        state->form_error.clear();
+        state->status_message = std::move(message);
+        state->page = kPageNetHistory;
+    }
+
+    void FinishPullFiles(AppState* state, const PullResult& result, int generation)
+    {
+        if (generation != state->pull_generation || state->pull_stage != PullStage::kFetching)
+        {
+            return;
+        }
+        CloseTheWindow(state);
+        if (result.kind != PullResultKind::kFiles)
+        {
+            RemovePullDirectory(state);
+            state->status_message.clear();
+            state->form_error = result.message;
+            return;
+        }
+        if (result.files.empty())
+        {
+            RemovePullDirectory(state);
+            state->status_message.clear();
+            state->form_error =
+                state->settings.upstream_host + " has no closed sessions of " + result.net + " to send.";
+            return;
+        }
+
+        if (state->pull_sessions)
+        {
+            ImportPulledSessions(state, result);
+            RemovePullDirectory(state);
+            return;
+        }
+        // The net's file is among the received ones now: highlight it and
+        // import it as any is, which asks about a net it looks like.
+        const std::string& path = result.files[0];
+        std::string name = path.substr(path.find_last_of('/') + 1);
+        RefreshImportNetFiles(state);
+        for (std::size_t i = 0; i < state->import_net_files.size(); ++i)
+        {
+            if (state->import_net_files[i] == name)
+            {
+                state->selected_import_file_index = static_cast<int>(i);
+            }
+        }
+        state->pull_dir.clear();
+        state->form_error.clear();
+        state->status_message = "Pulled " + result.net + " from " + state->settings.upstream_host + ".";
+        ImportSelectedNetSlice(state);
+    }
+
+    void ClosePullWindow(AppState* state)
+    {
+        if (state->pull_runner != nullptr)
+        {
+            state->pull_runner->Cancel();
+        }
+        ++state->pull_generation;
+        CloseTheWindow(state);
+        RemovePullDirectory(state);
+        state->form_error.clear();
+    }
+
     void StartZmodemReceive(AppState* state)
     {
         if (RefuseViewOnly(state, "import files"))
@@ -6168,18 +6492,23 @@ namespace ql
                     {"Left/Right", "Change the Mode, Channel or Partial Matching.", false},
                 };
             case kPageImportNet:
-                if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || state->over_mosh)
+            {
+                std::vector<HelpLine> lines;
+                lines.push_back({"F2/Enter", "Import the highlighted file.", false});
+                if (!(IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || state->over_mosh))
                 {
-                    return {
-                        {"F2/Enter", "Import the highlighted file.", false},
-                        {"Esc", state->import_session ? "Back to History." : "Back.", false},
-                    };
+                    lines.push_back({"F3", "Receive a file from your terminal (ZMODEM).", false});
                 }
-                return {
-                    {"F2/Enter", "Import the highlighted file.", false},
-                    {"F3", "Receive a file from your terminal (ZMODEM).", false},
-                    {"Esc", state->import_session ? "Back to History." : "Back.", false},
-                };
+                if (CanPullUpstream(state) && !(state->import_session && state->import_session_ad_hoc))
+                {
+                    lines.push_back({"F4",
+                                     state->import_session ? "Pull a net's sessions from the upstream server."
+                                                           : "Pull a net from the upstream server.",
+                                     false});
+                }
+                lines.push_back({"Esc", state->import_session ? "Back to History." : "Back.", false});
+                return lines;
+            }
             case kPageManageUsers:
                 if (state->show_user_keys_modal)
                 {

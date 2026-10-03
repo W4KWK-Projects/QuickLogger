@@ -1,7 +1,7 @@
 #!/bin/sh
 # The built-in SSH server end to end: starts a QuickLogger server on this
 # machine and runs the system's real ssh, scp and sftp against it:
-# Federated Logging pushes (tests/test_push_end_to_end.cpp), and SFTP and
+# Federated Logging pushes and pulls (tests/test_push_end_to_end.cpp), and SFTP and
 # SCP file transfers (tests/test_files_end_to_end.cpp), over SFTP and
 # legacy SCP; and which commands the server will run
 # (tests/test_ssh_exec_end_to_end.cpp). Last, tests/push_screens.py drives the real program's push
@@ -80,6 +80,7 @@ until ssh-keyscan -p "$port" -t ed25519 127.0.0.1 > "$dir/ssh/known_hosts" 2>/de
 done
 
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" EndToEndRun
+PATH="$dir/bin:$PATH" "$build/quicklogger_tests" PullEndToEnd
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" PushConcurrentEndToEnd
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" SshExecEndToEnd
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" SftpLibsshEndToEnd

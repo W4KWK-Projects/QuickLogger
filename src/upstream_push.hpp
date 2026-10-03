@@ -54,6 +54,22 @@ namespace ql
     std::vector<std::string> UpstreamScpArguments(const Upstream& upstream, const std::string& local_path,
                                                   const std::string& remote_name);
 
+    // ssh's arguments (after the program itself) to run `command` on the
+    // upstream, as one string for QuickLogger's own command line
+    // (remote_command.hpp).
+    std::vector<std::string> UpstreamSshArguments(const Upstream& upstream, const std::string& command);
+
+    // `text` as one double-quoted word for that command line.
+    std::string QuotedCommandWord(const std::string& text);
+
+    // One sentence on why ssh or scp (`run`) failed, from what it printed:
+    // no ssh, no reaching the host, an unknown host key, a refused key.
+    // `fallback` ("Couldn't copy the session to") plus the host is the
+    // answer when it can't tell; `uploading` also reads scp's complaints
+    // about a view-only user, a file over the limit and a full /imports.
+    std::string UpstreamFailureMessage(const Upstream& upstream, const ProgramResult& run, const char* fallback,
+                                       bool uploading);
+
     // ssh's arguments to run import-session on `remote_name`, with
     // --confirm-net `confirm_net` if it isn't empty. The command reaches the
     // upstream as one string; the net name in it is quoted as

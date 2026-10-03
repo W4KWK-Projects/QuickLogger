@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -19,6 +20,7 @@
 #include "../src/file_export.hpp"
 #include "../src/net_slice.hpp"
 #include "../src/sftp_paths.hpp"
+#include "../src/upstream_pull.hpp"
 #include "../src/upstream_push.hpp"
 #include "test_framework.hpp"
 #include "test_helpers.hpp"
@@ -408,6 +410,67 @@ namespace ql
     }
 
     // Real ssh and scp clients pushing to one upstream at the same moment.
+    // Pulling (upstream_pull.hpp) through the real ssh and scp, after the
+    // pushes above have given the upstream's TAG Skywarn two sessions: the
+    // list of nets, a net's sessions and the net itself, as a view-only user
+    // (who may read) and over SFTP and legacy SCP alike.
+    QL_TEST(PullEndToEnd)
+    {
+        std::string dir = EndToEndDir();
+        if (dir.empty())
+        {
+            return;
+        }
+        REQUIRE(std::getenv("QL_PUSH_E2E_PORT") != nullptr);
+
+        PullResult list = PullNetList(UpstreamFor("K4VIEW"), nullptr);
+        REQUIRE(list.kind == PullResultKind::kNets);
+        bool has_tag = false;
+        for (const UpstreamNet& net : list.nets)
+        {
+            if (net.name == "TAG Skywarn")
+            {
+                has_tag = true;
+                CHECK_EQ(net.sessions, 2);
+                CHECK_EQ(net.service, std::string("amateur"));
+            }
+        }
+        CHECK(has_tag);
+
+        for (const char* extra : {"", "-O"})
+        {
+            SetTestEnvironment("SCP_EXTRA", extra);
+            std::string pulled = dir + "/pulled" + extra;
+            PullResult sessions = PullNetFiles(UpstreamFor("K4VIEW"), "TAG Skywarn", true, pulled, nullptr);
+            REQUIRE(sessions.kind == PullResultKind::kFiles);
+            CHECK_EQ(sessions.net, std::string("TAG Skywarn"));
+            REQUIRE(sessions.files.size() == 2);
+            std::string error;
+            std::optional<NetSlice> newest = ReadSessionSliceFile(sessions.files[0], &error);
+            REQUIRE(newest.has_value());
+            CHECK_EQ(newest->instances[0].instance_date, std::string("2026-09-22"));
+            CHECK_EQ(newest->check_ins.size(), std::size_t(6));
+            std::optional<NetSlice> oldest = ReadSessionSliceFile(sessions.files[1], &error);
+            REQUIRE(oldest.has_value());
+            CHECK_EQ(oldest->check_ins.size(), std::size_t(4));
+
+            PullResult net = PullNetFiles(UpstreamFor("W4KWK"), "tag skywarn", false, pulled, nullptr);
+            REQUIRE(net.kind == PullResultKind::kFiles);
+            REQUIRE(net.files.size() == 1);
+            std::optional<NetSlice> slice = ReadNetSliceFile(net.files[0], &error);
+            REQUIRE(slice.has_value());
+            CHECK_EQ(slice->net.name, std::string("TAG Skywarn"));
+            CHECK_EQ(slice->instances.size(), std::size_t(2));
+        }
+        SetTestEnvironment("SCP_EXTRA", "");
+
+        // A net it hasn't got, and a user it doesn't know.
+        PullResult missing = PullNetFiles(UpstreamFor("K4VIEW"), "No Such Net", true, dir + "/pulled-none", nullptr);
+        CHECK(missing.kind == PullResultKind::kFailed);
+        CHECK_EQ(missing.message, std::string("127.0.0.1 has no net named No Such Net any more."));
+        CHECK_EQ(PullNetList(UpstreamFor("nobody"), nullptr).message, std::string("127.0.0.1 refused your key."));
+    }
+
     QL_TEST(PushConcurrentEndToEnd)
     {
         std::string dir = EndToEndDir();
