@@ -1530,7 +1530,7 @@ namespace ql
     // database so a net someone else just made counts; empty if there's
     // none. No two recurring nets may share a name. Ad hoc nets don't
     // count, and may share names freely.
-    std::string ExistingNetNamed(AppState* state, const std::string& name, std::int64_t except_net_id = 0);
+    std::string ExistingNetNamed(const AppState* state, const std::string& name, std::int64_t except_net_id = 0);
 
     // Reloads AppState::saved_station_suggestions/_labels from
     // AppState::saved_station.callsign, same three-tier priority as
@@ -1563,11 +1563,11 @@ namespace ql
     // call it right before RecordManualCheckInStation/SaveNetStation for any
     // Station that might be ULS-sourced (or manually entered with a ZIP but
     // no county).
-    void BackfillCountyFromZip(AppState* state, Station* station);
+    void BackfillCountyFromZip(const AppState* state, Station* station);
 
     // Fills a blank Grid Square with the 4-character grid of the station's
     // ZIP centroid, so a picked or looked-up station comes with an
     // approximate grid. US 5-digit ZIPs only; a typed grid is never touched.
-    void BackfillGridFromZip(AppState* state, Station* station);
+    void BackfillGridFromZip(const AppState* state, Station* station);
 
 }  // namespace ql

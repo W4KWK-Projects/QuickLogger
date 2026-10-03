@@ -979,7 +979,7 @@ COMMIT;
         return ReadStationRow(statement);
     }
 
-    std::vector<Station> Database::FindStationsByCallsigns(const std::vector<std::string>& callsigns)
+    std::vector<Station> Database::FindStationsByCallsigns(const std::vector<std::string>& callsigns) const
     {
         // In batches, under SQLite's oldest limit on parameters (999).
         static constexpr std::size_t kBatch = 500;
@@ -1715,7 +1715,7 @@ COMMIT;
         return callsigns;
     }
 
-    std::vector<CheckIn> Database::GetCheckInsForNetInstances(const std::vector<std::int64_t>& instance_ids)
+    std::vector<CheckIn> Database::GetCheckInsForNetInstances(const std::vector<std::int64_t>& instance_ids) const
     {
         std::vector<CheckIn> check_ins;
         if (instance_ids.empty())
@@ -2148,7 +2148,7 @@ COMMIT;
     std::vector<NearbyUlsStation> Database::SearchNearbyUlsStations(const std::string& substring,
                                                                     const std::vector<NearbyZip>& nearby_zips,
                                                                     const std::vector<std::string>& zip3_prefixes,
-                                                                    int limit, LicenseTable table)
+                                                                    int limit, LicenseTable table) const
     {
         const char* stations = table == LicenseTable::kGmrs ? "gmrs_stations" : "uls_stations";
         std::vector<NearbyUlsStation> results;
@@ -2458,7 +2458,7 @@ COMMIT;
     }
 
     std::vector<Station> Database::FindUlsStationsByCallsigns(const std::vector<std::string>& callsigns,
-                                                              LicenseTable table)
+                                                              LicenseTable table) const
     {
         std::vector<Station> stations;
         if (callsigns.empty())

@@ -984,10 +984,6 @@ namespace ql
         state->confirm_prompt = ConfirmPrompt::kNone;
     }
 
-    // Asks whether to resume `session` of AppState::start_net, which is still
-    // open, or close it and start a new one (ConfirmPrompt::kResumeNet).
-    void ViewOpenNet(AppState* state);
-
     static void OfferToResume(AppState* state, const NetInstance& session)
     {
         state->resume_instance = session;
@@ -1230,7 +1226,7 @@ namespace ql
 
     // The upstream kept the last push's upload to ask about it; it won't be
     // used, so it can go.
-    static void DiscardKeptUpload(AppState* state)
+    static void DiscardKeptUpload(const AppState* state)
     {
         if (state->push_runner == nullptr || state->push_remote_name.empty())
         {
@@ -1306,8 +1302,7 @@ namespace ql
         state->start_net = state->nets[state->selected_net_index];
         // Without a call sign for its service, as for a view-only user,
         // only watching.
-        bool watch_only = state->view_only_user || OwnCallsign(state, state->start_net.service).empty();
-        if (watch_only)
+        if (state->view_only_user || OwnCallsign(state, state->start_net.service).empty())
         {
             std::string why;
             if (!state->view_only_user)
@@ -1639,13 +1634,13 @@ namespace ql
         }
         else
         {
-            lines.push_back("Another user has deleted this net's session.");
+            lines.emplace_back("Another user has deleted this net's session.");
         }
         if (!unlogged.empty())
         {
             lines.push_back(unlogged + " was not logged.");
         }
-        lines.push_back("You will be returned to the Recurring Nets list when you press Enter.");
+        lines.emplace_back("You will be returned to the Recurring Nets list when you press Enter.");
         ShowConfirmPrompt(state, ConfirmPrompt::kSessionClosed, session.has_value() ? "Net Closed" : "Session Deleted",
                           lines);
     }
@@ -1741,6 +1736,7 @@ namespace ql
             std::string notice = DescribeStationDataNotice(state->db, now, &is_problem);
             ShowStationDataStatus(state, notice, is_problem, DescribeStationDataStatus(state->db, now));
         }
+        // NOLINTNEXTLINE(bugprone-empty-catch): busy right now, ScreenTicker shows it shortly.
         catch (const std::exception&)
         {
             // Busy right now: ScreenTicker shows it shortly.
@@ -1903,7 +1899,7 @@ namespace ql
         return true;
     }
 
-    std::string ExistingNetNamed(AppState* state, const std::string& name, std::int64_t except_net_id)
+    std::string ExistingNetNamed(const AppState* state, const std::string& name, std::int64_t except_net_id)
     {
         for (const Net& net : state->db->GetAllNets())
         {
@@ -2409,9 +2405,14 @@ namespace ql
                 if (other.id != state->edit_checkin_original.id && BaseCallsign(other.callsign) == base &&
                     ToUpperAscii(other.name) == ToUpperAscii(person))
                 {
-                    state->form_error = callsign + (person.empty() ? std::string() : " (" + person + ")") +
-                                        " is already in this session's log, as #" +
-                                        std::to_string(other.sequence_number) + ".";
+                    state->form_error = callsign;
+                    if (!person.empty())
+                    {
+                        state->form_error += " (" + person + ")";
+                    }
+                    state->form_error += " is already in this session's log, as #";
+                    state->form_error += std::to_string(other.sequence_number);
+                    state->form_error += ".";
                     return false;
                 }
             }
@@ -3813,11 +3814,11 @@ namespace ql
                 }
                 AdifContact& contact = contacts.emplace_back();
                 contact.check_in = &check_in;
-                std::vector<Station>::const_iterator found =
+                std::vector<Station>::const_iterator station_at =
                     std::lower_bound(stations.begin(), stations.end(), check_in.callsign, StationCallsignBefore);
-                if (found != stations.end() && found->callsign == check_in.callsign)
+                if (station_at != stations.end() && station_at->callsign == check_in.callsign)
                 {
-                    contact.station = &*found;
+                    contact.station = &*station_at;
                 }
             }
         }
@@ -4118,10 +4119,13 @@ namespace ql
         }
         state->merge_station_callsign_texts.clear();
         state->merge_station_difference_texts.clear();
+        state->merge_station_callsign_texts.reserve(state->merge_plan.station_conflicts.size());
+        state->merge_station_difference_texts.reserve(state->merge_plan.station_conflicts.size());
         for (const MergeStationConflict& conflict : state->merge_plan.station_conflicts)
         {
             state->merge_station_callsign_texts.push_back("  " + conflict.file_station->callsign);
             std::vector<std::string> differences;
+            differences.reserve(conflict.differences.size());
             for (const StationDetailDifference& difference : conflict.differences)
             {
                 differences.push_back("         " + std::string(difference.field) + ": " + difference.here + " here, " +
@@ -4297,7 +4301,7 @@ namespace ql
         }
         RefreshNets(state);
         state->form_error.clear();
-        state->status_message = "Imported \"" + slice->net.name + "\". It's listed with today's date as \"imported\".";
+        state->status_message = "Imported \"" + slice->net.name + R"(". It's listed with today's date as "imported".)";
         state->page = kPageNetList;
     }
 
@@ -4484,7 +4488,7 @@ namespace ql
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed, const std::string& net_zip,
                                            bool partial, NetService service, std::size_t max_suggestions,
                                            std::vector<Station>* suggestions, std::vector<std::string>* sources);
-    static void AppendCanadianSuggestions(AppState* state, const std::string& typed, bool partial,
+    static void AppendCanadianSuggestions(const AppState* state, const std::string& typed, bool partial,
                                           std::size_t max_suggestions, std::vector<Station>* suggestions,
                                           std::vector<std::string>* sources);
     static bool LooksCanadian(const std::string& typed);
@@ -5080,7 +5084,7 @@ namespace ql
             if (!already_known)
             {
                 matches.push_back(&candidate);
-                match_callsigns.push_back(candidate.callsign);
+                match_callsigns.emplace_back(candidate.callsign);
             }
         }
         std::vector<Station> records = state->db->FindUlsStationsByCallsigns(match_callsigns, table);
@@ -5115,7 +5119,7 @@ namespace ql
     // those starting with it, looked up only for a call sign that looks
     // Canadian (LooksCanadian). Skips callsigns already in `suggestions`;
     // stops at `max_suggestions`.
-    static void AppendCanadianSuggestions(AppState* state, const std::string& typed, bool partial,
+    static void AppendCanadianSuggestions(const AppState* state, const std::string& typed, bool partial,
                                           std::size_t max_suggestions, std::vector<Station>* suggestions,
                                           std::vector<std::string>* sources)
     {
@@ -5141,7 +5145,7 @@ namespace ql
             if (!already_known)
             {
                 suggestions->push_back(match);
-                sources->push_back(kIsedSource);
+                sources->emplace_back(kIsedSource);
             }
         }
     }
@@ -5227,7 +5231,7 @@ namespace ql
         state->saved_station_suggestion_sources.clear();
     }
 
-    void BackfillCountyFromZip(AppState* state, Station* station)
+    void BackfillCountyFromZip(const AppState* state, Station* station)
     {
         if (!station->county.empty() || station->zip.empty())
         {
@@ -5253,7 +5257,7 @@ namespace ql
         station->county = state->db->FindZipCounty(zip5);
     }
 
-    void BackfillGridFromZip(AppState* state, Station* station)
+    void BackfillGridFromZip(const AppState* state, Station* station)
     {
         if (!station->grid_square.empty() || station->zip.size() < 5)
         {
@@ -5457,7 +5461,7 @@ namespace ql
     }
 
     // The active net's other sessions, newest first.
-    static std::vector<NetInstance> OtherSessions(AppState* state)
+    static std::vector<NetInstance> OtherSessions(const AppState* state)
     {
         std::vector<NetInstance> sessions;
         for (const NetInstance& session : state->db->GetNetInstancesForNet(state->active_instance.net_id))
@@ -5623,6 +5627,9 @@ namespace ql
         state->info_stations.clear();
         // Their details in one query.
         std::vector<std::string> regular_callsigns;
+        regular_callsigns.reserve(regulars.size());
+        rows.reserve(regulars.size());
+        state->info_stations.reserve(regulars.size());
         for (std::size_t index : regulars)
         {
             regular_callsigns.push_back(ToUpperAscii(callsigns[index]));
@@ -5754,6 +5761,8 @@ namespace ql
         }
         std::vector<const CheckIn*> first_timers;
         std::vector<std::string> first_timer_callsigns;
+        first_timers.reserve(state->active_check_ins.size());
+        first_timer_callsigns.reserve(state->active_check_ins.size());
         for (const CheckIn& check_in : state->active_check_ins)
         {
             if (seen_before.count(ToUpperAscii(check_in.callsign)) == 0)
@@ -5764,6 +5773,7 @@ namespace ql
         }
         std::unordered_map<std::string, std::string> names = StationNames(state->db, first_timer_callsigns);
         std::vector<std::vector<std::string>> rows;
+        rows.reserve(first_timers.size());
         for (const CheckIn* check_in : first_timers)
         {
             rows.push_back(
@@ -5878,6 +5888,8 @@ namespace ql
         std::vector<std::vector<std::string>> rows;
         std::vector<CallsignTally> top = state->db->GetTopCallsignsForNet(net.id, 15);
         std::vector<std::string> top_callsigns;
+        top_callsigns.reserve(top.size());
+        rows.reserve(top.size());
         for (const CallsignTally& tally : top)
         {
             top_callsigns.push_back(tally.callsign);
@@ -5933,7 +5945,7 @@ namespace ql
                                          RoleAbbreviation(record.check_in.designated_role), record.check_in.remarks});
             // Ad hoc nets aren't on the Recurring Nets list, so say which
             // these are (see the Ad Hoc page for them).
-            state->info_cell_tags.push_back(record.net_is_ad_hoc ? " (ad hoc)" : "");
+            state->info_cell_tags.emplace_back(record.net_is_ad_hoc ? " (ad hoc)" : "");
         }
         state->info_tag_column = 1;
         state->info_summary.push_back(records.empty() ? std::string("No check-ins found.")
@@ -5961,7 +5973,7 @@ namespace ql
     {
         // Its reads share one snapshot and one lock.
         Database::ReadTransaction reads(state->db);
-        std::string cutoff = FormatLocalDate(static_cast<std::int64_t>(std::time(nullptr)) - 182 * 24 * 3600);
+        std::string cutoff = FormatLocalDate(static_cast<std::int64_t>(std::time(nullptr)) - 182LL * 24 * 3600);
         std::vector<CallsignTally> tallies = state->db->GetSavedStationActivity(state->edit_net_id);
         std::vector<std::vector<std::string>> rows;
         for (const CallsignTally& tally : tallies)

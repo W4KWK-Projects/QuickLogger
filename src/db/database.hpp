@@ -106,7 +106,7 @@ namespace ql
         std::optional<Station> FindStationByCallsign(const std::string& callsign);
         // The stations here with any of `callsigns` (upper case), sorted by
         // callsign: a few queries for the lot rather than one per callsign.
-        std::vector<Station> FindStationsByCallsigns(const std::vector<std::string>& callsigns);
+        std::vector<Station> FindStationsByCallsigns(const std::vector<std::string>& callsigns) const;
         // Every station checked into net instance `instance_id`, sorted by
         // callsign: one query where looking each check-in's station up in
         // turn would be one per check-in.
@@ -317,7 +317,7 @@ namespace ql
         std::vector<std::string> GetCallsignsInOtherSessions(std::int64_t net_id, std::int64_t instance_id);
         // The check-ins of a few sessions, in one query, by session then
         // number.
-        std::vector<CheckIn> GetCheckInsForNetInstances(const std::vector<std::int64_t>& instance_ids);
+        std::vector<CheckIn> GetCheckInsForNetInstances(const std::vector<std::int64_t>& instance_ids) const;
         void UpdateCheckIn(const CheckIn& check_in);
         // Removes one check-in entry entirely (e.g. logged in error). Does not
         // touch the Station record. In an open session the others keep their
@@ -386,7 +386,7 @@ namespace ql
         std::vector<NearbyUlsStation> SearchNearbyUlsStations(const std::string& substring,
                                                               const std::vector<NearbyZip>& nearby_zips,
                                                               const std::vector<std::string>& zip3_prefixes, int limit,
-                                                              LicenseTable table = LicenseTable::kAmateur);
+                                                              LicenseTable table = LicenseTable::kAmateur) const;
         // Every station SearchNearbyUlsStations("") would return, in the same
         // order, as just its callsign and distance: what autocomplete keeps
         // in memory (see AppState::nearby_uls_callsigns). Read from the
@@ -402,7 +402,7 @@ namespace ql
         // The same for a few call signs at once (a screenful of autocomplete
         // matches), sorted by callsign; those not licensed are left out.
         std::vector<Station> FindUlsStationsByCallsigns(const std::vector<std::string>& callsigns,
-                                                        LicenseTable table = LicenseTable::kAmateur);
+                                                        LicenseTable table = LicenseTable::kAmateur) const;
 
         // Canada's amateur call sign database (ISED -- see uls_import.hpp),
         // in its own table like the FCC's. Replaced wholesale on each load,
