@@ -2398,6 +2398,37 @@ namespace ql
         CHECK(f.state.net_names[0].find("Tuesdays 8pm") == std::string::npos);
     }
 
+    QL_TEST(ASessionExportOverScpIsAZipAndKeepsItsFiles)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        f.state.modal_station.callsign = "K4AAA";
+        REQUIRE(LogStationCheckIn(&f.state));
+        NetInstance instance = *f.db()->GetNetInstanceById(f.state.active_instance.id);
+        std::vector<CheckIn> check_ins = f.db()->GetCheckInsForNetInstance(instance.id);
+        f.state.is_console_session = false;
+        f.state.ssh_username = "K4WES";
+        f.state.over_mosh = true;
+        f.state.console_settings_path = f.dir().File("settings.txt");
+        SetTestEnvironment("SSH_CONNECTION", "");
+        ExportNetLog(&f.state, "Skywarn", instance, check_ins);
+        int zips = 0;
+        int others = 0;
+        for (const std::filesystem::directory_entry& entry :
+             std::filesystem::recursive_directory_iterator(f.dir().File("exports")))
+        {
+            if (entry.is_regular_file())
+            {
+                (entry.path().extension() == ".zip" ? zips : others) += 1;
+            }
+        }
+        CHECK_EQ(zips, 1);
+        CHECK(others >= 2);
+        CHECK(f.state.status_message.find(".zip") != std::string::npos);
+        CHECK(f.state.status_message.find("scp") != std::string::npos);
+        CHECK(f.state.zmodem_zip_contents.empty());
+    }
+
     QL_TEST(ExportedLogsHaveEveryColumnWhateverTheTerminal)
     {
         Fixture f;

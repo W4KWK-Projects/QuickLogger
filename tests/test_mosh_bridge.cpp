@@ -147,7 +147,8 @@ namespace ql
         OfferZmodemSendFiles(&state, {"./exports/ssh-users/W4KWK/Skywarn.qlnet"});
         CHECK(!state.show_zmodem_confirm_modal);
         CHECK_EQ(state.status_message,
-                 std::string("Saved. Copy it with:  scp -P 2200 W4KWK@net.example.org:/exports/Skywarn.qlnet ."));
+                 std::string(
+                     "Saved. Copy it with this command:\nscp -P 2200 W4KWK@net.example.org:/exports/Skywarn.qlnet ./"));
         StartZmodemReceive(&state);
         CHECK(!state.show_zmodem_confirm_modal);
     }
@@ -167,8 +168,8 @@ namespace ql
         state.console_settings_path = dir.File("settings.txt");
         OfferZmodemSendFiles(&state, {"./x/Weekly Net.adi", "./x/Weekly Net.txt"});
         CHECK_EQ(state.status_message,
-                 std::string("Saved. Copy it with:  scp 'W4KWK@net.example.org:/exports/Weekly Net.adi' "
-                             "'W4KWK@net.example.org:/exports/Weekly Net.txt' ."));
+                 std::string("Saved. Copy it with this command:\nscp 'W4KWK@net.example.org:/exports/Weekly Net.adi' "
+                             "'W4KWK@net.example.org:/exports/Weekly Net.txt' ./"));
     }
 
 }  // namespace ql

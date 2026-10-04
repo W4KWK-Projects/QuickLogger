@@ -12,6 +12,7 @@
 
 #include <ftxui/component/component_options.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/screen/string.hpp>
 #include <ftxui/screen/terminal.hpp>
 
 #include "../date_utils.hpp"
@@ -43,9 +44,35 @@ namespace ql
         return message.empty() ? ftxui::emptyElement() : ftxui::paragraph(message) | ftxui::color(kColorError);
     }
 
+    // A command to run, a solid block on its own line, so all of it (the
+    // last argument too) reads as one thing to copy. Reverse video, not
+    // bold: some terminals draw bold glyphs wider (see AlignedMenuEntryTransform).
+    // The block ends where the command does when it fits on a line; one too
+    // wide for the terminal wraps, and then fills its rows.
+    static ftxui::Element CommandBlock(const std::string& command)
+    {
+        if (ftxui::string_width(command) <= ftxui::Terminal::Size().dimx)
+        {
+            return ftxui::hbox({ftxui::text(command) | ftxui::inverted, ftxui::filler()});
+        }
+        return ftxui::paragraph(command) | ftxui::inverted;
+    }
+
+    // A message; after its first line, if it has one, comes a command to
+    // run (see CommandBlock).
     static ftxui::Element StatusLine(const std::string& message)
     {
-        return message.empty() ? ftxui::emptyElement() : ftxui::paragraph(message) | ftxui::color(kColorSuccess);
+        if (message.empty())
+        {
+            return ftxui::emptyElement();
+        }
+        std::string::size_type newline = message.find('\n');
+        if (newline == std::string::npos)
+        {
+            return ftxui::paragraph(message) | ftxui::color(kColorSuccess);
+        }
+        return ftxui::vbox({ftxui::paragraph(message.substr(0, newline)) | ftxui::color(kColorSuccess),
+                            CommandBlock(message.substr(newline + 1))});
     }
 
     static ftxui::Element FieldLabel(const std::string& label)
@@ -2501,10 +2528,21 @@ namespace ql
         if (state->over_mosh || NoZmodemOnThisSystem() || SessionPrefersSftp(state))
         {
             const std::string& upload = ScpUploadCommand(state);
-            return "No " + pattern + " files received yet. Upload one: " +
-                   (upload.empty() ? std::string("scp or sftp to /imports.") : upload);
+            return upload.empty() ? "No " + pattern + " files received yet. Upload one with scp or sftp to /imports."
+                                  : "No " + pattern + " files received yet. Upload one with this command:\n" + upload;
         }
         return "No " + pattern + " files received yet. Press F3 to receive one via ZMODEM.";
+    }
+
+    // A hint, with a command after its first line if it has one.
+    static ftxui::Element HintWithCommand(const std::string& text)
+    {
+        std::string::size_type newline = text.find('\n');
+        if (newline == std::string::npos)
+        {
+            return HintText(text);
+        }
+        return ftxui::vbox({HintText(text.substr(0, newline)), CommandBlock(text.substr(newline + 1))});
     }
 
     class ImportNetRenderer
@@ -2519,7 +2557,7 @@ namespace ql
             bool session = state_->import_session;
             std::string pattern = session ? "*.qlsession" : "*.qlnet";
             ftxui::Element file_list = state_->import_net_files.empty()
-                                           ? HintText(EmptyImportListHint(state_, pattern))
+                                           ? HintWithCommand(EmptyImportListHint(state_, pattern))
                                            : file_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator;
 
             ftxui::Elements rows;

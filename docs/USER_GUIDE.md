@@ -237,7 +237,7 @@ Exports are written to the `exports/` folder next to QuickLogger's database; imp
 
 | What | Key | File |
 |---|---|---|
-| A session | F7 on the active net or History | `NetName_date_log.txt`, the log; `NetName_date.qlsession`, the session exactly, for **F6** in History on another QuickLogger; and, for an amateur net, `NetName_date.adi`, the session's contacts in ADIF, for a logging program. Over SSH, ZMODEM sends them as one `NetName_date.zip`, removed afterwards |
+| A session | F7 on the active net or History | `NetName_date_log.txt`, the log; `NetName_date.qlsession`, the session exactly, for **F6** in History on another QuickLogger; and, for an amateur net, `NetName_date.adi`, the session's contacts in ADIF, for a logging program. Over SSH they are also made into one `NetName_date.zip`: ZMODEM sends it and removes it afterwards, while with `scp` it stays beside the files, so one command fetches all three |
 | A net's saved stations | F7 on Edit Net | `NetName_saved_stations.txt` |
 | A whole net, to share | F8 on Recurring Nets | `NetName.qlnet`: the net, its saved stations and its full history |
 
@@ -262,11 +262,17 @@ It all happens at once, or not at all if something goes wrong. It can't be undon
 
 **Over SSH (SFTP):** without ZMODEM, copy files with `scp` or `sftp`, using the address, port and key you log in with. You see two folders: `/exports`, your exports (read-only), and `/imports`, for files to import.
 
-To download an export: `scp -P 2222 you@server:/exports/Skywarn_2026-01-06.qlsession .`
+To download an export: `scp -P 2222 you@server:/exports/Skywarn_2026-01-06.qlsession ./`
 
 To upload a net for **F9** on Recurring Nets (or a session for **F6** in History): `scp -P 2222 Skywarn.qlnet you@server:/imports/`
 
 Uploads must be `.qlnet` or `.qlsession` files of up to 25 MB, and `/imports` holds up to 100 MB in all. A view-only user can't upload. `sftp`'s `rm` removes your own uploads. Any `scp` works, including the one built into Windows 10 and 11; it copies single files, not folders.
+
+QuickLogger shows the exact command for you after an export (when ZMODEM isn't offered) and on the Import page, using the server address its operator set in Settings.
+
+**PuTTY:** its `pscp` works like `scp`: `pscp -P 2222 -i mykey.ppk you@server:/exports/Skywarn_2026-01-06.qlsession ./` PuTTY wants keys in its own `.ppk` format: in PuTTYgen, **Load** your OpenSSH private key and **Save private key**. If the key is loaded in Pageant, leave out `-i`.
+
+**WinSCP:** choose **New Session**, set File protocol to **SFTP**, and fill in the host name, port and user name. Under **Advanced > SSH > Authentication**, pick your private key (WinSCP offers to convert it to `.ppk`), then **Login**. You'll see `/exports` and `/imports`: drag files out of the first and into the second.
 
 **My Keys:** press **F4** on Settings over SSH to see your keys, name them (a comment such as "My Mac") and choose, for each, how its device gets files. **Transfer** is **ZMODEM**, **SFTP**, or **Ask** (the default), which offers ZMODEM. A key set to SFTP is shown the `scp` command instead of a ZMODEM prompt, and has no F3 receive on the Import page. Set it per key: a laptop terminal may speak ZMODEM while a phone's app only does SFTP. The key you're logged in with is marked. Over Mosh no key is marked, and files are copied with scp or sftp whatever Transfer says.
 

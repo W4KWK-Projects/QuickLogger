@@ -2757,7 +2757,8 @@ namespace ql
         }
     }
 
-    static std::string RemoteCopyMessage(const AppState* state, const std::vector<std::string>& paths);
+    static std::string RemoteCopyMessage(const AppState* state, const std::vector<std::string>& paths,
+                                         const std::string& before = "");
 
     void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths, std::int64_t push_net_id,
                               std::int64_t push_instance_id)
@@ -2894,7 +2895,7 @@ namespace ql
             std::string remote = user_at_host + ":/exports/" + name;
             command += name.find_first_of(" \t'\"") == std::string::npos ? " " + remote : " '" + remote + "'";
         }
-        return command + " .";
+        return command + " ./";
     }
 
     const std::string& ScpUploadCommand(AppState* state)
@@ -2914,10 +2915,13 @@ namespace ql
     }
 
     // What an SSH user is told after an export they can only fetch with scp.
-    static std::string RemoteCopyMessage(const AppState* state, const std::vector<std::string>& paths)
+    static std::string RemoteCopyMessage(const AppState* state, const std::vector<std::string>& paths,
+                                         const std::string& before)
     {
         std::string command = ScpCommandFor(state, paths);
-        return command.empty() ? "Saved to " + ListPaths(paths) + "." : "Saved. Copy it with:  " + command;
+        // The command goes on its own line, shown as a block (see StatusLine).
+        return command.empty() ? before + "Saved to " + ListPaths(paths) + "."
+                               : before + "Saved. Copy it with this command:\n" + command;
     }
 
     // Once ZMODEM is done with a session export's .zip, removes it and
@@ -4278,11 +4282,10 @@ namespace ql
             }
             paths.push_back(adif_path);
         }
-        // Sent over ZMODEM as one .zip, so there's one file to receive. With
-        // no ZMODEM (at the console, on Windows, or without sz), the files
-        // are all there is.
-        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || !ZmodemSendAvailable() ||
-            state->over_mosh || SessionPrefersSftp(state))
+        // For someone at another computer, the three files go as one .zip: one
+        // ZMODEM receive, or one short scp command. At the console, the
+        // files are all there is.
+        if (IsLocalTerminal(state->is_console_session))
         {
             OfferZmodemSendFiles(state, paths, 0, push_instance_id);
             return;
@@ -4295,8 +4298,13 @@ namespace ql
             return;
         }
         OfferZmodemSendFiles(state, {zip_path}, 0, push_instance_id);
-        state->zmodem_zip_contents = paths;
-        state->status_message = "Saved to " + ListPaths(paths) + ".";
+        // After a ZMODEM send the .zip is removed, leaving the files. For scp
+        // both stay: QuickLogger can't tell when the .zip has been fetched.
+        if (state->show_zmodem_confirm_modal && state->zmodem_action == ZmodemAction::kSend)
+        {
+            state->zmodem_zip_contents = paths;
+            state->status_message = "Saved to " + ListPaths(paths) + ".";
+        }
     }
 
     void ExportSavedStations(AppState* state, const std::string& net_name)
