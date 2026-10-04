@@ -30,7 +30,20 @@ log()
 
 mkdir -p "$WORK" "$DATA/backups"
 
-release=$(fetch -qo - "https://api.github.com/repos/$REPO/releases/latest")
+# GitHub limits API calls per address; a refused call is tried again a
+# few times before giving up.
+release=""
+for delay in 0 10 30 60; do
+    sleep "$delay"
+    if release=$(fetch -qo - "https://api.github.com/repos/$REPO/releases/latest"); then
+        break
+    fi
+    release=""
+done
+if [ -z "$release" ]; then
+    log "could not read the latest release from GitHub"
+    exit 1
+fi
 tag=$(printf '%s' "$release" | jq -r .tag_name)
 version=${tag#v}
 installed=$("$BIN" --version 2>/dev/null | awk '{print $2}' || true)

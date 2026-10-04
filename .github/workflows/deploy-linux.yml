@@ -36,7 +36,9 @@ jobs:
         run: sudo apt-get install -y -q openssh-server
 
       - name: Set up the server
-        run: sudo sh deploy/linux/setup.sh
+        run: sudo --preserve-env=GITHUB_TOKEN sh deploy/linux/setup.sh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Check the server
         run: |

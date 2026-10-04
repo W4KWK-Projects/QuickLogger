@@ -50,7 +50,25 @@ fi
 
 mkdir -p "$WORK" "$DATA/backups"
 
-release=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")
+# GitHub limits unauthenticated API calls per address (shared by every
+# machine behind it, as on CI runners); GITHUB_TOKEN, if set, lifts that.
+# A refused call is tried again a few times before giving up.
+set -- -fsSL
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    set -- "$@" -H "Authorization: Bearer $GITHUB_TOKEN"
+fi
+release=""
+for delay in 0 10 30 60; do
+    sleep "$delay"
+    if release=$(curl "$@" "https://api.github.com/repos/$REPO/releases/latest"); then
+        break
+    fi
+    release=""
+done
+if [ -z "$release" ]; then
+    log "could not read the latest release from GitHub"
+    exit 1
+fi
 tag=$(printf '%s' "$release" | jq -r .tag_name)
 version=${tag#v}
 installed=$("$BIN" --version 2>/dev/null | awk '{print $2}' || true)
