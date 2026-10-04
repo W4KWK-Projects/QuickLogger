@@ -111,6 +111,7 @@ set(quicklogger_sources
     src/interactive_session.cpp
     src/date_utils.cpp
     src/settings.cpp
+    src/server_address.cpp
     src/text_utils.cpp
     src/callsign_rules.cpp
     src/frequency_rules.cpp
@@ -254,6 +255,7 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_remote_command.cpp
         tests/test_scp_server.cpp
         tests/test_mosh_bridge.cpp
+        tests/test_server_address.cpp
         tests/test_upstream_push.cpp
         tests/test_upstream_pull.cpp
         tests/test_pull_ui.cpp

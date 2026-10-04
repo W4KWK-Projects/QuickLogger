@@ -51,6 +51,13 @@ namespace ql
         std::string upstream_host;
         std::string upstream_user;
         int upstream_port = kDefaultUpstreamPort;
+        // At the console: the host and port people type to reach this server,
+        // shown in the sftp and scp commands (see server_address.hpp). SSH
+        // sessions read these two from the console's file. A blank host
+        // and port 0 mean "work it out". Stored as server_address and
+        // server_port.
+        std::string server_address;
+        int server_port = 0;
     };
 
     // Reads settings from `path`. Returns a default (empty) AppSettings if the

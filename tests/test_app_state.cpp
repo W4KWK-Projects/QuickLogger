@@ -1067,6 +1067,46 @@ namespace ql
         CHECK_EQ(f.state.settings.gmrs_callsign, std::string("WSIP663"));
     }
 
+    QL_TEST(TheConsoleSavesItsServerAddressAndRefusesABadOne)
+    {
+        Fixture f;
+        f.state.is_console_session = true;
+        f.state.settings_path = f.dir().File("settings.txt");
+        f.state.settings.callsign = "W4KWK";
+        f.state.settings.location = "02101";
+        OpenSettingsForm(&f.state);
+        CHECK(!f.state.settings_server_placeholder.empty());
+        f.state.settings_server_text = "net.example.org:22x";
+        CHECK(!SaveSettingsForm(&f.state));
+        f.state.settings_server_text = "net.example.org:2200";
+        REQUIRE(SaveSettingsForm(&f.state));
+        CHECK_EQ(f.state.settings.server_address, std::string("net.example.org"));
+        CHECK_EQ(f.state.settings.server_port, 2200);
+        CHECK_EQ(LoadSettings(f.dir().File("settings.txt")).server_port, 2200);
+        // Blank puts it back to "work it out".
+        OpenSettingsForm(&f.state);
+        CHECK_EQ(f.state.settings_server_text, std::string("net.example.org:2200"));
+        f.state.settings_server_text = "";
+        REQUIRE(SaveSettingsForm(&f.state));
+        CHECK(f.state.settings.server_address.empty());
+        CHECK_EQ(f.state.settings.server_port, 0);
+    }
+
+    QL_TEST(AnSshUsersSettingsNeverHoldAServerAddress)
+    {
+        Fixture f;
+        f.state.is_console_session = false;
+        f.state.ssh_username = "wes";
+        f.state.callsign_editable = false;
+        f.state.settings.callsign = "K4WES";
+        f.state.settings.location = "02101";
+        f.state.settings_path = f.dir().File("wes.txt");
+        OpenSettingsForm(&f.state);
+        f.state.settings_server_text = "net.example.org";
+        REQUIRE(SaveSettingsForm(&f.state));
+        CHECK(f.state.settings.server_address.empty());
+    }
+
     QL_TEST(TheConsoleNeedsOneCallSignOrTheOther)
     {
         Fixture f;

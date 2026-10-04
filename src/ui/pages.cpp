@@ -1572,13 +1572,14 @@ namespace ql
     {
     public:
         SettingsRenderer(AppState* state, ftxui::Component input_callsign, ftxui::Component input_gmrs,
-                         ftxui::Component input_location, ftxui::Component input_radius,
+                         ftxui::Component input_location, ftxui::Component input_radius, ftxui::Component input_server,
                          ftxui::Component time_format_toggle, ftxui::Component update_check_toggle)
             : state_(state),
               input_callsign_(std::move(input_callsign)),
               input_gmrs_(std::move(input_gmrs)),
               input_location_(std::move(input_location)),
               input_radius_(std::move(input_radius)),
+              input_server_(std::move(input_server)),
               time_format_toggle_(std::move(time_format_toggle)),
               update_check_toggle_(std::move(update_check_toggle))
         {
@@ -1640,7 +1641,17 @@ namespace ql
             ftxui::Element right_column = ftxui::vbox({
                 ftxui::hbox({FieldLabel("Postal Code*:  "), input_location_->Render()}),
                 update_check_row,
+                state_->is_console_session ? ftxui::hbox({FieldLabel("Server:        "), input_server_->Render()})
+                                           : ftxui::text(""),
             });
+            // The Server field is the console's alone.
+            ftxui::Element server_hint = ftxui::text("");
+            if (state_->is_console_session)
+            {
+                server_hint = ftxui::vbox(
+                    {ftxui::text(""),
+                     HintParagraph("Server (host or host:port) is shown in SSH users' sftp and scp commands.")});
+            }
             ftxui::Element content = ftxui::vbox({
                 ftxui::hbox({left_column | ftxui::xflex, ftxui::text("   "), right_column | ftxui::xflex}),
                 ftxui::hbox({FieldLabel("Time Format:   "), time_format_toggle_->Render()}),
@@ -1656,6 +1667,7 @@ namespace ql
                 ftxui::text(""),
                 HintParagraph("Time Format (Left/Right to change) sets how times are shown and exported. Times use "
                               "the time zone of the computer QuickLogger runs on."),
+                server_hint,
                 update_hint,
                 Separator(),
                 Heading("Station data (shared globally, kept up to date automatically):"),
@@ -1693,6 +1705,7 @@ namespace ql
         ftxui::Component input_gmrs_;
         ftxui::Component input_location_;
         ftxui::Component input_radius_;
+        ftxui::Component input_server_;
         ftxui::Component time_format_toggle_;
         ftxui::Component update_check_toggle_;
     };
@@ -1780,6 +1793,9 @@ namespace ql
         ftxui::InputOption radius_option = SingleLineInputOption();
         radius_option.on_change = DigitsFieldHandler(&state->settings_radius_text, 3);
         ftxui::Component input_radius = ftxui::Input(&state->settings_radius_text, "70", radius_option);
+        ftxui::Component input_server = ftxui::Maybe(
+            ftxui::Input(&state->settings_server_text, &state->settings_server_placeholder, SingleLineInputOption()),
+            &state->is_console_session);
 
         ftxui::MenuOption time_format_option = ftxui::MenuOption::Toggle();
         time_format_option.entries_option.transform = ToggleEntryTransform;
@@ -1807,13 +1823,14 @@ namespace ql
                 input_gmrs,
                 update_check_toggle,
                 input_radius,
+                input_server,
                 time_format_toggle,
             },
             &state->settings_focus);
 
         ftxui::Component page =
             ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_gmrs, input_location, input_radius,
-                                                   time_format_toggle, update_check_toggle));
+                                                   input_server, time_format_toggle, update_check_toggle));
         return LayeredModal(page, BuildUpstreamWindow(state), &state->show_upstream_window);
     }
 
@@ -2398,7 +2415,7 @@ namespace ql
     // ---- Import net page ---------------------------------------------------
 
     // What the Import page says while it has no files to list.
-    static std::string EmptyImportListHint(const AppState* state, const std::string& pattern)
+    static std::string EmptyImportListHint(AppState* state, const std::string& pattern)
     {
         if (CanPullUpstream(state) && !(state->import_session && state->import_session_ad_hoc))
         {
@@ -2409,9 +2426,11 @@ namespace ql
         {
             return "No " + pattern + " files in imports/ yet. Press F3 to receive one via ZMODEM.";
         }
-        if (state->over_mosh)
+        if (state->over_mosh || NoZmodemOnThisSystem())
         {
-            return "No " + pattern + " files received yet. Upload one to /imports with scp or sftp.";
+            const std::string& upload = ScpUploadCommand(state);
+            return "No " + pattern + " files received yet. Upload one: " +
+                   (upload.empty() ? std::string("scp or sftp to /imports.") : upload);
         }
         return "No " + pattern + " files received yet. Press F3 to receive one via ZMODEM.";
     }

@@ -403,6 +403,13 @@ namespace ql
         // and stamp "created by"); `settings_form` is the page's working copy,
         // so "Cancel" can discard in-progress edits without touching `settings`.
         std::string settings_path;
+        // The console's settings file, where the server address lives (see
+        // server_address.hpp); SSH sessions read it from here too.
+        std::string console_settings_path = "settings.txt";
+        // The scp command that uploads a file to this user's /imports, worked
+        // out once per session (see ScpUploadCommand).
+        std::string scp_upload_command;
+        bool scp_upload_command_ready = false;
         AppSettings settings;
         AppSettings settings_form;
         // The Settings page's clock choice (0 = 12-hour, 1 = 24-hour), an
@@ -418,6 +425,11 @@ namespace ql
         // The Settings page's Nearby Radius field, in miles (digits only);
         // copied into settings_form.nearby_radius_miles on save.
         std::string settings_radius_text;
+        // The Settings page's Server field, "host" or "host:port" (console
+        // only); parsed into settings_form.server_address and server_port on
+        // save. The placeholder shows what is used when it is blank.
+        std::string settings_server_text;
+        std::string settings_server_placeholder;
 
         // The Upstream Server window over Settings (F5, console only): the
         // upstream QuickLogger sessions are pushed to (Federated Logging,
@@ -1168,6 +1180,10 @@ namespace ql
     // zmodem_action = kReceive, so ConfirmZmodemAction runs
     // ReceiveFileViaZmodem (into ImportsDir) instead of a send.
     void StartZmodemReceive(AppState* state);
+
+    // "scp FILE user@host:/imports/" for this SSH session, with -P if the port
+    // isn't 22; empty if there is no address to give. Worked out once.
+    const std::string& ScpUploadCommand(AppState* state);
 
     // F2/Enter on the ZMODEM confirmation modal: runs whichever operation
     // AppState::zmodem_action names (SendFilesViaZmodem for kSend,

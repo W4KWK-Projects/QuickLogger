@@ -300,6 +300,8 @@ namespace ql
     // RunInteractiveSession -- the same function main() calls for a
     // local console launch, just is_console_session=false and a
     // per-username settings path (see PerUserSettingsPath).
+    static std::string SshConnectionString(ssh_session session);
+
     static int ShellRequestCallback(ssh_session session, ssh_channel channel, void* userdata)
     {
         (void)channel;
@@ -328,6 +330,14 @@ namespace ql
             // ignored they're reaped before it can, so it waited out its
             // whole timeout and reported "timed out" after every transfer.
             std::signal(SIGCHLD, SIG_DFL);
+            // As sshd leaves it in a session's environment: the session
+            // reads the address the client connected to (see
+            // server_address.hpp).
+            std::string connection = SshConnectionString(session);
+            if (!connection.empty())
+            {
+                ::setenv("SSH_CONNECTION", connection.c_str(), 1);
+            }
             std::string username = state->username;
             RunInteractiveSession(PerUserSettingsPath(username), /*is_console_session=*/false, username);
             _exit(0);

@@ -19,6 +19,7 @@
 
 #include "../adif_export.hpp"
 #include "../callsign_rules.hpp"
+#include "../server_address.hpp"
 #include "../date_utils.hpp"
 #include "../frequency_rules.hpp"
 #include "../file_export.hpp"
@@ -1761,6 +1762,11 @@ namespace ql
         state->settings_time_format_index = state->settings.use_24_hour_clock ? 1 : 0;
         state->settings_update_check_index = state->settings.check_for_updates ? 0 : 1;
         state->settings_radius_text = std::to_string(state->settings.nearby_radius_miles);
+        ServerAddress set_address;
+        set_address.host = state->settings.server_address;
+        set_address.port = state->settings.server_port;
+        state->settings_server_text = FormatServerAddress(set_address);
+        state->settings_server_placeholder = FormatServerAddress(ResolveServerAddress("", 0, ""));
     }
 
     bool SaveSettingsForm(AppState* state)
@@ -1793,6 +1799,18 @@ namespace ql
             state->form_error = "Nearby Radius must be " + std::to_string(kMinNearbyRadiusMiles) + " to " +
                                 std::to_string(kMaxNearbyRadiusMiles) + " miles.";
             return false;
+        }
+
+        if (state->is_console_session)
+        {
+            ServerAddress address;
+            if (!ParseServerAddress(state->settings_server_text, &address))
+            {
+                state->form_error = "Server must be a host name or address, with an optional :port (1-65535).";
+                return false;
+            }
+            state->settings_form.server_address = address.host;
+            state->settings_form.server_port = address.port;
         }
 
         state->settings_form.use_24_hour_clock = state->settings_time_format_index == 1;
@@ -2739,6 +2757,8 @@ namespace ql
         }
     }
 
+    static std::string RemoteCopyMessage(const AppState* state, const std::vector<std::string>& paths);
+
     void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths, std::int64_t push_net_id,
                               std::int64_t push_instance_id)
     {
@@ -2765,7 +2785,7 @@ namespace ql
         // Mosh can't carry ZMODEM (see AppState::over_mosh).
         if (state->over_mosh)
         {
-            state->status_message = "Saved to " + ListPaths(paths) + ". Over Mosh, copy files with scp or sftp.";
+            state->status_message = RemoteCopyMessage(state, paths);
             OfferPushOnly(state, paths);
             return;
         }
@@ -2773,13 +2793,13 @@ namespace ql
         // nothing to install.
         if (NoZmodemOnThisSystem())
         {
-            state->status_message = "Saved to " + ListPaths(paths) + ".";
+            state->status_message = RemoteCopyMessage(state, paths);
             OfferPushOnly(state, paths);
             return;
         }
         if (!ZmodemSendAvailable())
         {
-            state->status_message = "Saved to " + ListPaths(paths) + " (install 'sz'/lrzsz for ZMODEM download).";
+            state->status_message = RemoteCopyMessage(state, paths);
             OfferPushOnly(state, paths);
             return;
         }
@@ -2830,6 +2850,74 @@ namespace ql
     {
         std::string::size_type slash = path.find_last_of("/\\");
         return slash == std::string::npos ? path : path.substr(slash + 1);
+    }
+
+    // Who and where an SSH user's scp commands go: "W4KWK@host" and
+    // " -P 2200" (empty for port 22), from the server address in the
+    // console's Settings, or a guess (see server_address.hpp). False if
+    // there is no address to give.
+    static bool ScpTarget(const AppState* state, std::string* user_at_host, std::string* port_option)
+    {
+        std::string connected_to;
+        const char* connection = std::getenv("SSH_CONNECTION");
+        if (connection != nullptr)
+        {
+            std::istringstream words(connection);
+            std::string skipped;
+            words >> skipped >> skipped >> connected_to;
+        }
+        AppSettings console = LoadSettings(state->console_settings_path);
+        ServerAddress address = ResolveServerAddress(console.server_address, console.server_port, connected_to);
+        if (address.host.empty() || state->ssh_username.empty())
+        {
+            return false;
+        }
+        *user_at_host = state->ssh_username + "@" + address.host;
+        *port_option = address.port != 22 ? " -P " + std::to_string(address.port) : "";
+        return true;
+    }
+
+    // The scp command an SSH user types to fetch their saved exports, the
+    // files by their /exports names. Empty if there is no address to give.
+    static std::string ScpCommandFor(const AppState* state, const std::vector<std::string>& paths)
+    {
+        std::string user_at_host;
+        std::string port_option;
+        if (paths.empty() || !ScpTarget(state, &user_at_host, &port_option))
+        {
+            return "";
+        }
+        std::string command = "scp" + port_option;
+        for (const std::string& path : paths)
+        {
+            std::string name = BaseFileName(path);
+            std::string remote = user_at_host + ":/exports/" + name;
+            command += name.find_first_of(" \t'\"") == std::string::npos ? " " + remote : " '" + remote + "'";
+        }
+        return command + " .";
+    }
+
+    const std::string& ScpUploadCommand(AppState* state)
+    {
+        // Once per session: working out the address can ask DNS.
+        if (!state->scp_upload_command_ready)
+        {
+            state->scp_upload_command_ready = true;
+            std::string user_at_host;
+            std::string port_option;
+            if (ScpTarget(state, &user_at_host, &port_option))
+            {
+                state->scp_upload_command = "scp" + port_option + " FILE " + user_at_host + ":/imports/";
+            }
+        }
+        return state->scp_upload_command;
+    }
+
+    // What an SSH user is told after an export they can only fetch with scp.
+    static std::string RemoteCopyMessage(const AppState* state, const std::vector<std::string>& paths)
+    {
+        std::string command = ScpCommandFor(state, paths);
+        return command.empty() ? "Saved to " + ListPaths(paths) + "." : "Saved. Copy it with:  " + command;
     }
 
     // Once ZMODEM is done with a session export's .zip, removes it and

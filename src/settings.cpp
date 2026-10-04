@@ -54,6 +54,17 @@ namespace ql
         return port >= 1 && port <= 65535 ? port : kDefaultUpstreamPort;
     }
 
+    // A stored server port; 0 (not set) if it isn't a port number.
+    static int ParseServerPort(const std::string& value)
+    {
+        if (value.empty() || value.size() > 5 || value.find_first_not_of("0123456789") != std::string::npos)
+        {
+            return 0;
+        }
+        int port = std::stoi(value);
+        return port >= 1 && port <= 65535 ? port : 0;
+    }
+
     AppSettings LoadSettings(const std::string& path)
     {
         AppSettings settings;
@@ -113,6 +124,14 @@ namespace ql
             {
                 settings.upstream_port = ParseUpstreamPort(value);
             }
+            else if (key == "server_address")
+            {
+                settings.server_address = value;
+            }
+            else if (key == "server_port")
+            {
+                settings.server_port = ParseServerPort(value);
+            }
             else if (key == "qrz_username" || key == "qrz_password")
             {
                 has_obsolete_credentials = true;
@@ -139,6 +158,8 @@ namespace ql
         file << "upstream_host=" << settings.upstream_host << "\n";
         file << "upstream_user=" << settings.upstream_user << "\n";
         file << "upstream_port=" << settings.upstream_port << "\n";
+        file << "server_address=" << settings.server_address << "\n";
+        file << "server_port=" << settings.server_port << "\n";
     }
 
     bool SettingsAreComplete(const AppSettings& settings)

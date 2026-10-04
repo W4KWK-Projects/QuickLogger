@@ -10,6 +10,7 @@
 
 #include "data_updater.hpp"
 #include "interactive_session.hpp"
+#include "server_address.hpp"
 #include "version.hpp"
 
 // The built-in SSH server is an optional part of the build (CMake option
@@ -102,6 +103,7 @@ static int RunQuickLogger(int argc, char** argv)
 #endif
 
     CliOptions options = ParseArgs(argc, argv);
+    ql::SetLaunchedSshPort(options.ssh_port);
 
     // Keeps the shared station data loaded and current for every session
     // (see data_updater.hpp). Like the SSH listener below, started before

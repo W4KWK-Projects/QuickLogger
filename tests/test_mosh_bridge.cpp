@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "../src/mosh_bridge.hpp"
+#include "../src/settings.hpp"
 #include "../src/ui/app_state.hpp"
 #include "test_framework.hpp"
 #include "test_helpers.hpp"
@@ -132,17 +133,42 @@ namespace ql
 
     QL_TEST(OverMoshFilesAreCopiedWithScpNotZmodem)
     {
+        TempDir dir;
+        AppSettings console;
+        console.server_address = "net.example.org";
+        console.server_port = 2200;
+        SaveSettings(dir.File("settings.txt"), console);
+        SetTestEnvironment("SSH_CONNECTION", "");
         AppState state;
         state.is_console_session = false;
         state.ssh_username = "W4KWK";
         state.over_mosh = true;
+        state.console_settings_path = dir.File("settings.txt");
         OfferZmodemSendFiles(&state, {"./exports/ssh-users/W4KWK/Skywarn.qlnet"});
         CHECK(!state.show_zmodem_confirm_modal);
         CHECK_EQ(state.status_message,
-                 std::string("Saved to ./exports/ssh-users/W4KWK/Skywarn.qlnet. Over Mosh, copy files with scp or "
-                             "sftp."));
+                 std::string("Saved. Copy it with:  scp -P 2200 W4KWK@net.example.org:/exports/Skywarn.qlnet ."));
         StartZmodemReceive(&state);
         CHECK(!state.show_zmodem_confirm_modal);
+    }
+
+    QL_TEST(TheScpCommandOmitsPort22AndQuotesNamesWithSpaces)
+    {
+        TempDir dir;
+        AppSettings console;
+        console.server_address = "net.example.org";
+        console.server_port = 22;
+        SaveSettings(dir.File("settings.txt"), console);
+        SetTestEnvironment("SSH_CONNECTION", "");
+        AppState state;
+        state.is_console_session = false;
+        state.ssh_username = "W4KWK";
+        state.over_mosh = true;
+        state.console_settings_path = dir.File("settings.txt");
+        OfferZmodemSendFiles(&state, {"./x/Weekly Net.adi", "./x/Weekly Net.txt"});
+        CHECK_EQ(state.status_message,
+                 std::string("Saved. Copy it with:  scp 'W4KWK@net.example.org:/exports/Weekly Net.adi' "
+                             "'W4KWK@net.example.org:/exports/Weekly Net.txt' ."));
     }
 
 }  // namespace ql
