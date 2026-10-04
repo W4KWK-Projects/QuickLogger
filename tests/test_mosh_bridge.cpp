@@ -62,6 +62,27 @@ namespace ql
         CHECK(request.options == std::vector<std::string>{"-s"});
     }
 
+    QL_TEST(TermiusBareLocaleOptionGetsItsDefaultLocale)
+    {
+        // What Termius sends with its mosh field left empty.
+        MoshServerRequest request;
+        std::string error;
+        REQUIRE(ParseMoshServerCommand("mosh-server new -s -l -p 60000:61000", &request, &error));
+        std::vector<std::string> bare_l{"-s", "-l", "LANG=en_US.UTF-8", "-p", "60000:61000"};
+        CHECK(request.options == bare_l);
+        // Termius's documented default string still parses as written.
+        REQUIRE(ParseMoshServerCommand("mosh-server new -s -c 256 -l LANG=en_US.UTF-8", &request, &error));
+        std::vector<std::string> documented{"-s", "-c", "256", "-l", "LANG=en_US.UTF-8"};
+        CHECK(request.options == documented);
+        // And it ends the line with a newline.
+        REQUIRE(ParseMoshServerCommand("mosh-server new -s -l -p 60000:61000\n", &request, &error));
+        CHECK(request.options == bare_l);
+        // A trailing bare -l is the same.
+        REQUIRE(ParseMoshServerCommand("mosh-server new -s -l", &request, &error));
+        std::vector<std::string> trailing{"-s", "-l", "LANG=en_US.UTF-8"};
+        CHECK(request.options == trailing);
+    }
+
     QL_TEST(AnythingElseInAMoshRequestIsRefused)
     {
         MoshServerRequest request;

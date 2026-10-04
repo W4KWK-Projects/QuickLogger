@@ -433,6 +433,8 @@ mosh --ssh="ssh -p 2222" <username>@<host>
 
 Mosh logs in with your SSH key as usual, then switches to UDP. You always get QuickLogger: a command given after `--` is ignored. A Mosh session you never come back to ends after a day.
 
+**Termius:** turn on Use Mosh for the host, set Port to QuickLogger's SSH port, and leave the Mosh command field empty. Termius's own default works.
+
 Mosh keeps the screen in step rather than passing data through, so ZMODEM doesn't work over it: QuickLogger doesn't offer it, and you copy files with `scp` or `sftp` instead (see the [User Guide](docs/USER_GUIDE.md)).
 
 ### View-only users

@@ -173,6 +173,11 @@ namespace ql
     bool ParseMoshServerCommand(std::string_view line, MoshServerRequest* request, std::string* error)
     {
         *request = MoshServerRequest();
+        // Termius ends its command with a newline.
+        while (!line.empty() && (line.back() == '\n' || line.back() == '\r'))
+        {
+            line.remove_suffix(1);
+        }
         std::vector<std::string> words;
         if (!SplitShellWords(WithoutProbe(line, &request->report_ssh_connection), &words, error))
         {
@@ -193,6 +198,15 @@ namespace ql
             if (option == "-s" || option == "-v")
             {
                 request->options.push_back(option);
+                continue;
+            }
+            // Termius sends a bare -l (no NAME=VALUE) when its locale field is empty:
+            // "mosh-server new -s -l -p 60000:61000". Read as the locale Termius
+            // itself documents as its default, rather than refusing the line.
+            if (option == "-l" && (i + 1 >= words.size() || words[i + 1].compare(0, 1, "-") == 0))
+            {
+                request->options.push_back(option);
+                request->options.push_back("LANG=en_US.UTF-8");
                 continue;
             }
             bool takes_value = option == "-i" || option == "-p" || option == "-c" || option == "-l";
