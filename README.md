@@ -14,7 +14,7 @@ Type a few letters of a callsign and QuickLogger offers the stations your net al
 
 ![A net's History: its sessions above, the check-ins of the selected one below](docs/images/screenshot-history.png)
 
-The names and member IDs in these screenshots are made up.
+The call signs, names and member IDs in these screenshots are made up.
 
 ## Why QuickLogger
 
