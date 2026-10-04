@@ -373,6 +373,7 @@ namespace ql
         }
         state->exec_requested = true;
         state->exec_command = command;
+        std::fprintf(stderr, "SSH: exec request: %s\n", command);
         return 0;
     }
 
@@ -535,6 +536,7 @@ namespace ql
         std::string error;
         if (!ParseMoshServerCommand(state.exec_command, &request, &error))
         {
+            std::fprintf(stderr, "SSH: mosh command refused: %s\n", error.c_str());
             WriteChannelText(channel, "QuickLogger: " + error + "\n");
             return 1;
         }
@@ -590,9 +592,20 @@ namespace ql
         }
         envp.push_back(nullptr);
 
+        // Its output and its error output on separate pipes, sent on separate
+        // SSH streams as sshd does: Termius wants the "MOSH CONNECT" line
+        // on its own, without the banner mixed in.
         int output[2];
+        int errput[2];
         if (::pipe(output) != 0)
         {
+            WriteChannelText(channel, "QuickLogger: couldn't start mosh-server.\n");
+            return 1;
+        }
+        if (::pipe(errput) != 0)
+        {
+            ::close(output[0]);
+            ::close(output[1]);
             WriteChannelText(channel, "QuickLogger: couldn't start mosh-server.\n");
             return 1;
         }
@@ -600,9 +613,11 @@ namespace ql
         posix_spawn_file_actions_init(&actions);
         posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
         posix_spawn_file_actions_adddup2(&actions, output[1], 1);
-        posix_spawn_file_actions_adddup2(&actions, output[1], 2);
+        posix_spawn_file_actions_adddup2(&actions, errput[1], 2);
         posix_spawn_file_actions_addclose(&actions, output[0]);
         posix_spawn_file_actions_addclose(&actions, output[1]);
+        posix_spawn_file_actions_addclose(&actions, errput[0]);
+        posix_spawn_file_actions_addclose(&actions, errput[1]);
         // Not the SSH connection's socket: mosh-server lives on after it,
         // for up to a day, and would hold it open all that time.
         posix_spawn_file_actions_addclose(&actions, ssh_get_fd(session));
@@ -624,9 +639,11 @@ namespace ql
         posix_spawn_file_actions_destroy(&actions);
         posix_spawnattr_destroy(&attributes);
         ::close(output[1]);
+        ::close(errput[1]);
         if (spawned != 0)
         {
             ::close(output[0]);
+            ::close(errput[0]);
             WriteChannelText(channel, "QuickLogger: couldn't start mosh-server.\n");
             return 1;
         }
@@ -636,31 +653,69 @@ namespace ql
         std::time_t deadline = std::time(nullptr) + 20;
         int status = 0;
         bool exited = false;
-        while (std::time(nullptr) < deadline)
+        int out_fd = output[0];
+        int err_fd = errput[0];
+        while (std::time(nullptr) < deadline && (out_fd >= 0 || err_fd >= 0))
         {
-            struct pollfd readable{};
-            readable.fd = output[0];
-            readable.events = POLLIN;
-            int ready = ::poll(&readable, 1, exited ? 500 : 200);
+            struct pollfd readable[2]{};
+            readable[0].fd = out_fd;
+            readable[0].events = POLLIN;
+            readable[1].fd = err_fd;
+            readable[1].events = POLLIN;
+            int ready = ::poll(readable, 2, exited ? 500 : 200);
             if (ready > 0)
             {
-                char buffer[1024];
-                ssize_t count = ::read(output[0], buffer, sizeof(buffer));
-                if (count <= 0)
+                for (int stream = 0; stream < 2; ++stream)
                 {
-                    break;
+                    int* fd = stream == 0 ? &out_fd : &err_fd;
+                    if (*fd < 0 || readable[stream].revents == 0)
+                    {
+                        continue;
+                    }
+                    char buffer[1024];
+                    ssize_t count = ::read(*fd, buffer, sizeof(buffer));
+                    if (count <= 0)
+                    {
+                        ::close(*fd);
+                        *fd = -1;
+                        continue;
+                    }
+                    if (stream == 0)
+                    {
+                        ssh_channel_write(channel, buffer, static_cast<uint32_t>(count));
+                    }
+                    else
+                    {
+                        ssh_channel_write_stderr(channel, buffer, static_cast<uint32_t>(count));
+                    }
                 }
-                ssh_channel_write(channel, buffer, static_cast<uint32_t>(count));
                 continue;
             }
             if (exited)
             {
-                break;  // Quiet since it exited: its detached half keeps the pipe.
+                break;  // Quiet since it exited: its detached half keeps the pipes.
             }
             exited = ::waitpid(pid, &status, WNOHANG) == pid;
         }
-        ::close(output[0]);
-        if (!exited && ::waitpid(pid, &status, WNOHANG) != pid)
+        for (int fd : {out_fd, err_fd})
+        {
+            if (fd >= 0)
+            {
+                ::close(fd);
+            }
+        }
+        // The pipe can close just before mosh-server's parent half
+        // exits: give it a moment, or a client sees a failure (Termius
+        // does) for a mosh-server that is in fact running.
+        for (int tries = 0; !exited && tries < 100; ++tries)
+        {
+            exited = ::waitpid(pid, &status, WNOHANG) == pid;
+            if (!exited)
+            {
+                ::usleep(50000);
+            }
+        }
+        if (!exited)
         {
             return 1;
         }
@@ -970,6 +1025,7 @@ namespace ql
             else
             {
                 exit_status = RunExecCommand(session, state.channel, db_path, state);
+                std::fprintf(stderr, "SSH: exec request finished with status %d\n", exit_status);
             }
             EndChannel(session, state.channel, exit_status);
             return;
