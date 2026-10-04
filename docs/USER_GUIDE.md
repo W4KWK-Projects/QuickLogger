@@ -2,7 +2,7 @@
 
 # QuickLogger User Guide
 
-How to use QuickLogger once it's running. For downloading, installing, building and setting up the built-in SSH server, see the [README](../README.md).
+How to use QuickLogger once it's running. For downloading, installing, building and setting up the built-in SSH server, see [Installing QuickLogger](INSTALL.md), [Building QuickLogger](BUILDING.md), [Shared server](SHARED_SERVER.md) and [Connecting](CONNECTING.md).
 
 1. [The screen and the keys](#the-screen-and-the-keys)
 2. [Settings](#settings)
@@ -45,7 +45,7 @@ On first run you're taken straight to Settings, since a call sign (amateur, GMRS
 | Time Format | 12-hour (3:42 PM, the default) or 24-hour (15:42), for every time shown or exported. **Left/Right** change it. |
 | Update Check | At the local console only: **On** (the default) or **Off**. While on, QuickLogger asks GitHub for its latest release shortly after it starts and every 6 hours after that, and when there's a newer one the top bar says so (*v1.8.0 available*) and Settings shows where to get it. Clicking that notice opens the download page in your web browser (on a computer with a desktop; elsewhere it shows the address). It only looks; it never downloads or installs anything. SSH users never see it, since they can't update the server; a server set up with `deploy/freebsd` or `deploy/linux` updates itself. |
 
-**F2** saves. Each SSH user has their own settings. Times are shown in the time zone of the computer QuickLogger runs on. At the local console only, **F3** refreshes the station data now, **F4** opens Manage Users (see the README's SSH section; Windows has no SSH server, so no Manage Users either) and **F5** sets the upstream server sessions are pushed to and pulled from (see [Pushing to and pulling from an upstream server](#pushing-to-and-pulling-from-an-upstream-server)).
+**F2** saves. Each SSH user has their own settings. Times are shown in the time zone of the computer QuickLogger runs on. At the local console only, **F3** refreshes the station data now, **F4** opens Manage Users (see [Shared server](SHARED_SERVER.md); Windows has no SSH server, so no Manage Users either) and **F5** sets the upstream server sessions are pushed to and pulled from (see [Pushing to and pulling from an upstream server](#pushing-to-and-pulling-from-an-upstream-server)).
 
 ## Recurring nets
 
@@ -108,7 +108,7 @@ Several operators can log the same session at once (over SSH), for example a Net
 - **Staying in step:** check-ins anyone logs appear on everyone's screen within a few seconds.
 - **When someone closes it:** within a few seconds, everyone else on it, Viewers included, sees a **Net Closed** window saying when it was closed. It also names any callsign that was being typed but wasn't logged. **Enter** returns to the net list. The operator who closed it doesn't see this window.
 - **Dropped connections:** a session left open by a dropped connection or closed terminal is resumed the same way.
-- **View-only users:** an SSH user set up as view-only (see the README's SSH section) is always a Viewer. **F3/Enter** on a net goes straight to watching its open session, and says so if none is open. They can look at and export History, view open ad hoc sessions, and change their own Settings, but can't create, edit, import, start, log, close or delete anything. Their key bars and Help list only the keys they can use, and the net list shows "(view-only)" beside their callsign.
+- **View-only users:** an SSH user set up as view-only (see [Shared server](SHARED_SERVER.md#view-only-users)) is always a Viewer. **F3/Enter** on a net goes straight to watching its open session, and says so if none is open. They can look at and export History, view open ad hoc sessions, and change their own Settings, but can't create, edit, import, start, log, close or delete anything. Their key bars and Help list only the keys they can use, and the net list shows "(view-only)" beside their callsign.
 
 ## Ad hoc nets
 
@@ -258,7 +258,7 @@ It all happens at once, or not at all if something goes wrong. It can't be undon
 
 **Over SSH (ZMODEM):** after an export, QuickLogger offers to send the file to your terminal. Open your terminal's receive window, then press **Enter**; **Esc** skips it and the file stays in `exports/`. To upload a `.qlnet` or `.qlsession`, press **F3** on the Import page (F9 on Recurring Nets for a net, F6 in History for a session), then send the file from your terminal. A session's export sends one `.zip` holding its log, `.qlsession` and `.adi`. The three files stay in `exports/`; the `.zip` is removed once the transfer is over (or skipped), and **F7** makes a fresh one. This needs a terminal that supports ZMODEM (such as ZOC or SecureCRT) and `lrzsz` installed where QuickLogger runs, so there's no ZMODEM on Alpine Linux, which has no `lrzsz` package, or on Windows, which has no SSH server.
 
-**Over Mosh:** there's no ZMODEM (Mosh can't carry it), so QuickLogger doesn't offer it: copy files with `scp` or `sftp` as below. Connecting with Mosh is in the README's SSH section.
+**Over Mosh:** there's no ZMODEM (Mosh can't carry it), so QuickLogger doesn't offer it: copy files with `scp` or `sftp` as below. Connecting with Mosh is in [Connecting](CONNECTING.md#mosh).
 
 **Over SSH (SFTP):** without ZMODEM, copy files with `scp` or `sftp`, using the address, port and key you log in with. You see two folders: `/exports`, your exports (read-only), and `/imports`, for files to import.
 
@@ -319,4 +319,4 @@ QuickLogger keeps its own copy of the FCC's amateur and GMRS license databases a
 - **A callsign isn't found:** check whether the station data is still loading (the notice at the top). The FCC and ISED data cover US and Canadian amateur licensees and US GMRS licensees; enter other stations' details by hand.
 - **"Net Closed" window:** another operator closed the session you were on. Press Enter, then log the net again (F3) if you need a new session.
 - **"Failed to open database 'quicklogger.db': unable to open database file" under WSL:** QuickLogger is in a Windows folder (a path starting `/mnt/c/`, such as your Windows Downloads or OneDrive), where its database can't work. Move the QuickLogger folder into your Linux home directory (for example `mv QuickLogger-<version>-linux-amd64 ~/`) and start it from there.
-- **"./QuickLogger: not found" although the file is there, under WSL:** that WSL distribution isn't a regular Linux one (Docker Desktop's own distribution, or Alpine). Install Debian or Ubuntu (`wsl --install -d Debian`), install the libraries the README lists for it, and run QuickLogger there.
+- **"./QuickLogger: not found" although the file is there, under WSL:** that WSL distribution isn't a regular Linux one (Docker Desktop's own distribution, or Alpine). Install Debian or Ubuntu (`wsl --install -d Debian`), install the libraries [Installing QuickLogger](INSTALL.md) lists for it, and run QuickLogger there.

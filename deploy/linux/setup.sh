@@ -30,7 +30,7 @@ if [ "$(id -u)" != 0 ]; then
     exit 1
 fi
 if ! command -v apt-get > /dev/null; then
-    echo "This is for Debian and Ubuntu (apt); see README.md." >&2
+    echo "This is for Debian and Ubuntu (apt); see docs/INSTALL.md." >&2
     exit 1
 fi
 

@@ -1,6 +1,6 @@
-# Builds QuickLogger and runs its tests on Linux, following the README's
+# Builds QuickLogger and runs its tests on Linux, following docs/BUILDING.md's
 # "Building QuickLogger" steps with each distribution's packages as the
-# README lists them, on every push and pull request to main; the first job
+# docs/BUILDING.md lists them, on every push and pull request to main; the first job
 # also runs the real ssh, scp and sftp against QuickLogger's SSH server on
 # the runner, and drives the push screens in a terminal
 # (tests/ssh_end_to_end.sh). One job uses

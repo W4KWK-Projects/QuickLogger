@@ -3,7 +3,7 @@
 # - by release.yml for a tag, attaching them to that release's page;
 # - by hand (Actions > Windows binary > Run workflow), which builds the
 #   chosen branch, keeps the binaries as a workflow artifact, and also
-#   checks the README's two ways to build it. It isn't part of build.yml
+#   checks docs/BUILDING.md's two ways to build it. It isn't part of build.yml
 #   because Windows builds are slow.
 #
 # Built with Visual Studio and vcpkg's static libraries and the static C++
@@ -77,7 +77,7 @@ jobs:
           $version = (Select-String -Path CMakeLists.txt -Pattern '^project\(QuickLogger VERSION ([0-9.]+)').Matches[0].Groups[1].Value
           $name = "QuickLogger-$version-windows-${{ matrix.arch }}"
           New-Item -ItemType Directory -Path "dist\$name" | Out-Null
-          Copy-Item build\Release\QuickLogger.exe, README.md "dist\$name\"
+          Copy-Item build\Release\QuickLogger.exe, README.md, LICENSE, docs "dist\$name\" -Recurse
           & "dist\$name\QuickLogger.exe" --version
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Compress-Archive -Path "dist\$name" -DestinationPath "dist\$name.zip"
@@ -110,7 +110,7 @@ jobs:
             dist/${{ env.NAME }}.zip.sha256
           retention-days: 7
 
-  # By hand only: the build both ways the README gives, Visual Studio with
+  # By hand only: the build both ways docs/BUILDING.md gives, Visual Studio with
   # vcpkg (preinstalled on the runner) and MSYS2's UCRT64 environment (also
   # preinstalled, at C:\msys64).
   windows-msvc:

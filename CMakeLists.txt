@@ -172,7 +172,7 @@ if(QUICKLOGGER_ENABLE_SSH)
     endif()
     if(NOT quicklogger_libssh_target)
         message(FATAL_ERROR
-                "libssh (development files) not found. Install it (see the README), "
+                "libssh (development files) not found. Install it (see docs/BUILDING.md), "
                 "or configure with -DQUICKLOGGER_ENABLE_SSH=OFF for a build without "
                 "the built-in SSH server.")
     endif()

@@ -30,7 +30,7 @@ constexpr bool kSshCompiledIn = false;
 #endif
 
 // Parsed once at startup; see the --ssh-port/--no-ssh/--headless doc
-// comments in README.md for what each one means to an operator.
+// comments in docs/SHARED_SERVER.md for what each one means to an operator.
 struct CliOptions
 {
     bool ssh_enabled = kSshCompiledIn;

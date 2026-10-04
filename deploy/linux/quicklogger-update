@@ -12,7 +12,7 @@
 #
 # The database is backed up before every install, since a new version may
 # upgrade it. To roll back: stop the service, restore the backup and
-# /usr/local/bin/QuickLogger.previous (see README.md).
+# /usr/local/bin/QuickLogger.previous (see docs/SHARED_SERVER.md).
 
 set -eu
 

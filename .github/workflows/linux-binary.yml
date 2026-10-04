@@ -60,7 +60,8 @@ jobs:
           version=$(sed -n 's/^project(QuickLogger VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
           name="QuickLogger-$version-linux-${{ matrix.arch }}"
           mkdir -p "dist/$name"
-          cp build/QuickLogger README.md "dist/$name/"
+          cp build/QuickLogger README.md LICENSE "dist/$name/"
+          cp -R docs "dist/$name/docs"
           # For servers set up with deploy/linux, whose updater installs
           # these scripts too.
           cp -R deploy/linux "dist/$name/deploy"
@@ -68,7 +69,7 @@ jobs:
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
           echo "NAME=$name" >> "$GITHUB_ENV"
 
-      # Each with only the runtime packages the README lists for it.
+      # Each with only the runtime packages docs/INSTALL.md lists for it.
       - name: Check it runs on other distributions
         run: |
           check() {

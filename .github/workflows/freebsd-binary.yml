@@ -72,7 +72,8 @@ jobs:
           version=$(sed -n 's/^project(QuickLogger VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
           name="QuickLogger-$version-freebsd-${{ matrix.arch }}"
           mkdir -p "dist/$name"
-          cp build/QuickLogger README.md "dist/$name/"
+          cp build/QuickLogger README.md LICENSE "dist/$name/"
+          cp -R docs "dist/$name/docs"
           # The server scripts, which a server's updater installs too.
           cp -R deploy/freebsd "dist/$name/deploy"
           tar -C dist -czf "dist/$name.tar.gz" "$name"

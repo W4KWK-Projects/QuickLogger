@@ -68,7 +68,8 @@ jobs:
         run: |
           name="QuickLogger-${TAG#v}-macos-arm64"
           mkdir -p "dist/$name"
-          cp build/QuickLogger README.md "dist/$name/"
+          cp build/QuickLogger README.md LICENSE "dist/$name/"
+          cp -R docs "dist/$name/docs"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
           echo "ASSET=dist/$name.tar.gz" >> "$GITHUB_ENV"
