@@ -10,8 +10,10 @@
 
 Type a few letters of a callsign and QuickLogger offers the stations your net already knows first, then licensed stations near you, nearest first. Pick one and the name, city, county and grid square fill in on their own. Run it on your own computer, or on one always-on server that your whole group logs into over SSH.
 
+![A net's History: its sessions above, the check-ins of the selected one below](docs/images/screenshot-history.png)
+
 <!-- TODO: add docs/images/screenshot-net.png (a running net with autocomplete showing), then uncomment: -->
-<!-- ![A net in progress](docs/images/screenshot-net.png) -->
+<!-- ![Autocomplete while logging a check-in](docs/images/screenshot-net.png) -->
 
 ## Why QuickLogger
 
