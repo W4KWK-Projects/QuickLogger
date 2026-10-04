@@ -6,7 +6,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <cstdio>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -306,13 +305,7 @@ namespace ql
                 {
                     sqlite3* connection = nullptr;
                     sqlite3_open(db_path.c_str(), &connection);
-                    std::fprintf(stderr, "WriteLockHolder: SQLite %s\n", sqlite3_libversion());
-                    int result = sqlite3_exec(connection, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr);
-                    if (result != SQLITE_OK)
-                    {
-                        std::fprintf(stderr, "WriteLockHolder: BEGIN IMMEDIATE failed: %d %s\n", result,
-                                     sqlite3_errmsg(connection));
-                    }
+                    sqlite3_exec(connection, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr);
                     held_ = true;
                     std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
                     sqlite3_exec(connection, "COMMIT;", nullptr, nullptr, nullptr);
@@ -324,10 +317,10 @@ namespace ql
             }
         }
 
-        // Whether a second connection really is kept out. Not on every
-        // system: the GitHub macOS 15 runner (SQLite 3.43.2) lets a second
-        // connection in the same process write while the first holds the
-        // lock, so the tests that need the lock to bite stop there.
+        // Whether a second connection really is kept out (it gets SQLITE_BUSY
+        // at once). The tests that wait on the lock check this first, so a
+        // lock that isn't held fails them here, with that said, rather than
+        // as a puzzling result further on.
         bool Blocks() const
         {
             sqlite3* probe = nullptr;
@@ -337,7 +330,6 @@ namespace ql
             {
                 sqlite3_exec(probe, "ROLLBACK;", nullptr, nullptr, nullptr);
             }
-            std::fprintf(stderr, "WriteLockHolder: a second connection's BEGIN IMMEDIATE returned %d\n", result);
             sqlite3_close(probe);
             return result == SQLITE_BUSY;
         }
@@ -376,10 +368,7 @@ namespace ql
 
         {
             WriteLockHolder other(dir.File("quicklogger.db"), 7000);
-            if (!other.Blocks())
-            {
-                return;
-            }
+            REQUIRE(other.Blocks());
             // A std::exception with words, which the key handler turns into
             // "Action not completed: ..." (SafeAppEventDispatcher).
             std::string message;
@@ -393,15 +382,13 @@ namespace ql
             {
                 message = e.what();
             }
-            std::fprintf(
-                stderr,
-                "Log under the lock: returned %d after %lld ms, threw \"%s\", form error \"%s\", %zu check-ins\n",
-                logged ? 1 : 0,
-                static_cast<long long>(
-                    std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - began)
-                        .count()),
-                message.c_str(), net_control.state.form_error.c_str(),
-                net_control.db()->GetCheckInsForNetInstance(instance).size());
+            // Five seconds by the clock (SQLite's own retries ran to 7 on the
+            // GitHub macOS runner, and 6.1 here, when this counted retries).
+            std::chrono::milliseconds waited =
+                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - began);
+            CHECK(!logged);
+            CHECK(waited.count() >= 4800);
+            CHECK(waited.count() <= 5600);
             CHECK(message.find("locked") != std::string::npos);
             // Nothing half-written, and the connection still usable for reads.
             CHECK_EQ(net_control.db()->GetCheckInsForNetInstance(instance).size(), std::size_t{1});
@@ -440,10 +427,7 @@ namespace ql
         REQUIRE(ParseRemoteCommand("import-session Sky.qlsession", &command, &error));
         {
             WriteLockHolder other(db_path, 7000);
-            if (!other.Blocks())
-            {
-                return;
-            }
+            REQUIRE(other.Blocks());
             RemoteCommandResult result;
             bool threw = false;
             try
