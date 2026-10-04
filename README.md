@@ -82,7 +82,7 @@ Other systems can [build it from source](docs/BUILDING.md). Every download has a
 
 | Platform | Support | Verified |
 |---|---|---|
-| **macOS** (Apple Silicon) | Full (console + SSH server) | Built and run natively |
+| **macOS** (Apple Silicon) | Full | Built and run natively |
 | **Linux** (glibc and musl) | Full; no ZMODEM on Alpine | Built and fully tested on every change on Ubuntu, Debian, Fedora and Alpine |
 | **FreeBSD** 14 / 15 | Full | Built and fully tested on FreeBSD 15 for every release |
 | **Windows** | Console only: no SSH server, no ZMODEM | Built and fully tested for every release |

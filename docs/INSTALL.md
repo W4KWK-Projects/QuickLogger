@@ -6,9 +6,9 @@ Downloads, what each platform needs to run it, first launch, and the files it cr
 
 | Platform | Support | How well verified |
 |---|---|---|
-| **macOS** | Full (console + SSH server) | Built and run natively (Apple Silicon) |
-| **Linux** (glibc and musl) | Full (console + SSH server); no ZMODEM on Alpine | Built and the full test suite run on every change, following [Building QuickLogger](BUILDING.md): Ubuntu 22.04 and 24.04, Debian 13, Fedora and Alpine (musl), including CMake 3.16. The amd64 and arm64 release binaries have both been run on Debian (amd64 under WSL on Windows), with basic functionality confirmed |
-| **FreeBSD** 14 / 15 | Full (console + SSH server) | Built and the full test suite run in FreeBSD 15 for every release (amd64 and arm64), and built on a FreeBSD machine by following [Building QuickLogger](BUILDING.md). The amd64 and arm64 release binaries have both been run on FreeBSD, with basic functionality confirmed |
+| **macOS** | Full | Built and run natively (Apple Silicon) |
+| **Linux** (glibc and musl) | Full; no ZMODEM on Alpine | Built and the full test suite run on every change, following [Building QuickLogger](BUILDING.md): Ubuntu 22.04 and 24.04, Debian 13, Fedora and Alpine (musl), including CMake 3.16. The amd64 and arm64 release binaries have both been run on Debian (amd64 under WSL on Windows), with basic functionality confirmed |
+| **FreeBSD** 14 / 15 | Full | Built and the full test suite run in FreeBSD 15 for every release (amd64 and arm64), and built on a FreeBSD machine by following [Building QuickLogger](BUILDING.md). The amd64 and arm64 release binaries have both been run on FreeBSD, with basic functionality confirmed |
 | **Windows** | Console only — no SSH server, no ZMODEM | Built and the full test suite run for every release (x64 and arm64), and with both Visual Studio + vcpkg and MSYS2 (UCRT64) on demand, following [Building QuickLogger](BUILDING.md). The x64 and arm64 release binaries have both been run on Windows, with basic functionality confirmed |
 
 ## Download (macOS)
