@@ -186,7 +186,7 @@ Edit and delete keys ask which row you mean: every row gets a number, you type i
 
 ## Callsign autocomplete
 
-In the New Check-In and Saved Station windows, matches appear as you type any part of a callsign, in either case (`kwk` finds W4KWK). As many are shown as the screen has room for (11 on a 24-line terminal, more on a taller one, never fewer than 8), in this order:
+In the New Check-In and Saved Station windows, matches appear as you type any part of a callsign, in either case (`hqt` finds W4KWK). As many are shown as the screen has room for (11 on a 24-line terminal, more on a taller one, never fewer than 8), in this order:
 
 1. Stations known to **this net** (checked in before, or saved to it), marked *(this net)*.
 2. Stations known to **other nets**, marked *(other net)*.
@@ -197,8 +197,8 @@ A GMRS net's nearby licensed stations are GMRS licensees, and it has no Canadian
 
 **Partial Matching** is set for each net, on New Recurring Net, Ad Hoc Net and Edit Net: **US** (the FCC data) or **Canada** (ISED's data). **Left/Right** change it. The licensed-station list it names (3 or 4 above) matches wherever what you've typed appears in a callsign; the other matches only callsigns starting with what you've typed.
 
-- **US** (the default for new nets, and for every net from before 1.7.0): `EV` finds a nearby KQ4EVW. Canadian callsigns come up once what you've typed starts with **V** (every Canadian amateur callsign starts VA, VE, VO or VY; no US one starts with V).
-- **Canada**, for a net whose stations are mostly Canadian: `3EV` finds VE3EVA. Nearby US callsigns come up only when they start with what you've typed.
+- **US** (the default for new nets, and for every net from before 1.7.0): `EV` finds a nearby KN4EVL. Canadian callsigns come up once what you've typed starts with **V** (every Canadian amateur callsign starts VA, VE, VO or VY; no US one starts with V).
+- **Canada**, for a net whose stations are mostly Canadian: `3EV` finds VE3EVQ. Nearby US callsigns come up only when they start with what you've typed.
 - Partial Matching doesn't change the first two lists, which always match anywhere in the callsign.
 
 **Up/Down** move the **>** marker and **Enter** picks that match, filling in the station's details. The match marked **>** is the one you get however you leave the Callsign field: **Enter**, **Tab**, F4/F5/F6, or logging straight away with **F2**/**F3**. If you type a whole callsign that's among the matches, the marker moves to it. If it's a licensed station that isn't (for example, one farther away than your Nearby Radius), it's added at the bottom of the list with its distance, for you to move down to; the marker stays on the top match. You stay in the Callsign field, so you can keep typing to narrow the list. While it's showing, the list takes the place of the window's other fields; they come back when you pick a match, clear the callsign or **Tab** away. If nothing matches, type the whole callsign: **Enter** then looks it up exactly, in the FCC data at any distance, or ISED's.

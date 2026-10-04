@@ -196,8 +196,8 @@ ssh itself exits 255 when it can't connect or log in; that's not one of these.
 ## Example
 
 ```
-$ scp -P 2222 TAG_Skywarn_2026-09-14.qlsession w4kwk@upstream:/imports/
-$ ssh -p 2222 w4kwk@upstream import-session TAG_Skywarn_2026-09-14.qlsession
+$ scp -P 2222 TAG_Skywarn_2026-09-14.qlsession w4hqt@upstream:/imports/
+$ ssh -p 2222 w4hqt@upstream import-session TAG_Skywarn_2026-09-14.qlsession
 QUICKLOGGER-RESULT 1
 status: needs-confirmation
 net: Sky Warn
@@ -206,7 +206,7 @@ session: 2026-09-14 23:30 UTC
 message: The session was logged as "TAG Skywarn"; confirm "Sky Warn" to import it there. 1 other net looks alike too.
 $ echo $?
 2
-$ ssh -p 2222 w4kwk@upstream 'import-session --confirm-net "Sky Warn" TAG_Skywarn_2026-09-14.qlsession'
+$ ssh -p 2222 w4hqt@upstream 'import-session --confirm-net "Sky Warn" TAG_Skywarn_2026-09-14.qlsession'
 QUICKLOGGER-RESULT 1
 status: imported
 net: Sky Warn

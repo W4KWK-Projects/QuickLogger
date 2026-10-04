@@ -14,8 +14,6 @@ Type a few letters of a callsign and QuickLogger offers the stations your net al
 
 ![A net's History: its sessions above, the check-ins of the selected one below](docs/images/screenshot-history.png)
 
-The call signs, names and member IDs in these screenshots are made up.
-
 ## Why QuickLogger
 
 - **It remembers your regulars.** Every station that checks in is saved to its net. Saved stations come first in autocomplete and carry default remarks ("mobile", "EOC") that fill in at check-in.

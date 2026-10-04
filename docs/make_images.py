@@ -27,7 +27,7 @@ def draw_icon(size):
     d.text((m+int(W*0.035),top+bar//2),'QuickLogger',font=f,fill=YELLOW,anchor='lm')
     # log lines
     lf=font(MONO,int(W*0.062),True)
-    rows=[('1','W4KWK',GREEN),('2','AA4FA',CYAN),('3','K4ZZ',WHITE)]
+    rows=[('1','W4HQT',GREEN),('2','KJ4QZ',CYAN),('3','K4QEV',WHITE)]
     y=top+bar+int(W*0.07)
     for n,call,col in rows:
         d.text((m+int(W*0.045),y),n,font=lf,fill=YELLOW,anchor='lm')
