@@ -3,7 +3,7 @@
 # QuickLogger
 
 [![Latest release](https://img.shields.io/github/v/release/W4KWK-Projects/QuickLogger)](https://github.com/W4KWK-Projects/QuickLogger/releases/latest)
-[![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-blue.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3%20only-blue.svg)](LICENSE)
 [![Build](https://github.com/W4KWK-Projects/QuickLogger/actions/workflows/build.yml/badge.svg)](https://github.com/W4KWK-Projects/QuickLogger/actions/workflows/build.yml)
 
 **A free, keystroke-driven net logger for ham radio and GMRS that knows your stations.**
@@ -21,7 +21,7 @@ Type a few letters of a callsign and QuickLogger offers the stations your net al
 - **Everything is a keystroke.** Every action is on a labeled F-key. No mouse, and nothing to hunt for while the net is running.
 - **One shared server, no accounts to manage.** Operators `ssh` straight into the app with their own keys. There are no operating-system accounts to create, and a user can be view-only for observers. Mosh works too, for laptops and phones on bad connections.
 - **Your data goes where you need it.** Export a session as a log, as ADIF for your logging program, or as a QuickLogger file for another install. Installs can also push closed sessions to a central server and pull nets back.
-- **Free, and GMRS is a first-class citizen.** No cost, and the source is open (GPL v3).
+- **Free, and GMRS is a first-class citizen.** No cost, and the source is open (GPL v3 only).
 
 ## Quick start
 
@@ -101,7 +101,7 @@ Release binaries for every platform have also been run on real systems. The deta
 
 ## License and help
 
-QuickLogger is free software under the [GNU General Public License v3](LICENSE).
+QuickLogger is free software under version 3 of the [GNU General Public License](LICENSE) only, not any later version (SPDX: `GPL-3.0-only`).
 
 Found a bug, or want something added? [Open an issue](https://github.com/W4KWK-Projects/QuickLogger/issues).
 
