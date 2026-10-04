@@ -54,7 +54,7 @@ namespace ql
                                std::string("SELECT COUNT(*) FROM sqlite_schema WHERE name='") + table + "'"),
                      std::int64_t{1});
         }
-        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{16});
+        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{17});
         CHECK_EQ(CountRows(dir.File("q.db"),
                            "SELECT COUNT(*) FROM pragma_table_info('import_runs') WHERE name IN "
                            "('phase','percent','heartbeat_at','requested_at')"),
@@ -115,7 +115,7 @@ namespace ql
         )sql");
 
         Database db(path);
-        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{16});
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{17});
         std::vector<Net> nets = db.GetAllNets();
         REQUIRE(nets.size() == 3);
         // Sorted by name: Fusion Net, Mystery Net, Old Net. Known spellings
@@ -210,6 +210,43 @@ namespace ql
         REQUIRE(viewer.size() == 1);
         CHECK_EQ(viewer[0].amateur_callsign, std::string("KB4VEW"));
         CHECK(viewer[0].view_only);
+    }
+
+    QL_TEST(EveryKeyBeforeTransferMethodsStartsAsAsk)
+    {
+        TempDir dir;
+        std::string path = dir.File("q.db");
+        {
+            Database db(path);
+        }
+        // A users table as 2.0 left it (schema 16), with two keys.
+        RunSql(path, R"sql(
+            DROP TABLE users;
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                public_key TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT 0,
+                last_login_at INTEGER NOT NULL DEFAULT 0,
+                view_only INTEGER NOT NULL DEFAULT 0,
+                amateur_callsign TEXT NOT NULL DEFAULT '',
+                gmrs_callsign TEXT NOT NULL DEFAULT '');
+            INSERT INTO users (username, public_key, amateur_callsign) VALUES ('W4KWK', 'ssh-ed25519 AAAA one', 'W4KWK');
+            INSERT INTO users (username, public_key, amateur_callsign) VALUES ('W4KWK', 'ssh-ed25519 AAAA two', 'W4KWK');
+            PRAGMA user_version = 16;
+        )sql");
+
+        Database db(path);
+        std::vector<User> keys = db.GetUserKeys("W4KWK");
+        REQUIRE(keys.size() == 2);
+        CHECK_EQ(keys[0].transfer_method, kTransferAsk);
+        CHECK_EQ(keys[1].transfer_method, kTransferAsk);
+        CHECK_EQ(keys[0].public_key, std::string("ssh-ed25519 AAAA one"));
+        db.UpdateUserKeyTransfer(keys[1].id, kTransferSftp);
+        keys = db.GetUserKeys("W4KWK");
+        CHECK_EQ(keys[0].transfer_method, kTransferAsk);
+        CHECK_EQ(keys[1].transfer_method, kTransferSftp);
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{17});
     }
 
     QL_TEST(OldNetFrequenciesMoveToComments)

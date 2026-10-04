@@ -166,6 +166,8 @@ namespace ql
         std::string username;
         // From the key the user logged in with (see User::view_only).
         bool view_only = false;
+        // The key it logged in with (User::id).
+        std::int64_t key_id = 0;
 
         ssh_channel channel = nullptr;
 
@@ -226,6 +228,7 @@ namespace ql
             // As Manage Users has it, whatever case it was typed in.
             state->username = matched_username;
             state->view_only = matched_view_only;
+            state->key_id = matched_key_id;
             state->db->UpdateUserLastLogin(matched_key_id, static_cast<std::int64_t>(std::time(nullptr)));
         }
         return SSH_AUTH_SUCCESS;
@@ -338,6 +341,7 @@ namespace ql
             {
                 ::setenv("SSH_CONNECTION", connection.c_str(), 1);
             }
+            ::setenv("QUICKLOGGER_KEY_ID", std::to_string(state->key_id).c_str(), 1);
             std::string username = state->username;
             RunInteractiveSession(PerUserSettingsPath(username), /*is_console_session=*/false, username);
             _exit(0);

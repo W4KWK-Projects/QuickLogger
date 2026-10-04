@@ -501,6 +501,11 @@ namespace ql
         // else's (a change of case alone is fine).
         bool RenameUser(const std::string& old_username, const std::string& new_username);
         void UpdateUserLastLogin(std::int64_t id, std::int64_t last_login_at);
+        // Replaces key `id`'s line (only its comment changes: see
+        // WithPublicKeyComment).
+        void UpdateUserKeyLine(std::int64_t id, const std::string& public_key);
+        // Sets how key `id` fetches files (User::transfer_method).
+        void UpdateUserKeyTransfer(std::int64_t id, int transfer_method);
 
     private:
         // Rolls back the open transaction, never throwing (see the

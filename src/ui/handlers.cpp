@@ -1359,6 +1359,28 @@ namespace ql
                    event == ftxui::Event::F8 || event == ftxui::Event::F9 || event == ftxui::Event::F10 ||
                    event == ftxui::Event::F11 || event == ftxui::Event::F12;
         }
+        if (state_->show_my_keys_window)
+        {
+            if (event == ftxui::Event::F2)
+            {
+                SaveMyKeyComment(state_);
+                return true;
+            }
+            if (event == ftxui::Event::Escape)
+            {
+                CloseMyKeys(state_);
+                return true;
+            }
+            return event == ftxui::Event::F1 || event == ftxui::Event::F3 || event == ftxui::Event::F4 ||
+                   event == ftxui::Event::F5 || event == ftxui::Event::F6 || event == ftxui::Event::F7 ||
+                   event == ftxui::Event::F8 || event == ftxui::Event::F9 || event == ftxui::Event::F10 ||
+                   event == ftxui::Event::F11 || event == ftxui::Event::F12;
+        }
+        if (event == ftxui::Event::F4 && CanEditOwnKeys(state_))
+        {
+            OpenMyKeys(state_);
+            return true;
+        }
         if (event == ftxui::Event::F5 && state_->is_console_session)
         {
             OpenUpstreamWindow(state_);
@@ -1389,6 +1411,11 @@ namespace ql
             return true;
         }
         return false;
+    }
+
+    void MyKeySelectionHandler::operator()() const
+    {
+        LoadMyKeyComment(state_);
     }
 
     void ConfirmZmodemActionHandler::operator()() const

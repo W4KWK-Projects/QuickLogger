@@ -182,13 +182,14 @@ CREATE TABLE IF NOT EXISTS users (
     last_login_at INTEGER NOT NULL DEFAULT 0,
     view_only INTEGER NOT NULL DEFAULT 0,
     amateur_callsign TEXT NOT NULL DEFAULT '',
-    gmrs_callsign TEXT NOT NULL DEFAULT ''
+    gmrs_callsign TEXT NOT NULL DEFAULT '',
+    transfer_method INTEGER NOT NULL DEFAULT 0
 );
 )sql";
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 16;
+    static constexpr int kSchemaVersion = 17;
 
     // How SQLite waits for another connection's lock: 1 ms pauses for the
     // first 20 tries, then 5 ms ones, giving up after 5 seconds by the clock.
@@ -632,6 +633,7 @@ CREATE TABLE IF NOT EXISTS users (
         }
         EnsureColumnExists(db_, "users", "amateur_callsign", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(db_, "users", "gmrs_callsign", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumnExists(db_, "users", "transfer_method", "INTEGER NOT NULL DEFAULT 0");
         {
             Statement copy(&statements_,
                            "UPDATE users SET amateur_callsign = upper(username) "
@@ -2842,6 +2844,7 @@ COMMIT;
         user.view_only = row.ColumnInt64(5) != 0;
         user.amateur_callsign = row.ColumnText(6);
         user.gmrs_callsign = row.ColumnText(7);
+        user.transfer_method = static_cast<int>(row.ColumnInt64(8));
         return user;
     }
 
@@ -2916,7 +2919,8 @@ COMMIT;
     std::vector<User> Database::GetUserKeys(const std::string& username)
     {
         Statement statement(&statements_, R"sql(
-        SELECT id, username, public_key, created_at, last_login_at, view_only, amateur_callsign, gmrs_callsign
+        SELECT id, username, public_key, created_at, last_login_at, view_only, amateur_callsign, gmrs_callsign,
+               transfer_method
         FROM users WHERE username = ? COLLATE NOCASE ORDER BY id;
     )sql");
         statement.BindText(0, username);
@@ -2931,7 +2935,8 @@ COMMIT;
     std::vector<User> Database::ListUsers()
     {
         Statement statement(&statements_, R"sql(
-        SELECT id, username, public_key, created_at, last_login_at, view_only, amateur_callsign, gmrs_callsign
+        SELECT id, username, public_key, created_at, last_login_at, view_only, amateur_callsign, gmrs_callsign,
+               transfer_method
         FROM users ORDER BY username COLLATE NOCASE, username, id;
     )sql");
         std::vector<User> users;
@@ -2976,6 +2981,22 @@ COMMIT;
     {
         Statement statement(&statements_, "UPDATE users SET last_login_at = ? WHERE id = ?;");
         statement.BindInt64(0, last_login_at);
+        statement.BindInt64(1, id);
+        statement.Step();
+    }
+
+    void Database::UpdateUserKeyTransfer(std::int64_t id, int transfer_method)
+    {
+        Statement statement(&statements_, "UPDATE users SET transfer_method = ? WHERE id = ?;");
+        statement.BindInt64(0, transfer_method);
+        statement.BindInt64(1, id);
+        statement.Step();
+    }
+
+    void Database::UpdateUserKeyLine(std::int64_t id, const std::string& public_key)
+    {
+        Statement statement(&statements_, "UPDATE users SET public_key = ? WHERE id = ?;");
+        statement.BindText(0, public_key);
         statement.BindInt64(1, id);
         statement.Step();
     }

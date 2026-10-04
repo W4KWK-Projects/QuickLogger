@@ -531,6 +531,13 @@ namespace ql
         // Decided once, at login: a change in Manage Users applies from
         // the user's next login.
         state.ssh_username = is_console_session ? std::string() : ssh_username;
+        // The key an SSH login used (see ssh_server.cpp); none over Mosh.
+#if !defined(_WIN32)
+        const char* key_id = std::getenv("QUICKLOGGER_KEY_ID");
+        state.ssh_key_id = !is_console_session && key_id != nullptr ? std::atoll(key_id) : 0;
+        ::unsetenv("QUICKLOGGER_KEY_ID");
+#endif
+        ql::LoadSessionTransferMethod(&state);
         state.view_only_user = !is_console_session && !ssh_username.empty() && db.IsUserViewOnly(ssh_username);
         state.settings_path = settings_path;
         state.settings = ql::LoadSettings(state.settings_path);

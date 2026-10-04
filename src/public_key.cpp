@@ -394,4 +394,32 @@ namespace ql
         return words_a.size() >= 2 && words_b.size() >= 2 && words_a[0] == words_b[0] && words_a[1] == words_b[1];
     }
 
+    bool WithPublicKeyComment(const std::string& line, const std::string& comment, std::string* out, std::string* error)
+    {
+        std::vector<std::string> words = SplitWords(line);
+        if (words.size() < 2)
+        {
+            *error = "That isn't a key line.";
+            return false;
+        }
+        std::string::size_type start = comment.find_first_not_of(" \t");
+        std::string trimmed =
+            start == std::string::npos ? "" : comment.substr(start, comment.find_last_not_of(" \t") - start + 1);
+        for (char c : trimmed)
+        {
+            if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f)
+            {
+                *error = "A comment can't have control characters in it.";
+                return false;
+            }
+        }
+        if (trimmed.size() > 64)
+        {
+            *error = "A comment can be up to 64 characters.";
+            return false;
+        }
+        *out = words[0] + " " + words[1] + (trimmed.empty() ? "" : " " + trimmed);
+        return true;
+    }
+
 }  // namespace ql

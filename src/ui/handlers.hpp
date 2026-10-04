@@ -878,6 +878,18 @@ namespace ql
         AppState* state_;
     };
 
+    // The highlight moved in My Keys: its comment goes in the edit field.
+    class MyKeySelectionHandler
+    {
+    public:
+        explicit MyKeySelectionHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
     // F10 on the net list page.
     class QuitHandler
     {

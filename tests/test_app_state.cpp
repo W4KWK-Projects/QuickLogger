@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../src/date_utils.hpp"
+#include "../src/public_key.hpp"
 #include "../src/db/database.hpp"
 #include "../src/file_export.hpp"
 #include "../src/mode_rules.hpp"
@@ -18,6 +19,8 @@
 #include "../src/ui/mouse.hpp"
 #include "../src/zmodem_send.hpp"
 #include "../src/ui/app_state.hpp"
+#include "../src/ui/pages.hpp"
+#include <ftxui/screen/screen.hpp>
 #include "../src/ui/handlers.hpp"
 #include "test_framework.hpp"
 #include "test_helpers.hpp"
@@ -1105,6 +1108,233 @@ namespace ql
         f.state.settings_server_text = "net.example.org";
         REQUIRE(SaveSettingsForm(&f.state));
         CHECK(f.state.settings.server_address.empty());
+    }
+
+    QL_TEST(ACommentReplacesOnlyTheCommentOfAKeyLine)
+    {
+        std::string line;
+        std::string error;
+        REQUIRE(WithPublicKeyComment("ssh-ed25519 AAAAC3Nza old name", "  My Mac ", &line, &error));
+        CHECK_EQ(line, std::string("ssh-ed25519 AAAAC3Nza My Mac"));
+        REQUIRE(WithPublicKeyComment("ssh-ed25519 AAAAC3Nza old name", "", &line, &error));
+        CHECK_EQ(line, std::string("ssh-ed25519 AAAAC3Nza"));
+        CHECK(!WithPublicKeyComment("ssh-ed25519 AAAAC3Nza", "bad\ncomment", &line, &error));
+        CHECK(!WithPublicKeyComment("ssh-ed25519 AAAAC3Nza", std::string(65, 'x'), &line, &error));
+        CHECK(!WithPublicKeyComment("garbage", "ok", &line, &error));
+        CHECK(SamePublicKey("ssh-ed25519 AAAAC3Nza old", "ssh-ed25519 AAAAC3Nza new"));
+    }
+
+    QL_TEST(MyKeysMarksTheLoginAndRenamesAKey)
+    {
+        Fixture f;
+        for (const char* key :
+             {"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINM3eCDBCkdxto9OIGli2KKnorIhCylrEpYHnMPxdkAI laptop",
+              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ3eCDBCkdxto9OIGli2KKnorIhCylrEpYHnMPxdkAI"})
+        {
+            User user;
+            user.username = "K4WES";
+            user.public_key = key;
+            user.amateur_callsign = "K4WES";
+            f.db()->CreateUser(user);
+        }
+        std::vector<User> keys = f.db()->GetUserKeys("K4WES");
+        REQUIRE(keys.size() == 2);
+        f.state.is_console_session = false;
+        f.state.ssh_username = "K4WES";
+        f.state.ssh_key_id = keys[1].id;
+        CHECK(CanEditOwnKeys(&f.state));
+        OpenMyKeys(&f.state);
+        CHECK(f.state.show_my_keys_window);
+        CHECK_EQ(f.state.selected_my_key_index, 1);
+        CHECK(f.state.my_keys_labels[1].find("<- this login") != std::string::npos);
+        CHECK(f.state.my_keys_labels[0].find("laptop") != std::string::npos);
+        CHECK(f.state.my_keys_labels[1].find("(no comment)") != std::string::npos);
+        CHECK(f.state.my_key_comment_text.empty());
+
+        f.state.my_key_comment_text = "My Mac";
+        SaveMyKeyComment(&f.state);
+        CHECK(f.state.form_error.empty());
+        CHECK(f.state.my_keys_labels[1].find("My Mac") != std::string::npos);
+        CHECK(f.db()->GetUserKeys("K4WES")[1].public_key.find(" My Mac") != std::string::npos);
+
+        f.state.my_key_comment_text = "bad\ncomment";
+        SaveMyKeyComment(&f.state);
+        CHECK(!f.state.form_error.empty());
+        CloseMyKeys(&f.state);
+        CHECK(!f.state.show_my_keys_window);
+    }
+
+    QL_TEST(AKeysTransferMethodIsSavedAndSftpKeysAreNotOfferedZmodem)
+    {
+        Fixture f;
+        for (const char* key : {"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINM3eCDBCkdxto9OIGli2KKnorIhCylrEpYHnMPxdkAI one",
+                                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ3eCDBCkdxto9OIGli2KKnorIhCylrEpYHnMPxdkAI two"})
+        {
+            User user;
+            user.username = "K4WES";
+            user.public_key = key;
+            user.amateur_callsign = "K4WES";
+            f.db()->CreateUser(user);
+        }
+        std::vector<User> keys = f.db()->GetUserKeys("K4WES");
+        f.state.is_console_session = false;
+        f.state.ssh_username = "K4WES";
+        f.state.ssh_key_id = keys[0].id;
+        f.state.console_settings_path = f.dir().File("settings.txt");
+        SetTestEnvironment("SSH_CONNECTION", "");
+        LoadSessionTransferMethod(&f.state);
+        CHECK(!SessionPrefersSftp(&f.state));
+
+        OpenMyKeys(&f.state);
+        CHECK_EQ(f.state.my_key_transfer_index, kTransferAsk);
+        f.state.my_key_transfer_index = kTransferSftp;
+        SaveMyKeyComment(&f.state);
+        CHECK(f.state.form_error.empty());
+        CHECK(SessionPrefersSftp(&f.state));
+        CHECK_EQ(f.db()->GetUserKeys("K4WES")[0].transfer_method, kTransferSftp);
+        CHECK_EQ(f.db()->GetUserKeys("K4WES")[1].transfer_method, kTransferAsk);
+        CHECK(f.state.my_keys_labels[0].find("SFTP") != std::string::npos);
+
+        // An SFTP key is told the scp command, not offered ZMODEM.
+        OfferZmodemSendFiles(&f.state, {"./exports/ssh-users/K4WES/Net.qlnet"});
+        CHECK(!f.state.show_zmodem_confirm_modal);
+        CHECK(f.state.status_message.find("scp") != std::string::npos);
+
+        // The other key, still on Ask, is not affected on its next login.
+        f.state.ssh_key_id = keys[1].id;
+        LoadSessionTransferMethod(&f.state);
+        CHECK(!SessionPrefersSftp(&f.state));
+    }
+
+    QL_TEST(TabMovesFromTheKeyListToItsCommentAndTransferFields)
+    {
+        Fixture f;
+        for (const char* key : {"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINM3eCDBCkdxto9OIGli2KKnorIhCylrEpYHnMPxdkAI one",
+                                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ3eCDBCkdxto9OIGli2KKnorIhCylrEpYHnMPxdkAI two"})
+        {
+            User user;
+            user.username = "K4WES";
+            user.public_key = key;
+            user.amateur_callsign = "K4WES";
+            f.db()->CreateUser(user);
+        }
+        f.state.is_console_session = false;
+        f.state.ssh_username = "K4WES";
+        ftxui::Component page = BuildSettingsPage(&f.state);
+        OpenMyKeys(&f.state);
+        REQUIRE(f.state.show_my_keys_window);
+        // The list is first; Down picks the next key, Tab leaves for the fields.
+        CHECK_EQ(f.state.my_keys_focus, 0);
+        page->OnEvent(ftxui::Event::ArrowDown);
+        CHECK_EQ(f.state.selected_my_key_index, 1);
+        CHECK_EQ(f.state.my_keys_focus, 0);
+        page->OnEvent(ftxui::Event::Tab);
+        CHECK_EQ(f.state.selected_my_key_index, 1);
+        CHECK_EQ(f.state.my_keys_focus, 1);
+        page->OnEvent(ftxui::Event::Tab);
+        CHECK_EQ(f.state.my_keys_focus, 2);
+        page->OnEvent(ftxui::Event::TabReverse);
+        page->OnEvent(ftxui::Event::TabReverse);
+        CHECK_EQ(f.state.my_keys_focus, 0);
+        CHECK_EQ(f.state.selected_my_key_index, 1);
+    }
+
+    QL_TEST(DownInMyKeysMovesToTheNextKeyNotTheLast)
+    {
+        Fixture f;
+        const char* keys[] = {"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA one",
+                              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB two",
+                              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC three",
+                              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD four"};
+        for (const char* key : keys)
+        {
+            User user;
+            user.username = "K4WES";
+            user.public_key = key;
+            user.amateur_callsign = "K4WES";
+            f.db()->CreateUser(user);
+        }
+        std::vector<User> stored = f.db()->GetUserKeys("K4WES");
+        REQUIRE(stored.size() == 4);
+        f.state.is_console_session = false;
+        f.state.ssh_username = "K4WES";
+        f.state.ssh_key_id = stored[0].id;
+        ftxui::Component page = BuildSettingsPage(&f.state);
+        OpenMyKeys(&f.state);
+        // Drawn first, as the real screen is, before any key.
+        ftxui::Screen drawn(100, 40);
+        ftxui::Render(drawn, page->Render());
+        CHECK_EQ(f.state.selected_my_key_index, 0);
+        page->OnEvent(ftxui::Event::ArrowDown);
+        CHECK_EQ(f.state.selected_my_key_index, 1);
+        page->OnEvent(ftxui::Event::ArrowDown);
+        CHECK_EQ(f.state.selected_my_key_index, 2);
+        page->OnEvent(ftxui::Event::ArrowUp);
+        CHECK_EQ(f.state.selected_my_key_index, 1);
+        // The comment follows the highlight.
+        CHECK_EQ(f.state.my_key_comment_text, std::string("two"));
+    }
+
+    QL_TEST(MyKeysShowsItsCursorOnTheKeyThisLoginUsed)
+    {
+        Fixture f;
+        const char* keys[] = {"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA one",
+                              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB two",
+                              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC three",
+                              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD four"};
+        for (const char* key : keys)
+        {
+            User user;
+            user.username = "K4WES";
+            user.public_key = key;
+            user.amateur_callsign = "K4WES";
+            f.db()->CreateUser(user);
+        }
+        std::vector<User> stored = f.db()->GetUserKeys("K4WES");
+        f.state.is_console_session = false;
+        f.state.ssh_username = "K4WES";
+        f.state.ssh_key_id = stored[2].id;
+        ftxui::Component page = BuildSettingsPage(&f.state);
+        OpenMyKeys(&f.state);
+        CHECK_EQ(f.state.selected_my_key_index, 2);
+        ftxui::Screen drawn(100, 40);
+        ftxui::Render(drawn, page->Render());
+        // The drawn cursor (reverse video) is on the highlighted key's row,
+        // not left on the first.
+        int cursor_row = -1;
+        int login_row = -1;
+        for (int y = 0; y < drawn.dimy(); ++y)
+        {
+            std::string text;
+            bool inverted = false;
+            for (int x = 0; x < drawn.dimx(); ++x)
+            {
+                text += drawn.PixelAt(x, y).character;
+                inverted = inverted || drawn.PixelAt(x, y).inverted;
+            }
+            if (text.find("this login") != std::string::npos)
+            {
+                login_row = y;
+            }
+            if (inverted && text.find("ED25519") != std::string::npos)
+            {
+                cursor_row = y;
+            }
+        }
+        REQUIRE(login_row >= 0);
+        CHECK_EQ(cursor_row, login_row);
+        // And Down goes to the key below it.
+        page->OnEvent(ftxui::Event::ArrowDown);
+        CHECK_EQ(f.state.selected_my_key_index, 3);
+    }
+
+    QL_TEST(OnlyAnSshUserHasMyKeys)
+    {
+        Fixture f;
+        f.state.is_console_session = true;
+        CHECK(!CanEditOwnKeys(&f.state));
+        OpenMyKeys(&f.state);
+        CHECK(!f.state.show_my_keys_window);
     }
 
     QL_TEST(TheConsoleNeedsOneCallSignOrTheOther)

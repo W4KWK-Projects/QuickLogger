@@ -2791,7 +2791,7 @@ namespace ql
         }
         // No ZMODEM on this system at all (Windows, Alpine), so there's
         // nothing to install.
-        if (NoZmodemOnThisSystem())
+        if (NoZmodemOnThisSystem() || SessionPrefersSftp(state))
         {
             state->status_message = RemoteCopyMessage(state, paths);
             OfferPushOnly(state, paths);
@@ -3736,6 +3736,139 @@ namespace ql
         }
     }
 
+    bool CanEditOwnKeys(const AppState* state)
+    {
+        return !state->is_console_session && !state->ssh_username.empty();
+    }
+
+    // One row of the My Keys list: its comment (or none), type and the end
+    // of its fingerprint, and which one this login used.
+    static std::string MyKeyLabel(const User& key, bool this_login)
+    {
+        PublicKeyDescription description = DescribePublicKey(key.public_key);
+        std::string label = description.comment.empty() ? "(no comment)" : description.comment;
+        label += "   " + description.type;
+        label += std::string("   ") + (key.transfer_method == kTransferZmodem ? "ZMODEM"
+                                       : key.transfer_method == kTransferSftp ? "SFTP"
+                                                                              : "Ask");
+        if (description.fingerprint.size() > 12)
+        {
+            label += "   ..." + description.fingerprint.substr(description.fingerprint.size() - 8);
+        }
+        if (this_login)
+        {
+            label += "   <- this login";
+        }
+        return label;
+    }
+
+    static void RefreshMyKeys(AppState* state)
+    {
+        state->my_keys = state->db->GetUserKeys(state->ssh_username);
+        state->my_keys_labels.clear();
+        for (const User& key : state->my_keys)
+        {
+            state->my_keys_labels.push_back(MyKeyLabel(key, key.id == state->ssh_key_id));
+        }
+        if (state->selected_my_key_index >= static_cast<int>(state->my_keys.size()))
+        {
+            state->selected_my_key_index = 0;
+        }
+    }
+
+    void LoadMyKeyComment(AppState* state)
+    {
+        if (state->selected_my_key_index < 0 || state->selected_my_key_index >= static_cast<int>(state->my_keys.size()))
+        {
+            state->my_key_comment_text.clear();
+            return;
+        }
+        state->my_key_comment_text = DescribePublicKey(state->my_keys[state->selected_my_key_index].public_key).comment;
+        int method = state->my_keys[state->selected_my_key_index].transfer_method;
+        state->my_key_transfer_index = method >= kTransferAsk && method <= kTransferSftp ? method : kTransferAsk;
+    }
+
+    void OpenMyKeys(AppState* state)
+    {
+        if (!CanEditOwnKeys(state))
+        {
+            return;
+        }
+        Database::ReadTransaction reads(state->db);
+        state->selected_my_key_index = 0;
+        RefreshMyKeys(state);
+        for (std::size_t i = 0; i < state->my_keys.size(); ++i)
+        {
+            if (state->my_keys[i].id == state->ssh_key_id)
+            {
+                state->selected_my_key_index = static_cast<int>(i);
+            }
+        }
+        LoadMyKeyComment(state);
+        state->form_error.clear();
+        state->status_message.clear();
+        state->my_keys_focus = 0;
+        state->show_my_keys_window = true;
+    }
+
+    void LoadSessionTransferMethod(AppState* state)
+    {
+        state->ssh_transfer_method = kTransferAsk;
+        if (!CanEditOwnKeys(state) || state->ssh_key_id == 0)
+        {
+            return;
+        }
+        for (const User& key : state->db->GetUserKeys(state->ssh_username))
+        {
+            if (key.id == state->ssh_key_id)
+            {
+                state->ssh_transfer_method = key.transfer_method;
+            }
+        }
+    }
+
+    bool SessionPrefersSftp(const AppState* state)
+    {
+        return !state->is_console_session && state->ssh_transfer_method == kTransferSftp;
+    }
+
+    void CloseMyKeys(AppState* state)
+    {
+        state->show_my_keys_window = false;
+        state->my_keys.clear();
+        state->my_keys_labels.clear();
+        state->my_key_comment_text.clear();
+        state->form_error.clear();
+    }
+
+    void SaveMyKeyComment(AppState* state)
+    {
+        if (!state->show_my_keys_window || state->selected_my_key_index < 0 ||
+            state->selected_my_key_index >= static_cast<int>(state->my_keys.size()))
+        {
+            return;
+        }
+        const User& key = state->my_keys[state->selected_my_key_index];
+        std::string line;
+        std::string error;
+        if (!WithPublicKeyComment(key.public_key, state->my_key_comment_text, &line, &error))
+        {
+            state->form_error = error;
+            return;
+        }
+        state->db->UpdateUserKeyLine(key.id, line);
+        state->db->UpdateUserKeyTransfer(key.id, state->my_key_transfer_index);
+        if (key.id == state->ssh_key_id)
+        {
+            state->ssh_transfer_method = state->my_key_transfer_index;
+        }
+        Database::ReadTransaction reads(state->db);
+        RefreshMyKeys(state);
+        LoadMyKeyComment(state);
+        state->form_error.clear();
+        state->status_message = "Saved.";
+    }
+
     void OpenUserKeys(AppState* state, int index)
     {
         if (index < 0 || index >= static_cast<int>(state->manage_user_names.size()))
@@ -4149,7 +4282,7 @@ namespace ql
         // no ZMODEM (at the console, on Windows, or without sz), the files
         // are all there is.
         if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || !ZmodemSendAvailable() ||
-            state->over_mosh)
+            state->over_mosh || SessionPrefersSftp(state))
         {
             OfferZmodemSendFiles(state, paths, 0, push_instance_id);
             return;
@@ -5047,7 +5180,8 @@ namespace ql
         // Nobody on the other end of a local terminal to send one, no
         // ZMODEM at all on some systems (Windows, Alpine), and none over
         // Mosh.
-        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || state->over_mosh)
+        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || state->over_mosh ||
+            SessionPrefersSftp(state))
         {
             return;
         }

@@ -35,4 +35,11 @@ namespace ql
     // whatever their comments say.
     bool SamePublicKey(const std::string& a, const std::string& b);
 
+    // `line` with its comment replaced by `comment` (trimmed; blank removes
+    // it). The type and key data are untouched, so it is the same key. False,
+    // with `error` set, if the comment has a control character or is over 64
+    // characters, or `line` isn't a key line.
+    bool WithPublicKeyComment(const std::string& line, const std::string& comment, std::string* out,
+                              std::string* error);
+
 }  // namespace ql

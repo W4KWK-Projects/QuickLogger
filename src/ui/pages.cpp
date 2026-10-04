@@ -1685,6 +1685,10 @@ namespace ql
             {
                 hints.push_back({"F4", "Manage Users"});
             }
+            if (CanEditOwnKeys(state_))
+            {
+                hints.push_back({"F4", "My Keys"});
+            }
             if (state_->is_console_session)
             {
                 hints.push_back({"F5", "Upstream"});
@@ -1757,6 +1761,73 @@ namespace ql
         ftxui::Component input_user_;
         ftxui::Component input_port_;
     };
+
+    // The My Keys window over an SSH user's Settings (F4): their keys and
+    // the comment of the highlighted one.
+    class MyKeysWindowRenderer
+    {
+    public:
+        MyKeysWindowRenderer(AppState* state, ftxui::Component key_menu, ftxui::Component input_comment,
+                             ftxui::Component transfer_toggle)
+            : state_(state),
+              key_menu_(std::move(key_menu)),
+              input_comment_(std::move(input_comment)),
+              transfer_toggle_(std::move(transfer_toggle))
+        {
+        }
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Elements rows;
+            rows.push_back(Heading("My Keys"));
+            rows.push_back(DialogSeparator());
+            rows.push_back(Framed(key_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator |
+                                  ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, 8)));
+            rows.push_back(ftxui::hbox({FieldLabel("Comment:  "), input_comment_->Render()}));
+            rows.push_back(ftxui::hbox({FieldLabel("Transfer: "), transfer_toggle_->Render()}));
+            rows.push_back(DialogSeparator());
+            rows.push_back(
+                HintParagraph("Up/Down picks a key, Tab moves between the fields. The comment is a name to "
+                              "tell your keys apart, such as \"My Mac\". Transfer is how this key's "
+                              "device gets files: ZMODEM, SFTP, or Ask to be offered ZMODEM."));
+            rows.push_back(DialogSeparator());
+            rows.push_back(KeyHintRow({{"F2", "Save"}, {"Esc", "Close"}}));
+            rows.push_back(StatusLine(state_->status_message));
+            rows.push_back(ErrorLine(state_->form_error));
+            return CheckInWindow(state_, ftxui::vbox(std::move(rows)));
+        }
+
+    private:
+        AppState* state_;
+        ftxui::Component key_menu_;
+        ftxui::Component input_comment_;
+        ftxui::Component transfer_toggle_;
+    };
+
+    static ftxui::Component BuildMyKeysWindow(AppState* state)
+    {
+        ftxui::MenuOption key_menu_option;
+        key_menu_option.entries_option.transform = AlignedMenuEntryTransform;
+        key_menu_option.on_change = MyKeySelectionHandler(state);
+        // One position for the highlight and the selection: left separate, the
+        // drawn cursor starts on the first key whichever one is selected.
+        key_menu_option.focused_entry = &state->selected_my_key_index;
+        // Tab leaves the list for the comment and Transfer fields (a Menu
+        // would take it as "next key").
+        ftxui::Component key_menu = std::make_shared<IgnoreTab>(
+            ClickableList(state, ftxui::Menu(&state->my_keys_labels, &state->selected_my_key_index, key_menu_option)));
+        ftxui::Component input_comment =
+            ftxui::Input(&state->my_key_comment_text, "e.g. My Mac", SingleLineInputOption());
+        ftxui::MenuOption transfer_option = ftxui::MenuOption::Toggle();
+        transfer_option.entries_option.transform = ToggleEntryTransform;
+        transfer_option.elements_infix = ToggleGap;
+        transfer_option.focused_entry = &state->my_key_transfer_index;
+        ftxui::Component transfer_toggle = std::make_shared<IgnoreTab>(
+            ftxui::Menu(&state->my_key_transfer_labels, &state->my_key_transfer_index, transfer_option));
+        return ftxui::Renderer(
+            ftxui::Container::Vertical({key_menu, input_comment, transfer_toggle}, &state->my_keys_focus),
+            MyKeysWindowRenderer(state, key_menu, input_comment, transfer_toggle));
+    }
 
     static ftxui::Component BuildUpstreamWindow(AppState* state)
     {
@@ -1831,7 +1902,8 @@ namespace ql
         ftxui::Component page =
             ftxui::Renderer(root, SettingsRenderer(state, input_callsign, input_gmrs, input_location, input_radius,
                                                    input_server, time_format_toggle, update_check_toggle));
-        return LayeredModal(page, BuildUpstreamWindow(state), &state->show_upstream_window);
+        return LayeredModal(LayeredModal(page, BuildUpstreamWindow(state), &state->show_upstream_window),
+                            BuildMyKeysWindow(state), &state->show_my_keys_window);
     }
 
     // ---- Ad hoc net page ---------------------------------------------------
@@ -2426,7 +2498,7 @@ namespace ql
         {
             return "No " + pattern + " files in imports/ yet. Press F3 to receive one via ZMODEM.";
         }
-        if (state->over_mosh || NoZmodemOnThisSystem())
+        if (state->over_mosh || NoZmodemOnThisSystem() || SessionPrefersSftp(state))
         {
             const std::string& upload = ScpUploadCommand(state);
             return "No " + pattern + " files received yet. Upload one: " +
@@ -2472,7 +2544,8 @@ namespace ql
             hints.push_back({"F2/Enter", "Import"});
             // No ZMODEM at a local terminal: there's no one to receive from.
             // Nor where the system has none (Windows, Alpine), or over Mosh.
-            if (!(IsLocalTerminal(state_->is_console_session) || NoZmodemOnThisSystem() || state_->over_mosh))
+            if (!(IsLocalTerminal(state_->is_console_session) || NoZmodemOnThisSystem() || state_->over_mosh ||
+                  SessionPrefersSftp(state_)))
             {
                 hints.push_back({"F3", "Receive (ZMODEM)"});
             }

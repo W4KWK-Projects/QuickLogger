@@ -384,6 +384,24 @@ namespace ql
         std::vector<std::string> user_keys_labels;
         int selected_user_key_index = 0;
         std::string new_key_text;
+        // The My Keys window over an SSH user's Settings (F4): their own keys,
+        // a row each, and the comment of the highlighted one to edit (F2
+        // saves it). `ssh_key_id` is the key this session logged in with, 0
+        // if unknown (over Mosh, or at the console).
+        bool show_my_keys_window = false;
+        std::int64_t ssh_key_id = 0;
+        std::vector<User> my_keys;
+        std::vector<std::string> my_keys_labels;
+        int selected_my_key_index = 0;
+        std::string my_key_comment_text;
+        // The highlighted key's Transfer method (an index into
+        // my_key_transfer_labels: 0 Ask, 1 ZMODEM, 2 SFTP), saved with F2.
+        std::vector<std::string> my_key_transfer_labels{"Ask", "ZMODEM", "SFTP"};
+        int my_key_transfer_index = 0;
+        // This session's own key's Transfer method (kTransfer*), read at login
+        // and when My Keys saves it; Ask if unknown (the console, Mosh).
+        int ssh_transfer_method = 0;
+        int my_keys_focus = 0;
         std::string rename_username;
         int edit_user_access_index = 0;
         // The user's call signs in the Edit User window (see
@@ -1284,6 +1302,29 @@ namespace ql
     // signs (CheckUserCallsigns) apply to every key of theirs. All of it
     // takes effect from their next login.
     void SaveEditedUser(AppState* state);
+
+    // True for an SSH user: they have keys of their own to look after (the
+    // My Keys window, F4 on Settings).
+    bool CanEditOwnKeys(const AppState* state);
+
+    // F4 on Settings for an SSH user: opens My Keys with the highlight on the
+    // key this session logged in with.
+    void OpenMyKeys(AppState* state);
+    void CloseMyKeys(AppState* state);
+
+    // Reads this session's key's Transfer method into ssh_transfer_method.
+    void LoadSessionTransferMethod(AppState* state);
+
+    // True for an SSH user whose key is set to SFTP: ZMODEM isn't offered.
+    bool SessionPrefersSftp(const AppState* state);
+
+    // Puts the highlighted key's comment in the edit field; for when the
+    // highlight moves.
+    void LoadMyKeyComment(AppState* state);
+
+    // F2 in My Keys: saves the edit field as the highlighted key's comment.
+    // Sets AppState::form_error instead if it isn't a good comment.
+    void SaveMyKeyComment(AppState* state);
 
     // Deletes the highlighted key in the Keys window
     // (AppState::user_keys[selected_user_key_index]); with it goes the

@@ -339,6 +339,15 @@ namespace ql
         // that service's nets can only be watched.
         std::string amateur_callsign;
         std::string gmrs_callsign;
+        // How files reach this key's device, set by its user in My Keys: one
+        // of the kTransfer* values. Belongs to the key (a laptop may have
+        // ZMODEM, a phone only SFTP), not the username.
+        int transfer_method = 0;
     };
+
+    // User::transfer_method. Ask offers ZMODEM and tells the SFTP command.
+    constexpr int kTransferAsk = 0;
+    constexpr int kTransferZmodem = 1;
+    constexpr int kTransferSftp = 2;
 
 }  // namespace ql
