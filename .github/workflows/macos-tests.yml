@@ -1,0 +1,31 @@
+# Builds QuickLogger and runs its tests on macOS the way release.yml's macOS
+# job does (a Release build, as the release's macOS 15 runner), without
+# tagging anything. The every-push Build workflow is Linux only, so a test
+# that passes on Linux and on a developer's newer macOS but fails on the
+# runner's SQLite and timers would otherwise show up only when a release tag
+# is pushed (2.0.0's busy-timeout tests did, four times). Run it by hand
+# before tagging: Actions > macOS tests > Run workflow, or
+# `gh workflow run macos-tests.yml --ref main`.
+name: macOS tests
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install dependencies
+        run: brew install libssh lrzsz
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+      - name: Build
+        run: cmake --build build -j 3
+      - name: Test
+        env:
+          QL_EXPECT_LRZSZ: "1"
+        run: ctest --test-dir build --output-on-failure
