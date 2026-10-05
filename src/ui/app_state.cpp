@@ -3793,7 +3793,7 @@ namespace ql
     }
 
     // The widest a key's comment is allowed in the My Keys list.
-    static constexpr int kMyKeyCommentWidth = 24;
+    static constexpr int kMyKeyCommentWidth = 16;
 
     // One row of the My Keys list as columns: its comment (or none), type,
     // Transfer method and the end of its fingerprint.
@@ -3807,8 +3807,8 @@ namespace ql
         cells.push_back(key.transfer_method == kTransferZmodem ? "ZMODEM"
                         : key.transfer_method == kTransferSftp ? "SFTP"
                                                                : "Ask");
-        cells.push_back(description.fingerprint.size() > 12
-                            ? "..." + description.fingerprint.substr(description.fingerprint.size() - 8)
+        cells.push_back(description.fingerprint.size() > 16
+                            ? "..." + description.fingerprint.substr(description.fingerprint.size() - 12)
                             : "");
         return cells;
     }
@@ -3835,7 +3835,7 @@ namespace ql
             for (std::size_t column = 0; column < rows[row].size(); ++column)
             {
                 label += rows[row][column];
-                label += std::string(static_cast<std::size_t>(widths[column] - TextWidth(rows[row][column])) + 3, ' ');
+                label += std::string(static_cast<std::size_t>(widths[column] - TextWidth(rows[row][column])) + 2, ' ');
             }
             label += state->my_keys[row].id == state->ssh_key_id ? "<- this login" : "";
             while (!label.empty() && label.back() == ' ')
