@@ -50,13 +50,17 @@ namespace ql
 
     // Writes a one-time token for `username` to `dir`/mosh/<token> (only its
     // owner can read it) and returns the token, or "" with `error` set.
-    // Tokens left over (never used) are removed while there.
+    // `key_id` is the key the SSH login used (User::id, 0 if unknown), so the
+    // Mosh session can say which it is (see AppState::ssh_key_id). Tokens
+    // left over (never used) are removed while there.
     std::string CreateMoshToken(const std::string& dir, const std::string& username, std::int64_t now,
-                                std::string* error);
+                                std::string* error, std::int64_t key_id = 0);
 
     // Reads and deletes `token`'s file in `dir`/mosh. True, with `username`
-    // set, if it's there and was made within kMoshTokenSeconds of `now`.
-    bool ConsumeMoshToken(const std::string& dir, const std::string& token, std::int64_t now, std::string* username);
+    // set (and `key_id`, if given), if it's there and was made within
+    // kMoshTokenSeconds of `now`.
+    bool ConsumeMoshToken(const std::string& dir, const std::string& token, std::int64_t now, std::string* username,
+                          std::int64_t* key_id = nullptr);
 
     // How long a token is good for: mosh-server starts its program as
     // soon as it has a client, a second or two after it's created.

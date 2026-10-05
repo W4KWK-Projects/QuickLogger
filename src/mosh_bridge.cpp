@@ -267,8 +267,10 @@ namespace ql
         return true;
     }
 
-    // A token file's time and username; false if it can't be read.
-    static bool ReadToken(const std::filesystem::path& path, std::int64_t* made_at, std::string* username)
+    // A token file's time, username and key (a third line; none, 0, in one
+    // from before it was kept); false if it can't be read.
+    static bool ReadToken(const std::filesystem::path& path, std::int64_t* made_at, std::string* username,
+                          std::int64_t* key_id)
     {
         std::ifstream in(path);
         std::string time_line;
@@ -278,6 +280,9 @@ namespace ql
             return false;
         }
         *made_at = std::stoll(time_line);
+        std::string key_line;
+        *key_id =
+            std::getline(in, key_line) && !key_line.empty() && AllOf(key_line, IsDigit, 18) ? std::stoll(key_line) : 0;
         return true;
     }
 
@@ -289,8 +294,9 @@ namespace ql
         {
             std::int64_t made_at = 0;
             std::string username;
-            if (!IsTokenName(entry.path().filename().string()) || !ReadToken(entry.path(), &made_at, &username) ||
-                now - made_at > kMoshTokenSeconds)
+            std::int64_t key_id = 0;
+            if (!IsTokenName(entry.path().filename().string()) ||
+                !ReadToken(entry.path(), &made_at, &username, &key_id) || now - made_at > kMoshTokenSeconds)
             {
                 std::filesystem::remove(entry.path(), code);
             }
@@ -298,7 +304,7 @@ namespace ql
     }
 
     std::string CreateMoshToken(const std::string& dir, const std::string& username, std::int64_t now,
-                                std::string* error)
+                                std::string* error, std::int64_t key_id)
     {
         std::string token_dir = TokenDir(dir);
         std::error_code code;
@@ -321,7 +327,7 @@ namespace ql
         std::filesystem::path path = std::filesystem::path(token_dir) / token;
         {
             std::ofstream out(path, std::ios::trunc);
-            out << now << "\n" << username << "\n";
+            out << now << "\n" << username << "\n" << key_id << "\n";
             if (!out)
             {
                 *error = "Couldn't write " + path.string() + ".";
@@ -333,7 +339,8 @@ namespace ql
         return token;
     }
 
-    bool ConsumeMoshToken(const std::string& dir, const std::string& token, std::int64_t now, std::string* username)
+    bool ConsumeMoshToken(const std::string& dir, const std::string& token, std::int64_t now, std::string* username,
+                          std::int64_t* key_id)
     {
         if (!IsTokenName(token))
         {
@@ -341,7 +348,12 @@ namespace ql
         }
         std::filesystem::path path = std::filesystem::path(TokenDir(dir)) / token;
         std::int64_t made_at = 0;
-        bool read = ReadToken(path, &made_at, username);
+        std::int64_t key = 0;
+        bool read = ReadToken(path, &made_at, username, &key);
+        if (key_id != nullptr)
+        {
+            *key_id = key;
+        }
         std::error_code code;
         bool removed = std::filesystem::remove(path, code);
         // Removed by this process, so no other can use it.

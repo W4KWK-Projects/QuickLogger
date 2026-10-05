@@ -2,6 +2,7 @@
 // the command run for it, the one-time login token, and no ZMODEM over Mosh.
 
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -119,6 +120,30 @@ namespace ql
 
         CHECK(!ConsumeMoshToken(dir.path(), "../quicklogger.db", 1000, &username));
         CHECK(!ConsumeMoshToken(dir.path(), "", 1000, &username));
+    }
+
+    QL_TEST(AMoshTokenCarriesTheKeyTheLoginUsed)
+    {
+        TempDir dir;
+        std::string error;
+        std::string token = CreateMoshToken(dir.path(), "W4KWK", 1000, &error, 42);
+        REQUIRE(token.size() == 32);
+        std::string username;
+        std::int64_t key_id = -1;
+        CHECK(ConsumeMoshToken(dir.path(), token, 1005, &username, &key_id));
+        CHECK_EQ(username, std::string("W4KWK"));
+        CHECK_EQ(key_id, std::int64_t{42});
+
+        // One made before keys were kept, with two lines: no key.
+        std::filesystem::create_directories(dir.File("mosh"));
+        std::string old_token(32, 'a');
+        {
+            std::ofstream out(dir.File("mosh/" + old_token));
+            out << "1000\nW4KWK\n";
+        }
+        key_id = -1;
+        CHECK(ConsumeMoshToken(dir.path(), old_token, 1005, &username, &key_id));
+        CHECK_EQ(key_id, std::int64_t{0});
     }
 
     QL_TEST(UnusedMoshTokensAreClearedAway)

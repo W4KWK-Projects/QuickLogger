@@ -569,7 +569,8 @@ namespace ql
             WriteChannelText(channel, "QuickLogger: couldn't find its own program to start under Mosh.\n");
             return 1;
         }
-        std::string token = CreateMoshToken(cwd, state.username, static_cast<std::int64_t>(std::time(nullptr)), &error);
+        std::string token =
+            CreateMoshToken(cwd, state.username, static_cast<std::int64_t>(std::time(nullptr)), &error, state.key_id);
         if (token.empty())
         {
             WriteChannelText(channel, "QuickLogger: " + error + "\n");
@@ -1217,14 +1218,18 @@ namespace ql
         ::unsetenv("QUICKLOGGER_MOSH_DIR");
         ::unsetenv("QUICKLOGGER_MOSH_TOKEN");
         std::string username;
+        std::int64_t key_id = 0;
         if (dir_value.empty() || ::chdir(dir_value.c_str()) != 0 ||
-            !ConsumeMoshToken(dir_value, token_value, static_cast<std::int64_t>(std::time(nullptr)), &username))
+            !ConsumeMoshToken(dir_value, token_value, static_cast<std::int64_t>(std::time(nullptr)), &username,
+                              &key_id))
         {
             std::printf(
                 "QuickLogger: this Mosh session wasn't started by QuickLogger's SSH server, so it can't "
                 "log in. Connect with mosh to the server's SSH port.\n");
             return 1;
         }
+        // The key the SSH login used, read once by the session.
+        ::setenv("QUICKLOGGER_KEY_ID", std::to_string(key_id).c_str(), 1);
         RunInteractiveSession(PerUserSettingsPath(username), /*is_console_session=*/false, username,
                               /*over_mosh=*/true);
         return 0;
