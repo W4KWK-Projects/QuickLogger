@@ -22,6 +22,7 @@
 #include "../src/ui/pages.hpp"
 #include <ftxui/screen/screen.hpp>
 #include "../src/ui/handlers.hpp"
+#include "precise_grid_fakes.hpp"
 #include "test_framework.hpp"
 #include "test_helpers.hpp"
 
@@ -1326,6 +1327,98 @@ namespace ql
         // And Down goes to the key below it.
         page->OnEvent(ftxui::Event::ArrowDown);
         CHECK_EQ(f.state.selected_my_key_index, 3);
+    }
+
+    QL_TEST(AStoredGridIsOnlyEverExtended)
+    {
+        Fixture f;
+        const char* grids[] = {"", "FM18", "EM75", "FM18aa"};
+        const char* calls[] = {"K4AAA", "K4BBB", "K4CCC", "K4DDD"};
+        for (int i = 0; i < 4; ++i)
+        {
+            Station station = ArlingtonStation(calls[i]);
+            station.grid_square = grids[i];
+            f.db()->UpsertStation(station);
+            f.db()->UpdateStationGrid(calls[i], "FM18mu");
+        }
+        CHECK_EQ(f.db()->FindStationByCallsign("K4AAA")->grid_square, std::string("FM18mu"));
+        CHECK_EQ(f.db()->FindStationByCallsign("K4BBB")->grid_square, std::string("FM18mu"));
+        // A different square, or 6 characters already: not changed.
+        CHECK_EQ(f.db()->FindStationByCallsign("K4CCC")->grid_square, std::string("EM75"));
+        CHECK_EQ(f.db()->FindStationByCallsign("K4DDD")->grid_square, std::string("FM18aa"));
+        // Not 6 characters: nothing to give.
+        f.db()->UpdateStationGrid("K4CCC", "EM75");
+        f.db()->UpdateStationGrid("K4AAA", "FM18");
+        CHECK_EQ(f.db()->FindStationByCallsign("K4AAA")->grid_square, std::string("FM18mu"));
+    }
+
+    QL_TEST(TheOperatorsOwnStationGetsItsGridAndThenTheExactOne)
+    {
+        Fixture f;
+        ZipCentroid arlington;
+        arlington.zip = "20233";
+        arlington.lat = 38.845;
+        arlington.lon = -76.928;
+        f.db()->BulkUpsertZipCentroids({arlington});
+        // The operator is a known station, with an address and no grid.
+        Station self = ArlingtonStation("W4KWK");
+        f.db()->UpsertStation(self);
+        FakeFetcher fetcher;
+        FakeResults results;
+        PreciseGridLookup lookup(&fetcher, &results);
+        f.state.grid_lookup = &lookup;
+
+        f.StartNet("Skywarn");
+        // At once, the ZIP's grid, stored with the station...
+        CHECK_EQ(f.db()->FindStationByCallsign("W4KWK")->grid_square, std::string("FM18"));
+        // ...and a moment later the street's.
+        REQUIRE(results.WaitForResults(1));
+        REQUIRE(results.Found()[0] == "W4KWK=FM18mu");
+        ApplyPreciseGrid(&f.state, "W4KWK", "FM18mu");
+        CHECK_EQ(f.db()->FindStationByCallsign("W4KWK")->grid_square, std::string("FM18mu"));
+        f.state.grid_lookup = nullptr;
+    }
+
+    QL_TEST(EditingASavedStationAsksForItsExactGrid)
+    {
+        Fixture f;
+        FakeFetcher fetcher;
+        FakeResults results;
+        PreciseGridLookup lookup(&fetcher, &results);
+        f.state.grid_lookup = &lookup;
+        Station saved = ArlingtonStation("K4ZZZ");
+        saved.grid_square = "FM18";
+        f.state.edit_net_saved_stations = {saved};
+        f.state.edit_net_saved_remarks = {""};
+        f.state.edit_net_saved_entry_names = {""};
+
+        LoadSavedStationIntoForm(&f.state, 0);
+        REQUIRE(results.WaitForResults(1));
+        CHECK_EQ(results.Found()[0], std::string("K4ZZZ=FM18mu"));
+        ApplyPreciseGrid(&f.state, "K4ZZZ", "FM18mu");
+        CHECK_EQ(f.state.saved_station.grid_square, std::string("FM18mu"));
+        f.state.grid_lookup = nullptr;
+    }
+
+    QL_TEST(TypingAKnownCallSignInTheSavedStationFormAsksForItsExactGrid)
+    {
+        Fixture f;
+        Station known = ArlingtonStation("K4ZZZ");
+        f.db()->UpsertStation(known);
+        FakeFetcher fetcher;
+        FakeResults results;
+        PreciseGridLookup lookup(&fetcher, &results);
+        f.state.grid_lookup = &lookup;
+        f.state.show_saved_station_modal = true;
+        f.state.saved_station = Station();
+        f.state.saved_station.callsign = "K4ZZZ";
+        // Enter with nothing marked in the matches: its details are looked up.
+        ApplySelectedSavedStationSuggestion(&f.state);
+        REQUIRE(results.WaitForResults(1));
+        CHECK_EQ(results.Found()[0], std::string("K4ZZZ=FM18mu"));
+        ApplyPreciseGrid(&f.state, "K4ZZZ", "FM18mu");
+        CHECK_EQ(f.state.saved_station.grid_square, std::string("FM18mu"));
+        f.state.grid_lookup = nullptr;
     }
 
     QL_TEST(OnlyAnSshUserHasMyKeys)

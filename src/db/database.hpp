@@ -89,6 +89,11 @@ namespace ql
         // Stations. Insert-or-update by callsign, since a Station represents
         // everything currently known about that callsign, not a check-in log.
         void UpsertStation(const Station& station);
+        // Sets every record of `callsign` (a GMRS call sign may have several
+        // names) to the 6-character `grid` if its grid is blank or is the
+        // 4-character square `grid` lies in: a grid is only ever extended,
+        // never changed (see ShouldTakePreciseGrid).
+        void UpdateStationGrid(const std::string& callsign, const std::string& grid);
         // Insert-or-update the editable fields the New Station modal and the
         // edit-net saved-station form collect (name, member_id, street_address,
         // city, county, state, zip, grid_square), keyed by `station.callsign`. On

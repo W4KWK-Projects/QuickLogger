@@ -2158,6 +2158,7 @@ namespace ql
         }
         operator_station.callsign = state->operator_callsign;
         BackfillCountyFromZip(state, &operator_station);
+        BackfillGridFromZip(state, &operator_station);
         // On a GMRS net, named as every check-in there is.
         std::string person = SavedEntryName(state->active_net_service, operator_station.name);
 
@@ -2171,6 +2172,10 @@ namespace ql
         std::string existing_remarks =
             state->db->GetSavedNetStationRemarks(state->active_instance.net_id, operator_station.callsign, person);
         state->db->SaveNetStation(state->active_instance.net_id, operator_station, existing_remarks, now, person);
+        // The exact grid, later, in the background: no form is open for the
+        // operator, so the answer goes to the stored station (see
+        // ApplyPreciseGrid).
+        RequestPreciseGrid(state, operator_station);
 
         CheckIn check_in;
         check_in.net_instance_id = state->active_instance.id;
@@ -5580,6 +5585,11 @@ namespace ql
         state->saved_station_remarks = state->edit_net_saved_remarks[index];
         state->saved_station_loaded_callsign = state->saved_station.callsign;
         state->saved_station_loaded_name = state->edit_net_saved_entry_names[index];
+        // As when it is logged in a session: a blank grid gets the ZIP's, and
+        // a 4-character one is refined in the background to the street's
+        // (shown in the form; kept only if the station is saved).
+        BackfillGridFromZip(state, &state->saved_station);
+        RequestPreciseGrid(state, state->saved_station);
         state->show_saved_station_modal = true;
         if (state->saved_station_callsign_input)
         {
@@ -5995,7 +6005,10 @@ namespace ql
     {
         if (state->saved_station_suggestions.empty())
         {
-            FillSavedStationFromKnownStation(state);
+            if (FillSavedStationFromKnownStation(state))
+            {
+                RequestPreciseGrid(state, state->saved_station);
+            }
             return;
         }
         // The match marked ">" (see MarkTypedCallsignMatch).
@@ -6080,6 +6093,13 @@ namespace ql
         {
             state->saved_station.grid_square = grid;
             changed = true;
+        }
+        // And the stored station, wherever it was asked for from (the
+        // operator's own, at the start of a session, has no form): its grid
+        // is only ever extended, never changed (see UpdateStationGrid).
+        if (state->db != nullptr)
+        {
+            state->db->UpdateStationGrid(callsign, grid);
         }
         if (changed && state->screen != nullptr)
         {
