@@ -521,6 +521,10 @@ namespace ql
         // every few seconds while it's showing, so a session someone else
         // opens or closes shows up on it (see SafeAppEventDispatcher::Render).
         std::atomic<bool> showing_net_list{false};
+        // The same for the Import page: its list of files in the imports
+        // folder, and whether it's of sessions (.qlsession) or nets (.qlnet).
+        std::atomic<bool> showing_import_list{false};
+        std::atomic<bool> import_list_sessions{false};
 
         // The terminal width the lists are laid out for (never less than 80;
         // see UpdateListWidths), and each list's rows as cells (see

@@ -1823,6 +1823,9 @@ namespace ql
         state_->showing_net_list =
             state_->page == kPageNetList && !state_->show_confirm_prompt && state_->info_window == InfoWindow::kNone &&
             state_->row_pick_action == RowPickAction::kNone && !state_->show_zmodem_confirm_modal;
+        state_->import_list_sessions = state_->import_session;
+        state_->showing_import_list = state_->page == kPageImportNet && !state_->show_zmodem_confirm_modal &&
+                                      !state_->show_merge_modal && state_->pull_stage == PullStage::kNone;
         return ComponentBase::Render();
     }
 

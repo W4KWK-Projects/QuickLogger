@@ -20,6 +20,7 @@
 
 #include "date_utils.hpp"
 #include "db/database.hpp"
+#include "file_export.hpp"
 #include "settings.hpp"
 #include "uls_import.hpp"
 #include "update_check.hpp"
@@ -75,6 +76,43 @@ namespace ql
 
     private:
         AppState* state_;
+    };
+
+    // Posted to the UI thread by ScreenTicker when the files in this user's
+    // imports folder have changed while the Import page is showing (an scp or
+    // sftp upload finished): lists them again, and says which file is new.
+    class RefreshImportFilesTask
+    {
+    public:
+        RefreshImportFilesTask(AppState* state, std::string new_file) : state_(state), new_file_(std::move(new_file)) {}
+
+        void operator()() const
+        {
+            if (!state_->showing_import_list)
+            {
+                return;  // Moved on since; it is listed again when next opened.
+            }
+            RefreshImportNetFiles(state_);
+            if (!new_file_.empty())
+            {
+                for (std::size_t i = 0; i < state_->import_net_files.size(); ++i)
+                {
+                    if (state_->import_net_files[i] == new_file_)
+                    {
+                        state_->selected_import_file_index = static_cast<int>(i);
+                    }
+                }
+                state_->status_message = "Received " + new_file_ + ". F2 imports it.";
+            }
+            if (state_->screen != nullptr)
+            {
+                state_->screen->PostEvent(ftxui::Event::Custom);
+            }
+        }
+
+    private:
+        AppState* state_;
+        std::string new_file_;
     };
 
     // Posted to the UI thread by ScreenTicker when the watched session is no
@@ -330,6 +368,7 @@ namespace ql
                 }
                 CheckWatchedSession(db.get());
                 CheckOpenNets(db.get());
+                CheckImportFiles();
             }
         }
 
@@ -357,6 +396,44 @@ namespace ql
                 shown_open_net_ids_ = open_net_ids;
                 screen_->Post(RefreshNetListTask(state_));
             }
+        }
+
+        // While the Import page is showing, asks the UI thread to list the
+        // imports folder again when a file has arrived or gone (an upload
+        // over scp or sftp; they appear only once whole).
+        void CheckImportFiles()
+        {
+            if (!state_->showing_import_list)
+            {
+                import_snapshot_taken_ = false;
+                shown_import_files_.clear();
+                return;
+            }
+            std::vector<std::string> files =
+                ListFilesWithExtension(SessionImportsDir(state_->db_path, state_->ssh_username),
+                                       state_->import_list_sessions ? ".qlsession" : ".qlnet");
+            if (import_snapshot_taken_ && files == shown_import_files_)
+            {
+                return;
+            }
+            // The first look may differ from what the page loaded when it
+            // opened: list again, but only call a file new once one appears
+            // after that.
+            std::string new_file;
+            if (import_snapshot_taken_)
+            {
+                for (const std::string& file : files)
+                {
+                    if (std::find(shown_import_files_.begin(), shown_import_files_.end(), file) ==
+                        shown_import_files_.end())
+                    {
+                        new_file = file;
+                    }
+                }
+            }
+            shown_import_files_ = files;
+            import_snapshot_taken_ = true;
+            screen_->Post(RefreshImportFilesTask(state_, new_file));
         }
 
         // If the active net page's session has check-ins it isn't showing
@@ -405,6 +482,10 @@ namespace ql
         // The open nets the list was last reloaded for (sorted); the list
         // is loaded before the ticker starts, so it starts out as unknown.
         std::vector<std::int64_t> shown_open_net_ids_{-1};
+        // The imports folder's files as last seen while the Import page was
+        // showing.
+        std::vector<std::string> shown_import_files_;
+        bool import_snapshot_taken_ = false;
         std::thread thread_;
     };
 
