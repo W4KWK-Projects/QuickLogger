@@ -41,20 +41,27 @@ namespace ql
             }
         }
         padded.push_back(' ');
+        // "CP" is a Canadian case postale; "RR" a rural route.
         return padded.find(" BOX ") != std::string::npos || padded.find(" PO ") != std::string::npos ||
-               padded.find(" POB ") != std::string::npos;
+               padded.find(" POB ") != std::string::npos || padded.find(" CP ") != std::string::npos ||
+               padded.find(" RR ") != std::string::npos;
     }
+
+    static std::string StreetOnly(const std::string& street);
 
     bool CanLookUpGrid(const Station& station)
     {
         const std::string& street = station.street_address;
-        if (station.callsign.empty() || street.empty() || !IsDigit(street[0]) || LooksLikePoBox(street))
+        // Only the street itself counts: "2432 MAIN ST, RR 4" is a street, a
+        // rural route being how the mail finds it.
+        if (station.callsign.empty() || street.empty() || !IsDigit(street[0]) || LooksLikePoBox(StreetOnly(street)))
         {
             return false;
         }
-        // Five digits of ZIP (or ZIP+4): a US address; a Canadian postal
-        // code is a different key.
-        return ZipCentroidKey(station.zip).size() == 5;
+        // Five digits of ZIP (or ZIP+4), or a Canadian postal code's first
+        // three characters.
+        std::size_t key = ZipCentroidKey(station.zip).size();
+        return key == 5 || key == 3;
     }
 
     // `street` up to a unit designator (", APT 4", " STE 200", " #5").
@@ -78,6 +85,32 @@ namespace ql
         return only;
     }
 
+    // "5-123 Main St" (unit 5 at number 123), as Canadians write it, as
+    // "123 Main St"; anything else as it is.
+    static std::string WithoutUnitNumber(const std::string& street)
+    {
+        std::size_t i = 0;
+        while (i < street.size() && IsDigit(street[i]))
+        {
+            ++i;
+        }
+        std::size_t dash = i;
+        while (dash < street.size() && street[dash] == ' ')
+        {
+            ++dash;
+        }
+        if (i == 0 || dash >= street.size() || street[dash] != '-')
+        {
+            return street;
+        }
+        std::size_t number = dash + 1;
+        while (number < street.size() && street[number] == ' ')
+        {
+            ++number;
+        }
+        return number < street.size() && IsDigit(street[number]) ? street.substr(number) : street;
+    }
+
     GridRequest MakeGridRequest(const Station& station)
     {
         GridRequest request;
@@ -86,6 +119,11 @@ namespace ql
         request.city = station.city;
         request.state = station.state;
         request.zip = ZipCentroidKey(station.zip);
+        request.canadian = request.zip.size() == 3;
+        if (request.canadian)
+        {
+            request.street = WithoutUnitNumber(request.street);
+        }
         return request;
     }
 
@@ -126,6 +164,22 @@ namespace ql
         url += "&zip=";
         AppendEncoded(&url, request.zip);
         url += "&benchmark=Public_AR_Current&format=json";
+        return url;
+    }
+
+    std::string NrcanLookupUrl(const GridRequest& request)
+    {
+        std::string address = request.street;
+        for (const std::string* part : {&request.city, &request.state})
+        {
+            if (!part->empty())
+            {
+                address += ", ";
+                address += *part;
+            }
+        }
+        std::string url = "https://www.geolocator.api.geo.ca/geolocation/en/locate?q=";
+        AppendEncoded(&url, address);
         return url;
     }
 
@@ -180,7 +234,81 @@ namespace ql
         return true;
     }
 
-    bool ShouldTakePreciseGrid(const std::string& current, const std::string& precise)
+    bool ParseNrcanPoint(const std::string& json, double* lat, double* lon)
+    {
+        // The first match is the best. Its qualifier says what it is.
+        std::string::size_type qualifier = json.find("\"qualifier\"");
+        if (qualifier == std::string::npos)
+        {
+            return false;
+        }
+        std::string::size_type open = json.find('"', json.find(':', qualifier) + 1);
+        if (open == std::string::npos)
+        {
+            return false;
+        }
+        static const char kInterpolated[] = "INTERPOLATED_";
+        if (json.compare(open + 1, sizeof(kInterpolated) - 1, kInterpolated) != 0)
+        {
+            return false;
+        }
+        // Its coordinates, "[longitude, latitude]", not another match's.
+        std::string::size_type coordinates = json.find("\"coordinates\"", open);
+        if (coordinates == std::string::npos)
+        {
+            return false;
+        }
+        std::string::size_type next_match = json.find("\"qualifier\"", open);
+        if (next_match != std::string::npos && next_match < coordinates)
+        {
+            return false;
+        }
+        std::string::size_type bracket = json.find('[', coordinates);
+        if (bracket == std::string::npos)
+        {
+            return false;
+        }
+        const char* start = json.c_str() + bracket + 1;
+        char* end = nullptr;
+        double x = std::strtod(start, &end);
+        if (end == start || *end != ',')
+        {
+            return false;
+        }
+        start = end + 1;
+        double y = std::strtod(start, &end);
+        if (end == start || !std::isfinite(x) || !std::isfinite(y))
+        {
+            return false;
+        }
+        // Inside Canada's bounds, or it is some other place of that name.
+        if (!(y >= 41.0 && y <= 84.0 && x >= -142.0 && x <= -52.0))
+        {
+            return false;
+        }
+        *lat = y;
+        *lon = x;
+        return true;
+    }
+
+    // True if `a` and `b` are the same text, whatever the case.
+    static bool SameTextIgnoringCase(const std::string& a, const std::string& b)
+    {
+        if (a.size() != b.size())
+        {
+            return false;
+        }
+        for (std::size_t i = 0; i < a.size(); ++i)
+        {
+            if (std::toupper(static_cast<unsigned char>(a[i])) != std::toupper(static_cast<unsigned char>(b[i])))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool ShouldTakePreciseGrid(const std::string& current, const std::string& precise, const std::string& zip_grid)
     {
         if (precise.size() != 6)
         {
@@ -194,15 +322,9 @@ namespace ql
         {
             return false;
         }
-        for (std::size_t i = 0; i < 4; ++i)
-        {
-            if (std::toupper(static_cast<unsigned char>(current[i])) !=
-                std::toupper(static_cast<unsigned char>(precise[i])))
-            {
-                return false;
-            }
-        }
-        return true;
+        // The square it lies in, or the one the ZIP's centroid gave.
+        return SameTextIgnoringCase(current, precise.substr(0, 4)) ||
+               (zip_grid.size() == 4 && SameTextIgnoringCase(current, zip_grid));
     }
 
     // ---- libcurl ------------------------------------------------------------
@@ -346,7 +468,7 @@ namespace ql
                 queue_.pop_back();
             }
             std::string body;
-            if (!fetcher_->Fetch(CensusLookupUrl(request), stop_, &body))
+            if (!fetcher_->Fetch(request.canadian ? NrcanLookupUrl(request) : CensusLookupUrl(request), stop_, &body))
             {
                 // No network, or the service is down: say nothing, stop
                 // asking for a minute, and let this station be asked about
@@ -359,7 +481,7 @@ namespace ql
             }
             double lat = 0.0;
             double lon = 0.0;
-            if (!ParseCensusPoint(body, &lat, &lon))
+            if (!(request.canadian ? ParseNrcanPoint(body, &lat, &lon) : ParseCensusPoint(body, &lat, &lon)))
             {
                 continue;  // No such address: not asked about again.
             }

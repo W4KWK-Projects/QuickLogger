@@ -6383,23 +6383,37 @@ namespace ql
         state->grid_lookup->Request(MakeGridRequest(station));
     }
 
+    // The 4-character grid a ZIP or postal code gives a station that has
+    // none (see BackfillGridFromZip), or "" if it has no known centroid.
+    static std::string ZipGrid4(AppState* state, const std::string& zip)
+    {
+        if (state->db == nullptr)
+        {
+            return std::string();
+        }
+        std::string key = ZipCentroidKey(zip);
+        std::optional<ZipCentroid> centroid = key.empty() ? std::nullopt : state->db->FindZipCentroid(key);
+        return centroid.has_value() ? MaidenheadGrid4(centroid->lat, centroid->lon) : std::string();
+    }
+
     void ApplyPreciseGrid(AppState* state, const std::string& callsign, const std::string& grid)
     {
         bool changed = false;
         if (state->show_new_station_modal && state->modal_station.callsign == callsign &&
-            ShouldTakePreciseGrid(state->modal_station.grid_square, grid))
+            ShouldTakePreciseGrid(state->modal_station.grid_square, grid, ZipGrid4(state, state->modal_station.zip)))
         {
             state->modal_station.grid_square = grid;
             changed = true;
         }
         if (state->show_saved_station_modal && state->saved_station.callsign == callsign &&
-            ShouldTakePreciseGrid(state->saved_station.grid_square, grid))
+            ShouldTakePreciseGrid(state->saved_station.grid_square, grid, ZipGrid4(state, state->saved_station.zip)))
         {
             state->saved_station.grid_square = grid;
             changed = true;
         }
         if (state->show_edit_checkin_modal && state->edit_checkin_original.callsign == callsign &&
-            ShouldTakePreciseGrid(state->edit_checkin_station.grid_square, grid))
+            ShouldTakePreciseGrid(state->edit_checkin_station.grid_square, grid,
+                                  ZipGrid4(state, state->edit_checkin_station.zip)))
         {
             state->edit_checkin_station.grid_square = grid;
             changed = true;
@@ -6409,7 +6423,8 @@ namespace ql
         // is only ever extended, never changed (see UpdateStationGrid).
         if (state->db != nullptr)
         {
-            state->db->UpdateStationGrid(callsign, grid);
+            std::optional<Station> stored = state->db->FindStationByCallsign(callsign);
+            state->db->UpdateStationGrid(callsign, grid, stored.has_value() ? ZipGrid4(state, stored->zip) : "");
         }
         if (changed && state->screen != nullptr)
         {

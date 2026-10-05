@@ -1609,6 +1609,36 @@ namespace ql
         f.state.grid_lookup = nullptr;
     }
 
+    QL_TEST(AFoundGridReplacesTheOneThePostalCodeGaveAcrossAGridLine)
+    {
+        Fixture f;
+        // The postal area's centroid is just west of the 80th meridian: EN93.
+        // The street is just east of it: FN03.
+        ZipCentroid fsa;
+        fsa.zip = "L8N";
+        fsa.lat = 43.25;
+        fsa.lon = -80.05;
+        f.db()->BulkUpsertZipCentroids({fsa});
+        Station station = OttawaStation("VE3ZZZ");
+        station.zip = "L8N 2Z7";
+        station.grid_square = "EN93";
+        f.db()->UpsertStation(station);
+        f.state.show_new_station_modal = true;
+        f.state.modal_station = station;
+        ApplyPreciseGrid(&f.state, "VE3ZZZ", "FN03ab");
+        CHECK_EQ(f.state.modal_station.grid_square, std::string("FN03ab"));
+        CHECK_EQ(f.db()->FindStationByCallsign("VE3ZZZ")->grid_square, std::string("FN03ab"));
+
+        // A different 4 characters than the postal code gave are someone's own.
+        station.callsign = "VE3ZZY";
+        station.grid_square = "EM75";
+        f.db()->UpsertStation(station);
+        f.state.modal_station = station;
+        ApplyPreciseGrid(&f.state, "VE3ZZY", "FN03ab");
+        CHECK_EQ(f.state.modal_station.grid_square, std::string("EM75"));
+        CHECK_EQ(f.db()->FindStationByCallsign("VE3ZZY")->grid_square, std::string("EM75"));
+    }
+
     QL_TEST(EditingASavedStationAsksForItsExactGrid)
     {
         Fixture f;

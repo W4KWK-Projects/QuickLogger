@@ -35,7 +35,7 @@ namespace ql
         CHECK_EQ(MaidenheadGrid6(41.7147, -72.7272).substr(0, 4), MaidenheadGrid4(41.7147, -72.7272));
     }
 
-    QL_TEST(OnlyAUsStreetAddressIsWorthAskingAbout)
+    QL_TEST(OnlyAStreetAddressIsWorthAskingAbout)
     {
         Station station = ArlingtonStation("W4KWK");
         CHECK(CanLookUpGrid(station));
@@ -53,16 +53,24 @@ namespace ql
         CHECK(!CanLookUpGrid(station));
         station.street_address = "SILVER HILL RD";  // No house number.
         CHECK(!CanLookUpGrid(station));
-        for (const char* box : {"1 PO BOX 55", "123 P.O. BOX 7", "45 BOX 12", "9 POB 3"})
+        for (const char* box : {"1 PO BOX 55", "123 P.O. BOX 7", "45 BOX 12", "9 POB 3", "12 CP 40", "7 RR 2"})
         {
             station.street_address = box;
             CHECK(!CanLookUpGrid(station));
         }
-        station = ArlingtonStation("VE3ABC");
-        station.zip = "K1A 0B1";  // Canadian.
+        // A Canadian address is, with a postal code; not a rural route.
+        station = OttawaStation("VE3ABC");
+        CHECK(CanLookUpGrid(station));
+        station.street_address = "RR 2 SITE 4";
         CHECK(!CanLookUpGrid(station));
+        station = OttawaStation("VE3ABC");
         station.zip.clear();
         CHECK(!CanLookUpGrid(station));
+        // A rural route after the street is how the mail finds it: the street counts.
+        station = OttawaStation("VE3ABC");
+        station.street_address = "2432 MAIN ST, RR 4 STN A";
+        CHECK(CanLookUpGrid(station));
+        CHECK_EQ(MakeGridRequest(station).street, std::string("2432 MAIN ST"));
     }
 
     QL_TEST(ARequestKeepsTheStreetAndLeavesOutTheApartment)
@@ -78,6 +86,56 @@ namespace ql
         CHECK_EQ(MakeGridRequest(station).street, std::string("12 OAK ST"));
         station.street_address = "77 ELM AVE #5";
         CHECK_EQ(MakeGridRequest(station).street, std::string("77 ELM AVE"));
+    }
+
+    QL_TEST(ACanadianRequestAsksNaturalResourcesCanada)
+    {
+        Station station = OttawaStation("VE3ABC");
+        GridRequest request = MakeGridRequest(station);
+        CHECK(request.canadian);
+        CHECK_EQ(request.zip, std::string("K1M"));
+        CHECK_EQ(NrcanLookupUrl(request),
+                 std::string(
+                     "https://www.geolocator.api.geo.ca/geolocation/en/locate?q=24%20SUSSEX%20DR%2C%20OTTAWA%2C%20ON"));
+        // A unit written before the number, "5-123 Main St", is left out.
+        station.street_address = "5-123 MAIN ST";
+        CHECK_EQ(MakeGridRequest(station).street, std::string("123 MAIN ST"));
+        station.street_address = "5 - 123 MAIN ST";
+        CHECK_EQ(MakeGridRequest(station).street, std::string("123 MAIN ST"));
+        station.street_address = "123 MAIN ST UNIT 5";
+        CHECK_EQ(MakeGridRequest(station).street, std::string("123 MAIN ST"));
+        station.street_address = "100 RUE DE L'ÉGLISE";
+        CHECK_EQ(MakeGridRequest(station).street, std::string("100 RUE DE L'ÉGLISE"));
+        // Accented letters are escaped by byte, as the URL needs.
+        CHECK(NrcanLookupUrl(MakeGridRequest(station)).find("L%27%C3%89GLISE") != std::string::npos);
+        // A US station is not Canadian.
+        CHECK(!MakeGridRequest(ArlingtonStation("W4KWK")).canadian);
+    }
+
+    QL_TEST(TheNrcanReplyGivesAPointOnlyForAnAddressOnAStreet)
+    {
+        double lat = 0.0;
+        double lon = 0.0;
+        REQUIRE(ParseNrcanPoint(kNrcanFound, &lat, &lon));
+        CHECK(lat > 45.443 && lat < 45.444);
+        CHECK(lon < -75.693 && lon > -75.694);
+        // The best match is a place, not the address: nothing, even though a
+        // later match could have been one.
+        CHECK(!ParseNrcanPoint(kNrcanOnlyAPlace, &lat, &lon));
+        CHECK(!ParseNrcanPoint("[]", &lat, &lon));
+        CHECK(!ParseNrcanPoint("", &lat, &lon));
+        CHECK(!ParseNrcanPoint("<html>Bad Gateway</html>", &lat, &lon));
+        // Not in Canada, or not a point.
+        CHECK(!ParseNrcanPoint(
+            "[{\"qualifier\": \"INTERPOLATED_POSITION\", \"geometry\": {\"coordinates\": [-0.1, 51.5]}}]", &lat, &lon));
+        CHECK(!ParseNrcanPoint(
+            "[{\"qualifier\": \"INTERPOLATED_CENTROID\", \"geometry\": {\"coordinates\": [\"a\", \"b\"]}}]", &lat,
+            &lon));
+        // The middle of a street counts too.
+        CHECK(ParseNrcanPoint(
+            "[{\"qualifier\": \"INTERPOLATED_CENTROID\", \"geometry\": {\"coordinates\": [-79.38, 43.65]}}]", &lat,
+            &lon));
+        CHECK(lat > 43.64 && lat < 43.66);
     }
 
     QL_TEST(TheCensusUrlIsEscapedAndAsksForJson)
@@ -128,6 +186,16 @@ namespace ql
         CHECK(!ShouldTakePreciseGrid("FM1", "FM18mu"));
         CHECK(!ShouldTakePreciseGrid("FM18", "FM18"));
         CHECK(!ShouldTakePreciseGrid("", ""));
+        // The 4 characters QuickLogger filled in from the ZIP or postal code
+        // may lie across a grid line from the street: those are replaced
+        // (Hamilton, Ontario, is on the 80th meridian: EN93 from the postal
+        // code, FN03 from the street).
+        CHECK(ShouldTakePreciseGrid("EN93", "FN03aa", "EN93"));
+        CHECK(ShouldTakePreciseGrid("en93", "FN03aa", "EN93"));
+        // One typed, which differs from that, still stands.
+        CHECK(!ShouldTakePreciseGrid("EM75", "FN03aa", "EN93"));
+        CHECK(!ShouldTakePreciseGrid("EN93", "FN03aa", ""));
+        CHECK(!ShouldTakePreciseGrid("EN93aa", "FN03aa", "EN93"));
     }
 
     QL_TEST(ALookupFindsTheGridInTheBackground)
@@ -140,6 +208,31 @@ namespace ql
         CHECK_EQ(results.Found()[0], std::string("W4KWK=FM18mu"));
         REQUIRE(fetcher.Urls().size() == 1);
         CHECK(fetcher.Urls()[0].find("street=4600%20SILVER%20HILL%20RD") != std::string::npos);
+    }
+
+    QL_TEST(ACanadianStationIsLookedUpWithNaturalResourcesCanada)
+    {
+        FakeFetcher fetcher;
+        fetcher.SetReply(kNrcanFound);
+        FakeResults results;
+        PreciseGridLookup lookup(&fetcher, &results);
+        lookup.Request(MakeGridRequest(OttawaStation("VE3ABC")));
+        REQUIRE(results.WaitForResults(1));
+        // 24 Sussex Drive, Ottawa: FN25.
+        CHECK(results.Found()[0].rfind("VE3ABC=FN25", 0) == 0);
+        CHECK_EQ(results.Found()[0].size(), std::size_t{13});
+        REQUIRE(fetcher.Urls().size() == 1);
+        CHECK(fetcher.Urls()[0].rfind("https://www.geolocator.api.geo.ca/", 0) == 0);
+
+        // A reply that is only a place is silent, and not asked again.
+        fetcher.SetReply(kNrcanOnlyAPlace);
+        lookup.Request(MakeGridRequest(OttawaStation("VE3ZZZ")));
+        REQUIRE(fetcher.WaitForUrls(2));
+        fetcher.SetReply(kNrcanFound);
+        lookup.Request(MakeGridRequest(OttawaStation("VE3ABD")));
+        REQUIRE(results.WaitForResults(2));
+        CHECK_EQ(results.Found().size(), std::size_t{2});
+        CHECK(results.Found()[1].rfind("VE3ABD=", 0) == 0);
     }
 
     QL_TEST(AStationIsAskedAboutOncePerSession)

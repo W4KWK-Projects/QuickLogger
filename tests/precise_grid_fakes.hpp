@@ -28,6 +28,33 @@ namespace ql
         "{\"result\":{\"input\":{\"address\":{\"zip\":\"65801\",\"street\":\"1 Nowhere Zzzz St\"}},"
         "\"addressMatches\":[]}}";
 
+    // What Natural Resources Canada returns for an address it places along a
+    // street, with an intersection after it (shortened).
+    inline const char* const kNrcanFound =
+        "[{\"title\": \"24 Sussex Drive, City Of Ottawa, Ontario\", \"qualifier\": \"INTERPOLATED_POSITION\", "
+        "\"type\": \"ca.gc.nrcan.geoloc.data.model.Street\", \"geometry\": {\"type\": \"Point\", "
+        "\"coordinates\": [-75.69329403189005, 45.44355584445403]}}, "
+        "{\"title\": \"Lady Grey Drive & Sussex Drive, City Of Ottawa, Ontario\", \"qualifier\": \"LOCATION\", "
+        "\"type\": \"ca.gc.nrcan.geoloc.data.model.Intersection\", \"geometry\": {\"type\": \"Point\", "
+        "\"coordinates\": [-75.6989979, 45.43444469999997]}}]";
+
+    // A place of that name, not the address: nothing to take.
+    inline const char* const kNrcanOnlyAPlace =
+        "[{\"title\": \"Sussex Drive, City Of Ottawa, Ontario\", \"qualifier\": \"LOCATION\", "
+        "\"type\": \"ca.gc.nrcan.geoloc.data.model.Intersection\", \"geometry\": {\"type\": \"Point\", "
+        "\"coordinates\": [-75.6989979, 45.43444469999997]}}]";
+
+    inline Station OttawaStation(const std::string& callsign)
+    {
+        Station station;
+        station.callsign = callsign;
+        station.street_address = "24 SUSSEX DR";
+        station.city = "OTTAWA";
+        station.state = "ON";
+        station.zip = "K1M 1M4";
+        return station;
+    }
+
     inline Station ArlingtonStation(const std::string& callsign)
     {
         Station station;

@@ -14,12 +14,13 @@
 namespace ql
 {
 
-    // The exact (6-character) grid of a US station, asked of the Census
-    // Bureau's address geocoder for the one station an operator has just
+    // The exact (6-character) grid of a US or Canadian station, asked of the
+    // Census Bureau's address geocoder (US) or Natural Resources Canada's
+    // geolocation service (Canada) for the one station an operator has just
     // picked. The 4-character grid from the ZIP's centroid shows at once
     // (BackfillGridFromZip); this refines it in the background a moment
     // later, and says nothing at all when it can't -- no network, a street
-    // the Census doesn't know, a Canadian station, a PO box.
+    // the service doesn't know, a PO box.
     //
     // Nothing here runs on the UI thread except the cheap checks: the lookup
     // is one request at a time on one thread, started when the first is
@@ -33,12 +34,15 @@ namespace ql
         std::string street;
         std::string city;
         std::string state;
-        std::string zip;  // Five digits.
+        std::string zip;  // Five digits, or a Canadian postal code's first three characters.
+        // A Canadian address (asked of Natural Resources Canada); `state` is
+        // then its province.
+        bool canadian = false;
     };
 
-    // True if `station` has a US street address worth asking about: a house
-    // number and street, and a five-digit ZIP. PO boxes, Canadian stations
-    // and stations with no address are not.
+    // True if `station` has a US or Canadian street address worth asking
+    // about: a house number and street, and a ZIP or postal code. PO boxes,
+    // rural routes and stations with no address are not.
     bool CanLookUpGrid(const Station& station);
 
     // The request for `station` (see CanLookUpGrid), its street cut short
@@ -48,15 +52,30 @@ namespace ql
     // The Census geocoder URL for `request`.
     std::string CensusLookupUrl(const GridRequest& request);
 
+    // Natural Resources Canada's geolocation service URL for a Canadian
+    // `request`: "street, city, province".
+    std::string NrcanLookupUrl(const GridRequest& request);
+
+    // The point in that service's JSON reply (a list of matches, best
+    // first), if its best match is an address interpolated along its street
+    // (a house number, or the middle of the street): not an intersection or a
+    // place, which say nothing of this house. False if there is none, or the
+    // point is outside Canada.
+    bool ParseNrcanPoint(const std::string& json, double* lat, double* lon);
+
     // The point the geocoder's JSON reply gives for the first address it
     // matched; false if there was no match, or the reply isn't one.
     bool ParseCensusPoint(const std::string& json, double* lat, double* lon);
 
     // True if a station whose grid is `current` should take `precise`: its
-    // grid is blank, or is the 4-character square `precise` lies in (the
-    // one the ZIP gave it, or one typed). A grid that says anything else,
-    // or already holds 6 characters, is left alone.
-    bool ShouldTakePreciseGrid(const std::string& current, const std::string& precise);
+    // grid is blank, or is the 4-character square `precise` lies in, or is
+    // `zip_grid`, the 4-character grid QuickLogger itself filled in from the
+    // station's ZIP or postal code (a centroid, which can lie in the next
+    // square over from the street, as it does for a town on a grid line). A
+    // grid that says anything else, or already holds 6 characters, is left
+    // alone.
+    bool ShouldTakePreciseGrid(const std::string& current, const std::string& precise,
+                               const std::string& zip_grid = "");
 
     // Fetches a URL. A fake one stands in for the network in tests.
     class GridFetcher

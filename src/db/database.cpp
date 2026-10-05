@@ -856,20 +856,22 @@ COMMIT;
         transaction.Commit();
     }
 
-    void Database::UpdateStationGrid(const std::string& callsign, const std::string& grid)
+    void Database::UpdateStationGrid(const std::string& callsign, const std::string& grid, const std::string& zip_grid)
     {
         if (grid.size() != 6)
         {
             return;
         }
         Statement statement(&statements_, R"sql(
-        UPDATE stations SET grid_square = ?
-        WHERE callsign = ? AND (grid_square = '' OR
-                                (length(grid_square) = 4 AND upper(grid_square) = upper(substr(?, 1, 4))));
+        UPDATE stations SET grid_square = ?1
+        WHERE callsign = ?2 AND (grid_square = '' OR
+                                 (length(grid_square) = 4 AND
+                                  (upper(grid_square) = upper(substr(?1, 1, 4)) OR
+                                   (?3 != '' AND upper(grid_square) = upper(?3)))));
     )sql");
         statement.BindText(0, grid);
         statement.BindText(1, callsign);
-        statement.BindText(2, grid);
+        statement.BindText(2, zip_grid);
         statement.Step();
     }
 
