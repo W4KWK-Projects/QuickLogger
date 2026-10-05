@@ -1809,8 +1809,11 @@ namespace ql
             ftxui::Elements rows;
             rows.push_back(Heading("My Keys"));
             rows.push_back(DialogSeparator());
-            rows.push_back(Framed(key_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator |
-                                  ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, 8)));
+            rows.push_back(Framed(ftxui::vbox({
+                ColumnHeader(MyKeyListHeader(state_->list_width)),
+                key_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator |
+                    ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, 8),
+            })));
             rows.push_back(ftxui::hbox({FieldLabel("Comment:  "), input_comment_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Transfer: "), transfer_toggle_->Render()}));
             rows.push_back(DialogSeparator());

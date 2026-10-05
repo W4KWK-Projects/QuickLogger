@@ -1349,6 +1349,8 @@ namespace ql
     // The header line above the Keys window's list, laid out for a
     // `terminal_width`-column terminal, with the Menu gutter.
     const std::string& UserKeyListHeader(int terminal_width);
+    // The same for the My Keys window's list.
+    const std::string& MyKeyListHeader(int terminal_width);
 
     // True if `username` can be an SSH username: 1 to 32 letters, digits,
     // dots, hyphens and underscores, starting with a letter or digit. Any

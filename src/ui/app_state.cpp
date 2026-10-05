@@ -544,6 +544,69 @@ namespace ql
         return cache.text;
     }
 
+    // The My Keys window's rows: comment, type, Transfer method, the end of
+    // the fingerprint, and which key this login used. At 80 columns the
+    // widths add up to what the window holds; on a wider terminal the
+    // comment and the fingerprint widen, and the gaps. The last column is
+    // the "<- this login" mark, so the Key column is never the last.
+    static const std::vector<ListColumn>& MyKeyColumns()
+    {
+        static const std::vector<ListColumn> columns = {
+            {"Comment", 12, 20, 0, 2}, {"Type", 7, 7, 0, 0}, {"Transfer", 8, 8, 0, 0},
+            {"Key", 15, 50, 0, 1},     {"", 13, 13, 0, 0},
+        };
+        return columns;
+    }
+
+    static ListLayout MyKeyLayout(int terminal_width)
+    {
+        return LayOutList(MyKeyColumns(), MatchListWidth(terminal_width), MatchListWidth(80), 2, 8);
+    }
+
+    const std::string& MyKeyListHeader(int terminal_width)
+    {
+        static HeadingCache cache;
+        if (HeadingNeedsBuilding(&cache, terminal_width, 0))
+        {
+            cache.text = MenuGutter() + FormatListHeading(MyKeyColumns(), MyKeyLayout(terminal_width));
+        }
+        return cache.text;
+    }
+
+    // AppState::my_keys_labels for the keys loaded, laid out for the
+    // terminal's width. The Key column shows the end of the fingerprint, as
+    // much of it as the column has room for.
+    static void FormatMyKeyLabels(AppState* state)
+    {
+        ListLayout layout = MyKeyLayout(state->list_width);
+        // Its width in the Key column, less the "..." that says it's the end.
+        std::size_t tail = layout.widths[3] > 3 ? static_cast<std::size_t>(layout.widths[3] - 3) : 0;
+        state->my_keys_labels.clear();
+        state->my_keys_labels.reserve(state->my_keys.size());
+        for (const User& key : state->my_keys)
+        {
+            PublicKeyDescription description = DescribePublicKey(key.public_key);
+            std::vector<std::string> cells;
+            cells.reserve(5);
+            cells.push_back(description.comment.empty() ? "(no comment)" : std::move(description.comment));
+            cells.push_back(std::move(description.type));
+            cells.push_back(key.transfer_method == kTransferZmodem ? "ZMODEM"
+                            : key.transfer_method == kTransferSftp ? "SFTP"
+                                                                   : "Ask");
+            const std::string& fingerprint = description.fingerprint;
+            if (static_cast<int>(fingerprint.size()) <= layout.widths[3])
+            {
+                cells.push_back(fingerprint);
+            }
+            else
+            {
+                cells.push_back(fingerprint.size() > 16 ? "..." + fingerprint.substr(fingerprint.size() - tail) : "");
+            }
+            cells.push_back(key.id == state->ssh_key_id ? "<- this login" : "");
+            state->my_keys_labels.push_back(FormatListRow(cells, layout));
+        }
+    }
+
     // How many keys `username` has in AppState::manage_users.
     static int CountUserKeys(const AppState* state, const std::string& username)
     {
@@ -829,6 +892,7 @@ namespace ql
             FormatRows(state->saved_station_cells, SavedStationLayout(state->list_width));
         state->manage_users_labels = FormatRows(state->manage_users_cells, UserLayout(state->list_width));
         state->user_keys_labels = FormatRows(state->user_keys_cells, UserKeyLayout(state->list_width));
+        FormatMyKeyLabels(state);
         state->modal_callsign_suggestion_labels = FormatMatches(
             state->modal_callsign_suggestions, state->modal_callsign_suggestion_sources, state->list_width);
         state->saved_station_suggestion_labels =
@@ -3811,58 +3875,10 @@ namespace ql
         return !state->is_console_session && !state->ssh_username.empty();
     }
 
-    // The widest a key's comment is allowed in the My Keys list.
-    static constexpr int kMyKeyCommentWidth = 16;
-
-    // One row of the My Keys list as columns: its comment (or none), type,
-    // Transfer method and the end of its fingerprint.
-    static std::vector<std::string> MyKeyCells(const User& key)
-    {
-        PublicKeyDescription description = DescribePublicKey(key.public_key);
-        std::vector<std::string> cells;
-        cells.push_back(
-            CutToWidth(description.comment.empty() ? "(no comment)" : description.comment, kMyKeyCommentWidth));
-        cells.push_back(description.type);
-        cells.push_back(key.transfer_method == kTransferZmodem ? "ZMODEM"
-                        : key.transfer_method == kTransferSftp ? "SFTP"
-                                                               : "Ask");
-        cells.push_back(description.fingerprint.size() > 16
-                            ? "..." + description.fingerprint.substr(description.fingerprint.size() - 12)
-                            : "");
-        return cells;
-    }
-
     static void RefreshMyKeys(AppState* state)
     {
         state->my_keys = state->db->GetUserKeys(state->ssh_username);
-        state->my_keys_labels.clear();
-        // In columns: each cell padded to the widest in its column.
-        std::vector<std::vector<std::string>> rows;
-        std::vector<int> widths;
-        for (const User& key : state->my_keys)
-        {
-            rows.push_back(MyKeyCells(key));
-            widths.resize(std::max(widths.size(), rows.back().size()), 0);
-            for (std::size_t column = 0; column < rows.back().size(); ++column)
-            {
-                widths[column] = std::max(widths[column], TextWidth(rows.back()[column]));
-            }
-        }
-        for (std::size_t row = 0; row < rows.size(); ++row)
-        {
-            std::string label;
-            for (std::size_t column = 0; column < rows[row].size(); ++column)
-            {
-                label += rows[row][column];
-                label += std::string(static_cast<std::size_t>(widths[column] - TextWidth(rows[row][column])) + 2, ' ');
-            }
-            label += state->my_keys[row].id == state->ssh_key_id ? "<- this login" : "";
-            while (!label.empty() && label.back() == ' ')
-            {
-                label.pop_back();
-            }
-            state->my_keys_labels.push_back(label);
-        }
+        FormatMyKeyLabels(state);
         if (state->selected_my_key_index >= static_cast<int>(state->my_keys.size()))
         {
             state->selected_my_key_index = 0;

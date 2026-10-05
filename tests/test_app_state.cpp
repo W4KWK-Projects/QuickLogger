@@ -1240,6 +1240,43 @@ namespace ql
         CHECK_EQ(f.state.status_message, std::string("ZMODEM receive skipped."));
     }
 
+    QL_TEST(TheMyKeysListWidensOnAWiderTerminal)
+    {
+        Fixture f;
+        for (const char* key :
+             {"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINM3eCDBCkdxto9OIGli2KKnorIhCylrEpYHnMPxdkAI My MacBook Pro 14",
+              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ3eCDBCkdxto9OIGli2KKnorIhCylrEpYHnMPxdkAI phone"})
+        {
+            User user;
+            user.username = "KX0TST";
+            user.public_key = key;
+            user.amateur_callsign = "KX0TST";
+            f.db()->CreateUser(user);
+        }
+        f.state.is_console_session = false;
+        f.state.ssh_username = "KX0TST";
+        f.state.ssh_key_id = f.db()->GetUserKeys("KX0TST")[1].id;
+        OpenMyKeys(&f.state);
+        REQUIRE(f.state.my_keys_labels.size() == 2);
+        std::string narrow_heading = MyKeyListHeader(80);
+        // At 80 columns: the comment is cut to 12 and everything fits the window.
+        CHECK(f.state.my_keys_labels[0].find("My MacBook P") == 0);
+        CHECK(f.state.my_keys_labels[0].find("My MacBook Pr") == std::string::npos);
+        CHECK(f.state.my_keys_labels[1].find("<- this login") != std::string::npos);
+        CHECK(f.state.my_keys_labels[1].size() <= 63);
+        std::size_t narrow_type = f.state.my_keys_labels[0].find("ED25519");
+
+        // Wider: the whole comment, more of the key, and the same alignment.
+        UpdateListWidths(&f.state, 120);
+        CHECK(f.state.my_keys_labels[0].find("My MacBook Pro 14") == 0);
+        CHECK(f.state.my_keys_labels[0].find("ED25519") > narrow_type);
+        CHECK_EQ(f.state.my_keys_labels[0].find("ED25519"), f.state.my_keys_labels[1].find("ED25519"));
+        CHECK(MyKeyListHeader(120).size() > narrow_heading.size());
+        // Back at 80 it is as it was.
+        UpdateListWidths(&f.state, 80);
+        CHECK_EQ(f.state.my_keys_labels[0].find("ED25519"), narrow_type);
+    }
+
     QL_TEST(TabMovesFromTheKeyListToItsCommentAndTransferFields)
     {
         Fixture f;
