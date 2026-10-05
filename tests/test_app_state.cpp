@@ -1823,7 +1823,7 @@ namespace ql
         CHECK(f.state.modal_callsign_suggestions.empty());
     }
 
-    QL_TEST(AQuestionMarkMatchesTheCharactersTypedInOrderBestFitFirst)
+    QL_TEST(AQuestionMarkMatchesTheCharactersTypedInOrder)
     {
         Fixture f;
         LoadZipData(f.db());
@@ -1832,8 +1832,8 @@ namespace ql
         f.db()->BulkUpsertUlsStations(
             {MakeStation("K4EVWX", "NEAR LOOSE", "37415"), MakeStation("N4VWAA", "NEAR TIGHT", "37402"),
              MakeStation("W4XXXV", "NOT IN ORDER", "37402"), MakeStation("KA4EQVW", "FAR ISH", "30752"),
-             MakeStation("AB4VW", "NEAR EXACT", "37415")},
-            0, 5, 1);
+             MakeStation("AB4VW", "NEAR EXACT", "37415"), MakeStation("KB4VW", "FAR TIGHT", "30752")},
+            0, 6, 1);
         f.StartNet("Skywarn");
         f.Log("K4VWZ", "Ann");
 
@@ -1841,21 +1841,23 @@ namespace ql
         f.state.modal_station.callsign = "4vw?";
         RefreshCallsignSuggestions(&f.state);
         std::vector<Station>& found = f.state.modal_callsign_suggestions;
-        // Known stations first, then licensees, tightest fit first and
-        // nearest first among equals; W4XXXV has the V before no W.
-        REQUIRE(found.size() == 6);
+        // Known stations first, then licensees nearest first however loose
+        // the fit (a near loose fit beats a far tight one); W4XXXV has the V
+        // before no W.
+        REQUIRE(found.size() == 7);
         CHECK_EQ(found[0].callsign, std::string("K4VWZ"));
         CHECK_EQ(found[1].callsign, std::string("KX4EVW"));
         CHECK_EQ(found[2].callsign, std::string("AB4VW"));
-        CHECK_EQ(found[3].callsign, std::string("N4VWAA"));
-        CHECK_EQ(found[4].callsign, std::string("K4EVWX"));
+        CHECK_EQ(found[3].callsign, std::string("K4EVWX"));
+        CHECK_EQ(found[4].callsign, std::string("N4VWAA"));
         CHECK_EQ(found[5].callsign, std::string("KA4EQVW"));
+        CHECK_EQ(found[6].callsign, std::string("KB4VW"));
         // The ? is only a switch: where it goes makes no difference.
         f.state.modal_station.callsign = "?4V?W";
         RefreshCallsignSuggestions(&f.state);
-        CHECK_EQ(f.state.modal_callsign_suggestions.size(), std::size_t{6});
+        CHECK_EQ(f.state.modal_callsign_suggestions.size(), std::size_t{7});
 
-        // The best fit is what Enter picks, and the ? is gone.
+        // The one marked is what Enter picks, and the ? is gone.
         f.state.selected_suggestion_index = 1;
         ApplySelectedCallsignSuggestion(&f.state);
         CHECK_EQ(f.state.modal_station.callsign, std::string("KX4EVW"));
@@ -1866,7 +1868,7 @@ namespace ql
         CHECK(f.state.modal_callsign_suggestions.empty());
         f.state.modal_station.callsign = "4VW";
         RefreshCallsignSuggestions(&f.state);
-        REQUIRE(f.state.modal_callsign_suggestions.size() == 3);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 4);
         CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("K4VWZ"));
     }
 

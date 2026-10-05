@@ -5877,7 +5877,7 @@ namespace ql
     // call signs already in `suggestions`, and their records in one query --
     // from ISED's table when `canadian`, else the FCC's `table`. With a "?"
     // typed (see IsWildcardCallsign) they're the ones the characters typed
-    // fit in order, the tightest fit first, nearest first among equals.
+    // fit in order; still nearest first, however loose the fit.
     static void AppendNearbyMatches(Database* db, const std::vector<NearbyUlsCallsign>& candidates,
                                     const std::string& typed, bool partial, bool canadian, LicenseTable table,
                                     std::size_t max_suggestions, std::vector<Station>* suggestions,
@@ -5892,25 +5892,16 @@ namespace ql
             return;
         }
         std::vector<const NearbyUlsCallsign*> matches;
-        std::vector<WildcardRanked> ranked;
         std::vector<std::string> match_callsigns;
         for (const NearbyUlsCallsign& candidate : candidates)
         {
-            // Wildcard matches are all found, to rank them.
-            if (!wildcard && suggestions->size() + matches.size() >= max_suggestions)
+            if (suggestions->size() + matches.size() >= max_suggestions)
             {
                 break;
             }
-            int span = 0;
-            if (wildcard)
-            {
-                span = NearbyWildcardSpan(candidate, letters, !partial);
-            }
-            else if (!NearbyCallsignMatches(candidate, upper, partial))
-            {
-                span = -1;
-            }
-            if (span < 0)
+            bool fits = wildcard ? NearbyWildcardSpan(candidate, letters, !partial) >= 0
+                                 : NearbyCallsignMatches(candidate, upper, partial);
+            if (!fits)
             {
                 continue;
             }
@@ -5925,21 +5916,8 @@ namespace ql
             }
             if (!already_known)
             {
-                ranked.push_back({span, matches.size()});
                 matches.push_back(&candidate);
             }
-        }
-        if (wildcard)
-        {
-            // Tightest fit first, then only as many as there's room for.
-            std::sort(ranked.begin(), ranked.end(), WildcardRankedBefore);
-            std::size_t room = max_suggestions > suggestions->size() ? max_suggestions - suggestions->size() : 0;
-            std::vector<const NearbyUlsCallsign*> best;
-            for (std::size_t i = 0; i < ranked.size() && i < room; ++i)
-            {
-                best.push_back(matches[ranked[i].index]);
-            }
-            matches = std::move(best);
         }
         for (const NearbyUlsCallsign* match : matches)
         {
