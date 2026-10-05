@@ -83,7 +83,7 @@ Other systems can [build it from source](docs/BUILDING.md). Every download has a
 | Platform | Support | Verified |
 |---|---|---|
 | **macOS** (Apple Silicon) | Full | Built and run natively |
-| **Linux** (glibc and musl) | Full; no ZMODEM on Alpine | Built and fully tested on every change on Ubuntu, Debian, Fedora and Alpine |
+| **Linux** (glibc and musl) | Full | Built and fully tested on every change on Ubuntu, Debian, Fedora and Alpine |
 | **FreeBSD** 14 / 15 | Full | Built and fully tested on FreeBSD 15 for every release |
 | **Windows** | Console only: no SSH server, no ZMODEM | Built and fully tested for every release |
 
@@ -92,7 +92,7 @@ Release binaries for every platform have also been run on real systems. The deta
 ## Documentation
 
 - [User Guide](docs/USER_GUIDE.md): running a net, check-ins, autocomplete, saved stations, History, exports and imports.
-- [Installing QuickLogger](docs/INSTALL.md): downloads, libraries per platform, optional `lrzsz` and `mosh`, first launch, the files it creates.
+- [Installing QuickLogger](docs/INSTALL.md): downloads, libraries per platform, optional `mosh`, first launch, the files it creates.
 - [Shared server](docs/SHARED_SERVER.md): the built-in SSH server, adding and managing users, view-only users, flags, networking, the host key.
 - [Connecting to a shared QuickLogger](docs/CONNECTING.md): creating an SSH key, compression, keepalives, Mosh.
 - [Building QuickLogger](docs/BUILDING.md): requirements, build steps and options, offline builds, tests.

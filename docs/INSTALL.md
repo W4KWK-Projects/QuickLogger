@@ -74,16 +74,9 @@ The runtime libraries QuickLogger is linked against, by platform (installing the
 
 QuickLogger does **not** need `unzip`, `mkdir`, or any other command-line tool to do its normal work — archive extraction and file handling are done inside the program.
 
-### Optional: `lrzsz` (ZMODEM file transfer)
+### ZMODEM file transfer
 
-The net-log/database-slice export and import features can push and pull files over the terminal connection using the ZMODEM protocol, via the `sz`/`rz` command-line tools (the `lrzsz` package). It's needed only on the machine running QuickLogger, only for that one feature, and only where someone is connected through a ZMODEM-capable terminal (typically over SSH). If it's missing, QuickLogger still runs fine; it just skips the ZMODEM offer and tells you so. SSH users can copy files with `scp` or `sftp` instead, with or without it (see the [User Guide](USER_GUIDE.md)).
-
-- macOS: `brew install lrzsz`
-- Debian/Ubuntu: `sudo apt install lrzsz`
-- Fedora: `sudo dnf install lrzsz`
-- FreeBSD: `sudo pkg install lrzsz` (it installs them as `lsz`/`lrz`, which QuickLogger finds too)
-- Alpine: not supported (Alpine has no `lrzsz` package). Everything else works, SSH included; exports are saved in `exports/` and imports are read from `imports/`, but not sent or received over ZMODEM. SSH users can use `scp` or `sftp` instead.
-- Windows: not supported
+ZMODEM is built in: nothing to install. Where someone is connected through a ZMODEM-capable terminal (typically over SSH), exports can be sent to it and imports received from it. If their terminal doesn't speak ZMODEM, QuickLogger says so and gives the `scp` command instead. It needs a terminal to talk to, so it isn't on Windows, which has no SSH server.
 
 ### Optional: `mosh` (Mosh connections)
 

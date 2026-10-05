@@ -130,6 +130,7 @@ set(quicklogger_sources
     src/upstream_push.cpp
     src/upstream_pull.cpp
     src/zmodem_send.cpp
+    src/zmodem_protocol.cpp
     src/show_folder.cpp
     src/zip_extract.cpp
     src/zip_write.cpp
@@ -255,6 +256,7 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_remote_command.cpp
         tests/test_scp_server.cpp
         tests/test_mosh_bridge.cpp
+        tests/test_zmodem_protocol.cpp
         tests/test_server_address.cpp
         tests/test_upstream_push.cpp
         tests/test_upstream_pull.cpp

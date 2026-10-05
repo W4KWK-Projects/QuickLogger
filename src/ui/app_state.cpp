@@ -2991,6 +2991,15 @@ namespace ql
         if (state->zmodem_action == ZmodemAction::kSend)
         {
             bool sent = SendFilesViaZmodem(state->screen, state->zmodem_send_paths, &error);
+            // A terminal that never answered doesn't speak ZMODEM: the files
+            // stay (the .zip too) and the scp command is given instead.
+            if (!sent && error.find("no receiver responded") != std::string::npos)
+            {
+                state->zmodem_zip_contents.clear();
+                state->status_message =
+                    RemoteCopyMessage(state, state->zmodem_send_paths, "No ZMODEM from your terminal. ");
+                return;
+            }
             // What's left in exports/ to name: without the .zip, once it's
             // removed.
             std::vector<std::string> saved = SavedAfterZmodem(state);
