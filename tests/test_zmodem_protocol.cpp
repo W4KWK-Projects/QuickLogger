@@ -110,6 +110,9 @@ namespace ql
     public:
         ProcessChannel(const std::vector<std::string>& argv, const std::string& directory)
         {
+            // A program that has finished leaves nothing to write to: an error
+            // from write(), not a signal that ends the test run.
+            ::signal(SIGPIPE, SIG_IGN);
             int to_child[2];
             int from_child[2];
             REQUIRE(::pipe(to_child) == 0);
