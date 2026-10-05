@@ -43,7 +43,7 @@ if apt-cache show libcurl4t64 > /dev/null 2>&1; then
 else
     libcurl=libcurl4
 fi
-apt-get install -y -q libssh-4 "$libcurl" libsqlite3-0 sqlite3 lrzsz jq curl ca-certificates \
+apt-get install -y -q libssh-4 "$libcurl" libsqlite3-0 sqlite3 lrzsz mosh jq curl ca-certificates \
     unattended-upgrades
 
 # The admin SSH: port 2200, keys only. A drop-in file, which sshd reads
@@ -71,10 +71,12 @@ if systemctl is-enabled ssh.socket > /dev/null 2>&1 &&
         > /etc/systemd/system/ssh.socket.d/10-quicklogger.conf
 fi
 
-# A firewall that's on needs both ports open.
+# A firewall that's on needs both ports open, and the UDP ports Mosh uses
+# once its login has moved off SSH.
 if command -v ufw > /dev/null && ufw status | grep -q '^Status: active'; then
     ufw allow 2200/tcp
     ufw allow 22/tcp
+    ufw allow 60000:61000/udp
 fi
 
 # QuickLogger shows every time in the server's time zone.

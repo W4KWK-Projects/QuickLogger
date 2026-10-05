@@ -75,6 +75,16 @@ jobs:
             -i ~/.ssh/ql_test -p 22 W4KWK@127.0.0.1" /dev/null < /dev/null || true)
           printf '%s' "$out" | tr -d '\033' | grep -q "QuickLogger"
 
+      # Mosh starts over SSH with a command QuickLogger answers itself, and
+      # runs the mosh-server that setup.sh installed.
+      - name: Start a Mosh session
+        run: |
+          set -x
+          out=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/ql_test \
+            -p 22 W4KWK@127.0.0.1 'mosh-server new -s -l LANG=C.UTF-8' < /dev/null)
+          printf '%s\n' "$out" | grep -q '^MOSH CONNECT '
+          sudo pkill -f 'mosh-server new' || true
+
       - name: Show the logs
         if: always()
         run: |
