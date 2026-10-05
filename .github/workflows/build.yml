@@ -19,6 +19,14 @@ on:
 permissions:
   contents: read
 
+# A newer push (or pull request update) cancels this workflow's run for the
+# older commit that is still going: only the latest one matters, and several
+# commits in a row would otherwise each run every job. A run started by hand
+# has a group of its own, so it neither cancels nor is cancelled by those.
+concurrency:
+  group: build-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
 jobs:
   ubuntu:
     runs-on: ubuntu-24.04
