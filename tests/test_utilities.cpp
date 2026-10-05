@@ -353,11 +353,11 @@ namespace ql
         CHECK_EQ(WildcardLikePattern("?4vw", false), std::string("%4%V%W%"));
         CHECK_EQ(WildcardLikePattern("V?E3", true), std::string("V%E%3%"));
 
-        const std::string call = "KQ4EVW";
+        const std::string call = "KX4EVW";
         // Where the ? goes makes no difference.
         CHECK_EQ(WildcardSpan("4VW", call.data(), call.size(), false), 4);
         CHECK_EQ(WildcardSpan("4EVW", call.data(), call.size(), false), 4);
-        CHECK_EQ(WildcardSpan("KQ4EVW", call.data(), call.size(), false), 6);
+        CHECK_EQ(WildcardSpan("KX4EVW", call.data(), call.size(), false), 6);
         // In order only: V before 4 doesn't fit.
         CHECK_EQ(WildcardSpan("V4", call.data(), call.size(), false), -1);
         CHECK_EQ(WildcardSpan("4WV", call.data(), call.size(), false), -1);

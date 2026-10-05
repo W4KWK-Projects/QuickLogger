@@ -536,7 +536,7 @@ namespace ql
                 }
                 rows.push_back(ftxui::text(""));
                 rows.push_back(ftxui::text("Open your terminal's file-receive (ZMODEM) dialog now, then"));
-                rows.push_back(ftxui::text("press Enter to start. Gives up after about 25s if"));
+                rows.push_back(ftxui::text("press Enter to start. Gives up after 25s if"));
                 rows.push_back(ftxui::text("nothing responds."));
                 rows.push_back(DialogSeparator());
                 if (can_push)
@@ -555,7 +555,7 @@ namespace ql
                 rows.push_back(ftxui::text(""));
                 rows.push_back(ftxui::text("Press Enter now to start listening, THEN start"));
                 rows.push_back(ftxui::text("sending (uploading) the file from your terminal client."));
-                rows.push_back(ftxui::text("Gives up after about 25s if nothing arrives."));
+                rows.push_back(ftxui::text("Gives up after 25s if nothing arrives."));
                 rows.push_back(DialogSeparator());
                 rows.push_back(KeyHintRow({{"F2/Enter", "Receive"}, {"Esc", "Cancel"}}));
             }

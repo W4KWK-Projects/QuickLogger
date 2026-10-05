@@ -1828,7 +1828,7 @@ namespace ql
         Fixture f;
         LoadZipData(f.db());
         std::int64_t other = AddTestNet(f.db(), "Other");
-        f.db()->SaveNetStation(other, MakeStation("KQ4EVW", "Other Net Guy"), "", 1);
+        f.db()->SaveNetStation(other, MakeStation("KX4EVW", "Other Net Guy"), "", 1);
         f.db()->BulkUpsertUlsStations(
             {MakeStation("K4EVWX", "NEAR LOOSE", "37415"), MakeStation("N4VWAA", "NEAR TIGHT", "37402"),
              MakeStation("W4XXXV", "NOT IN ORDER", "37402"), MakeStation("KA4EQVW", "FAR ISH", "30752"),
@@ -1845,7 +1845,7 @@ namespace ql
         // nearest first among equals; W4XXXV has the V before no W.
         REQUIRE(found.size() == 6);
         CHECK_EQ(found[0].callsign, std::string("K4VWZ"));
-        CHECK_EQ(found[1].callsign, std::string("KQ4EVW"));
+        CHECK_EQ(found[1].callsign, std::string("KX4EVW"));
         CHECK_EQ(found[2].callsign, std::string("AB4VW"));
         CHECK_EQ(found[3].callsign, std::string("N4VWAA"));
         CHECK_EQ(found[4].callsign, std::string("K4EVWX"));
@@ -1858,7 +1858,7 @@ namespace ql
         // The best fit is what Enter picks, and the ? is gone.
         f.state.selected_suggestion_index = 1;
         ApplySelectedCallsignSuggestion(&f.state);
-        CHECK_EQ(f.state.modal_station.callsign, std::string("KQ4EVW"));
+        CHECK_EQ(f.state.modal_station.callsign, std::string("KX4EVW"));
 
         // Too little to go on, or no ? at all: nothing wild.
         f.state.modal_station.callsign = "4?";
@@ -2220,7 +2220,7 @@ namespace ql
         LoadZipData(f.db());
         f.db()->ReplaceIsedStations({MakeStation("VE3EVA", "Able, Eva")}, 1);
         f.db()->BulkUpsertUlsStations(
-            {MakeStation("KQ4EVW", "NEAR, NED", "37402"), MakeStation("EV4AA", "EARLY, EVE", "37402")}, 0, 2, 1);
+            {MakeStation("KX4EVW", "NEAR, NED", "37402"), MakeStation("EV4AA", "EARLY, EVE", "37402")}, 0, 2, 1);
         f.StartNet("Skywarn");
 
         // A US net, as every net is unless changed: US call signs match
@@ -2230,7 +2230,7 @@ namespace ql
         RefreshCallsignSuggestions(&f.state);
         REQUIRE(f.state.modal_callsign_suggestions.size() == 2);
         CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("EV4AA"));
-        CHECK_EQ(f.state.modal_callsign_suggestions[1].callsign, std::string("KQ4EVW"));
+        CHECK_EQ(f.state.modal_callsign_suggestions[1].callsign, std::string("KX4EVW"));
         f.state.modal_station.callsign = "3e";
         RefreshCallsignSuggestions(&f.state);
         CHECK(f.state.modal_callsign_suggestions.empty());

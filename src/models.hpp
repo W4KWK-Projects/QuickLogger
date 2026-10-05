@@ -102,7 +102,7 @@ namespace ql
         bool is_ad_hoc = false;
         // Which licensed-station data callsign autocomplete matches
         // partially: in it, a call sign matches wherever what's typed appears
-        // ("EV" finds KQ4EVW); in the other, only call signs starting with
+        // ("EV" finds KX4EVW); in the other, only call signs starting with
         // it. False is the FCC's US data (the default, and every net from
         // before 1.7.0), true is ISED's Canadian data.
         bool partial_match_canada = false;

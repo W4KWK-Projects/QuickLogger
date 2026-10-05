@@ -27,7 +27,7 @@ namespace ql
     // sign that they're unsure of some of it. Autocomplete then matches
     // every other character typed, in that order, with anything between
     // them, wherever the "?" is: "?4VW", "4VW?" and "4?V?W" all find
-    // KQ4EVW. The "?" itself matches nothing. Without one, what's typed
+    // KX4EVW. The "?" itself matches nothing. Without one, what's typed
     // must be a contiguous part of the callsign.
     bool IsWildcardCallsign(const std::string& typed);
 
