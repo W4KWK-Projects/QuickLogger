@@ -78,7 +78,7 @@ jobs:
             lrzsz: "1"
           - name: alpine-musl
             image: alpine:latest
-            # Alpine has no lrzsz package, so no ZMODEM check here.
+            # No lrzsz here: its interop tests skip, and the in-app ZMODEM tests (loopback and over a pty) run.
             install: apk add --no-cache build-base cmake git sqlite-dev curl-dev zlib-dev libssh-dev linux-headers
             lrzsz: "0"
     name: ${{ matrix.name }}

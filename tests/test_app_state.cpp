@@ -1151,6 +1151,10 @@ namespace ql
         CHECK(f.state.my_keys_labels[1].find("<- this login") != std::string::npos);
         CHECK(f.state.my_keys_labels[0].find("laptop") != std::string::npos);
         CHECK(f.state.my_keys_labels[1].find("(no comment)") != std::string::npos);
+        // In columns: the type and the rest line up whatever the comment's length.
+        CHECK(f.state.my_keys_labels[0].find("ED25519") != std::string::npos);
+        CHECK_EQ(f.state.my_keys_labels[0].find("ED25519"), f.state.my_keys_labels[1].find("ED25519"));
+        CHECK_EQ(f.state.my_keys_labels[0].find("Ask"), f.state.my_keys_labels[1].find("Ask"));
         CHECK(f.state.my_key_comment_text.empty());
 
         f.state.my_key_comment_text = "My Mac";

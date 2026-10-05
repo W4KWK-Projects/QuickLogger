@@ -1512,7 +1512,8 @@ namespace ql
         ftxui::InputOption callsign_option = SingleLineInputOption();
         callsign_option.on_enter = CallsignLookupHandler(state);
         callsign_option.on_change = CallsignSuggestHandler(state);
-        ftxui::Component input_callsign = ftxui::Input(&state->modal_station.callsign, "Callsign", callsign_option);
+        ftxui::Component input_callsign =
+            ftxui::Input(&state->modal_station.callsign, "Callsign (? = unsure)", callsign_option);
         StationFieldInputs modal_inputs = BuildStationFieldInputs(&state->modal_station, input_callsign);
 
         ftxui::Component input_signal_report =
@@ -2493,7 +2494,8 @@ namespace ql
         ftxui::InputOption callsign_option = SingleLineInputOption();
         callsign_option.on_change = SavedStationCallsignChangeHandler(state);
         callsign_option.on_enter = SavedStationCallsignEnterHandler(state);
-        ftxui::Component callsign_input = ftxui::Input(&state->saved_station.callsign, "Callsign", callsign_option);
+        ftxui::Component callsign_input =
+            ftxui::Input(&state->saved_station.callsign, "Callsign (? = unsure)", callsign_option);
         state->saved_station_callsign_input = callsign_input;
         StationFieldInputs station_inputs = BuildStationFieldInputs(&state->saved_station, callsign_input);
         ftxui::Component remarks_input =
@@ -2592,7 +2594,7 @@ namespace ql
             std::vector<KeyHint> hints;
             hints.push_back({"F2/Enter", "Import"});
             // No ZMODEM at a local terminal: there's no one to receive from.
-            // Nor where the system has none (Windows, Alpine), or over Mosh.
+            // Nor where the system has none (Windows), or over Mosh.
             if (!(IsLocalTerminal(state_->is_console_session) || NoZmodemOnThisSystem() || state_->over_mosh ||
                   SessionPrefersSftp(state_)))
             {

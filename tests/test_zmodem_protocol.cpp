@@ -434,6 +434,213 @@ namespace ql
         CHECK_EQ(received[1].data, std::string("second\n"));
     }
 
+    // The master side of a pty as a channel: what a terminal client sees.
+    class MasterChannel : public ZmodemChannel
+    {
+    public:
+        explicit MasterChannel(int master) : master_(master) {}
+
+        bool Write(const unsigned char* data, std::size_t size) override
+        {
+            std::size_t done = 0;
+            while (done < size)
+            {
+                ssize_t count = ::write(master_, data + done, size - done);
+                if (count <= 0)
+                {
+                    return false;
+                }
+                done += static_cast<std::size_t>(count);
+            }
+            return true;
+        }
+
+        int ReadByte(int timeout_ms) override
+        {
+            struct pollfd readable{};
+            readable.fd = master_;
+            readable.events = POLLIN;
+            if (::poll(&readable, 1, timeout_ms) <= 0)
+            {
+                return kZmodemTimeout;
+            }
+            unsigned char byte = 0;
+            return ::read(master_, &byte, 1) == 1 ? byte : kZmodemClosed;
+        }
+
+    private:
+        int master_;
+    };
+
+    // Forks a child on a real pty that receives one ZMODEM batch through
+    // the terminal (raw mode, as over SSH) and saves what arrives into
+    // `directory`, exiting 0 if all went well. Returns its pid, with the
+    // pty's master side in `*master`.
+    static pid_t ForkReceiverOnAPty(const std::string& directory, int* master)
+    {
+        int slave = -1;
+        int ready[2];
+        REQUIRE(::pipe(ready) == 0);
+        REQUIRE(::openpty(master, &slave, nullptr, nullptr, nullptr) == 0);
+        pid_t child = ::fork();
+        REQUIRE(child >= 0);
+        if (child == 0)
+        {
+            ::close(*master);
+            ::close(ready[0]);
+            ::login_tty(slave);
+            std::vector<ZmodemFile> received;
+            std::string error;
+            bool ok = false;
+            {
+                TerminalChannel terminal;
+                // Raw mode is on: bytes sent now are not echoed or mangled.
+                ::write(ready[1], "r", 1);
+                ok = ZmodemReceive(&terminal, &received, 1 << 20, 15, &error);
+            }
+            for (const ZmodemFile& file : received)
+            {
+                std::ofstream out(directory + "/" + file.name, std::ios::binary);
+                out << file.data;
+            }
+            ::_exit(ok && !received.empty() ? 0 : 1);
+        }
+        ::close(slave);
+        ::close(ready[1]);
+        char ignored = 0;
+        ::read(ready[0], &ignored, 1);
+        ::close(ready[0]);
+        return child;
+    }
+
+    // Waits for `child` to exit, reading and dropping what it still writes
+    // to the pty: its terminal restore drains that output first, so with no
+    // one reading (a terminal client always does) it would never finish.
+    static int WaitForChildReadingPty(pid_t child, int master)
+    {
+        int status = -1;
+        std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            struct pollfd readable{};
+            readable.fd = master;
+            readable.events = POLLIN;
+            if (::poll(&readable, 1, 20) > 0)
+            {
+                unsigned char chunk[4096];
+                if (::read(master, chunk, sizeof(chunk)) <= 0)
+                {
+                    ::usleep(1000);
+                }
+            }
+            if (::waitpid(child, &status, WNOHANG) == child)
+            {
+                return status;
+            }
+        }
+        ::kill(child, SIGKILL);
+        ::waitpid(child, &status, 0);
+        return -1;
+    }
+
+    static std::string ReadWholeFile(const std::string& path)
+    {
+        std::ifstream in(path, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+
+    // The in-app receiver over a real pty, as over SSH, with our own sender
+    // standing in for the user's terminal client. Needs nothing installed,
+    // so it runs everywhere, Alpine included. Raw mode and the flow-control
+    // and escape bytes in the data are what a pty adds over in-memory pipes.
+    QL_TEST(OurReceiverOverARealPtyTakesFilesFromOurSender)
+    {
+        TempDir dir;
+        int master = -1;
+        pid_t child = ForkReceiverOnAPty(dir.path(), &master);
+        std::vector<ZmodemFile> files(2);
+        files[0].name = "Skywarn.qlnet";
+        files[0].data = AwkwardBytes(120000);
+        files[1].name = "notes.txt";
+        files[1].data = "second\n";
+        MasterChannel terminal(master);
+        bool answered = false;
+        std::string error;
+        bool sent = ZmodemSend(&terminal, files, 15, &answered, &error);
+        CHECK(answered);
+        CHECK_EQ(error, std::string(""));
+        CHECK(sent);
+        int status = WaitForChildReadingPty(child, master);
+        ::close(master);
+        CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+        CHECK(ReadWholeFile(dir.File("Skywarn.qlnet")) == files[0].data);
+        CHECK_EQ(ReadWholeFile(dir.File("notes.txt")), std::string("second\n"));
+    }
+
+    // The same with the real sz as the user's terminal client.
+    QL_TEST(OurReceiverOverARealPtyTakesFilesFromTheRealSz)
+    {
+        std::string sz = FirstInstalled({"sz", "lsz"});
+        if (sz.empty())
+        {
+            return;
+        }
+        TempDir dir;
+        TempDir source;
+        std::string contents = AwkwardBytes(120000);
+        {
+            std::ofstream out(source.File("Skywarn.qlnet"), std::ios::binary);
+            out << contents;
+        }
+        int master = -1;
+        pid_t child = ForkReceiverOnAPty(dir.path(), &master);
+        ProcessChannel sender({sz, "-b", "Skywarn.qlnet"}, source.path());
+        int status = -1;
+        std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            bool moved = false;
+            int byte = sender.ReadByte(0);
+            while (byte >= 0)
+            {
+                unsigned char out = static_cast<unsigned char>(byte);
+                ::write(master, &out, 1);
+                moved = true;
+                byte = sender.ReadByte(0);
+            }
+            struct pollfd readable{};
+            readable.fd = master;
+            readable.events = POLLIN;
+            while (::poll(&readable, 1, 0) > 0)
+            {
+                unsigned char chunk[4096];
+                ssize_t count = ::read(master, chunk, sizeof(chunk));
+                if (count <= 0)
+                {
+                    break;
+                }
+                sender.Write(chunk, static_cast<std::size_t>(count));
+                moved = true;
+            }
+            if (::waitpid(child, &status, WNOHANG) == child)
+            {
+                break;
+            }
+            if (!moved)
+            {
+                ::usleep(1000);
+            }
+        }
+        ::close(master);
+        if (status == -1)
+        {
+            ::kill(child, SIGKILL);
+            ::waitpid(child, &status, 0);
+        }
+        CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+        CHECK(ReadWholeFile(dir.File("Skywarn.qlnet")) == contents);
+    }
+
 }  // namespace ql
 
 #endif  // _WIN32

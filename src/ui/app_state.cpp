@@ -2806,7 +2806,7 @@ namespace ql
             OfferPushOnly(state, paths);
             return;
         }
-        // No ZMODEM on this system at all (Windows, Alpine), so there's
+        // No ZMODEM on this system at all (Windows), so there's
         // nothing to install.
         if (NoZmodemOnThisSystem() || SessionPrefersSftp(state))
         {
@@ -3792,34 +3792,57 @@ namespace ql
         return !state->is_console_session && !state->ssh_username.empty();
     }
 
-    // One row of the My Keys list: its comment (or none), type and the end
-    // of its fingerprint, and which one this login used.
-    static std::string MyKeyLabel(const User& key, bool this_login)
+    // The widest a key's comment is allowed in the My Keys list.
+    static constexpr int kMyKeyCommentWidth = 24;
+
+    // One row of the My Keys list as columns: its comment (or none), type,
+    // Transfer method and the end of its fingerprint.
+    static std::vector<std::string> MyKeyCells(const User& key)
     {
         PublicKeyDescription description = DescribePublicKey(key.public_key);
-        std::string label = description.comment.empty() ? "(no comment)" : description.comment;
-        label += "   " + description.type;
-        label += std::string("   ") + (key.transfer_method == kTransferZmodem ? "ZMODEM"
-                                       : key.transfer_method == kTransferSftp ? "SFTP"
-                                                                              : "Ask");
-        if (description.fingerprint.size() > 12)
-        {
-            label += "   ..." + description.fingerprint.substr(description.fingerprint.size() - 8);
-        }
-        if (this_login)
-        {
-            label += "   <- this login";
-        }
-        return label;
+        std::vector<std::string> cells;
+        cells.push_back(
+            CutToWidth(description.comment.empty() ? "(no comment)" : description.comment, kMyKeyCommentWidth));
+        cells.push_back(description.type);
+        cells.push_back(key.transfer_method == kTransferZmodem ? "ZMODEM"
+                        : key.transfer_method == kTransferSftp ? "SFTP"
+                                                               : "Ask");
+        cells.push_back(description.fingerprint.size() > 12
+                            ? "..." + description.fingerprint.substr(description.fingerprint.size() - 8)
+                            : "");
+        return cells;
     }
 
     static void RefreshMyKeys(AppState* state)
     {
         state->my_keys = state->db->GetUserKeys(state->ssh_username);
         state->my_keys_labels.clear();
+        // In columns: each cell padded to the widest in its column.
+        std::vector<std::vector<std::string>> rows;
+        std::vector<int> widths;
         for (const User& key : state->my_keys)
         {
-            state->my_keys_labels.push_back(MyKeyLabel(key, key.id == state->ssh_key_id));
+            rows.push_back(MyKeyCells(key));
+            widths.resize(std::max(widths.size(), rows.back().size()), 0);
+            for (std::size_t column = 0; column < rows.back().size(); ++column)
+            {
+                widths[column] = std::max(widths[column], TextWidth(rows.back()[column]));
+            }
+        }
+        for (std::size_t row = 0; row < rows.size(); ++row)
+        {
+            std::string label;
+            for (std::size_t column = 0; column < rows[row].size(); ++column)
+            {
+                label += rows[row][column];
+                label += std::string(static_cast<std::size_t>(widths[column] - TextWidth(rows[row][column])) + 3, ' ');
+            }
+            label += state->my_keys[row].id == state->ssh_key_id ? "<- this login" : "";
+            while (!label.empty() && label.back() == ' ')
+            {
+                label.pop_back();
+            }
+            state->my_keys_labels.push_back(label);
         }
         if (state->selected_my_key_index >= static_cast<int>(state->my_keys.size()))
         {
@@ -5233,7 +5256,7 @@ namespace ql
             return;
         }
         // Nobody on the other end of a local terminal to send one, no
-        // ZMODEM at all on some systems (Windows, Alpine), and none over
+        // ZMODEM at all on Windows, and none over
         // Mosh.
         if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || state->over_mosh ||
             SessionPrefersSftp(state))

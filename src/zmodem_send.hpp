@@ -24,10 +24,9 @@ namespace ql
     // in case that ever stops being true on some platform.
     bool ZmodemReceiveAvailable();
 
-    // True where ZMODEM can't be had at all, so it's never offered and
-    // there's nothing to suggest installing: Windows (no SSH server), and
-    // Alpine Linux, which has no lrzsz package (checked by
-    // /etc/alpine-release).
+    // True where ZMODEM can't be had at all, so it's never offered: Windows
+    // (no SSH server). Everywhere else it's built in (zmodem_protocol.hpp),
+    // Alpine Linux included, with nothing to install.
     bool NoZmodemOnThisSystem();
 
     // Sends `paths` (one ZMODEM batch) to whatever's on the other end of the real terminal via
