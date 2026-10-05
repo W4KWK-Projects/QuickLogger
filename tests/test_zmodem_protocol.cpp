@@ -1,6 +1,9 @@
 // QuickLogger's own ZMODEM (zmodem_protocol.hpp): sender and receiver
 // against each other over in-memory pipes, and against the real lrzsz
 // programs when they are installed.
+// POSIX only: its channels are a pty, pipes to a program and the terminal, none
+// of which Windows has (ZMODEM needs an SSH server, which Windows doesn't run).
+#if !defined(_WIN32)
 
 #include <fcntl.h>
 #include <poll.h>
@@ -432,3 +435,5 @@ namespace ql
     }
 
 }  // namespace ql
+
+#endif  // _WIN32
