@@ -341,6 +341,34 @@ namespace ql
         CHECK_EQ(NormalizeCallsign("   "), std::string(""));
     }
 
+    QL_TEST(WildcardCallsignsKeepTheQuestionMarkAndFitCharactersInOrder)
+    {
+        CHECK_EQ(NormalizeTypedCallsign("kq4?v w"), std::string("KQ4?VW"));
+        CHECK(IsWildcardCallsign("?4VW"));
+        CHECK(!IsWildcardCallsign("4VW"));
+        CHECK(WildcardHasEnough("4VW?"));
+        CHECK(WildcardHasEnough("4?V"));
+        CHECK(!WildcardHasEnough("4?"));
+        CHECK(!WildcardHasEnough("4VW"));
+        CHECK_EQ(WildcardLikePattern("?4vw", false), std::string("%4%V%W%"));
+        CHECK_EQ(WildcardLikePattern("V?E3", true), std::string("V%E%3%"));
+
+        const std::string call = "KQ4EVW";
+        // Where the ? goes makes no difference.
+        CHECK_EQ(WildcardSpan("4VW", call.data(), call.size(), false), 4);
+        CHECK_EQ(WildcardSpan("4EVW", call.data(), call.size(), false), 4);
+        CHECK_EQ(WildcardSpan("KQ4EVW", call.data(), call.size(), false), 6);
+        // In order only: V before 4 doesn't fit.
+        CHECK_EQ(WildcardSpan("V4", call.data(), call.size(), false), -1);
+        CHECK_EQ(WildcardSpan("4WV", call.data(), call.size(), false), -1);
+        // Anchored: the first character must start the callsign.
+        CHECK_EQ(WildcardSpan("K4W", call.data(), call.size(), true), 6);
+        CHECK_EQ(WildcardSpan("4VW", call.data(), call.size(), true), -1);
+        // The tightest place wins: the second K..W is shorter than the first.
+        const std::string twice = "K1XXXXK2W";
+        CHECK_EQ(WildcardSpan("KW", twice.data(), twice.size(), false), 3);
+    }
+
     QL_TEST(NormalizePlaceNameFoldsCaseAccentsAndPeriods)
     {
         CHECK_EQ(NormalizePlaceName("Newton"), std::string("NEWTON"));

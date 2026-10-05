@@ -155,6 +155,83 @@ namespace ql
         return result;
     }
 
+    std::string NormalizeTypedCallsign(const std::string& value)
+    {
+        std::string result;
+        result.reserve(value.size());
+        for (char c : value)
+        {
+            if (c == '?')
+            {
+                result.push_back(c);
+            }
+            else
+            {
+                result += NormalizeCallsign(std::string(1, c));
+            }
+        }
+        return result;
+    }
+
+    bool IsWildcardCallsign(const std::string& typed)
+    {
+        return typed.find('?') != std::string::npos;
+    }
+
+    bool WildcardHasEnough(const std::string& typed)
+    {
+        return IsWildcardCallsign(typed) && NormalizeCallsign(typed).size() >= 2;
+    }
+
+    std::string WildcardLikePattern(const std::string& typed, bool anchored)
+    {
+        std::string pattern = anchored ? "" : "%";
+        for (char c : NormalizeCallsign(typed))
+        {
+            pattern.push_back(c);
+            pattern.push_back('%');
+        }
+        return pattern;
+    }
+
+    int WildcardSpan(const std::string& letters, const char* callsign, std::size_t length, bool anchored)
+    {
+        if (letters.empty())
+        {
+            return -1;
+        }
+        int best = -1;
+        for (std::size_t start = 0; start < length; ++start)
+        {
+            if (anchored && start > 0)
+            {
+                break;
+            }
+            if (callsign[start] != letters[0])
+            {
+                continue;
+            }
+            // The rest, each at its first place after the one before.
+            std::size_t at = start;
+            std::size_t matched = 1;
+            while (matched < letters.size() && ++at < length)
+            {
+                if (callsign[at] == letters[matched])
+                {
+                    ++matched;
+                }
+            }
+            if (matched < letters.size())
+            {
+                // Nothing starting later can fit them in either.
+                break;
+            }
+            int span = static_cast<int>(at - start + 1);
+            best = best < 0 || span < best ? span : best;
+        }
+        return best;
+    }
+
     // The plain letter for a UTF-8 character from the Latin-1 Supplement
     // (encoded as 0xC3 followed by `second_byte`), or 0 if it isn't an
     // accented letter this cares about.

@@ -1081,12 +1081,23 @@ COMMIT;
 
     std::vector<Station> Database::SearchStationsByCallsignSubstring(const std::string& substring, int limit)
     {
-        Statement statement(&statements_, R"sql(
+        // With a "?" typed: the characters in that order (see IsWildcardCallsign).
+        bool wildcard = IsWildcardCallsign(substring);
+        if (wildcard && !WildcardHasEnough(substring))
+        {
+            return {};
+        }
+        Statement statement(&statements_, wildcard ? R"sql(
+        SELECT callsign, name, member_id, street_address, city, county, state, zip,
+               grid_square, license_class, email, data_source, last_updated
+        FROM stations WHERE callsign LIKE ? ORDER BY callsign LIMIT ?;
+    )sql"
+                                                   : R"sql(
         SELECT callsign, name, member_id, street_address, city, county, state, zip,
                grid_square, license_class, email, data_source, last_updated
         FROM stations WHERE instr(callsign, ?) > 0 ORDER BY callsign LIMIT ?;
     )sql");
-        statement.BindText(0, ToUpperAscii(substring));
+        statement.BindText(0, wildcard ? WildcardLikePattern(substring, false) : ToUpperAscii(substring));
         statement.BindInt64(1, limit);
         std::vector<Station> stations;
         while (statement.Step())
@@ -1099,7 +1110,27 @@ COMMIT;
     std::vector<Station> Database::SearchNetStationsByCallsignSubstring(std::int64_t net_id,
                                                                         const std::string& substring, int limit)
     {
-        Statement statement(&statements_, R"sql(
+        // With a "?" typed: the characters in that order (see IsWildcardCallsign).
+        bool wildcard = IsWildcardCallsign(substring);
+        if (wildcard && !WildcardHasEnough(substring))
+        {
+            return {};
+        }
+        Statement statement(&statements_, wildcard ? R"sql(
+        SELECT s.callsign, CASE WHEN e.name != '' THEN e.name ELSE s.name END, s.member_id, s.street_address,
+               s.city, s.county, s.state, s.zip, s.grid_square, s.license_class, s.email, s.data_source,
+               s.last_updated
+        FROM stations s
+        JOIN (SELECT ns.callsign, ns.name FROM net_saved_stations ns WHERE ns.net_id = ?2 AND ns.callsign LIKE ?1
+              UNION
+              SELECT c.callsign, c.name FROM check_ins c
+              JOIN net_instances ni ON ni.id = c.net_instance_id
+              WHERE ni.net_id = ?2 AND c.callsign LIKE ?1) e
+          ON e.callsign = s.callsign
+        ORDER BY s.callsign, e.name
+        LIMIT ?3;
+    )sql"
+                                                   : R"sql(
         SELECT s.callsign, CASE WHEN e.name != '' THEN e.name ELSE s.name END, s.member_id, s.street_address,
                s.city, s.county, s.state, s.zip, s.grid_square, s.license_class, s.email, s.data_source,
                s.last_updated
@@ -1113,7 +1144,7 @@ COMMIT;
         ORDER BY s.callsign, e.name
         LIMIT ?3;
     )sql");
-        statement.BindText(0, ToUpperAscii(substring));
+        statement.BindText(0, wildcard ? WildcardLikePattern(substring, false) : ToUpperAscii(substring));
         statement.BindInt64(1, net_id);
         statement.BindInt64(2, limit);
         std::vector<Station> stations;
@@ -2430,16 +2461,25 @@ COMMIT;
         // A range on the primary key rather than LIKE, so it's an index
         // lookup: every callsign from `prefix` up to `prefix` followed by
         // '~', which sorts after every letter and digit.
-        std::string upper = ToUpperAscii(prefix);
+        // With a "?" typed (see IsWildcardCallsign), the first character
+        // typed still starts the callsign and the rest follow in order: the
+        // range is that first character's, and LIKE does the rest.
+        bool wildcard = IsWildcardCallsign(prefix);
+        if (wildcard && !WildcardHasEnough(prefix))
+        {
+            return {};
+        }
+        std::string upper = wildcard ? NormalizeCallsign(prefix).substr(0, 1) : ToUpperAscii(prefix);
         Statement statement(&statements_, R"sql(
         SELECT callsign, name, street_address, city, state, zip, license_class,
                last_updated
-        FROM ised_stations WHERE callsign >= ? AND callsign < ?
+        FROM ised_stations WHERE callsign >= ? AND callsign < ? AND callsign LIKE ?
         ORDER BY callsign LIMIT ?;
     )sql");
         statement.BindText(0, upper);
         statement.BindText(1, upper + "~");
-        statement.BindInt64(2, limit);
+        statement.BindText(2, wildcard ? WildcardLikePattern(prefix, true) : "%");
+        statement.BindInt64(3, limit);
         std::vector<Station> stations;
         while (statement.Step())
         {
@@ -2452,7 +2492,21 @@ COMMIT;
     {
         // The inner query reads only the primary key's index, not the rows
         // (about 90,000 call signs); only the matches' rows are read after.
-        Statement statement(&statements_, R"sql(
+        // With a "?" typed: the characters in that order (see IsWildcardCallsign).
+        bool wildcard = IsWildcardCallsign(substring);
+        if (wildcard && !WildcardHasEnough(substring))
+        {
+            return {};
+        }
+        Statement statement(&statements_, wildcard ? R"sql(
+        SELECT callsign, name, street_address, city, state, zip, license_class,
+               last_updated
+        FROM ised_stations
+        WHERE callsign IN (SELECT callsign FROM ised_stations WHERE callsign LIKE ?
+                           ORDER BY callsign LIMIT ?)
+        ORDER BY callsign;
+    )sql"
+                                                   : R"sql(
         SELECT callsign, name, street_address, city, state, zip, license_class,
                last_updated
         FROM ised_stations
@@ -2460,7 +2514,7 @@ COMMIT;
                            ORDER BY callsign LIMIT ?)
         ORDER BY callsign;
     )sql");
-        statement.BindText(0, ToUpperAscii(substring));
+        statement.BindText(0, wildcard ? WildcardLikePattern(substring, false) : ToUpperAscii(substring));
         statement.BindInt64(1, limit);
         std::vector<Station> stations;
         while (statement.Step())

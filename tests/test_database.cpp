@@ -378,6 +378,30 @@ namespace ql
         CHECK(db.SearchStationsByCallsignSubstring("%").size() <= std::size_t{2});
     }
 
+    QL_TEST(CallsignSearchWithAQuestionMarkMatchesTheCharactersInOrder)
+    {
+        TempDir dir;
+        Database db(dir.File("q.db"));
+        db.RecordManualCheckInStation(MakeStation("KQ4EVW"), 1);
+        db.RecordManualCheckInStation(MakeStation("W4KWK"), 1);
+        db.RecordManualCheckInStation(MakeStation("N4VWA"), 1);
+        CHECK_EQ(db.SearchStationsByCallsignSubstring("?4VW").size(), std::size_t{2});
+        CHECK_EQ(db.SearchStationsByCallsignSubstring("4?V?W").size(), std::size_t{2});
+        // Out of order finds nothing.
+        CHECK(db.SearchStationsByCallsignSubstring("WV?").empty());
+        // Too little to go on.
+        CHECK(db.SearchStationsByCallsignSubstring("4?").empty());
+        // Without the ? it's still a contiguous part, as ever.
+        CHECK(db.SearchStationsByCallsignSubstring("4VW").size() == 1);
+
+        std::int64_t net = AddTestNet(&db, "A");
+        db.SaveNetStation(net, MakeStation("KQ4EVW"), "", 1);
+        std::vector<Station> found = db.SearchNetStationsByCallsignSubstring(net, "4?EW");
+        REQUIRE(found.size() == 1);
+        CHECK_EQ(found[0].callsign, std::string("KQ4EVW"));
+        CHECK(db.SearchNetStationsByCallsignSubstring(net, "W?K").empty());
+    }
+
     QL_TEST(ThisNetSearchCoversCheckInsAndSavedStationsOnly)
     {
         TempDir dir;

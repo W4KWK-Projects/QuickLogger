@@ -620,7 +620,7 @@ namespace ql
     static void OfferNewGmrsName(NetService service, const std::string& typed, std::size_t max_suggestions,
                                  std::vector<Station>* suggestions, std::vector<std::string>* sources)
     {
-        if (service != NetService::kGmrs)
+        if (service != NetService::kGmrs || IsWildcardCallsign(typed))
         {
             return;
         }
@@ -2339,7 +2339,7 @@ namespace ql
     static bool FillStationFromKnown(AppState* state, Station* station, NetService service)
     {
         std::string callsign = NormalizeCallsign(station->callsign);
-        if (callsign.empty())
+        if (callsign.empty() || IsWildcardCallsign(station->callsign))
         {
             return false;
         }
@@ -2407,6 +2407,11 @@ namespace ql
     {
         if (RefuseViewOnly(state, "log check-ins"))
         {
+            return false;
+        }
+        if (IsWildcardCallsign(state->modal_station.callsign))
+        {
+            state->form_error = "A ? is a guess. Pick a match, or type the full callsign.";
             return false;
         }
         state->modal_station.callsign = NormalizeCallsign(state->modal_station.callsign);
@@ -2499,6 +2504,10 @@ namespace ql
         {
             state->edit_checkin_station.name = check_in.name;
         }
+        // A blank grid takes the ZIP's 4-character one at once, and a
+        // 4-character one is refined to 6 in a moment (see ApplyPreciseGrid).
+        BackfillGridFromZip(state, &state->edit_checkin_station);
+        RequestPreciseGrid(state, state->edit_checkin_station);
         state->edit_checkin_signal_report = check_in.signal_report;
         state->edit_checkin_remarks = check_in.remarks;
         state->edit_checkin_comment = check_in.comment;
@@ -5213,6 +5222,52 @@ namespace ql
         state->show_zmodem_confirm_modal = true;
     }
 
+    // A match for wildcard matching, to sort by how tightly it fits: its
+    // span, and where it was in the list it came from.
+    struct WildcardRanked
+    {
+        int span;
+        std::size_t index;
+    };
+
+    // Tightest span first; equals in the order they came.
+    static bool WildcardRankedBefore(const WildcardRanked& a, const WildcardRanked& b)
+    {
+        return a.span != b.span ? a.span < b.span : a.index < b.index;
+    }
+
+    // How many matches wildcard matching fetches from the database before
+    // ranking them and keeping the best (RankWildcardMatches): more than can
+    // be shown, as the best fit may not be first by callsign.
+    static constexpr int kWildcardFetch = 500;
+
+    // Keeps the best `keep` of `stations`, which all match the wildcard
+    // `typed`: those fitting it in the fewest characters first (a plain
+    // contiguous match fits in as many as were typed), equals in the order
+    // given. With `anchored` the first character typed starts the callsign.
+    static void RankWildcardMatches(std::vector<Station>* stations, const std::string& typed, bool anchored,
+                                    std::size_t keep)
+    {
+        std::string letters = NormalizeCallsign(typed);
+        std::vector<WildcardRanked> ranked;
+        for (std::size_t i = 0; i < stations->size(); ++i)
+        {
+            const std::string& callsign = (*stations)[i].callsign;
+            int span = WildcardSpan(letters, callsign.data(), callsign.size(), anchored);
+            if (span >= 0)
+            {
+                ranked.push_back({span, i});
+            }
+        }
+        std::sort(ranked.begin(), ranked.end(), WildcardRankedBefore);
+        std::vector<Station> kept;
+        for (std::size_t i = 0; i < ranked.size() && i < keep; ++i)
+        {
+            kept.push_back(std::move((*stations)[ranked[i].index]));
+        }
+        *stations = std::move(kept);
+    }
+
     static void AppendNearbyUlsSuggestions(AppState* state, const std::string& typed, const std::string& net_zip,
                                            bool partial, NetService service, std::size_t max_suggestions,
                                            std::vector<Station>* suggestions, std::vector<std::string>* sources);
@@ -5235,7 +5290,8 @@ namespace ql
                                        std::size_t max_suggestions, std::vector<Station>* suggestions,
                                        std::vector<std::string>* sources, int* selected)
     {
-        if (suggestions->empty())
+        // A wildcard is no call sign: the best fit stays on top.
+        if (suggestions->empty() || IsWildcardCallsign(typed))
         {
             return;
         }
@@ -5301,20 +5357,37 @@ namespace ql
             return;
         }
 
+        // A "?" without two characters to go on matches nothing yet.
+        const std::string& typed = state->modal_station.callsign;
+        bool wildcard = IsWildcardCallsign(typed);
+        if (wildcard && !WildcardHasEnough(typed))
+        {
+            return;
+        }
         const std::size_t kMaxSuggestions = MaxCallsignMatches(state);
         const int max_suggestions = static_cast<int>(kMaxSuggestions);
+        // Wildcard matches are ranked, so more than can be shown are fetched.
+        const int fetch = wildcard ? kWildcardFetch : max_suggestions;
 
         // Tier 1: callers already known to this specific net (real check-ins
         // or SaveNetStation). No more than can be shown.
-        state->modal_callsign_suggestions = state->db->SearchNetStationsByCallsignSubstring(
-            state->active_instance.net_id, state->modal_station.callsign, max_suggestions);
+        state->modal_callsign_suggestions =
+            state->db->SearchNetStationsByCallsignSubstring(state->active_instance.net_id, typed, fetch);
+        if (wildcard)
+        {
+            RankWildcardMatches(&state->modal_callsign_suggestions, typed, false, kMaxSuggestions);
+        }
         std::size_t tier1_count = state->modal_callsign_suggestions.size();
 
         // Tier 2: callers known to other nets (see
         // SearchStationsByCallsignSubstring). It includes tier 1's, which
         // are dropped as repeats, so enough to fill the rest after those.
         std::vector<Station> other_matches = state->db->SearchStationsByCallsignSubstring(
-            state->modal_station.callsign, max_suggestions + static_cast<int>(tier1_count));
+            typed, wildcard ? fetch : max_suggestions + static_cast<int>(tier1_count));
+        if (wildcard)
+        {
+            RankWildcardMatches(&other_matches, typed, false, kMaxSuggestions + tier1_count);
+        }
         AppendNewSuggestions(&state->modal_callsign_suggestions, &other_matches, kMaxSuggestions,
                              state->active_net_service);
 
@@ -5488,6 +5561,11 @@ namespace ql
     {
         if (RefuseViewOnly(state, "save stations to nets"))
         {
+            return false;
+        }
+        if (IsWildcardCallsign(state->saved_station.callsign))
+        {
+            state->form_error = "A ? is a guess. Pick a match, or type the full callsign.";
             return false;
         }
         state->saved_station.callsign = NormalizeCallsign(state->saved_station.callsign);
@@ -5737,10 +5815,24 @@ namespace ql
 
     static bool NearbyCallsignMatches(const NearbyUlsCallsign& candidate, const std::string& upper, bool anywhere);
 
+    // How many characters of `candidate`'s callsign the wildcard `letters`
+    // span (see WildcardSpan), -1 if they don't fit in order. Checked in
+    // place, like NearbyCallsignMatches.
+    static int NearbyWildcardSpan(const NearbyUlsCallsign& candidate, const std::string& letters, bool anchored)
+    {
+        const void* end = std::memchr(candidate.callsign, '\0', sizeof(candidate.callsign));
+        std::size_t length = end == nullptr
+                                 ? sizeof(candidate.callsign)
+                                 : static_cast<std::size_t>(static_cast<const char*>(end) - candidate.callsign);
+        return WildcardSpan(letters, candidate.callsign, length, anchored);
+    }
+
     // The shared end of the nearby tiers: the `candidates` (nearest first)
     // that match `typed`, up to `max_suggestions` in all, skipping
     // call signs already in `suggestions`, and their records in one query --
-    // from ISED's table when `canadian`, else the FCC's `table`.
+    // from ISED's table when `canadian`, else the FCC's `table`. With a "?"
+    // typed (see IsWildcardCallsign) they're the ones the characters typed
+    // fit in order, the tightest fit first, nearest first among equals.
     static void AppendNearbyMatches(Database* db, const std::vector<NearbyUlsCallsign>& candidates,
                                     const std::string& typed, bool partial, bool canadian, LicenseTable table,
                                     std::size_t max_suggestions, std::vector<Station>* suggestions,
@@ -5748,15 +5840,32 @@ namespace ql
     {
         // The matches, nearest first, then their records in one query.
         std::string upper = ToUpperAscii(typed);
+        bool wildcard = IsWildcardCallsign(typed);
+        std::string letters = NormalizeCallsign(typed);
+        if (wildcard && !WildcardHasEnough(typed))
+        {
+            return;
+        }
         std::vector<const NearbyUlsCallsign*> matches;
+        std::vector<WildcardRanked> ranked;
         std::vector<std::string> match_callsigns;
         for (const NearbyUlsCallsign& candidate : candidates)
         {
-            if (suggestions->size() + matches.size() >= max_suggestions)
+            // Wildcard matches are all found, to rank them.
+            if (!wildcard && suggestions->size() + matches.size() >= max_suggestions)
             {
                 break;
             }
-            if (!NearbyCallsignMatches(candidate, upper, partial))
+            int span = 0;
+            if (wildcard)
+            {
+                span = NearbyWildcardSpan(candidate, letters, !partial);
+            }
+            else if (!NearbyCallsignMatches(candidate, upper, partial))
+            {
+                span = -1;
+            }
+            if (span < 0)
             {
                 continue;
             }
@@ -5771,9 +5880,25 @@ namespace ql
             }
             if (!already_known)
             {
+                ranked.push_back({span, matches.size()});
                 matches.push_back(&candidate);
-                match_callsigns.emplace_back(candidate.callsign);
             }
+        }
+        if (wildcard)
+        {
+            // Tightest fit first, then only as many as there's room for.
+            std::sort(ranked.begin(), ranked.end(), WildcardRankedBefore);
+            std::size_t room = max_suggestions > suggestions->size() ? max_suggestions - suggestions->size() : 0;
+            std::vector<const NearbyUlsCallsign*> best;
+            for (std::size_t i = 0; i < ranked.size() && i < room; ++i)
+            {
+                best.push_back(matches[ranked[i].index]);
+            }
+            matches = std::move(best);
+        }
+        for (const NearbyUlsCallsign* match : matches)
+        {
+            match_callsigns.emplace_back(match->callsign);
         }
         std::vector<Station> records = canadian ? db->FindIsedStationsByCallsigns(match_callsigns)
                                                 : db->FindUlsStationsByCallsigns(match_callsigns, table);
@@ -5910,14 +6035,23 @@ namespace ql
                                           std::size_t max_suggestions, std::vector<Station>* suggestions,
                                           std::vector<std::string>* sources)
     {
-        std::string normalized = NormalizeCallsign(typed);
-        if (suggestions->size() >= max_suggestions || normalized.empty() || (!partial && !LooksCanadian(typed)))
+        // With a "?" typed (see IsWildcardCallsign) the database is given it
+        // as typed, and the matches are ranked; anchored at the start when
+        // only a prefix is wanted.
+        bool wildcard = IsWildcardCallsign(typed);
+        std::string normalized = wildcard ? typed : NormalizeCallsign(typed);
+        if (suggestions->size() >= max_suggestions || NormalizeCallsign(typed).empty() ||
+            (wildcard && !WildcardHasEnough(typed)) || (!partial && !LooksCanadian(typed)))
         {
             return;
         }
-        int limit = static_cast<int>(max_suggestions);
+        int limit = wildcard ? kWildcardFetch : static_cast<int>(max_suggestions);
         std::vector<Station> matches = partial ? state->db->SearchIsedStationsByCallsignSubstring(normalized, limit)
                                                : state->db->SearchIsedStationsByCallsignPrefix(normalized, limit);
+        if (wildcard)
+        {
+            RankWildcardMatches(&matches, typed, !partial, max_suggestions);
+        }
         for (const Station& match : matches)
         {
             if (suggestions->size() >= max_suggestions)
@@ -5951,19 +6085,35 @@ namespace ql
             return;
         }
 
+        // A "?" without two characters to go on matches nothing yet.
+        const std::string& typed = state->saved_station.callsign;
+        bool wildcard = IsWildcardCallsign(typed);
+        if (wildcard && !WildcardHasEnough(typed))
+        {
+            return;
+        }
         const std::size_t kMaxSuggestions = MaxCallsignMatches(state);
 
         // Tier 1: callers already known to this specific net (real check-ins
         // or previously saved) -- same query as the New Station modal's tier 1.
         const int max_suggestions = static_cast<int>(kMaxSuggestions);
-        state->saved_station_suggestions = state->db->SearchNetStationsByCallsignSubstring(
-            state->edit_net_id, state->saved_station.callsign, max_suggestions);
+        const int fetch = wildcard ? kWildcardFetch : max_suggestions;
+        state->saved_station_suggestions =
+            state->db->SearchNetStationsByCallsignSubstring(state->edit_net_id, typed, fetch);
+        if (wildcard)
+        {
+            RankWildcardMatches(&state->saved_station_suggestions, typed, false, kMaxSuggestions);
+        }
         std::size_t tier1_count = state->saved_station_suggestions.size();
 
         // Tier 2: callers known to other nets; as in RefreshCallsignSuggestions,
         // enough to fill the rest after tier 1's repeats.
         std::vector<Station> other_matches = state->db->SearchStationsByCallsignSubstring(
-            state->saved_station.callsign, max_suggestions + static_cast<int>(tier1_count));
+            typed, wildcard ? fetch : max_suggestions + static_cast<int>(tier1_count));
+        if (wildcard)
+        {
+            RankWildcardMatches(&other_matches, typed, false, kMaxSuggestions + tier1_count);
+        }
         NetService service = state->edit_net_gmrs ? NetService::kGmrs : NetService::kAmateur;
         AppendNewSuggestions(&state->saved_station_suggestions, &other_matches, kMaxSuggestions, service);
 
@@ -6093,6 +6243,12 @@ namespace ql
             ShouldTakePreciseGrid(state->saved_station.grid_square, grid))
         {
             state->saved_station.grid_square = grid;
+            changed = true;
+        }
+        if (state->show_edit_checkin_modal && state->edit_checkin_original.callsign == callsign &&
+            ShouldTakePreciseGrid(state->edit_checkin_station.grid_square, grid))
+        {
+            state->edit_checkin_station.grid_square = grid;
             changed = true;
         }
         // And the stored station, wherever it was asked for from (the

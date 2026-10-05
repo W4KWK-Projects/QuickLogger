@@ -1400,6 +1400,29 @@ namespace ql
         f.state.grid_lookup = nullptr;
     }
 
+    QL_TEST(EditingACheckInAsksForItsExactGrid)
+    {
+        Fixture f;
+        FakeFetcher fetcher;
+        FakeResults results;
+        PreciseGridLookup lookup(&fetcher, &results);
+        f.state.grid_lookup = &lookup;
+        Station known = ArlingtonStation("K4ZZZ");
+        known.grid_square = "FM18";
+        f.db()->UpsertStation(known);
+        f.StartNet("Skywarn");
+        f.Log("K4ZZZ", "Zed");
+
+        std::vector<CheckIn> check_ins = f.db()->GetCheckInsForNetInstance(f.state.active_instance.id);
+        REQUIRE(!check_ins.empty());
+        OpenEditCheckInForm(&f.state, check_ins.back());
+        REQUIRE(results.WaitForResults(1));
+        CHECK_EQ(results.Found()[0], std::string("K4ZZZ=FM18mu"));
+        ApplyPreciseGrid(&f.state, "K4ZZZ", "FM18mu");
+        CHECK_EQ(f.state.edit_checkin_station.grid_square, std::string("FM18mu"));
+        f.state.grid_lookup = nullptr;
+    }
+
     QL_TEST(TypingAKnownCallSignInTheSavedStationFormAsksForItsExactGrid)
     {
         Fixture f;
@@ -1765,6 +1788,64 @@ namespace ql
         CHECK_EQ(f.state.modal_station.name, std::string("NEARBY, NED"));
         CHECK_EQ(f.state.modal_station.county, std::string("Hamilton"));
         CHECK(f.state.modal_callsign_suggestions.empty());
+    }
+
+    QL_TEST(AQuestionMarkMatchesTheCharactersTypedInOrderBestFitFirst)
+    {
+        Fixture f;
+        LoadZipData(f.db());
+        std::int64_t other = AddTestNet(f.db(), "Other");
+        f.db()->SaveNetStation(other, MakeStation("KQ4EVW", "Other Net Guy"), "", 1);
+        f.db()->BulkUpsertUlsStations(
+            {MakeStation("K4EVWX", "NEAR LOOSE", "37415"), MakeStation("N4VWAA", "NEAR TIGHT", "37402"),
+             MakeStation("W4XXXV", "NOT IN ORDER", "37402"), MakeStation("KA4EQVW", "FAR ISH", "30752"),
+             MakeStation("AB4VW", "NEAR EXACT", "37415")},
+            0, 5, 1);
+        f.StartNet("Skywarn");
+        f.Log("K4VWZ", "Ann");
+
+        ClearModalFields(&f.state);
+        f.state.modal_station.callsign = "4vw?";
+        RefreshCallsignSuggestions(&f.state);
+        std::vector<Station>& found = f.state.modal_callsign_suggestions;
+        // Known stations first, then licensees, tightest fit first and
+        // nearest first among equals; W4XXXV has the V before no W.
+        REQUIRE(found.size() == 6);
+        CHECK_EQ(found[0].callsign, std::string("K4VWZ"));
+        CHECK_EQ(found[1].callsign, std::string("KQ4EVW"));
+        CHECK_EQ(found[2].callsign, std::string("AB4VW"));
+        CHECK_EQ(found[3].callsign, std::string("N4VWAA"));
+        CHECK_EQ(found[4].callsign, std::string("K4EVWX"));
+        CHECK_EQ(found[5].callsign, std::string("KA4EQVW"));
+        // The ? is only a switch: where it goes makes no difference.
+        f.state.modal_station.callsign = "?4V?W";
+        RefreshCallsignSuggestions(&f.state);
+        CHECK_EQ(f.state.modal_callsign_suggestions.size(), std::size_t{6});
+
+        // The best fit is what Enter picks, and the ? is gone.
+        f.state.selected_suggestion_index = 1;
+        ApplySelectedCallsignSuggestion(&f.state);
+        CHECK_EQ(f.state.modal_station.callsign, std::string("KQ4EVW"));
+
+        // Too little to go on, or no ? at all: nothing wild.
+        f.state.modal_station.callsign = "4?";
+        RefreshCallsignSuggestions(&f.state);
+        CHECK(f.state.modal_callsign_suggestions.empty());
+        f.state.modal_station.callsign = "4VW";
+        RefreshCallsignSuggestions(&f.state);
+        REQUIRE(f.state.modal_callsign_suggestions.size() == 3);
+        CHECK_EQ(f.state.modal_callsign_suggestions[0].callsign, std::string("K4VWZ"));
+    }
+
+    QL_TEST(ACallsignWithAQuestionMarkIsNeverLogged)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        ClearModalFields(&f.state);
+        f.state.modal_station.callsign = "W1AW?";
+        CHECK(!LogStationCheckIn(&f.state));
+        CHECK(f.state.form_error.find("?") != std::string::npos);
+        CHECK(f.state.modal_station.callsign == "W1AW?");
     }
 
     QL_TEST(LicenseSuggestionsAreNearestFirst)

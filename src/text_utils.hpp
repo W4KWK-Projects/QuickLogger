@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 
 namespace ql
@@ -17,6 +18,35 @@ namespace ql
     // tab, punctuation -- is dropped, so "w4kwk " and "W4KWK" are the same
     // station rather than two.
     std::string NormalizeCallsign(const std::string& value);
+
+    // NormalizeCallsign, but a "?" is kept: the callsign field as typed,
+    // where a "?" turns on wildcard matching (see IsWildcardCallsign).
+    std::string NormalizeTypedCallsign(const std::string& value);
+
+    // True if what was typed in a callsign field has a "?": the operator's
+    // sign that they're unsure of some of it. Autocomplete then matches
+    // every other character typed, in that order, with anything between
+    // them, wherever the "?" is: "?4VW", "4VW?" and "4?V?W" all find
+    // KQ4EVW. The "?" itself matches nothing. Without one, what's typed
+    // must be a contiguous part of the callsign.
+    bool IsWildcardCallsign(const std::string& typed);
+
+    // True if wildcard matching has enough to go on: a "?" and at least two
+    // other characters (a lone "4?" would match half the licensees).
+    bool WildcardHasEnough(const std::string& typed);
+
+    // The SQL LIKE pattern for wildcard matching: the characters typed with
+    // "%" between them, "%4%V%W%". With `anchored` the first must start the
+    // callsign ("V%E%3%"), as a prefix match does.
+    std::string WildcardLikePattern(const std::string& typed, bool anchored);
+
+    // How many characters of the `length` bytes at `callsign` the typed
+    // characters `letters` (NormalizeCallsign of what was typed) span, in
+    // order, from the first one matched to the last, taking the tightest
+    // place they fit; -1 if they don't fit in order. A contiguous match
+    // spans as many characters as were typed, so a smaller span is a better
+    // match. With `anchored` the first must be the callsign's first.
+    int WildcardSpan(const std::string& letters, const char* callsign, std::size_t length, bool anchored);
 
     // A place name reduced to a form that compares equal however it was
     // written: uppercase, periods dropped, and the accented letters Census

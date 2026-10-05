@@ -370,6 +370,14 @@ namespace ql
         CHECK_EQ(ve[0].callsign, std::string("VE2XYZ"));
         CHECK_EQ(ve[1].callsign, std::string("VE3CLB"));
         CHECK(db.SearchIsedStationsByCallsignPrefix("VE3", 10).size() == 1);
+        // With a ? the first character still starts the callsign and the rest
+        // follow in order; as a substring it may start anywhere.
+        std::vector<Station> wild = db.SearchIsedStationsByCallsignPrefix("V?CL", 10);
+        REQUIRE(wild.size() == 1);
+        CHECK_EQ(wild[0].callsign, std::string("VE3CLB"));
+        CHECK(db.SearchIsedStationsByCallsignPrefix("E?C", 10).empty());
+        CHECK_EQ(db.SearchIsedStationsByCallsignSubstring("E?C", 10).size(), std::size_t{1});
+        CHECK(db.SearchIsedStationsByCallsignPrefix("V?", 10).empty());
         CHECK_EQ(db.FindLicensedStationByCallsign("VA3ABC")->name, std::string("Able, Ann"));
         CHECK_EQ(db.FindLicensedStationByCallsign("W4KWK")->name, std::string("KEENE, WES"));
 

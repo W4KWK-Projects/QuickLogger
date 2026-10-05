@@ -418,7 +418,7 @@ namespace ql
 
     void SavedStationCallsignChangeHandler::operator()() const
     {
-        state_->saved_station.callsign = NormalizeCallsign(state_->saved_station.callsign);
+        state_->saved_station.callsign = NormalizeTypedCallsign(state_->saved_station.callsign);
         RefreshSavedStationSuggestions(state_);
     }
 
@@ -927,7 +927,7 @@ namespace ql
 
     void CallsignSuggestHandler::operator()() const
     {
-        state_->modal_station.callsign = NormalizeCallsign(state_->modal_station.callsign);
+        state_->modal_station.callsign = NormalizeTypedCallsign(state_->modal_station.callsign);
         RefreshCallsignSuggestions(state_);
     }
 
