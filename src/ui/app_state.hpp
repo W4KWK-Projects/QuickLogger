@@ -433,6 +433,12 @@ namespace ql
         // out once per session (see ScpUploadCommand).
         std::string scp_upload_command;
         bool scp_upload_command_ready = false;
+        // Who and where scp commands go (see ScpTarget), worked out once
+        // per session: that can ask DNS, which can block.
+        mutable bool scp_target_ready = false;
+        mutable bool scp_target_found = false;
+        mutable std::string scp_user_at_host;
+        mutable std::string scp_port_option;
         AppSettings settings;
         AppSettings settings_form;
         // The Settings page's clock choice (0 = 12-hour, 1 = 24-hour), an

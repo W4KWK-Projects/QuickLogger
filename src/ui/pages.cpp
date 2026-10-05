@@ -51,7 +51,7 @@ namespace ql
     // wide for the terminal wraps, and then fills its rows.
     static ftxui::Element CommandBlock(const std::string& command)
     {
-        if (ftxui::string_width(command) <= ftxui::Terminal::Size().dimx)
+        if (TextWidth(command) <= FrameTerminalSize().dimx)
         {
             return ftxui::hbox({ftxui::text(command) | ftxui::inverted, ftxui::filler()});
         }
@@ -2516,8 +2516,9 @@ namespace ql
     // ---- Import net page ---------------------------------------------------
 
     // What the Import page says while it has no files to list.
-    static std::string EmptyImportListHint(AppState* state, const std::string& pattern)
+    static std::string EmptyImportListHint(AppState* state, const std::string& pattern, const std::string** command)
     {
+        *command = nullptr;
         if (CanPullUpstream(state) && !(state->import_session && state->import_session_ad_hoc))
         {
             return "No " + pattern + " files in imports/ yet. Press F4 to pull one from " +
@@ -2530,21 +2531,25 @@ namespace ql
         if (state->over_mosh || NoZmodemOnThisSystem() || SessionPrefersSftp(state))
         {
             const std::string& upload = ScpUploadCommand(state);
-            return upload.empty() ? "No " + pattern + " files received yet. Upload one with scp or sftp to /imports."
-                                  : "No " + pattern + " files received yet. Upload one with this command:\n" + upload;
+            if (upload.empty())
+            {
+                return "No " + pattern + " files received yet. Upload one with scp or sftp to /imports.";
+            }
+            // The command goes on its own line, below the hint.
+            *command = &upload;
+            return "No " + pattern + " files received yet. Upload one with this command:";
         }
         return "No " + pattern + " files received yet. Press F3 to receive one via ZMODEM.";
     }
 
-    // A hint, with a command after its first line if it has one.
-    static ftxui::Element HintWithCommand(const std::string& text)
+    // A hint, with a command under it if it has one.
+    static ftxui::Element HintWithCommand(const std::string& hint, const std::string* command)
     {
-        std::string::size_type newline = text.find('\n');
-        if (newline == std::string::npos)
+        if (command == nullptr)
         {
-            return HintText(text);
+            return HintText(hint);
         }
-        return ftxui::vbox({HintText(text.substr(0, newline)), CommandBlock(text.substr(newline + 1))});
+        return ftxui::vbox({HintText(hint), CommandBlock(*command)});
     }
 
     class ImportNetRenderer
@@ -2558,9 +2563,17 @@ namespace ql
         {
             bool session = state_->import_session;
             std::string pattern = session ? "*.qlsession" : "*.qlnet";
-            ftxui::Element file_list = state_->import_net_files.empty()
-                                           ? HintWithCommand(EmptyImportListHint(state_, pattern))
-                                           : file_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator;
+            ftxui::Element file_list;
+            if (state_->import_net_files.empty())
+            {
+                const std::string* command = nullptr;
+                std::string hint = EmptyImportListHint(state_, pattern, &command);
+                file_list = HintWithCommand(hint, command);
+            }
+            else
+            {
+                file_list = file_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator;
+            }
 
             ftxui::Elements rows;
             if (session)
@@ -2582,7 +2595,8 @@ namespace ql
                 const std::string& upload = ScpUploadCommand(state_);
                 if (!upload.empty())
                 {
-                    rows.push_back(HintWithCommand("Upload another with this command:\n" + upload));
+                    static const std::string kUploadAnother = "Upload another with this command:";
+                    rows.push_back(HintWithCommand(kUploadAnother, &upload));
                 }
             }
             rows.push_back(StatusLine(state_->status_message));

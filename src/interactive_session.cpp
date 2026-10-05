@@ -469,7 +469,7 @@ namespace ql
                     }
                 }
             }
-            shown_import_files_ = files;
+            shown_import_files_ = std::move(files);
             import_snapshot_taken_ = true;
             screen_->Post(RefreshImportFilesTask(state_, new_file));
         }

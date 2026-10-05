@@ -2869,11 +2869,30 @@ namespace ql
         return slash == std::string::npos ? path : path.substr(slash + 1);
     }
 
+    static bool ResolveScpTarget(const AppState* state, std::string* user_at_host, std::string* port_option);
+
     // Who and where an SSH user's scp commands go: "W4KWK@host" and
     // " -P 2200" (empty for port 22), from the server address in the
     // console's Settings, or a guess (see server_address.hpp). False if
     // there is no address to give.
     static bool ScpTarget(const AppState* state, std::string* user_at_host, std::string* port_option)
+    {
+        // Worked out once per session: it reads the console's settings and
+        // may ask DNS.
+        if (!state->scp_target_ready)
+        {
+            state->scp_target_ready = true;
+            state->scp_target_found = ResolveScpTarget(state, &state->scp_user_at_host, &state->scp_port_option);
+        }
+        if (state->scp_target_found)
+        {
+            *user_at_host = state->scp_user_at_host;
+            *port_option = state->scp_port_option;
+        }
+        return state->scp_target_found;
+    }
+
+    static bool ResolveScpTarget(const AppState* state, std::string* user_at_host, std::string* port_option)
     {
         std::string connected_to;
         const char* connection = std::getenv("SSH_CONNECTION");
@@ -3930,8 +3949,13 @@ namespace ql
             state->form_error = error;
             return;
         }
-        state->db->UpdateUserKeyLine(key.id, line);
-        state->db->UpdateUserKeyTransfer(key.id, state->my_key_transfer_index);
+        {
+            // The two changes together: one commit, and both or neither.
+            Database::WriteTransaction writes(state->db);
+            state->db->UpdateUserKeyLine(key.id, line);
+            state->db->UpdateUserKeyTransfer(key.id, state->my_key_transfer_index);
+            writes.Commit();
+        }
         if (key.id == state->ssh_key_id)
         {
             state->ssh_transfer_method = state->my_key_transfer_index;
@@ -5884,13 +5908,14 @@ namespace ql
                                     std::vector<std::string>* sources)
     {
         // The matches, nearest first, then their records in one query.
-        std::string upper = ToUpperAscii(typed);
         bool wildcard = IsWildcardCallsign(typed);
-        std::string letters = NormalizeCallsign(typed);
         if (wildcard && !WildcardHasEnough(typed))
         {
             return;
         }
+        // Only the form being matched with is made, once, not per candidate.
+        std::string upper = wildcard ? std::string() : ToUpperAscii(typed);
+        std::string letters = wildcard ? NormalizeCallsign(typed) : std::string();
         std::vector<const NearbyUlsCallsign*> matches;
         std::vector<std::string> match_callsigns;
         for (const NearbyUlsCallsign& candidate : candidates)
@@ -6062,15 +6087,16 @@ namespace ql
         // as typed, and the matches are ranked; anchored at the start when
         // only a prefix is wanted.
         bool wildcard = IsWildcardCallsign(typed);
-        std::string normalized = wildcard ? typed : NormalizeCallsign(typed);
-        if (suggestions->size() >= max_suggestions || NormalizeCallsign(typed).empty() ||
-            (wildcard && !WildcardHasEnough(typed)) || (!partial && !LooksCanadian(typed)))
+        std::string normalized = NormalizeCallsign(typed);
+        if (suggestions->size() >= max_suggestions || normalized.empty() || (wildcard && !WildcardHasEnough(typed)) ||
+            (!partial && !LooksCanadian(typed)))
         {
             return;
         }
         int limit = wildcard ? kWildcardFetch : static_cast<int>(max_suggestions);
-        std::vector<Station> matches = partial ? state->db->SearchIsedStationsByCallsignSubstring(normalized, limit)
-                                               : state->db->SearchIsedStationsByCallsignPrefix(normalized, limit);
+        std::vector<Station> matches =
+            partial ? state->db->SearchIsedStationsByCallsignSubstring(wildcard ? typed : normalized, limit)
+                    : state->db->SearchIsedStationsByCallsignPrefix(wildcard ? typed : normalized, limit);
         if (wildcard)
         {
             RankWildcardMatches(&matches, typed, !partial, max_suggestions);
