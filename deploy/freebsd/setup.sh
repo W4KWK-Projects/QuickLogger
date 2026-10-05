@@ -22,7 +22,7 @@ set -eu
 cd "$(dirname "$0")"
 
 env ASSUME_ALWAYS_YES=yes pkg bootstrap -f
-pkg install -y libssh curl sqlite3 lrzsz mosh jq
+pkg install -y libssh curl sqlite3 mosh jq
 
 # The admin SSH: port 2200, keys only.
 sysrc sshd_enable=YES

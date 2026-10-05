@@ -43,7 +43,7 @@ if apt-cache show libcurl4t64 > /dev/null 2>&1; then
 else
     libcurl=libcurl4
 fi
-apt-get install -y -q libssh-4 "$libcurl" libsqlite3-0 sqlite3 lrzsz mosh jq curl ca-certificates \
+apt-get install -y -q libssh-4 "$libcurl" libsqlite3-0 sqlite3 mosh jq curl ca-certificates \
     unattended-upgrades
 
 # The admin SSH: port 2200, keys only. A drop-in file, which sshd reads
