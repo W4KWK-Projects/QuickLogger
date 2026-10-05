@@ -25,10 +25,12 @@ namespace ql
         return true;
     }
 
-    bool SendFilesViaZmodem(ftxui::ScreenInteractive* screen, const std::vector<std::string>& paths, std::string* error)
+    bool SendFilesViaZmodem(ftxui::ScreenInteractive* screen, const std::vector<std::string>& paths, std::string* error,
+                            int start_timeout_seconds)
     {
         (void)screen;
         (void)paths;
+        (void)start_timeout_seconds;
         *error = "ZMODEM transfers aren't supported on Windows.";
         return false;
     }
@@ -73,7 +75,6 @@ namespace ql
     // How long to wait for a receiver to answer before giving up. Chosen to
     // comfortably cover a human noticing and accepting a "receive file?"
     // prompt in their terminal client, while still being a bounded wait.
-    static constexpr int kZmodemTimeoutSeconds = 25;
     // How long to leave the terminal alone once a transfer has finished,
     // before QuickLogger redraws. The terminal program is still wrapping up
     // then: ZOC, for one, prints its transfer summary (and the "OO" that
@@ -113,8 +114,8 @@ namespace ql
     class RunZmodemSend
     {
     public:
-        RunZmodemSend(std::vector<std::string> paths, bool* ok, std::string* error)
-            : paths_(std::move(paths)), ok_(ok), error_(error)
+        RunZmodemSend(std::vector<std::string> paths, int start_timeout_seconds, bool* ok, std::string* error)
+            : paths_(std::move(paths)), start_timeout_seconds_(start_timeout_seconds), ok_(ok), error_(error)
         {
         }
 
@@ -138,20 +139,31 @@ namespace ql
                 file.mtime = ::stat(path.c_str(), &info) == 0 ? static_cast<std::int64_t>(info.st_mtime) : 0;
                 files.push_back(std::move(file));
             }
-            TerminalChannel terminal;
             bool answered = false;
             std::string failure;
-            if (ZmodemSend(&terminal, files, kZmodemTimeoutSeconds, &answered, &failure))
+            bool sent = false;
             {
-                *ok_ = true;
-                return;
+                TerminalChannel terminal;
+                sent = ZmodemSend(&terminal, files, start_timeout_seconds_, &answered, &failure);
             }
-            *error_ = answered ? "ZMODEM transfer failed or was cancelled: " + failure
-                               : "ZMODEM transfer timed out -- no receiver responded.";
+            // The terminal is wrapping up only if it took part: one that never
+            // answered has nothing to finish, so no pause (see
+            // kTerminalSettleMicroseconds).
+            if (answered)
+            {
+                usleep(kTerminalSettleMicroseconds);
+            }
+            *ok_ = sent;
+            if (!sent)
+            {
+                *error_ = answered ? "ZMODEM transfer failed or was cancelled: " + failure
+                                   : "ZMODEM transfer timed out -- no receiver responded.";
+            }
         }
 
     private:
         std::vector<std::string> paths_;
+        int start_timeout_seconds_;
         bool* ok_;
         std::string* error_;
     };
@@ -173,10 +185,17 @@ namespace ql
         ftxui::Closure transfer_;
     };
 
-    bool SendFilesViaZmodem(ftxui::ScreenInteractive* screen, const std::vector<std::string>& paths, std::string* error)
+    bool SendFilesViaZmodem(ftxui::ScreenInteractive* screen, const std::vector<std::string>& paths, std::string* error,
+                            int start_timeout_seconds)
     {
+        // Nothing to talk to: the same as a terminal that never answers.
+        if (screen == nullptr || ::isatty(STDIN_FILENO) == 0)
+        {
+            *error = "ZMODEM transfer timed out -- no receiver responded.";
+            return false;
+        }
         bool ok = false;
-        ftxui::Closure run = screen->WithRestoredIO(ThenLetTerminalSettle(RunZmodemSend(paths, &ok, error)));
+        ftxui::Closure run = screen->WithRestoredIO(RunZmodemSend(paths, start_timeout_seconds, &ok, error));
         run();
         // FTXUI took the terminal back, turning movement reports on again.
         RequestMouseMovementReportsOff();
@@ -217,7 +236,7 @@ namespace ql
             {
                 TerminalChannel terminal;
                 transferred = ZmodemReceive(&terminal, &received, static_cast<std::size_t>(kSftpMaxUploadBytes),
-                                            kZmodemTimeoutSeconds, &failure);
+                                            kZmodemWaitSeconds, &failure);
             }
             // What arrived whole is kept even if the batch didn't finish.
             for (const ZmodemFile& file : received)

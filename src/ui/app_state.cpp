@@ -2840,8 +2840,10 @@ namespace ql
     static std::string RemoteCopyMessage(const AppState* state, const std::vector<std::string>& paths,
                                          const std::string& before = "");
 
+    static void SendByProbe(AppState* state, const std::vector<std::string>& paths);
+
     void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths, std::int64_t push_net_id,
-                              std::int64_t push_instance_id)
+                              std::int64_t push_instance_id, const std::vector<std::string>* zip_contents)
     {
         state->zmodem_zip_contents.clear();
         // Only with an upstream to push to, from the console.
@@ -2885,14 +2887,25 @@ namespace ql
             return;
         }
 
-        // Don't send yet -- the transfer hijacks the real terminal for its
-        // raw protocol bytes and can't show anything meaningful while it's
-        // in flight, so the operator needs a chance to get their client's
-        // receive dialog ready (or back out) *before* that happens, not be
-        // dropped into it with no warning. ConfirmZmodemAction/
-        // CancelZmodemAction (wired to the modal's F2/Enter and Esc) do the
-        // actual send.
-        state->status_message = "Saved to " + ListPaths(paths) + ".";
+        // A key on Ask: no window. A short wait says whether the terminal
+        // speaks ZMODEM, and what it says is kept for next time.
+        if (zip_contents != nullptr)
+        {
+            state->zmodem_zip_contents = *zip_contents;
+        }
+        if (state->ssh_transfer_method == kTransferAsk)
+        {
+            SendByProbe(state, paths);
+            return;
+        }
+        // A key on ZMODEM: don't send yet -- the transfer hijacks the real
+        // terminal for its raw protocol bytes and can't show anything
+        // meaningful while it's in flight, and a terminal that doesn't
+        // answer by itself needs its receive started first. So the operator
+        // gets a chance to do that (or back out) *before* it happens.
+        // ConfirmZmodemAction/CancelZmodemAction (wired to the modal's
+        // F2/Enter and Esc) do the actual send.
+        state->status_message = "Saved to " + ListPaths(zip_contents != nullptr ? *zip_contents : paths) + ".";
         state->zmodem_action = ZmodemAction::kSend;
         state->zmodem_send_paths = paths;
         state->show_zmodem_confirm_modal = true;
@@ -3069,6 +3082,98 @@ namespace ql
         }
     }
 
+    // The real ZMODEM sender, or the one a test has put in its place.
+    static bool SendFiles(AppState* state, const std::vector<std::string>& paths, int start_timeout_seconds,
+                          std::string* error)
+    {
+        return state->zmodem_send != nullptr ? state->zmodem_send(state->screen, paths, error, start_timeout_seconds)
+                                             : SendFilesViaZmodem(state->screen, paths, error, start_timeout_seconds);
+    }
+
+    // Keeps what a transfer showed about this key's terminal as its Transfer
+    // method (kTransfer*), for this session and, for a key QuickLogger
+    // knows (not a login by the system's own sshd), in the database. It can
+    // be changed in My Keys. True if it was saved for next time.
+    static bool LearnTransferMethod(AppState* state, int method)
+    {
+        state->ssh_transfer_method = method;
+        if (state->ssh_key_id == 0 || state->db == nullptr)
+        {
+            return false;
+        }
+        try
+        {
+            state->db->UpdateUserKeyTransfer(state->ssh_key_id, method);
+        }
+        catch (const std::exception&)
+        {
+            return false;  // Busy right now; the session still remembers it.
+        }
+        return true;
+    }
+
+    // What a ZMODEM send came to. `learn`: it was a probe on an Ask key, so
+    // the answer is kept as the key's Transfer method: ZMODEM if the terminal
+    // answered and took the files, SFTP if it never answered. A transfer that
+    // started and then failed or was cancelled says nothing about it.
+    static void FinishZmodemSend(AppState* state, bool sent, const std::string& error, bool learn)
+    {
+        // A terminal that never answered doesn't speak ZMODEM: the files
+        // stay (the .zip too) and the scp command is given instead.
+        if (!sent && error.find("no receiver responded") != std::string::npos)
+        {
+            state->zmodem_zip_contents.clear();
+            std::string before = "No ZMODEM from your terminal. ";
+            if (learn && LearnTransferMethod(state, kTransferSftp))
+            {
+                before += "This key now shows scp commands; change it in My Keys (F4 on Settings). ";
+            }
+            state->status_message = RemoteCopyMessage(state, state->zmodem_send_paths, before);
+            return;
+        }
+        // What's left in exports/ to name: without the .zip, once it's
+        // removed.
+        std::vector<std::string> saved = SavedAfterZmodem(state);
+        if (sent)
+        {
+            // Just the names: the server's folders are no use to the person
+            // who has the files now.
+            std::string names;
+            for (const std::string& path : state->zmodem_send_paths)
+            {
+                names += names.empty() ? "" : ", ";
+                names += BaseFileName(path);
+            }
+            state->status_message = "Sent " + names + " via ZMODEM.";
+            if (learn && LearnTransferMethod(state, kTransferZmodem))
+            {
+                state->status_message += " This key now sends by ZMODEM; change it in My Keys.";
+            }
+        }
+        else
+        {
+            state->status_message = "Saved to " + ListPaths(saved) + " (" + error + ")";
+        }
+    }
+
+    // An SSH user's key is on Ask: no window. The terminal is asked at once
+    // whether it speaks ZMODEM, for a few seconds (one that auto-detects it
+    // answers in a fraction of one); the files go if it does.
+    static void SendByProbe(AppState* state, const std::vector<std::string>& paths)
+    {
+        state->zmodem_send_paths = paths;
+        std::string error;
+        bool sent = SendFiles(state, paths, kZmodemProbeSeconds, &error);
+        FinishZmodemSend(state, sent, error, true);
+    }
+
+    bool HasScpAddress(const AppState* state)
+    {
+        std::string user_at_host;
+        std::string port_option;
+        return ScpTarget(state, &user_at_host, &port_option);
+    }
+
     void ConfirmZmodemAction(AppState* state)
     {
         state->show_zmodem_confirm_modal = false;
@@ -3089,30 +3194,10 @@ namespace ql
         }
         if (state->zmodem_action == ZmodemAction::kSend)
         {
-            bool sent = SendFilesViaZmodem(state->screen, state->zmodem_send_paths, &error);
-            // A terminal that never answered doesn't speak ZMODEM: the files
-            // stay (the .zip too) and the scp command is given instead.
-            if (!sent && error.find("no receiver responded") != std::string::npos)
-            {
-                state->zmodem_zip_contents.clear();
-                state->status_message =
-                    RemoteCopyMessage(state, state->zmodem_send_paths, "No ZMODEM from your terminal. ");
-                return;
-            }
-            // What's left in exports/ to name: without the .zip, once it's
-            // removed.
-            std::vector<std::string> saved = SavedAfterZmodem(state);
-            if (sent)
-            {
-                state->status_message = state->zmodem_send_paths.size() == 1 && saved != state->zmodem_send_paths
-                                            ? "Sent " + BaseFileName(state->zmodem_send_paths[0]) +
-                                                  " via ZMODEM; saved to " + ListPaths(saved) + "."
-                                            : "Saved to " + ListPaths(saved) + " and sent via ZMODEM.";
-            }
-            else
-            {
-                state->status_message = "Saved to " + ListPaths(saved) + " (" + error + ")";
-            }
+            // The key says ZMODEM (the window was shown, and the terminal was
+            // given time to be told to receive): nothing is learned.
+            bool sent = SendFiles(state, state->zmodem_send_paths, kZmodemWaitSeconds, &error);
+            FinishZmodemSend(state, sent, error, false);
             return;
         }
 
@@ -3122,11 +3207,19 @@ namespace ql
         {
             return;
         }
-        if (ReceiveFileViaZmodem(state->screen, SessionImportsDir(state->db_path, state->ssh_username), &error))
+        std::string imports_dir = SessionImportsDir(state->db_path, state->ssh_username);
+        bool received = state->zmodem_receive != nullptr ? state->zmodem_receive(state->screen, imports_dir, &error)
+                                                         : ReceiveFileViaZmodem(state->screen, imports_dir, &error);
+        if (received)
         {
             RefreshImportNetFiles(state);
             state->form_error.clear();
             state->status_message = "Received a file. Highlight it below and press F2 to import.";
+            // A key on Ask whose terminal just sent by ZMODEM speaks it.
+            if (state->ssh_transfer_method == kTransferAsk && LearnTransferMethod(state, kTransferZmodem))
+            {
+                state->status_message += " This key now sends by ZMODEM; change it in My Keys.";
+            }
         }
         else
         {
@@ -4407,14 +4500,9 @@ namespace ql
             state->form_error = "Saved " + ListPaths(paths) + ", but not " + zip_path + ": " + error;
             return;
         }
-        OfferZmodemSendFiles(state, {zip_path}, 0, push_instance_id);
         // After a ZMODEM send the .zip is removed, leaving the files. For scp
         // both stay: QuickLogger can't tell when the .zip has been fetched.
-        if (state->show_zmodem_confirm_modal && state->zmodem_action == ZmodemAction::kSend)
-        {
-            state->zmodem_zip_contents = paths;
-            state->status_message = "Saved to " + ListPaths(paths) + ".";
-        }
+        OfferZmodemSendFiles(state, {zip_path}, 0, push_instance_id, &paths);
     }
 
     void ExportSavedStations(AppState* state, const std::string& net_name)

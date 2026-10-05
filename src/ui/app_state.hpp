@@ -406,6 +406,11 @@ namespace ql
         // This session's own key's Transfer method (kTransfer*), read at login
         // and when My Keys saves it; Ask if unknown (the console, Mosh).
         int ssh_transfer_method = 0;
+        // What sends and receives files by ZMODEM; null is the real thing
+        // (SendFilesViaZmodem, ReceiveFileViaZmodem). Tests put their own
+        // here, since the real ones need a terminal.
+        bool (*zmodem_send)(ftxui::ScreenInteractive*, const std::vector<std::string>&, std::string*, int) = nullptr;
+        bool (*zmodem_receive)(ftxui::ScreenInteractive*, const std::string&, std::string*) = nullptr;
         int my_keys_focus = 0;
         std::string rename_username;
         int edit_user_access_index = 0;
@@ -1152,8 +1157,18 @@ namespace ql
     void OfferZmodemSend(AppState* state, const std::string& path, std::int64_t push_net_id = 0,
                          std::int64_t push_instance_id = 0);
     // The same for several files written together, sent as one batch.
+    // `zip_contents`, if given, are the files a .zip in `paths` holds, which
+    // stay in exports/ once the .zip has been sent (see zmodem_zip_contents).
+    // For an SSH user whose key is on Ask there is no window: the terminal is
+    // asked at once whether it speaks ZMODEM (a short wait), the files are
+    // sent if it does and the scp command is shown if not, and the answer is
+    // kept as that key's Transfer method.
     void OfferZmodemSendFiles(AppState* state, const std::vector<std::string>& paths, std::int64_t push_net_id = 0,
-                              std::int64_t push_instance_id = 0);
+                              std::int64_t push_instance_id = 0,
+                              const std::vector<std::string>* zip_contents = nullptr);
+    // True if an SSH user can be shown an scp command: there is an address
+    // for it (see ScpTarget).
+    bool HasScpAddress(const AppState* state);
 
     // Reloads AppState::import_net_files from whatever *.qlnet files (or
     // *.qlsession, when AppState::import_session) are currently sitting

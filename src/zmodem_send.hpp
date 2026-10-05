@@ -11,6 +11,12 @@ namespace ftxui
 namespace ql
 {
 
+    // How long a send waits for a person to start their terminal's receive.
+    constexpr int kZmodemWaitSeconds = 25;
+    // How long it waits when it only asks whether the terminal speaks ZMODEM
+    // (a terminal that auto-detects it answers in a fraction of a second).
+    constexpr int kZmodemProbeSeconds = 4;
+
     // True if the `sz` command (from the lrzsz package; `lsz` on FreeBSD)
     // needed to send a file via ZMODEM is installed, on PATH or in one of
     // the usual package directories. Checked before attempting a
@@ -50,8 +56,14 @@ namespace ql
     // set to a short message and the caller should still treat `paths` as
     // having been written successfully (this only concerns whether they
     // also reached a remote client).
-    bool SendFilesViaZmodem(ftxui::ScreenInteractive* screen, const std::vector<std::string>& paths,
-                            std::string* error);
+    // `start_timeout_seconds` is how long to wait for the terminal to answer
+    // the opening request: a short one (see kZmodemProbeSeconds) asks "does
+    // this terminal speak ZMODEM?"; the long default leaves time for a
+    // person to start their terminal's receive. With no terminal at all
+    // (`screen` null, or standard input not a terminal) it fails at once,
+    // as a terminal that never answers would.
+    bool SendFilesViaZmodem(ftxui::ScreenInteractive* screen, const std::vector<std::string>& paths, std::string* error,
+                            int start_timeout_seconds = kZmodemWaitSeconds);
 
     // The receiving mirror of SendFilesViaZmodem: suspends `screen`'s
     // terminal hooks the same way, forks and execs `rz` with its working

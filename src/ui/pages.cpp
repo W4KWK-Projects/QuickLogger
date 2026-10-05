@@ -538,6 +538,12 @@ namespace ql
                 rows.push_back(ftxui::text("Open your terminal's file-receive (ZMODEM) dialog now, then"));
                 rows.push_back(ftxui::text("press Enter to start. Gives up after 25s if"));
                 rows.push_back(ftxui::text("nothing responds."));
+                // Over SSH, with an address to build it from.
+                if (!state_->ssh_username.empty() && HasScpAddress(state_))
+                {
+                    rows.push_back(ftxui::text(""));
+                    rows.push_back(ftxui::text("No ZMODEM? Esc skips it and shows the scp command."));
+                }
                 rows.push_back(DialogSeparator());
                 if (can_push)
                 {
@@ -556,6 +562,11 @@ namespace ql
                 rows.push_back(ftxui::text("Press Enter now to start listening, THEN start"));
                 rows.push_back(ftxui::text("sending (uploading) the file from your terminal client."));
                 rows.push_back(ftxui::text("Gives up after 25s if nothing arrives."));
+                if (!state_->ssh_username.empty() && HasScpAddress(state_))
+                {
+                    rows.push_back(ftxui::text(""));
+                    rows.push_back(ftxui::text("No ZMODEM? Esc shows the scp upload command."));
+                }
                 rows.push_back(DialogSeparator());
                 rows.push_back(KeyHintRow({{"F2/Enter", "Receive"}, {"Esc", "Cancel"}}));
             }
@@ -1818,9 +1829,9 @@ namespace ql
             rows.push_back(ftxui::hbox({FieldLabel("Transfer: "), transfer_toggle_->Render()}));
             rows.push_back(DialogSeparator());
             rows.push_back(
-                HintParagraph("Up/Down picks a key, Tab moves between the fields. The comment is a name to "
-                              "tell your keys apart, such as \"My Mac\". Transfer is how this key's "
-                              "device gets files: ZMODEM, SFTP, or Ask to be offered ZMODEM."));
+                HintParagraph("Up/Down picks a key, Tab moves between fields. Transfer: ZMODEM waits for your "
+                              "terminal to receive, SFTP shows scp commands, Ask tries ZMODEM and remembers "
+                              "what worked."));
             rows.push_back(DialogSeparator());
             rows.push_back(KeyHintRow({{"F2", "Save"}, {"Esc", "Close"}}));
             rows.push_back(StatusLine(state_->status_message));

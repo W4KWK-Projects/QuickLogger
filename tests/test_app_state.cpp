@@ -41,6 +41,8 @@ namespace ql
             state.db_path = dir_.File("quicklogger.db");
             state.settings.callsign = "W4KWK";
             state.settings.location = "37415";
+            // The window a key on ZMODEM shows; Ask probes the terminal at once.
+            state.ssh_transfer_method = kTransferZmodem;
         }
 
         Database* db()
@@ -1275,6 +1277,159 @@ namespace ql
         // Back at 80 it is as it was.
         UpdateListWidths(&f.state, 80);
         CHECK_EQ(f.state.my_keys_labels[0].find("ED25519"), narrow_type);
+    }
+
+    // What the tests' stand-ins for the ZMODEM sender and receiver say, and
+    // how often they were asked.
+    static bool g_fake_zmodem_answers = false;
+    static bool g_fake_zmodem_transfers = true;
+    static int g_fake_zmodem_sends = 0;
+    static int g_fake_zmodem_probe_seconds = 0;
+
+    static bool FakeZmodemSend(ftxui::ScreenInteractive*, const std::vector<std::string>&, std::string* error,
+                               int start_timeout_seconds)
+    {
+        ++g_fake_zmodem_sends;
+        g_fake_zmodem_probe_seconds = start_timeout_seconds;
+        if (!g_fake_zmodem_answers)
+        {
+            *error = "ZMODEM transfer timed out -- no receiver responded.";
+            return false;
+        }
+        if (!g_fake_zmodem_transfers)
+        {
+            *error = "ZMODEM transfer failed or was cancelled: the terminal cancelled";
+            return false;
+        }
+        return true;
+    }
+
+    static bool FakeZmodemReceive(ftxui::ScreenInteractive*, const std::string&, std::string*)
+    {
+        return true;
+    }
+
+    // An SSH user on a key whose Transfer method is `method`, with a server
+    // address to give scp commands from.
+    static std::int64_t SshUserWithKey(Fixture* f, int method)
+    {
+        {
+            std::ofstream settings(f->dir().File("settings.txt"));
+            settings << "server_address=example.org\n";
+        }
+        User user;
+        user.username = "KX0TST";
+        user.public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINM3eCDBCkdxto9OIGli2KKnorIhCylrEpYHnMPxdkAI laptop";
+        user.amateur_callsign = "KX0TST";
+        f->db()->CreateUser(user);
+        std::int64_t key_id = f->db()->GetUserKeys("KX0TST")[0].id;
+        f->db()->UpdateUserKeyTransfer(key_id, method);
+        f->state.is_console_session = false;
+        f->state.ssh_username = "KX0TST";
+        f->state.ssh_key_id = key_id;
+        f->state.console_settings_path = f->dir().File("settings.txt");
+        f->state.zmodem_send = &FakeZmodemSend;
+        f->state.zmodem_receive = &FakeZmodemReceive;
+        LoadSessionTransferMethod(&f->state);
+        g_fake_zmodem_answers = false;
+        g_fake_zmodem_transfers = true;
+        g_fake_zmodem_sends = 0;
+        g_fake_zmodem_probe_seconds = 0;
+        return key_id;
+    }
+
+    QL_TEST(AKeyOnAskProbesTheTerminalAndKeepsWhatItSays)
+    {
+        // A terminal that answers: sent at once, no window, key becomes ZMODEM.
+        Fixture f;
+        std::int64_t key_id = SshUserWithKey(&f, kTransferAsk);
+        REQUIRE(f.state.ssh_transfer_method == kTransferAsk);
+        g_fake_zmodem_answers = true;
+        OfferZmodemSendFiles(&f.state, {"./exports/ssh-users/KX0TST/Net.zip"});
+        CHECK(!f.state.show_zmodem_confirm_modal);
+        CHECK_EQ(g_fake_zmodem_sends, 1);
+        CHECK_EQ(g_fake_zmodem_probe_seconds, kZmodemProbeSeconds);
+        CHECK(f.state.status_message.find("via ZMODEM") != std::string::npos);
+        CHECK(f.state.status_message.find("This key now sends by ZMODEM") != std::string::npos);
+        CHECK_EQ(f.db()->GetUserKeys("KX0TST")[0].transfer_method, kTransferZmodem);
+        CHECK_EQ(f.state.ssh_transfer_method, kTransferZmodem);
+        // Now on ZMODEM: the window, no probe.
+        OfferZmodemSendFiles(&f.state, {"./exports/ssh-users/KX0TST/Net.zip"});
+        CHECK(f.state.show_zmodem_confirm_modal);
+        CHECK_EQ(g_fake_zmodem_sends, 1);
+        (void)key_id;
+    }
+
+    QL_TEST(AKeyOnAskThatGetsNoAnswerBecomesSftp)
+    {
+        Fixture f;
+        SshUserWithKey(&f, kTransferAsk);
+        g_fake_zmodem_answers = false;
+        OfferZmodemSendFiles(&f.state, {"./exports/ssh-users/KX0TST/Net.zip"});
+        CHECK(!f.state.show_zmodem_confirm_modal);
+        CHECK_EQ(g_fake_zmodem_sends, 1);
+        CHECK(f.state.status_message.find("No ZMODEM from your terminal.") == 0);
+        CHECK(f.state.status_message.find("This key now shows scp commands") != std::string::npos);
+        CHECK(f.state.status_message.find("scp -P 2222 KX0TST@example.org:/exports/Net.zip ./") != std::string::npos);
+        CHECK_EQ(f.db()->GetUserKeys("KX0TST")[0].transfer_method, kTransferSftp);
+        CHECK(SessionPrefersSftp(&f.state));
+        // The next export doesn't ask again.
+        OfferZmodemSendFiles(&f.state, {"./exports/ssh-users/KX0TST/Net.zip"});
+        CHECK_EQ(g_fake_zmodem_sends, 1);
+        CHECK(f.state.status_message.find("scp") != std::string::npos);
+    }
+
+    QL_TEST(ATransferThatStartsAndFailsLeavesTheKeyAlone)
+    {
+        Fixture f;
+        SshUserWithKey(&f, kTransferAsk);
+        g_fake_zmodem_answers = true;
+        g_fake_zmodem_transfers = false;
+        OfferZmodemSendFiles(&f.state, {"./exports/ssh-users/KX0TST/Net.zip"});
+        CHECK_EQ(g_fake_zmodem_sends, 1);
+        CHECK(f.state.status_message.find("This key now") == std::string::npos);
+        CHECK_EQ(f.db()->GetUserKeys("KX0TST")[0].transfer_method, kTransferAsk);
+        CHECK_EQ(f.state.ssh_transfer_method, kTransferAsk);
+    }
+
+    QL_TEST(AKeyOnZmodemShowsTheWindowAndNeverChangesItself)
+    {
+        Fixture f;
+        SshUserWithKey(&f, kTransferZmodem);
+        OfferZmodemSendFiles(&f.state, {"./exports/ssh-users/KX0TST/Net.zip"});
+        CHECK(f.state.show_zmodem_confirm_modal);
+        CHECK_EQ(g_fake_zmodem_sends, 0);
+        // Sent from the window with nothing answering: scp command, key unchanged.
+        ConfirmZmodemAction(&f.state);
+        CHECK_EQ(g_fake_zmodem_sends, 1);
+        CHECK_EQ(g_fake_zmodem_probe_seconds, kZmodemWaitSeconds);
+        CHECK(f.state.status_message.find("No ZMODEM from your terminal.") == 0);
+        CHECK(f.state.status_message.find("This key now") == std::string::npos);
+        CHECK_EQ(f.db()->GetUserKeys("KX0TST")[0].transfer_method, kTransferZmodem);
+        CHECK(HasScpAddress(&f.state));
+    }
+
+    QL_TEST(ALoginWithoutAKnownKeyRemembersWhatItLearnedForTheSession)
+    {
+        Fixture f;
+        SshUserWithKey(&f, kTransferAsk);
+        f.state.ssh_key_id = 0;  // From the system's own sshd: no key to save it on.
+        OfferZmodemSendFiles(&f.state, {"./exports/ssh-users/KX0TST/Net.zip"});
+        CHECK(f.state.status_message.find("No ZMODEM from your terminal.") == 0);
+        CHECK(f.state.status_message.find("This key now") == std::string::npos);
+        CHECK(SessionPrefersSftp(&f.state));
+        CHECK_EQ(f.db()->GetUserKeys("KX0TST")[0].transfer_method, kTransferAsk);
+    }
+
+    QL_TEST(AReceiveThatWorksOnAnAskKeyMakesItZmodem)
+    {
+        Fixture f;
+        SshUserWithKey(&f, kTransferAsk);
+        f.state.zmodem_action = ZmodemAction::kReceive;
+        ConfirmZmodemAction(&f.state);
+        CHECK(f.state.status_message.find("Received a file.") == 0);
+        CHECK(f.state.status_message.find("This key now sends by ZMODEM") != std::string::npos);
+        CHECK_EQ(f.db()->GetUserKeys("KX0TST")[0].transfer_method, kTransferZmodem);
     }
 
     QL_TEST(TabMovesFromTheKeyListToItsCommentAndTransferFields)
