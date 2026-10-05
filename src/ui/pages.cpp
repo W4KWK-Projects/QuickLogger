@@ -2572,6 +2572,17 @@ namespace ql
             }
             rows.push_back(Heading("Files ready to import:"));
             rows.push_back(Framed(file_list) | ftxui::flex);
+            // Where there's no ZMODEM, the command stays on screen after files
+            // have arrived, for the next one (an empty list shows it above).
+            if (!state_->import_net_files.empty() && !state_->ssh_username.empty() &&
+                (state_->over_mosh || NoZmodemOnThisSystem() || SessionPrefersSftp(state_)))
+            {
+                const std::string& upload = ScpUploadCommand(state_);
+                if (!upload.empty())
+                {
+                    rows.push_back(HintWithCommand("Upload another with this command:\n" + upload));
+                }
+            }
             rows.push_back(StatusLine(state_->status_message));
             rows.push_back(ErrorLine(state_->form_error));
 

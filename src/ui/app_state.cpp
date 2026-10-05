@@ -2924,7 +2924,7 @@ namespace ql
             std::string port_option;
             if (ScpTarget(state, &user_at_host, &port_option))
             {
-                state->scp_upload_command = "scp" + port_option + " FILE " + user_at_host + ":/imports/";
+                state->scp_upload_command = "scp" + port_option + " <FILE> " + user_at_host + ":/imports/";
             }
         }
         return state->scp_upload_command;
@@ -3049,6 +3049,15 @@ namespace ql
         {
             state->status_message.clear();
             state->form_error = error;
+            // A terminal that never sent anything doesn't speak ZMODEM:
+            // say how to upload instead.
+            const std::string& upload = ScpUploadCommand(state);
+            if (!state->ssh_username.empty() && !upload.empty() &&
+                error.find("no sender responded") != std::string::npos)
+            {
+                state->form_error.clear();
+                state->status_message = "Nothing arrived. Upload a file with this command:\n" + upload;
+            }
         }
     }
 
@@ -3061,11 +3070,24 @@ namespace ql
         }
         if (state->zmodem_action == ZmodemAction::kSend)
         {
-            state->status_message = "Saved to " + ListPaths(SavedAfterZmodem(state)) + " (ZMODEM skipped).";
+            // An SSH user who skips ZMODEM is told how to fetch the files
+            // with scp instead, the .zip included, as when nothing answers.
+            if (!ScpCommandFor(state, state->zmodem_send_paths).empty())
+            {
+                state->zmodem_zip_contents.clear();
+                state->status_message = RemoteCopyMessage(state, state->zmodem_send_paths, "ZMODEM skipped. ");
+            }
+            else
+            {
+                state->status_message = "Saved to " + ListPaths(SavedAfterZmodem(state)) + " (ZMODEM skipped).";
+            }
         }
         else
         {
-            state->status_message = "ZMODEM receive skipped.";
+            const std::string& upload = ScpUploadCommand(state);
+            state->status_message = upload.empty() || state->ssh_username.empty()
+                                        ? "ZMODEM receive skipped."
+                                        : "ZMODEM receive skipped. Upload a file with this command:\n" + upload;
         }
     }
 

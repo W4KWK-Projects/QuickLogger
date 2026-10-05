@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <vector>
@@ -1205,6 +1206,34 @@ namespace ql
         f.state.ssh_key_id = keys[1].id;
         LoadSessionTransferMethod(&f.state);
         CHECK(!SessionPrefersSftp(&f.state));
+    }
+
+    QL_TEST(SkippingZmodemGivesAnSshUserTheScpCommand)
+    {
+        Fixture f;
+        {
+            std::ofstream settings(f.dir().File("settings.txt"));
+            settings << "server_address=example.org\n";
+        }
+        f.state.is_console_session = false;
+        f.state.ssh_username = "K4WES";
+        f.state.console_settings_path = f.dir().File("settings.txt");
+
+        f.state.zmodem_action = ZmodemAction::kSend;
+        f.state.zmodem_send_paths = {"./exports/ssh-users/K4WES/Net.zip"};
+        CancelZmodemAction(&f.state);
+        CHECK(f.state.status_message.find("ZMODEM skipped.") == 0);
+        CHECK(f.state.status_message.find("scp -P 2222 K4WES@example.org:/exports/Net.zip ./") != std::string::npos);
+
+        f.state.zmodem_action = ZmodemAction::kReceive;
+        CancelZmodemAction(&f.state);
+        CHECK(f.state.status_message.find("scp -P 2222 <FILE> K4WES@example.org:/imports/") != std::string::npos);
+
+        // At the console there's no scp to offer.
+        f.state.ssh_username.clear();
+        f.state.scp_upload_command_ready = false;
+        CancelZmodemAction(&f.state);
+        CHECK_EQ(f.state.status_message, std::string("ZMODEM receive skipped."));
     }
 
     QL_TEST(TabMovesFromTheKeyListToItsCommentAndTransferFields)
@@ -2739,15 +2768,23 @@ namespace ql
         {
             REQUIRE(f.state.zmodem_send_paths.size() == 1);
             CHECK(f.state.zmodem_send_paths[0].find(".zip") != std::string::npos);
-            // Once ZMODEM is done with it (here, skipped), the .zip goes;
-            // the files in it stay, and the message names them.
             CancelZmodemAction(&f.state);
-            CHECK(ListFilesWithExtension(mine, ".zip").empty());
             CHECK_EQ(ListFilesWithExtension(mine, ".adi").size(), std::size_t{1});
-            CHECK(f.state.status_message.find(".qlsession") != std::string::npos);
-            CHECK(f.state.status_message.find(".zip") == std::string::npos);
             CHECK(f.state.zmodem_zip_contents.empty());
-            zips = 0;
+            if (f.state.status_message.find("scp") != std::string::npos)
+            {
+                // Skipped, with an address to give: the .zip stays for scp.
+                CHECK(f.state.status_message.find(".zip") != std::string::npos);
+            }
+            else
+            {
+                // No address to give: once ZMODEM is done with it, the .zip
+                // goes; the files in it stay, and the message names them.
+                CHECK(ListFilesWithExtension(mine, ".zip").empty());
+                CHECK(f.state.status_message.find(".qlsession") != std::string::npos);
+                CHECK(f.state.status_message.find(".zip") == std::string::npos);
+                zips = 0;
+            }
         }
         f.state.show_zmodem_confirm_modal = false;
         CHECK(ListFilesWithExtension(f.dir().File("exports"), ".txt").empty());

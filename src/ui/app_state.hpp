@@ -1208,7 +1208,7 @@ namespace ql
     // ReceiveFileViaZmodem (into ImportsDir) instead of a send.
     void StartZmodemReceive(AppState* state);
 
-    // "scp FILE user@host:/imports/" for this SSH session, with -P if the port
+    // "scp <FILE> user@host:/imports/" for this SSH session, with -P if the port
     // isn't 22; empty if there is no address to give. Worked out once.
     const std::string& ScpUploadCommand(AppState* state);
 
