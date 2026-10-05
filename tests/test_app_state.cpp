@@ -1279,6 +1279,9 @@ namespace ql
         CHECK_EQ(f.state.my_keys_labels[0].find("ED25519"), narrow_type);
     }
 
+#if !defined(_WIN32)
+    // ZMODEM exists only where there is an SSH server; Windows reports none, so
+    // nothing below can run there.
     // What the tests' stand-ins for the ZMODEM sender and receiver say, and
     // how often they were asked.
     static bool g_fake_zmodem_answers = false;
@@ -1431,6 +1434,8 @@ namespace ql
         CHECK(f.state.status_message.find("This key now sends by ZMODEM") != std::string::npos);
         CHECK_EQ(f.db()->GetUserKeys("KX0TST")[0].transfer_method, kTransferZmodem);
     }
+
+#endif  // !_WIN32
 
     QL_TEST(TabMovesFromTheKeyListToItsCommentAndTransferFields)
     {
