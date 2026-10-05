@@ -24,6 +24,7 @@
 #include "../frequency_rules.hpp"
 #include "../file_export.hpp"
 #include "../geo_utils.hpp"
+#include "../precise_grid.hpp"
 #include "../gmrs_channels.hpp"
 #include "../mode_rules.hpp"
 #include "../net_slice.hpp"
@@ -5360,6 +5361,7 @@ namespace ql
         // is picked rather than only once it's saved.
         BackfillCountyFromZip(state, &state->modal_station);
         BackfillGridFromZip(state, &state->modal_station);
+        RequestPreciseGrid(state, state->modal_station);
 
         std::string default_remarks =
             state->db->GetSavedNetStationRemarks(state->active_instance.net_id, state->modal_station.callsign,
@@ -6003,6 +6005,7 @@ namespace ql
         // carry a county, so a ULS suggestion always needs this.)
         BackfillCountyFromZip(state, &state->saved_station);
         BackfillGridFromZip(state, &state->saved_station);
+        RequestPreciseGrid(state, state->saved_station);
         state->saved_station_suggestions.clear();
         state->saved_station_suggestion_labels.clear();
         state->saved_station_suggestion_sources.clear();
@@ -6050,6 +6053,37 @@ namespace ql
         if (centroid.has_value())
         {
             station->grid_square = MaidenheadGrid4(centroid->lat, centroid->lon);
+        }
+    }
+
+    void RequestPreciseGrid(AppState* state, const Station& station)
+    {
+        if (state->grid_lookup == nullptr || (!station.grid_square.empty() && station.grid_square.size() != 4) ||
+            !CanLookUpGrid(station))
+        {
+            return;
+        }
+        state->grid_lookup->Request(MakeGridRequest(station));
+    }
+
+    void ApplyPreciseGrid(AppState* state, const std::string& callsign, const std::string& grid)
+    {
+        bool changed = false;
+        if (state->show_new_station_modal && state->modal_station.callsign == callsign &&
+            ShouldTakePreciseGrid(state->modal_station.grid_square, grid))
+        {
+            state->modal_station.grid_square = grid;
+            changed = true;
+        }
+        if (state->show_saved_station_modal && state->saved_station.callsign == callsign &&
+            ShouldTakePreciseGrid(state->saved_station.grid_square, grid))
+        {
+            state->saved_station.grid_square = grid;
+            changed = true;
+        }
+        if (changed && state->screen != nullptr)
+        {
+            state->screen->PostEvent(ftxui::Event::Custom);
         }
     }
 

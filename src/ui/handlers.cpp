@@ -913,6 +913,7 @@ namespace ql
             state_->modal_station = std::move(*station);
             BackfillCountyFromZip(state_, &state_->modal_station);
             BackfillGridFromZip(state_, &state_->modal_station);
+            RequestPreciseGrid(state_, state_->modal_station);
         }
 
         std::string default_remarks = state_->db->GetSavedNetStationRemarks(

@@ -81,6 +81,36 @@ namespace ql
         return grid;
     }
 
+    std::string MaidenheadGrid6(double lat, double lon)
+    {
+        if (!(lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0))
+        {
+            return std::string();
+        }
+        double x = std::min(lon + 180.0, 359.999999);
+        double y = std::min(lat + 90.0, 179.999999);
+        int field_lon = static_cast<int>(x / 20.0);
+        int field_lat = static_cast<int>(y / 10.0);
+        x -= field_lon * 20.0;
+        y -= field_lat * 10.0;
+        int square_lon = static_cast<int>(x / 2.0);
+        int square_lat = static_cast<int>(y);
+        x -= square_lon * 2.0;
+        y -= square_lat;
+        // 24 subsquares each way: 5 minutes of longitude, 2.5 of latitude.
+        int sub_lon = std::min(23, static_cast<int>(x * 12.0));
+        int sub_lat = std::min(23, static_cast<int>(y * 24.0));
+        std::string grid;
+        grid.reserve(6);
+        grid += static_cast<char>('A' + field_lon);
+        grid += static_cast<char>('A' + field_lat);
+        grid += static_cast<char>('0' + square_lon);
+        grid += static_cast<char>('0' + square_lat);
+        grid += static_cast<char>('a' + sub_lon);
+        grid += static_cast<char>('a' + sub_lat);
+        return grid;
+    }
+
     std::vector<NearbyZip> NearbyZips(double origin_lat, double origin_lon, double radius_miles,
                                       const std::vector<ZipCentroid>& centroids)
     {

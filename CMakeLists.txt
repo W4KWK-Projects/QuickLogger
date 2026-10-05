@@ -118,6 +118,7 @@ set(quicklogger_sources
     src/mode_rules.cpp
     src/version.cpp
     src/geo_utils.cpp
+    src/precise_grid.cpp
     src/file_export.cpp
     src/net_slice.cpp
     src/public_key.cpp
@@ -256,6 +257,7 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_remote_command.cpp
         tests/test_scp_server.cpp
         tests/test_mosh_bridge.cpp
+        tests/test_precise_grid.cpp
         tests/test_zmodem_protocol.cpp
         tests/test_server_address.cpp
         tests/test_upstream_push.cpp

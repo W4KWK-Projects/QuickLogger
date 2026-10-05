@@ -17,6 +17,12 @@ namespace ql
     // neighboring square from where the station really is.
     std::string MaidenheadGrid4(double lat, double lon);
 
+    // The 6-character grid (e.g. "EM75kv": the square above, and its 24-by-24
+    // subsquare, 5 minutes of longitude by 2.5 of latitude, about 4 by 3
+    // miles), in the usual case: field and square upper-case, subsquare lower.
+    // "" when the point is off the globe.
+    std::string MaidenheadGrid6(double lat, double lon);
+
     // The key a station's ZIP or postal code has in the zip_centroids table:
     // its first five digits for a US ZIP (so a ZIP+4 works), or its first
     // three characters (the FSA), upper-cased, for a Canadian postal code

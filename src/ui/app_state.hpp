@@ -21,6 +21,8 @@
 namespace ql
 {
 
+    class PreciseGridLookup;
+
     // Which page is currently shown inside the app's Container::Tab. Plain
     // ints (not an enum) because Container::Tab's selector must be an int*.
     constexpr int kPageNetList = 0;
@@ -173,6 +175,9 @@ namespace ql
         Database* db = nullptr;
         std::string db_path;
         ftxui::ScreenInteractive* screen = nullptr;
+        // Looks up a picked US station's exact grid in the background (see
+        // precise_grid.hpp); null where there's none (tests).
+        PreciseGridLookup* grid_lookup = nullptr;
         // True for the session launched directly by main() at the real
         // console; false for a session handed off from an SSH connection
         // (see ssh_server.hpp). The console is a permanently trusted,
@@ -1725,5 +1730,16 @@ namespace ql
     // ZIP centroid, so a picked or looked-up station comes with an
     // approximate grid. US 5-digit ZIPs only; a typed grid is never touched.
     void BackfillGridFromZip(const AppState* state, Station* station);
+
+    // Asks, in the background, for a picked US station's exact 6-character
+    // grid, if its grid is blank or the 4-character one BackfillGridFromZip
+    // just gave it. Returns at once; nothing happens without a lookup or a
+    // street address (see CanLookUpGrid).
+    void RequestPreciseGrid(AppState* state, const Station& station);
+
+    // The answer: puts `grid` in the New Station form or the saved-station
+    // form if it is open for `callsign` and its grid is blank or the same
+    // square (see ShouldTakePreciseGrid). Run on the UI thread.
+    void ApplyPreciseGrid(AppState* state, const std::string& callsign, const std::string& grid);
 
 }  // namespace ql

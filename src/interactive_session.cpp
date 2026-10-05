@@ -21,6 +21,7 @@
 #include "date_utils.hpp"
 #include "db/database.hpp"
 #include "file_export.hpp"
+#include "precise_grid.hpp"
 #include "settings.hpp"
 #include "uls_import.hpp"
 #include "update_check.hpp"
@@ -113,6 +114,43 @@ namespace ql
     private:
         AppState* state_;
         std::string new_file_;
+    };
+
+    // Posted to the UI thread when a picked station's exact grid has been found
+    // (see precise_grid.hpp).
+    class ApplyGridTask
+    {
+    public:
+        ApplyGridTask(AppState* state, std::string callsign, std::string grid)
+            : state_(state), callsign_(std::move(callsign)), grid_(std::move(grid))
+        {
+        }
+
+        void operator()() const
+        {
+            ApplyPreciseGrid(state_, callsign_, grid_);
+        }
+
+    private:
+        AppState* state_;
+        std::string callsign_;
+        std::string grid_;
+    };
+
+    // Hands each grid the lookup finds to the UI thread.
+    class GridResultToScreen : public GridResultHandler
+    {
+    public:
+        GridResultToScreen(ftxui::ScreenInteractive* screen, AppState* state) : screen_(screen), state_(state) {}
+
+        void OnGrid(const std::string& callsign, const std::string& grid) override
+        {
+            screen_->Post(ApplyGridTask(state_, callsign, grid));
+        }
+
+    private:
+        ftxui::ScreenInteractive* screen_;
+        AppState* state_;
     };
 
     // Posted to the UI thread by ScreenTicker when the watched session is no
@@ -705,6 +743,14 @@ namespace ql
         // Declared after `screen` so it is stopped and joined before `screen`
         // is destroyed.
         ScreenTicker screen_ticker(&screen, &state, state.db_path);
+
+        // Looks up a picked station's exact grid when asked, on a thread it
+        // starts then; declared after `screen` and `state` so it is stopped
+        // first.
+        CurlGridFetcher grid_fetcher;
+        GridResultToScreen grid_results(&screen, &state);
+        PreciseGridLookup grid_lookup(&grid_fetcher, &grid_results);
+        state.grid_lookup = &grid_lookup;
         std::unique_ptr<UpdateChecker> update_checker;
         if (is_console_session)
         {
