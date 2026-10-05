@@ -2644,10 +2644,17 @@ namespace ql
         CHECK_EQ(ListFilesWithExtension(mine, ".txt").size(), std::size_t{1});
         CHECK_EQ(ListFilesWithExtension(mine, ".qlsession").size(), std::size_t{1});
         CHECK_EQ(ListFilesWithExtension(mine, ".adi").size(), std::size_t{1});
-        // Zipped too, when ZMODEM can send it: just the .zip is sent.
+        // Zipped too, for anyone not at the console: one .zip to send over
+        // ZMODEM or to fetch with scp.
         std::size_t zips = ListFilesWithExtension(mine, ".zip").size();
-        CHECK_EQ(zips, std::size_t{ZmodemSendAvailable() && !NoZmodemOnThisSystem() ? 1U : 0U});
-        if (zips == 1)
+        CHECK_EQ(zips, std::size_t{1});
+        if (!f.state.show_zmodem_confirm_modal)
+        {
+            // No ZMODEM here (Windows): the .zip stays beside the files, and
+            // the message gives the scp command for it.
+            CHECK(f.state.status_message.find(".zip") != std::string::npos);
+        }
+        else
         {
             REQUIRE(f.state.zmodem_send_paths.size() == 1);
             CHECK(f.state.zmodem_send_paths[0].find(".zip") != std::string::npos);
