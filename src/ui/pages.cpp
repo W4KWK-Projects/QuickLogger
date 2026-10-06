@@ -2623,8 +2623,7 @@ namespace ql
             hints.push_back({"F2/Enter", "Import"});
             // No ZMODEM at a local terminal: there's no one to receive from.
             // Nor where the system has none (Windows), or over Mosh.
-            if (!(IsLocalTerminal(state_->is_console_session) || NoZmodemOnThisSystem() || state_->over_mosh ||
-                  SessionPrefersSftp(state_)))
+            if (CanReceiveZmodem(state_))
             {
                 hints.push_back({"F3", "Receive (ZMODEM)"});
             }

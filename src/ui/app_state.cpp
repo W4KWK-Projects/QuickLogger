@@ -2450,6 +2450,10 @@ namespace ql
                     state->db->GetSavedNetStationRemarks(
                         state->active_instance.net_id, NormalizeCallsign(state->modal_station.callsign),
                         SavedEntryName(state->active_net_service, state->modal_station.name)));
+        // A member ID is this net's alone: another net's is never brought in.
+        FillIfBlank(
+            &state->modal_station.member_id,
+            state->db->GetNetMemberId(state->active_instance.net_id, NormalizeCallsign(state->modal_station.callsign)));
         return true;
     }
 
@@ -2464,6 +2468,8 @@ namespace ql
             &state->saved_station_remarks,
             state->db->GetSavedNetStationRemarks(state->edit_net_id, NormalizeCallsign(state->saved_station.callsign),
                                                  SavedEntryName(service, state->saved_station.name)));
+        FillIfBlank(&state->saved_station.member_id,
+                    state->db->GetNetMemberId(state->edit_net_id, NormalizeCallsign(state->saved_station.callsign)));
         return true;
     }
 
@@ -2564,6 +2570,8 @@ namespace ql
         std::optional<Station> station = state->db->FindStationByCallsign(check_in.callsign);
         state->edit_checkin_station = station.has_value() ? *station : Station();
         state->edit_checkin_station.callsign = check_in.callsign;
+        state->edit_checkin_station.member_id =
+            state->db->GetNetMemberId(state->active_instance.net_id, check_in.callsign);
         if (state->active_net_service == NetService::kGmrs)
         {
             state->edit_checkin_station.name = check_in.name;
@@ -2626,6 +2634,7 @@ namespace ql
             shared.name = before.has_value() ? before->name : std::string();
         }
         state->db->UpdateStationFields(shared, now);
+        state->db->SetNetMemberId(state->active_instance.net_id, callsign, state->edit_checkin_station.member_id);
 
         int old_role = state->edit_checkin_original.designated_role;
         int new_role = RoleFromRoleChoiceIndex(state, state->edit_checkin_role_choice_index);
@@ -4034,6 +4043,12 @@ namespace ql
         return !state->is_console_session && state->ssh_transfer_method == kTransferSftp;
     }
 
+    bool CanReceiveZmodem(const AppState* state)
+    {
+        return !(IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || state->over_mosh ||
+                 SessionPrefersSftp(state));
+    }
+
     void CloseMyKeys(AppState* state)
     {
         state->show_my_keys_window = false;
@@ -5386,8 +5401,7 @@ namespace ql
         // Nobody on the other end of a local terminal to send one, no
         // ZMODEM at all on Windows, and none over
         // Mosh.
-        if (IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || state->over_mosh ||
-            SessionPrefersSftp(state))
+        if (!CanReceiveZmodem(state))
         {
             return;
         }
@@ -6875,7 +6889,6 @@ namespace ql
         summary.push_back("Address:        " + address + (address.empty() || place.empty() ? "" : ", ") + place);
         summary.push_back("County:         " + station.county);
         summary.push_back("Grid Square:    " + station.grid_square);
-        summary.push_back("Member ID:      " + station.member_id);
         summary.push_back("License Class:  " + (licensed.has_value() && gmrs ? std::string("GMRS")
                                                 : licensed.has_value() && !licensed->license_class.empty()
                                                     ? licensed->license_class
@@ -7181,14 +7194,21 @@ namespace ql
                         {"Esc", "Back to the net list.", false},
                     };
                 case kPageNetHistory:
-                    return {
+                {
+                    // Statistics are a recurring net's alone.
+                    std::vector<HelpLine> lines = {
                         {"Up/Down", "Choose a session; its check-ins show below.", false},
                         {"F7", "Export the highlighted session: log, .qlsession, ADIF (.adi).", false},
-                        {"F8", "Statistics for this net.", true},
-                        {"F9", "Find a station's check-ins to every net.", true},
-                        {"F12", "Read the highlighted session's notes.", true},
-                        {"Esc", "Back.", false},
                     };
+                    if (!state->history_ad_hoc)
+                    {
+                        lines.push_back({"F8", "Statistics for this net.", true});
+                    }
+                    lines.push_back({"F9", "Find a station's check-ins to every net.", true});
+                    lines.push_back({"F12", "Read the highlighted session's notes.", true});
+                    lines.push_back({"Esc", "Back.", false});
+                    return lines;
+                }
                 case kPageSettings:
                     return {
                         {"F2", "Save your settings.", false},
@@ -7267,12 +7287,23 @@ namespace ql
                 std::vector<HelpLine> lines = {
                     {"F2", "Save your settings.", false},
                     {"Esc", "Cancel.", false},
-                    {"F3", "Refresh the station data now (console only).", false},
                 };
-#if defined(QUICKLOGGER_WITH_SSH)
-                lines.push_back({"F4", "Manage SSH users (console only).", false});
-#endif
-                lines.push_back({"F5", "Upstream Server: where closed sessions are pushed (console only).", false});
+                if (state->is_console_session)
+                {
+                    lines.push_back({"F3", "Refresh the station data now.", false});
+                }
+                if (CanManageUsers(state))
+                {
+                    lines.push_back({"F4", "Manage SSH users.", false});
+                }
+                if (CanEditOwnKeys(state))
+                {
+                    lines.push_back({"F4", "My Keys: your SSH keys and their comments.", false});
+                }
+                if (state->is_console_session)
+                {
+                    lines.push_back({"F5", "Upstream Server: where closed sessions are pushed.", false});
+                }
                 lines.push_back(
                     {"Left/Right",
                      state->is_console_session ? "Change the time format or Update Check." : "Change the time format.",
@@ -7295,11 +7326,15 @@ namespace ql
                     {"F6", "Import a session exported elsewhere (.qlsession).", false},
                     {"F7", "Export the highlighted session: log, .qlsession, ADIF (.adi).", false},
                     {"F4", "Delete a closed session (by number).", true},
-                    {"F8", "Statistics for this net.", true},
-                    {"F9", "Find a station's check-ins to every net.", true},
-                    {"F12", "The highlighted session's notes, to read or edit.", true},
-                    {"Esc", "Back.", false},
                 };
+                // Statistics are a recurring net's alone.
+                if (!state->history_ad_hoc)
+                {
+                    lines.push_back({"F8", "Statistics for this net.", true});
+                }
+                lines.push_back({"F9", "Find a station's check-ins to every net.", true});
+                lines.push_back({"F12", "The highlighted session's notes, to read or edit.", true});
+                lines.push_back({"Esc", "Back.", false});
                 return lines;
             }
             case kPageEditNet:
@@ -7318,7 +7353,7 @@ namespace ql
             {
                 std::vector<HelpLine> lines;
                 lines.push_back({"F2/Enter", "Import the highlighted file.", false});
-                if (!(IsLocalTerminal(state->is_console_session) || NoZmodemOnThisSystem() || state->over_mosh))
+                if (CanReceiveZmodem(state))
                 {
                     lines.push_back({"F3", "Receive a file from your terminal (ZMODEM).", false});
                 }

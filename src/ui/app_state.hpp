@@ -1348,6 +1348,11 @@ namespace ql
     // True for an SSH user whose key is set to SFTP: ZMODEM isn't offered.
     bool SessionPrefersSftp(const AppState* state);
 
+    // True where the Import page offers F3 Receive (ZMODEM): not at a local
+    // terminal, not where the system has no ZMODEM, nor over Mosh, nor for a
+    // session set to SFTP. The key bar, F1 Help and the key itself all ask.
+    bool CanReceiveZmodem(const AppState* state);
+
     // Puts the highlighted key's comment in the edit field; for when the
     // highlight moves.
     void LoadMyKeyComment(AppState* state);

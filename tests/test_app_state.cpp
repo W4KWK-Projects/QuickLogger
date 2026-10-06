@@ -261,7 +261,7 @@ namespace ql
         CHECK_EQ(f.state.edit_checkin_station.member_id, std::string("SP-1"));
         f.state.edit_checkin_station.member_id.clear();
         SaveEditCheckInForm(&f.state);
-        CHECK_EQ(f.db()->FindStationByCallsign("K4AAA")->member_id, std::string(""));
+        CHECK_EQ(f.db()->GetNetMemberId(f.state.active_instance.net_id, "K4AAA"), std::string(""));
     }
 
     QL_TEST(DeletingARoleHoldersCheckInClearsTheRole)
@@ -3461,7 +3461,7 @@ namespace ql
         // A's copy gains the member ID it lacked, and keeps its own remarks.
         std::optional<Station> on_a = net.a.db()->FindStationByCallsign("K4BTH");
         REQUIRE(on_a.has_value());
-        CHECK_EQ(on_a->member_id, std::string("SP-42"));
+        CHECK_EQ(net.a.db()->GetNetMemberId(net.a_net, "K4BTH"), std::string("SP-42"));
         CHECK_EQ(on_a->name, std::string("Beth Both"));
         CHECK_EQ(net.a.db()->GetSavedNetStationRemarks(net.a_net, "K4BTH"), std::string("on A"));
 
@@ -3470,7 +3470,7 @@ namespace ql
         SyncNet(net.a.db(), net.a_net, &net.b);
         std::optional<Station> on_b = net.b.db()->FindStationByCallsign("K4BTH");
         REQUIRE(on_b.has_value());
-        CHECK_EQ(on_b->member_id, std::string("SP-42"));
+        CHECK_EQ(net.b.db()->GetNetMemberId(net.b_net, "K4BTH"), std::string("SP-42"));
         CHECK_EQ(net.b.db()->GetSavedNetStationRemarks(net.b_net, "K4BTH"), std::string("on B"));
 
         // Everything else matches; only each machine's own remarks for
@@ -3510,7 +3510,7 @@ namespace ql
         CHECK_EQ(conflict.differences[0].here, std::string("SP-41"));
         CHECK_EQ(conflict.differences[0].file, std::string("SP-42"));
         CHECK(!conflict.replace);
-        CHECK_EQ(net.a.db()->FindStationByCallsign("K4BTH")->member_id, std::string("SP-41"));
+        CHECK_EQ(net.a.db()->GetNetMemberId(net.a_net, "K4BTH"), std::string("SP-41"));
 
         // Sent again, A chooses Replace: K4BTH takes B's member ID, keeping
         // A's remarks; nothing else changes.
@@ -3520,7 +3520,7 @@ namespace ql
         CHECK_EQ(Count(replaced, MergeSessionKind::kNew), 0);
         std::optional<Station> on_a = net.a.db()->FindStationByCallsign("K4BTH");
         REQUIRE(on_a.has_value());
-        CHECK_EQ(on_a->member_id, std::string("SP-42"));
+        CHECK_EQ(net.a.db()->GetNetMemberId(net.a_net, "K4BTH"), std::string("SP-42"));
         CHECK_EQ(on_a->name, std::string("Beth Both"));
         CHECK_EQ(net.a.db()->GetSavedNetStationRemarks(net.a_net, "K4BTH"), std::string("on A"));
         CHECK(net.a.state.status_message.find("1 station's details taken from the file") != std::string::npos);
@@ -4125,6 +4125,50 @@ namespace ql
         OpenHelp(&f.state);
         CHECK(f.state.info_rows[0].find("F2") == 0);
         CHECK(f.state.info_summary.empty());  // No extra keys there.
+    }
+
+    static bool HelpHasKey(const AppState& state, const std::string& key)
+    {
+        for (const std::string& row : state.info_rows)
+        {
+            if (row.find(key) == 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    QL_TEST(HelpListsStatisticsOnlyForRecurringNetHistory)
+    {
+        Fixture f;
+        f.StartNet("Skywarn");
+        f.state.page = kPageNetHistory;
+        f.state.history_ad_hoc = false;
+        OpenHelp(&f.state);
+        CHECK(HelpHasKey(f.state, "F8"));
+        f.state.history_ad_hoc = true;
+        OpenHelp(&f.state);
+        CHECK(!HelpHasKey(f.state, "F8"));
+        CHECK(HelpHasKey(f.state, "F9"));
+        f.state.view_only_user = true;
+        OpenHelp(&f.state);
+        CHECK(!HelpHasKey(f.state, "F8"));
+    }
+
+    QL_TEST(ImportHelpOffersZmodemOnlyWhereItWorks)
+    {
+        Fixture f;
+        f.state.page = kPageImportNet;
+        f.state.is_console_session = false;
+        f.state.over_mosh = false;
+        f.state.ssh_transfer_method = kTransferSftp;
+        OpenHelp(&f.state);
+        CHECK(!HelpHasKey(f.state, "F3"));
+        CHECK(!CanReceiveZmodem(&f.state));
+        f.state.ssh_transfer_method = kTransferZmodem;
+        OpenHelp(&f.state);
+        CHECK_EQ(HelpHasKey(f.state, "F3"), CanReceiveZmodem(&f.state));
     }
 
     QL_TEST(StationCardGathersWhatsKnown)

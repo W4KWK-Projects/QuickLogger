@@ -444,7 +444,7 @@ namespace ql
     struct DetailFieldName
     {
         const char* label;
-        std::string Station::*member;
+        std::string Station::* member;
     };
 
     static const DetailFieldName kDetailFields[] = {
@@ -508,7 +508,8 @@ namespace ql
 
     // The file's stations (saved and others) also here whose details differ,
     // sorted by callsign. The ones here are read in one go.
-    static std::vector<MergeStationConflict> StationConflicts(const Database* db, const NetSlice& slice)
+    static std::vector<MergeStationConflict> StationConflicts(Database* db, const NetSlice& slice,
+                                                              std::int64_t target_net_id)
     {
         std::vector<const Station*> file_stations;
         file_stations.reserve(slice.saved_stations.size() + slice.other_stations.size());
@@ -528,6 +529,24 @@ namespace ql
             callsigns.push_back(ToUpperAscii(station->callsign));
         }
         std::vector<Station> here = db->FindStationsByCallsigns(callsigns);
+        // A member ID is the target net's own.
+        std::unordered_map<std::string, std::string> member_ids;
+        for (const SavedNetStation& saved : db->GetSavedNetEntries(target_net_id))
+        {
+            std::string& id = member_ids[ToUpperAscii(saved.station.callsign)];
+            if (id.empty())
+            {
+                id = saved.station.member_id;
+            }
+        }
+        for (Station& station : here)
+        {
+            std::unordered_map<std::string, std::string>::const_iterator id = member_ids.find(station.callsign);
+            if (id != member_ids.end())
+            {
+                station.member_id = id->second;
+            }
+        }
 
         std::vector<MergeStationConflict> conflicts;
         for (std::size_t i = 0; i < file_stations.size(); ++i)
@@ -548,7 +567,7 @@ namespace ql
             std::vector<StationDetailDifference> differences;
             for (int field = 0; field < kDetailFieldCount; ++field)
             {
-                std::string Station::*member = kDetailFields[field].member;
+                std::string Station::* member = kDetailFields[field].member;
                 CompareDetail(field, mine.*member, theirs.*member, &differences);
             }
             if (!differences.empty())
@@ -618,7 +637,7 @@ namespace ql
             (known ? plan.known_saved_stations : plan.new_saved_stations) += 1;
         }
 
-        plan.station_conflicts = StationConflicts(db, slice);
+        plan.station_conflicts = StationConflicts(db, slice, target_net_id);
 
         std::vector<NetInstance> local = db->GetNetInstancesForNet(target_net_id);
         // Every check-in here, in one query, by session.
@@ -730,6 +749,7 @@ namespace ql
                     (*station).*(kDetailFields[difference.field_index].member) = difference.file;
                 }
                 db->UpdateStationFields(*station, now);
+                db->SetNetMemberId(plan.target_net_id, callsign, station->member_id);
                 ++result.stations_replaced;
             }
         }
@@ -742,9 +762,15 @@ namespace ql
             db->FillStationBlanks(saved.station, now);
             have_station.insert(ToUpperAscii(saved.station.callsign));
             if (db->AddNetSavedStationIfMissing(plan.target_net_id, saved.station.callsign, saved.default_remarks,
-                                                saved.name))
+                                                saved.name, saved.station.member_id))
             {
                 ++result.saved_stations_added;
+            }
+            else if (!saved.station.member_id.empty() &&
+                     db->GetNetMemberId(plan.target_net_id, saved.station.callsign).empty())
+            {
+                // Already saved here without one: it's filled in, never replaced.
+                db->SetNetMemberId(plan.target_net_id, saved.station.callsign, saved.station.member_id);
             }
         }
         std::unordered_map<std::int64_t, std::vector<const CheckIn*>> file_check_ins = CheckInsBySession(slice);

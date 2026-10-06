@@ -92,11 +92,14 @@ CREATE INDEX IF NOT EXISTS idx_check_ins_callsign ON check_ins(callsign);
 -- person (one license covers a family), told apart by `name` ("Jane" and
 -- "JANE" are one). On an
 -- Amateur Radio net `name` is blank and the station's own name stands.
+-- `member_id` is the station's member ID on this net alone: it follows the
+-- net, not the station (stations.member_id is no longer used).
 CREATE TABLE IF NOT EXISTS net_saved_stations (
     net_id INTEGER NOT NULL REFERENCES nets(id),
     callsign TEXT NOT NULL REFERENCES stations(callsign),
     default_remarks TEXT NOT NULL DEFAULT '',
     name TEXT NOT NULL DEFAULT '' COLLATE NOCASE,
+    member_id TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (net_id, callsign, name)
 );
 -- For "is this station saved anywhere" (DeleteUnusedStations and the
@@ -189,7 +192,7 @@ CREATE TABLE IF NOT EXISTS users (
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 17;
+    static constexpr int kSchemaVersion = 18;
 
     // How SQLite waits for another connection's lock: 1 ms pauses for the
     // first 20 tries, then 5 ms ones, giving up after 5 seconds by the clock.
@@ -631,6 +634,8 @@ CREATE TABLE IF NOT EXISTS users (
                             "net_saved_stations(callsign);");
             index.Step();
         }
+        // Since 2.1.2 a member ID belongs to a net, not to a station.
+        MoveMemberIdsToNets();
         EnsureColumnExists(db_, "users", "amateur_callsign", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(db_, "users", "gmrs_callsign", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(db_, "users", "transfer_method", "INTEGER NOT NULL DEFAULT 0");
@@ -718,6 +723,33 @@ COMMIT;
         copy.Step();
         Statement drop(&statements_, "DROP TABLE net_saved_stations_before_names;");
         drop.Step();
+        transaction.Commit();
+    }
+
+    void Database::MoveMemberIdsToNets()
+    {
+        {
+            Statement columns(&statements_, "PRAGMA table_info(net_saved_stations);");
+            while (columns.Step())
+            {
+                if (columns.ColumnText(1) == "member_id")
+                {
+                    return;
+                }
+            }
+        }
+        // Until now a station had one member ID, shown on every net: it
+        // becomes the ID on each net the station is saved to.
+        WriteTransaction transaction(this);
+        Statement add(&statements_, "ALTER TABLE net_saved_stations ADD COLUMN member_id TEXT NOT NULL DEFAULT '';");
+        add.Step();
+        Statement copy(&statements_, R"sql(
+        UPDATE net_saved_stations
+        SET member_id = (SELECT s.member_id FROM stations s WHERE s.callsign = net_saved_stations.callsign);
+    )sql");
+        copy.Step();
+        Statement clear(&statements_, "UPDATE stations SET member_id = '';");
+        clear.Step();
         transaction.Commit();
     }
 
@@ -879,12 +911,11 @@ COMMIT;
     {
         Statement statement(&statements_, R"sql(
         INSERT INTO stations
-            (callsign, name, member_id, street_address, city, county, state, zip,
+            (callsign, name, street_address, city, county, state, zip,
              grid_square, license_class, email, data_source, last_updated)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(callsign) DO UPDATE SET
             name = excluded.name,
-            member_id = excluded.member_id,
             street_address = excluded.street_address,
             city = excluded.city,
             county = excluded.county,
@@ -898,17 +929,16 @@ COMMIT;
     )sql");
         statement.BindText(0, ToUpperAscii(station.callsign));
         statement.BindText(1, station.name);
-        statement.BindText(2, station.member_id);
-        statement.BindText(3, station.street_address);
-        statement.BindText(4, station.city);
-        statement.BindText(5, station.county);
-        statement.BindText(6, station.state);
-        statement.BindText(7, station.zip);
-        statement.BindText(8, station.grid_square);
-        statement.BindText(9, station.license_class);
-        statement.BindText(10, station.email);
-        statement.BindInt64(11, static_cast<std::int64_t>(station.data_source));
-        statement.BindInt64(12, station.last_updated);
+        statement.BindText(2, station.street_address);
+        statement.BindText(3, station.city);
+        statement.BindText(4, station.county);
+        statement.BindText(5, station.state);
+        statement.BindText(6, station.zip);
+        statement.BindText(7, station.grid_square);
+        statement.BindText(8, station.license_class);
+        statement.BindText(9, station.email);
+        statement.BindInt64(10, static_cast<std::int64_t>(station.data_source));
+        statement.BindInt64(11, station.last_updated);
         statement.Step();
     }
 
@@ -916,13 +946,11 @@ COMMIT;
     {
         Statement statement(&statements_, R"sql(
         INSERT INTO stations
-            (callsign, name, member_id, street_address, city, county, state, zip,
+            (callsign, name, street_address, city, county, state, zip,
              grid_square, last_updated)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?)
         ON CONFLICT(callsign) DO UPDATE SET
             name = CASE WHEN excluded.name != '' THEN excluded.name ELSE stations.name END,
-            member_id = CASE WHEN excluded.member_id != '' THEN excluded.member_id
-                        ELSE stations.member_id END,
             street_address = CASE WHEN excluded.street_address != '' THEN excluded.street_address
                               ELSE stations.street_address END,
             city = CASE WHEN excluded.city != '' THEN excluded.city ELSE stations.city END,
@@ -935,14 +963,13 @@ COMMIT;
     )sql");
         statement.BindText(0, ToUpperAscii(station.callsign));
         statement.BindText(1, station.name);
-        statement.BindText(2, station.member_id);
-        statement.BindText(3, station.street_address);
-        statement.BindText(4, station.city);
-        statement.BindText(5, station.county);
-        statement.BindText(6, station.state);
-        statement.BindText(7, station.zip);
-        statement.BindText(8, station.grid_square);
-        statement.BindInt64(9, updated_at);
+        statement.BindText(2, station.street_address);
+        statement.BindText(3, station.city);
+        statement.BindText(4, station.county);
+        statement.BindText(5, station.state);
+        statement.BindText(6, station.zip);
+        statement.BindText(7, station.grid_square);
+        statement.BindInt64(8, updated_at);
         statement.Step();
     }
 
@@ -950,13 +977,11 @@ COMMIT;
     {
         Statement statement(&statements_, R"sql(
         INSERT INTO stations
-            (callsign, name, member_id, street_address, city, county, state, zip,
+            (callsign, name, street_address, city, county, state, zip,
              grid_square, last_updated)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?)
         ON CONFLICT(callsign) DO UPDATE SET
             name = CASE WHEN stations.name = '' THEN excluded.name ELSE stations.name END,
-            member_id = CASE WHEN stations.member_id = '' THEN excluded.member_id
-                        ELSE stations.member_id END,
             street_address = CASE WHEN stations.street_address = '' THEN excluded.street_address
                              ELSE stations.street_address END,
             city = CASE WHEN stations.city = '' THEN excluded.city ELSE stations.city END,
@@ -968,42 +993,6 @@ COMMIT;
     )sql");
         statement.BindText(0, ToUpperAscii(station.callsign));
         statement.BindText(1, station.name);
-        statement.BindText(2, station.member_id);
-        statement.BindText(3, station.street_address);
-        statement.BindText(4, station.city);
-        statement.BindText(5, station.county);
-        statement.BindText(6, station.state);
-        statement.BindText(7, station.zip);
-        statement.BindText(8, station.grid_square);
-        statement.BindInt64(9, updated_at);
-        statement.Step();
-    }
-
-    bool Database::AddNetSavedStationIfMissing(std::int64_t net_id, const std::string& callsign,
-                                               const std::string& default_remarks, const std::string& name)
-    {
-        Statement statement(&statements_, R"sql(
-        INSERT OR IGNORE INTO net_saved_stations (net_id, callsign, default_remarks, name)
-        VALUES (?, ?, ?, ?);
-    )sql");
-        statement.BindInt64(0, net_id);
-        statement.BindText(1, ToUpperAscii(callsign));
-        statement.BindText(2, default_remarks);
-        statement.BindText(3, name);
-        statement.Step();
-        return sqlite3_changes(db_) > 0;
-    }
-
-    void Database::UpdateStationFields(const Station& station, std::int64_t updated_at)
-    {
-        Statement statement(&statements_, R"sql(
-        UPDATE stations
-        SET name = ?, member_id = ?, street_address = ?, city = ?, county = ?, state = ?,
-            zip = ?, grid_square = ?, last_updated = ?
-        WHERE callsign = ?;
-    )sql");
-        statement.BindText(0, station.name);
-        statement.BindText(1, station.member_id);
         statement.BindText(2, station.street_address);
         statement.BindText(3, station.city);
         statement.BindText(4, station.county);
@@ -1011,7 +1000,67 @@ COMMIT;
         statement.BindText(6, station.zip);
         statement.BindText(7, station.grid_square);
         statement.BindInt64(8, updated_at);
-        statement.BindText(9, ToUpperAscii(station.callsign));
+        statement.Step();
+    }
+
+    bool Database::AddNetSavedStationIfMissing(std::int64_t net_id, const std::string& callsign,
+                                               const std::string& default_remarks, const std::string& name,
+                                               const std::string& member_id)
+    {
+        Statement statement(&statements_, R"sql(
+        INSERT OR IGNORE INTO net_saved_stations (net_id, callsign, default_remarks, name, member_id)
+        VALUES (?, ?, ?, ?, ?);
+    )sql");
+        statement.BindInt64(0, net_id);
+        statement.BindText(1, ToUpperAscii(callsign));
+        statement.BindText(2, default_remarks);
+        statement.BindText(3, name);
+        statement.BindText(4, member_id);
+        statement.Step();
+        return sqlite3_changes(db_) > 0;
+    }
+
+    void Database::SetNetMemberId(std::int64_t net_id, const std::string& callsign, const std::string& member_id)
+    {
+        Statement statement(&statements_, R"sql(
+        UPDATE net_saved_stations SET member_id = ? WHERE net_id = ? AND callsign = ?;
+    )sql");
+        statement.BindText(0, member_id);
+        statement.BindInt64(1, net_id);
+        statement.BindText(2, ToUpperAscii(callsign));
+        statement.Step();
+    }
+
+    std::string Database::GetNetMemberId(std::int64_t net_id, const std::string& callsign)
+    {
+        Statement statement(&statements_, R"sql(
+        SELECT member_id FROM net_saved_stations
+        WHERE net_id = ? AND callsign = ?
+        ORDER BY member_id = '', name
+        LIMIT 1;
+    )sql");
+        statement.BindInt64(0, net_id);
+        statement.BindText(1, ToUpperAscii(callsign));
+        return statement.Step() ? statement.ColumnText(0) : std::string();
+    }
+
+    void Database::UpdateStationFields(const Station& station, std::int64_t updated_at)
+    {
+        Statement statement(&statements_, R"sql(
+        UPDATE stations
+        SET name = ?, street_address = ?, city = ?, county = ?, state = ?,
+            zip = ?, grid_square = ?, last_updated = ?
+        WHERE callsign = ?;
+    )sql");
+        statement.BindText(0, station.name);
+        statement.BindText(1, station.street_address);
+        statement.BindText(2, station.city);
+        statement.BindText(3, station.county);
+        statement.BindText(4, station.state);
+        statement.BindText(5, station.zip);
+        statement.BindText(6, station.grid_square);
+        statement.BindInt64(7, updated_at);
+        statement.BindText(8, ToUpperAscii(station.callsign));
         statement.Step();
     }
 
@@ -1066,10 +1115,15 @@ COMMIT;
     std::vector<Station> Database::GetStationsInNetInstance(std::int64_t instance_id)
     {
         Statement statement(&statements_, R"sql(
-        SELECT callsign, name, member_id, street_address, city, county, state, zip,
+        SELECT callsign, name,
+               COALESCE((SELECT m.member_id FROM net_saved_stations m
+                         WHERE m.net_id = (SELECT net_id FROM net_instances WHERE id = ?1)
+                           AND m.callsign = stations.callsign
+                         ORDER BY m.member_id = '', m.name LIMIT 1), ''),
+               street_address, city, county, state, zip,
                grid_square, license_class, email, data_source, last_updated
         FROM stations
-        WHERE callsign IN (SELECT callsign FROM check_ins WHERE net_instance_id = ?)
+        WHERE callsign IN (SELECT callsign FROM check_ins WHERE net_instance_id = ?1)
         ORDER BY callsign;
     )sql");
         statement.BindInt64(0, instance_id);
@@ -1119,7 +1173,9 @@ COMMIT;
             return {};
         }
         Statement statement(&statements_, wildcard ? R"sql(
-        SELECT s.callsign, CASE WHEN e.name != '' THEN e.name ELSE s.name END, s.member_id, s.street_address,
+        SELECT s.callsign, CASE WHEN e.name != '' THEN e.name ELSE s.name END,
+               COALESCE((SELECT m.member_id FROM net_saved_stations m
+                         WHERE m.net_id = ?2 AND m.callsign = s.callsign AND m.name = e.name), ''), s.street_address,
                s.city, s.county, s.state, s.zip, s.grid_square, s.license_class, s.email, s.data_source,
                s.last_updated
         FROM stations s
@@ -1133,7 +1189,9 @@ COMMIT;
         LIMIT ?3;
     )sql"
                                                    : R"sql(
-        SELECT s.callsign, CASE WHEN e.name != '' THEN e.name ELSE s.name END, s.member_id, s.street_address,
+        SELECT s.callsign, CASE WHEN e.name != '' THEN e.name ELSE s.name END,
+               COALESCE((SELECT m.member_id FROM net_saved_stations m
+                         WHERE m.net_id = ?2 AND m.callsign = s.callsign AND m.name = e.name), ''), s.street_address,
                s.city, s.county, s.state, s.zip, s.grid_square, s.license_class, s.email, s.data_source,
                s.last_updated
         FROM stations s
@@ -1175,14 +1233,18 @@ COMMIT;
         RecordManualCheckInStation(shared, updated_at);
 
         Statement statement(&statements_, R"sql(
-        INSERT INTO net_saved_stations (net_id, callsign, default_remarks, name)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(net_id, callsign, name) DO UPDATE SET default_remarks = excluded.default_remarks;
+        INSERT INTO net_saved_stations (net_id, callsign, default_remarks, name, member_id)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(net_id, callsign, name) DO UPDATE SET
+            default_remarks = excluded.default_remarks,
+            member_id = CASE WHEN excluded.member_id != '' THEN excluded.member_id
+                        ELSE net_saved_stations.member_id END;
     )sql");
         statement.BindInt64(0, net_id);
         statement.BindText(1, ToUpperAscii(station.callsign));
         statement.BindText(2, default_remarks);
         statement.BindText(3, name);
+        statement.BindText(4, station.member_id);
         statement.Step();
         transaction.Commit();
     }
@@ -1207,13 +1269,15 @@ COMMIT;
         }
 
         Statement statement(&statements_, R"sql(
-        UPDATE net_saved_stations SET default_remarks = ?, name = ? WHERE net_id = ? AND callsign = ? AND name = ?;
+        UPDATE net_saved_stations SET default_remarks = ?, name = ?, member_id = ?
+        WHERE net_id = ? AND callsign = ? AND name = ?;
     )sql");
         statement.BindText(0, default_remarks);
         statement.BindText(1, new_name);
-        statement.BindInt64(2, net_id);
-        statement.BindText(3, ToUpperAscii(station.callsign));
-        statement.BindText(4, old_name);
+        statement.BindText(2, station.member_id);
+        statement.BindInt64(3, net_id);
+        statement.BindText(4, ToUpperAscii(station.callsign));
+        statement.BindText(5, old_name);
         statement.Step();
         transaction.Commit();
     }
@@ -1310,7 +1374,7 @@ COMMIT;
     std::vector<Station> Database::GetSavedStationsForNet(std::int64_t net_id)
     {
         Statement statement(&statements_, R"sql(
-        SELECT s.callsign, CASE WHEN ns.name != '' THEN ns.name ELSE s.name END, s.member_id, s.street_address,
+        SELECT s.callsign, CASE WHEN ns.name != '' THEN ns.name ELSE s.name END, ns.member_id, s.street_address,
                s.city, s.county, s.state, s.zip, s.grid_square, s.license_class, s.email, s.data_source,
                s.last_updated
         FROM stations s
@@ -1330,7 +1394,7 @@ COMMIT;
     std::vector<SavedNetStation> Database::GetSavedNetEntries(std::int64_t net_id)
     {
         Statement statement(&statements_, R"sql(
-        SELECT s.callsign, s.name, s.member_id, s.street_address, s.city, s.county, s.state, s.zip, s.grid_square,
+        SELECT s.callsign, s.name, ns.member_id, s.street_address, s.city, s.county, s.state, s.zip, s.grid_square,
                s.license_class, s.email, s.data_source, s.last_updated, ns.name, ns.default_remarks
         FROM stations s
         JOIN net_saved_stations ns ON ns.callsign = s.callsign

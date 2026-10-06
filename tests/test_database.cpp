@@ -54,7 +54,7 @@ namespace ql
                                std::string("SELECT COUNT(*) FROM sqlite_schema WHERE name='") + table + "'"),
                      std::int64_t{1});
         }
-        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{17});
+        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{18});
         CHECK_EQ(CountRows(dir.File("q.db"),
                            "SELECT COUNT(*) FROM pragma_table_info('import_runs') WHERE name IN "
                            "('phase','percent','heartbeat_at','requested_at')"),
@@ -115,7 +115,7 @@ namespace ql
         )sql");
 
         Database db(path);
-        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{17});
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{18});
         std::vector<Net> nets = db.GetAllNets();
         REQUIRE(nets.size() == 3);
         // Sorted by name: Fusion Net, Mystery Net, Old Net. Known spellings
@@ -246,7 +246,7 @@ namespace ql
         keys = db.GetUserKeys("W4KWK");
         CHECK_EQ(keys[0].transfer_method, kTransferAsk);
         CHECK_EQ(keys[1].transfer_method, kTransferSftp);
-        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{17});
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{18});
     }
 
     QL_TEST(OldNetFrequenciesMoveToComments)
@@ -338,7 +338,6 @@ namespace ql
         TempDir dir;
         Database db(dir.File("q.db"));
         Station first = MakeStation("N4ABC", "Ann Able", "37415", "Chattanooga");
-        first.member_id = "123";
         db.RecordManualCheckInStation(first, 1);
         // Logged again later with only a new remark-free, name-free entry.
         Station second = MakeStation("N4ABC");
@@ -347,7 +346,6 @@ namespace ql
         std::optional<Station> stored = db.FindStationByCallsign("N4ABC");
         REQUIRE(stored.has_value());
         CHECK_EQ(stored->name, std::string("Ann Able"));
-        CHECK_EQ(stored->member_id, std::string("123"));
         CHECK_EQ(stored->county, std::string("Hamilton"));
     }
 
@@ -356,10 +354,65 @@ namespace ql
         TempDir dir;
         Database db(dir.File("q.db"));
         Station station = MakeStation("N4ABC", "Ann Able", "37415");
-        station.member_id = "123";
+        station.county = "Hamilton";
         db.RecordManualCheckInStation(station, 1);
-        station.member_id = "";
+        station.county = "";
         db.UpdateStationFields(station, 2);
+        CHECK_EQ(db.FindStationByCallsign("N4ABC")->county, std::string(""));
+    }
+
+    QL_TEST(AMemberIdFollowsTheNetNotTheStation)
+    {
+        TempDir dir;
+        Database db(dir.File("q.db"));
+        std::int64_t a = AddTestNet(&db, "Net A");
+        std::int64_t b = AddTestNet(&db, "Net B");
+        Station station = MakeStation("N4ABC", "Ann Able");
+        station.member_id = "A-1";
+        db.SaveNetStation(a, station, "", 1);
+        station.member_id = "";
+        db.SaveNetStation(b, station, "", 1);
+
+        // Known on A only: B's copy, the station itself and the other-net
+        // search carry none.
+        CHECK_EQ(db.GetNetMemberId(a, "N4ABC"), std::string("A-1"));
+        CHECK_EQ(db.GetNetMemberId(b, "N4ABC"), std::string(""));
+        CHECK_EQ(db.FindStationByCallsign("N4ABC")->member_id, std::string(""));
+        CHECK_EQ(db.SearchStationsByCallsignSubstring("N4ABC")[0].member_id, std::string(""));
+        CHECK_EQ(db.SearchNetStationsByCallsignSubstring(a, "N4ABC", 5)[0].member_id, std::string("A-1"));
+        CHECK_EQ(db.SearchNetStationsByCallsignSubstring(b, "N4ABC", 5)[0].member_id, std::string(""));
+
+        // Editing B's leaves A's alone, and the other way round.
+        db.SetNetMemberId(b, "N4ABC", "B-9");
+        CHECK_EQ(db.GetNetMemberId(a, "N4ABC"), std::string("A-1"));
+        CHECK_EQ(db.GetSavedStationsForNet(b)[0].member_id, std::string("B-9"));
+        station.member_id = "";
+        db.UpdateSavedNetStation(a, station, "", 2, "", "");
+        CHECK_EQ(db.GetNetMemberId(a, "N4ABC"), std::string(""));
+        CHECK_EQ(db.GetNetMemberId(b, "N4ABC"), std::string("B-9"));
+    }
+
+    QL_TEST(OldMemberIdsMoveToTheNetsTheStationIsSavedTo)
+    {
+        TempDir dir;
+        std::string path = dir.File("q.db");
+        {
+            Database db(path);
+            AddTestNet(&db, "Net A");
+            AddTestNet(&db, "Net B");
+            db.SaveNetStation(1, MakeStation("N4ABC", "Ann Able"), "", 1);
+            db.SaveNetStation(2, MakeStation("N4ABC", "Ann Able"), "", 1);
+        }
+        // As a 2.1.1 database held it: one member ID on the station, and no
+        // column on the net's saved stations.
+        RunSql(path, R"sql(
+            UPDATE stations SET member_id = 'X-7';
+            ALTER TABLE net_saved_stations DROP COLUMN member_id;
+            PRAGMA user_version = 17;
+        )sql");
+        Database db(path);
+        CHECK_EQ(db.GetNetMemberId(1, "N4ABC"), std::string("X-7"));
+        CHECK_EQ(db.GetNetMemberId(2, "N4ABC"), std::string("X-7"));
         CHECK_EQ(db.FindStationByCallsign("N4ABC")->member_id, std::string(""));
     }
 

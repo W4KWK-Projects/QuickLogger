@@ -110,6 +110,14 @@ namespace ql
         // dialog, where the operator is making an explicit correction rather
         // than leaving a field blank because they didn't retype known data.
         void UpdateStationFields(const Station& station, std::int64_t updated_at);
+        // A member ID follows the net, not the station: it is kept with the
+        // net's saved station (net_saved_stations), and Station::member_id
+        // is filled only by the reads that name a net (the saved stations,
+        // that net's autocomplete, a session's stations). Everywhere else it
+        // is blank. SetNetMemberId sets it exactly, blank included, on every
+        // saved entry of `callsign` on that net; GetNetMemberId reads it.
+        void SetNetMemberId(std::int64_t net_id, const std::string& callsign, const std::string& member_id);
+        std::string GetNetMemberId(std::int64_t net_id, const std::string& callsign);
         std::optional<Station> FindStationByCallsign(const std::string& callsign);
         // The stations here with any of `callsigns` (upper case), sorted by
         // callsign: a few queries for the lot rather than one per callsign.
@@ -206,7 +214,8 @@ namespace ql
         // `default_remarks`, unless it's saved there already, in which case
         // nothing changes. True if it was added.
         bool AddNetSavedStationIfMissing(std::int64_t net_id, const std::string& callsign,
-                                         const std::string& default_remarks, const std::string& name = "");
+                                         const std::string& default_remarks, const std::string& name = "",
+                                         const std::string& member_id = "");
 
         // Nets (recurring net definitions).
         std::int64_t CreateNet(const Net& net);
@@ -538,6 +547,9 @@ namespace ql
         // repository's first commit, into net_saved_stations and drops it.
         // Part of CreateSchema's one-time upgrade.
         void DropOldSeedStations();
+        // Gives each net's saved stations the member ID their station had,
+        // once (see SetNetMemberId). Part of CreateSchema's one-time upgrade.
+        void MoveMemberIdsToNets();
         // Moves each net's frequency that isn't an amateur frequency into
         // its comments (see MoveBadFrequencyToComments). Part of
         // CreateSchema's one-time upgrade.

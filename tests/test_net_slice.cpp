@@ -368,7 +368,7 @@ namespace ql
         // Kept: the member ID stays; the blank grid is still filled in.
         ApplyNetMerge(&here, slice, plan);
         std::optional<Station> kept = here.FindStationByCallsign("K4AAA");
-        CHECK_EQ(kept->member_id, std::string("SP-1"));
+        CHECK_EQ(here.GetNetMemberId(net_id, "K4AAA"), std::string("SP-1"));
         CHECK_EQ(kept->grid_square, std::string("EM75"));
         CHECK_EQ(kept->city, std::string("CHATTANOOGA"));
 
@@ -379,7 +379,7 @@ namespace ql
         NetMergeResult result = ApplyNetMerge(&here, slice, plan);
         CHECK_EQ(result.stations_replaced, 1);
         std::optional<Station> replaced = here.FindStationByCallsign("K4AAA");
-        CHECK_EQ(replaced->member_id, std::string("SP-9"));
+        CHECK_EQ(here.GetNetMemberId(net_id, "K4AAA"), std::string("SP-9"));
         CHECK_EQ(replaced->name, std::string("Ann Able"));
         // Only what was listed changes: not the city, which differed in
         // case only.

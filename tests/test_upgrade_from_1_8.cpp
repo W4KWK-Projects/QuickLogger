@@ -124,7 +124,7 @@ namespace ql
     {
         UpgradedFixture f;
         CHECK_EQ(QueryRows(f.db(), "PRAGMA old.user_version")[0], std::string("13"));
-        CHECK_EQ(QueryRows(f.db(), "PRAGMA user_version")[0], std::string("17"));
+        CHECK_EQ(QueryRows(f.db(), "PRAGMA user_version")[0], std::string("18"));
 
         std::vector<std::string> tables =
             QueryRows(f.db(), "SELECT name FROM old.sqlite_schema WHERE type = 'table' ORDER BY name");
@@ -138,6 +138,12 @@ namespace ql
             std::string list;
             for (const std::string& column : columns)
             {
+                // Since 2.1.2 a member ID is kept per net, so the station's own
+                // is cleared (see Database::MoveMemberIdsToNets).
+                if (table == "stations" && column == "member_id")
+                {
+                    continue;
+                }
                 list += (list.empty() ? "" : ", ") + std::string("\"") + column + "\"";
             }
             std::vector<std::string> lost =
@@ -278,7 +284,7 @@ namespace ql
         sqlite3_open(path.c_str(), &db);
         CHECK_EQ(Lines(QueryRows(db, "SELECT * FROM nets ORDER BY id")), once);
         CHECK_EQ(Lines(QueryRows(db, "SELECT * FROM net_saved_stations ORDER BY 1, 2")), saved_once);
-        CHECK_EQ(QueryRows(db, "PRAGMA user_version")[0], std::string("17"));
+        CHECK_EQ(QueryRows(db, "PRAGMA user_version")[0], std::string("18"));
         sqlite3_close(db);
     }
 
