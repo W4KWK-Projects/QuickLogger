@@ -634,7 +634,7 @@ CREATE TABLE IF NOT EXISTS users (
                             "net_saved_stations(callsign);");
             index.Step();
         }
-        // Since 2.1.2 a member ID belongs to a net, not to a station.
+        // Since 2.2.0 a member ID belongs to a net, not to a station.
         MoveMemberIdsToNets();
         EnsureColumnExists(db_, "users", "amateur_callsign", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(db_, "users", "gmrs_callsign", "TEXT NOT NULL DEFAULT ''");

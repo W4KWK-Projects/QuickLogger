@@ -1,6 +1,6 @@
-// A real QuickLogger 1.8.6 database, upgraded on its first open by this
-// version. tests/fixtures/quicklogger-1.8.6.sql was written by 1.8.6's own
-// code (tests/fixtures/make_database_1_8_6.cpp); an upgrade is one-way, so
+// A real QuickLogger 2.1.0 database, upgraded on its first open by this
+// version. tests/fixtures/quicklogger-2.1.0.sql was written by 2.1.0's own
+// code (tests/fixtures/make_database_2_1_0.cpp); an upgrade is one-way, so
 // nothing in it may be lost or changed except where listed below.
 
 #include <cstdint>
@@ -80,16 +80,16 @@ namespace ql
 
     static std::string FixturePath()
     {
-        return std::string(QL_TEST_FIXTURES_DIR) + "/quicklogger-1.8.6.sql";
+        return std::string(QL_TEST_FIXTURES_DIR) + "/quicklogger-2.1.0.sql";
     }
 
-    // The 1.8.6 database before (`old`, as 1.8.6 left it) and after this
+    // The 2.1.0 database before (`old`, as 2.1.0 left it) and after this
     // version opened it, as one connection to the upgraded one with the
     // other attached.
-    class UpgradedFixture
+    class UpgradedFixture21
     {
     public:
-        UpgradedFixture()
+        UpgradedFixture21()
         {
             LoadSqlFile(FixturePath(), dir_.File("before.db"));
             LoadSqlFile(FixturePath(), dir_.File("quicklogger.db"));
@@ -99,12 +99,12 @@ namespace ql
             sqlite3_open(dir_.File("quicklogger.db").c_str(), &db_);
             QueryRows(db_, "ATTACH DATABASE '" + dir_.File("before.db") + "' AS old");
         }
-        ~UpgradedFixture()
+        ~UpgradedFixture21()
         {
             sqlite3_close(db_);
         }
-        UpgradedFixture(const UpgradedFixture&) = delete;
-        UpgradedFixture& operator=(const UpgradedFixture&) = delete;
+        UpgradedFixture21(const UpgradedFixture21&) = delete;
+        UpgradedFixture21& operator=(const UpgradedFixture21&) = delete;
 
         sqlite3* db() const
         {
@@ -120,10 +120,10 @@ namespace ql
         sqlite3* db_ = nullptr;
     };
 
-    QL_TEST(Upgrade18KeepsEveryRowAndColumn)
+    QL_TEST(Upgrade21KeepsEveryRowAndColumn)
     {
-        UpgradedFixture f;
-        CHECK_EQ(QueryRows(f.db(), "PRAGMA old.user_version")[0], std::string("13"));
+        UpgradedFixture21 f;
+        CHECK_EQ(QueryRows(f.db(), "PRAGMA old.user_version")[0], std::string("17"));
         CHECK_EQ(QueryRows(f.db(), "PRAGMA user_version")[0], std::string("18"));
 
         std::vector<std::string> tables =
@@ -131,7 +131,7 @@ namespace ql
         REQUIRE(tables.size() >= 12);
         for (const std::string& table : tables)
         {
-            // Every 1.8.6 column, still there, holding the same values in
+            // Every 2.1.0 column, still there, holding the same values in
             // every row: nothing lost, nothing added, nothing changed.
             std::vector<std::string> columns =
                 QueryRows(f.db(), "SELECT name FROM pragma_table_info('" + table + "', 'old')");
@@ -164,7 +164,7 @@ namespace ql
                      QueryRows(f.db(), "SELECT COUNT(*) FROM main.\"" + table + "\"")[0]);
         }
 
-        // Every 1.8.6 index is still there.
+        // Every 2.1.0 index is still there.
         for (const std::string& index :
              QueryRows(f.db(),
                        "SELECT name FROM old.sqlite_schema WHERE type = 'index' AND sql IS NOT NULL "
@@ -174,22 +174,62 @@ namespace ql
         }
     }
 
-    QL_TEST(Upgrade18FillsTheNewColumns)
+    QL_TEST(Upgrade21MovesMemberIdsOntoNets)
     {
-        UpgradedFixture f;
-        // Every net is Amateur Radio; nothing has been pushed; no check-in
-        // or saved station has a name of its own (those are GMRS's).
-        CHECK_EQ(Lines(QueryRows(f.db(), "SELECT DISTINCT service FROM nets")), std::string("amateur\n"));
-        CHECK_EQ(QueryRows(f.db(), "SELECT COUNT(*) FROM net_instances WHERE pushed_at != 0")[0], std::string("0"));
-        CHECK_EQ(QueryRows(f.db(), "SELECT COUNT(*) FROM check_ins WHERE name != ''")[0], std::string("0"));
-        CHECK_EQ(QueryRows(f.db(), "SELECT COUNT(*) FROM net_saved_stations WHERE name != ''")[0], std::string("0"));
-        // A username was an amateur call sign, so it becomes the user's
-        // amateur call sign, in capitals.
-        CHECK_EQ(Lines(QueryRows(f.db(), "SELECT username, amateur_callsign, gmrs_callsign FROM users ORDER BY id")),
-                 std::string("W4TST|W4TST|\nW4TST|W4TST|\nKQ4ZZA|KQ4ZZA|\nkd4zzb|KD4ZZB|\n"));
+        UpgradedFixture21 f;
+        // Each saved station has its station's ID, on every net it is saved
+        // to; one that had none stays blank.
+        CHECK_EQ(Lines(QueryRows(f.db(),
+                                 "SELECT n.name, ns.callsign, ns.member_id FROM net_saved_stations ns "
+                                 "JOIN nets n ON n.id = ns.net_id ORDER BY n.name, ns.callsign, ns.name")),
+                 std::string("Bare Net|KX0TST|10001\n"
+                             "Cross-Border HF Net|VE3ZZD|VE-77\n"
+                             "Family GMRS Net|WZZZ123|\n"
+                             "Family GMRS Net|WZZZ123|\n"
+                             "Fusion Net|KX0ZZA|SW-2002\n"
+                             "Test County Skywarn|AB4ZZE|\n"
+                             "Test County Skywarn|KX0ZZA|SW-2002\n"));
+        // The stations themselves no longer carry one. (An ID of a station
+        // saved to no net, like KD4ZZB's, is not kept: it has no net to
+        // belong to.)
+        CHECK_EQ(Lines(QueryRows(f.db(), "SELECT callsign FROM stations WHERE member_id != ''")), std::string());
+        CHECK_EQ(Lines(QueryRows(f.db(), "SELECT member_id FROM old.stations WHERE callsign = 'KD4ZZB'")),
+                 std::string("30003\n"));
+        // Read through the Database: the net's own, and no other net's.
+        Database db(f.path());
+        std::int64_t skywarn = 0;
+        std::int64_t fusion = 0;
+        std::int64_t hf = 0;
+        for (const Net& net : db.GetAllNets())
+        {
+            skywarn = net.name == "Test County Skywarn" ? net.id : skywarn;
+            fusion = net.name == "Fusion Net" ? net.id : fusion;
+            hf = net.name == "Cross-Border HF Net" ? net.id : hf;
+        }
+        CHECK_EQ(db.GetNetMemberId(skywarn, "KX0ZZA"), std::string("SW-2002"));
+        CHECK_EQ(db.GetNetMemberId(fusion, "KX0ZZA"), std::string("SW-2002"));
+        CHECK_EQ(db.GetNetMemberId(hf, "KX0ZZA"), std::string());
+        CHECK_EQ(db.GetNetMemberId(skywarn, "KX0TST"), std::string());
+        // Changing one net's leaves the other's.
+        db.SetNetMemberId(fusion, "KX0ZZA", "FN-9");
+        CHECK_EQ(db.GetNetMemberId(skywarn, "KX0ZZA"), std::string("SW-2002"));
+        CHECK_EQ(db.GetNetMemberId(fusion, "KX0ZZA"), std::string("FN-9"));
     }
 
-    QL_TEST(Upgrade18DatabaseWorks)
+    QL_TEST(Upgrade21KeepsTheKeysTransferMethods)
+    {
+        UpgradedFixture21 f;
+        CHECK_EQ(QueryRows(f.db(), "SELECT COUNT(*) FROM users")[0], std::string("5"));
+        CHECK_EQ(Lines(QueryRows(f.db(), "SELECT transfer_method FROM users ORDER BY id")),
+                 std::string("1\n2\n0\n0\n0\n"));
+        CHECK_EQ(Lines(QueryRows(f.db(),
+                                 "SELECT username, amateur_callsign, gmrs_callsign, view_only FROM users "
+                                 "ORDER BY id")),
+                 std::string(
+                     "KX0TST|KX0TST||0\nKX0TST|KX0TST||0\nKX0ZZA|KX0ZZA||1\nkd4zzb|KD4ZZB||0\nWQXX000||WQXX000|0\n"));
+    }
+
+    QL_TEST(Upgrade21DatabaseWorks)
     {
         TempDir dir;
         std::string path = dir.File("quicklogger.db");
@@ -197,40 +237,53 @@ namespace ql
         Database db(path);
 
         std::vector<Net> nets = db.GetAllNets();
-        REQUIRE(nets.size() == 5);
+        REQUIRE(nets.size() == 6);
         const Net* skywarn = nullptr;
+        const Net* gmrs = nullptr;
         for (const Net& net : nets)
         {
             if (net.name == "Test County Skywarn")
             {
                 skywarn = &net;
             }
+            if (net.name == "Family GMRS Net")
+            {
+                gmrs = &net;
+            }
         }
         REQUIRE(skywarn != nullptr);
+        REQUIRE(gmrs != nullptr);
         CHECK_EQ(skywarn->mode, std::string("FM"));
         CHECK_EQ(skywarn->default_frequency, std::string("145.390"));
-        CHECK_EQ(skywarn->repeater_offset, std::string("-0.6"));
-        CHECK_EQ(skywarn->pl_tone, std::string("107.2"));
-        CHECK_EQ(skywarn->default_location, std::string("37415"));
+        CHECK(skywarn->service == NetService::kAmateur);
         CHECK_EQ(skywarn->comments, std::string("Weather spotters.\nSecond line, with \"quotes\"."));
+
+        // A GMRS net keeps its service, its family told apart by name, and
+        // the session that was pushed.
+        CHECK(gmrs->service == NetService::kGmrs);
+        CHECK_EQ(gmrs->default_frequency, std::string("462.5625"));
+        CHECK_EQ(db.GetSavedStationsForNet(gmrs->id).size(), std::size_t{2});
+        CHECK_EQ(db.GetSavedNetStationRemarks(gmrs->id, "WZZZ123", "Pat"), std::string("Mom"));
+        CHECK_EQ(db.GetSavedNetStationRemarks(gmrs->id, "WZZZ123", "Alex"), std::string("Kid"));
+        std::vector<NetInstance> family = db.GetNetInstancesForNet(gmrs->id);
+        REQUIRE(family.size() == 1);
+        CHECK(family[0].pushed_at != 0);
+        std::vector<CheckIn> family_check_ins = db.GetCheckInsForNetInstance(family[0].id);
+        REQUIRE(family_check_ins.size() == 2);
+        CHECK_EQ(family_check_ins[0].name, std::string("Pat"));
+        CHECK_EQ(family_check_ins[1].name, std::string("Alex"));
 
         // Sessions newest first, with their roles, check-ins and notes.
         std::vector<NetInstance> sessions = db.GetNetInstancesForNet(skywarn->id);
         REQUIRE(sessions.size() == 2);
         CHECK_EQ(sessions[1].notes, std::string("Severe watch until 10pm.\nNo damage reports."));
-        CHECK_EQ(sessions[0].logger_callsign, std::string("KQ4ZZA"));
-        CHECK_EQ(sessions[0].net_control_callsign, std::string("W4TST"));
+        CHECK_EQ(sessions[0].logger_callsign, std::string("KX0ZZA"));
         std::vector<CheckIn> check_ins = db.GetCheckInsForNetInstance(sessions[1].id);
         REQUIRE(check_ins.size() == 4);
-        CHECK_EQ(check_ins[1].remarks, std::string("Spotter 12"));
         CHECK_EQ(check_ins[1].comment, std::string("Heavy rain"));
-        CHECK_EQ(check_ins[2].designated_role, kRoleAlternateNetControl);
-        CHECK_EQ(check_ins[3].callsign, std::string("N4ZZC/P"));
         std::optional<Station> accented = db.FindStationByCallsign("KD4ZZB");
         REQUIRE(accented.has_value());
         CHECK_EQ(accented->name, std::string("Peña, José"));
-        CHECK_EQ(db.GetSavedNetStationRemarks(skywarn->id, "KQ4ZZA"), std::string("Mobile spotter"));
-        CHECK_EQ(db.GetSavedStationsForNet(skywarn->id).size(), std::size_t{2});
         CHECK_EQ(db.GetAdHocNetInstances().size(), std::size_t{1});
 
         // The open session is still open, and can be logged and closed.
@@ -248,24 +301,32 @@ namespace ql
         CHECK(WriteNetSliceFile(dir.File("Skywarn.qlsession"), GatherSessionSlice(&db, sessions[1].id), &error));
         CHECK_EQ(error, std::string());
 
-        // Users and their access.
-        CHECK_EQ(db.GetUserKeys("W4TST").size(), std::size_t{2});
-        CHECK(db.IsUserViewOnly("KQ4ZZA"));
+        // Users, their keys and their access; a key's Transfer method is
+        // kept, and can be changed.
+        std::vector<User> keys = db.GetUserKeys("KX0TST");
+        REQUIRE(keys.size() == 2);
+        CHECK_EQ(keys[0].transfer_method, kTransferZmodem);
+        CHECK_EQ(keys[1].transfer_method, kTransferSftp);
+        db.UpdateUserKeyTransfer(keys[0].id, kTransferAsk);
+        CHECK_EQ(db.GetUserKeys("KX0TST")[0].transfer_method, kTransferAsk);
+        CHECK_EQ(db.GetUserKeys("KX0TST")[1].transfer_method, kTransferSftp);
+        CHECK(db.IsUserViewOnly("KX0ZZA"));
         CHECK(!db.IsUserViewOnly("KD4ZZB"));
+        CHECK_EQ(db.GetUserKeys("WQXX000")[0].gmrs_callsign, std::string("WQXX000"));
 
-        // The station data 1.8.6 downloaded still counts as current; only
-        // what's new since (GMRS licensees) is due.
+        // The station data 2.1.0 downloaded still counts as current.
         DataRefreshPlan plan = PlanDataRefresh(&db, 1790000000);
         CHECK(!plan.uls);
         CHECK(!plan.ised);
         CHECK(!plan.zip_centroids);
         CHECK(!plan.zip_counties);
-        CHECK(plan.gmrs);
-        CHECK(plan.ca_postal);
+        CHECK(!plan.gmrs);
+        CHECK(!plan.ca_postal);
         CHECK(db.FindUlsStationByCallsign("W4ZZF").has_value());
+        CHECK(db.FindUlsStationByCallsign("WZZZ123", LicenseTable::kGmrs).has_value());
     }
 
-    QL_TEST(Upgrade18HappensOnce)
+    QL_TEST(Upgrade21HappensOnce)
     {
         TempDir dir;
         std::string path = dir.File("quicklogger.db");
@@ -276,14 +337,14 @@ namespace ql
         sqlite3* db = nullptr;
         sqlite3_open(path.c_str(), &db);
         std::string once = Lines(QueryRows(db, "SELECT * FROM nets ORDER BY id"));
-        std::string saved_once = Lines(QueryRows(db, "SELECT * FROM net_saved_stations ORDER BY 1, 2"));
+        std::string users_once = Lines(QueryRows(db, "SELECT * FROM users ORDER BY id"));
         sqlite3_close(db);
         {
             Database second(path);
         }
         sqlite3_open(path.c_str(), &db);
         CHECK_EQ(Lines(QueryRows(db, "SELECT * FROM nets ORDER BY id")), once);
-        CHECK_EQ(Lines(QueryRows(db, "SELECT * FROM net_saved_stations ORDER BY 1, 2")), saved_once);
+        CHECK_EQ(Lines(QueryRows(db, "SELECT * FROM users ORDER BY id")), users_once);
         CHECK_EQ(QueryRows(db, "PRAGMA user_version")[0], std::string("18"));
         sqlite3_close(db);
     }

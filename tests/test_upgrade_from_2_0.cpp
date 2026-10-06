@@ -138,7 +138,7 @@ namespace ql
             std::string list;
             for (const std::string& column : columns)
             {
-                // Since 2.1.2 a member ID is kept per net, so the station's own
+                // Since 2.2.0 a member ID is kept per net, so the station's own
                 // is cleared (see Database::MoveMemberIdsToNets).
                 if (table == "stations" && column == "member_id")
                 {
