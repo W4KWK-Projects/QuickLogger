@@ -453,6 +453,7 @@ namespace ql
     {
         bool view_only = false;
         int count = 0;
+        int disabled = 0;
         std::int64_t last_login_at = 0;
         const User* first = nullptr;
         for (const User& key : keys)
@@ -464,6 +465,7 @@ namespace ql
             first = first == nullptr ? &key : first;
             view_only = view_only || key.view_only;
             ++count;
+            disabled += key.disabled ? 1 : 0;
             last_login_at = std::max(last_login_at, key.last_login_at);
         }
         std::vector<std::string> cells;
@@ -471,8 +473,11 @@ namespace ql
         cells.push_back(username);
         cells.push_back(first != nullptr ? first->amateur_callsign : std::string());
         cells.push_back(first != nullptr ? first->gmrs_callsign : std::string());
-        cells.emplace_back(view_only ? "View-Only" : "Full");
-        cells.push_back(std::to_string(count));
+        // Every key off: no login at all. Some off: "working/total".
+        cells.emplace_back(disabled == count && count > 0 ? "Disabled" : view_only ? "View-Only" : "Full");
+        cells.push_back(disabled > 0 && disabled < count
+                            ? std::to_string(count - disabled) + "/" + std::to_string(count)
+                            : std::to_string(count));
         cells.push_back(DescribeLastLogin(last_login_at));
         return cells;
     }
@@ -503,20 +508,31 @@ namespace ql
             {"Type", 7, 10, 0, 2},
             {"Fingerprint", 16, 50, 0, 1},
             {"Last Login", 19, 19, 0, 0},
+            // Date and who added it: the admin ("admin") or the user ("user").
+            {"Added", 15, 15, 1, 0},
             {"Comment", 16, 30, 0, 3},
         };
         return columns;
+    }
+
+    // "2026-10-06 user": when a key was added and by whom; just the "by" for
+    // a key from before dates were kept.
+    static std::string DescribeKeyAdded(const User& key)
+    {
+        std::string date = FormatLocalDate(key.created_at);
+        return (date.empty() ? std::string() : date + " ") + (key.added_by_user ? "user" : "admin");
     }
 
     static std::vector<std::string> UserKeyCells(const User& key)
     {
         PublicKeyDescription description = DescribePublicKey(key.public_key);
         std::vector<std::string> cells;
-        cells.reserve(4);
+        cells.reserve(5);
         cells.push_back(std::move(description.type));
         cells.push_back(std::move(description.fingerprint));
         cells.push_back(DescribeLastLogin(key.last_login_at));
-        cells.push_back(std::move(description.comment));
+        cells.push_back(DescribeKeyAdded(key));
+        cells.push_back(key.disabled ? "[off] " + description.comment : std::move(description.comment));
         return cells;
     }
 
@@ -602,7 +618,7 @@ namespace ql
             {
                 cells.push_back(fingerprint.size() > 16 ? "..." + fingerprint.substr(fingerprint.size() - tail) : "");
             }
-            cells.push_back(key.id == state->ssh_key_id ? "<- this login" : "");
+            cells.push_back(key.id == state->ssh_key_id ? "<- this login" : key.disabled ? "disabled" : "");
             state->my_keys_labels.push_back(FormatListRow(cells, layout));
         }
     }
@@ -628,6 +644,56 @@ namespace ql
             text += " (" + key.comment + ")";
         }
         return text;
+    }
+
+    // The same for a key line, for the key log.
+    static std::string DescribeKeyLine(const std::string& line)
+    {
+        // The comment first: it is what a person recognizes, and the key
+        // log's last column is narrow at 80 columns.
+        PublicKeyDescription key = DescribePublicKey(line);
+        return (key.comment.empty() ? std::string("(no comment)") : key.comment) + " " + key.type + " " +
+               key.fingerprint;
+    }
+
+    // Writes one line of the key log: the console's admin, or the SSH user
+    // at My Keys, did `action` to `username`'s keys.
+    static void RecordKeyEvent(AppState* state, const std::string& action, const std::string& username,
+                               const std::string& detail)
+    {
+        KeyEvent event;
+        event.at = static_cast<std::int64_t>(std::time(nullptr));
+        event.actor = state->is_console_session ? "console" : state->ssh_username;
+        event.action = action;
+        event.username = username;
+        event.detail = detail;
+        state->db->LogKeyEvent(event);
+    }
+
+    // The key log window's rows: when, who, and what they did.
+    static const std::vector<ListColumn>& KeyLogColumns()
+    {
+        static const std::vector<ListColumn> columns = {
+            {"When", 19, 19, 0, 0},
+            {"By", 10, 10, 0, 0},
+            {"What", 20, 120, 0, 1},
+        };
+        return columns;
+    }
+
+    static ListLayout KeyLogLayout(int terminal_width)
+    {
+        return LayOutList(KeyLogColumns(), MatchListWidth(terminal_width), MatchListWidth(80), 2, 3);
+    }
+
+    const std::string& KeyLogListHeader(int terminal_width)
+    {
+        static HeadingCache cache;
+        if (HeadingNeedsBuilding(&cache, terminal_width, 0))
+        {
+            cache.text = MenuGutter() + FormatListHeading(KeyLogColumns(), KeyLogLayout(terminal_width));
+        }
+        return cache.text;
     }
 
     // -- Autocomplete matches (New Check-In, Saved Station) --
@@ -3950,6 +4016,7 @@ namespace ql
     void RefreshUsers(AppState* state)
     {
         state->manage_users = state->db->ListUsers();
+        state->manage_self_service_on = state->db->ServerOptionOn(kOptionSelfServiceKeys);
         state->manage_user_names.clear();
         state->manage_users_cells.clear();
         for (const User& user : state->manage_users)
@@ -4019,6 +4086,9 @@ namespace ql
         state->form_error.clear();
         state->status_message.clear();
         state->my_keys_focus = 0;
+        state->my_key_new_text.clear();
+        state->my_key_remove_armed_id = 0;
+        state->my_keys_self_service = SelfServiceKeysOn(state);
         state->show_my_keys_window = true;
     }
 
@@ -4055,6 +4125,8 @@ namespace ql
         state->my_keys.clear();
         state->my_keys_labels.clear();
         state->my_key_comment_text.clear();
+        state->my_key_new_text.clear();
+        state->my_key_remove_armed_id = 0;
         state->form_error.clear();
     }
 
@@ -4089,6 +4161,315 @@ namespace ql
         LoadMyKeyComment(state);
         state->form_error.clear();
         state->status_message = "Saved.";
+    }
+
+    bool SelfServiceKeysOn(AppState* state)
+    {
+        return state->db->ServerOptionOn(kOptionSelfServiceKeys);
+    }
+
+    void AddMyKey(AppState* state)
+    {
+        if (!state->show_my_keys_window || !CanEditOwnKeys(state))
+        {
+            return;
+        }
+        state->my_key_remove_armed_id = 0;
+        state->status_message.clear();
+        if (!SelfServiceKeysOn(state))
+        {
+            state->form_error = "Adding and removing keys is off on this server. Ask the admin.";
+            return;
+        }
+        std::string public_key;
+        std::string key_error;
+        if (!ValidatePublicKey(state->my_key_new_text, &public_key, &key_error))
+        {
+            state->form_error = key_error;
+            return;
+        }
+        {
+            Database::WriteTransaction writes(state->db);
+            std::vector<User> keys = state->db->GetUserKeys(state->ssh_username);
+            if (keys.empty())
+            {
+                state->form_error = "Your account isn't on file.";
+                return;
+            }
+            if (static_cast<int>(keys.size()) >= kMaxKeysPerUser)
+            {
+                state->form_error =
+                    "You have " + std::to_string(kMaxKeysPerUser) + " keys, the most. Remove one first.";
+                return;
+            }
+            std::string owner = state->db->UserOfKey(public_key);
+            if (!owner.empty())
+            {
+                state->form_error = ToUpperAscii(owner) == ToUpperAscii(keys[0].username)
+                                        ? "You already have that key."
+                                        : "That key belongs to another user.";
+                return;
+            }
+            User key;
+            key.username = keys[0].username;
+            key.public_key = public_key;
+            key.created_at = static_cast<std::int64_t>(std::time(nullptr));
+            key.added_by_user = true;
+            state->db->CreateUser(key);
+            RecordKeyEvent(state, "added", key.username, DescribeKeyLine(public_key));
+            writes.Commit();
+        }
+        state->my_key_new_text.clear();
+        Database::ReadTransaction reads(state->db);
+        RefreshMyKeys(state);
+        LoadMyKeyComment(state);
+        state->form_error.clear();
+        state->status_message = "Added. Log in with it to try it; F3 removes keys.";
+    }
+
+    void RemoveMyKey(AppState* state)
+    {
+        if (!state->show_my_keys_window || !CanEditOwnKeys(state))
+        {
+            return;
+        }
+        state->status_message.clear();
+        if (!SelfServiceKeysOn(state))
+        {
+            state->my_key_remove_armed_id = 0;
+            state->form_error = "Adding and removing keys is off on this server. Ask the admin.";
+            return;
+        }
+        if (state->selected_my_key_index < 0 || state->selected_my_key_index >= static_cast<int>(state->my_keys.size()))
+        {
+            return;
+        }
+        User key = state->my_keys[state->selected_my_key_index];
+        if (state->ssh_key_id == 0)
+        {
+            state->my_key_remove_armed_id = 0;
+            state->form_error = "This login didn't say which key it used, so no key can be removed from it.";
+            return;
+        }
+        if (key.id == state->ssh_key_id)
+        {
+            state->my_key_remove_armed_id = 0;
+            state->form_error = "That's the key this login used. Log in with another to remove it.";
+            return;
+        }
+        if (key.disabled)
+        {
+            state->my_key_remove_armed_id = 0;
+            state->form_error = "The admin turned that key off; only they can remove it.";
+            return;
+        }
+        if (state->my_key_remove_armed_id != key.id)
+        {
+            state->my_key_remove_armed_id = key.id;
+            state->form_error.clear();
+            state->status_message = "F3 again removes " + DescribeUserKey(key) + ". Any other key cancels.";
+            return;
+        }
+        state->my_key_remove_armed_id = 0;
+        {
+            Database::WriteTransaction writes(state->db);
+            // Re-read: another session may have changed the keys.
+            int working_others = 0;
+            bool still_there = false;
+            for (const User& other : state->db->GetUserKeys(state->ssh_username))
+            {
+                still_there = still_there || other.id == key.id;
+                working_others += other.id != key.id && !other.disabled ? 1 : 0;
+            }
+            if (!still_there)
+            {
+                state->form_error = "That key is already gone.";
+            }
+            else if (working_others == 0)
+            {
+                state->form_error = "That's your last working key. Add another first.";
+            }
+            else
+            {
+                state->db->DeleteUserKey(key.id);
+                RecordKeyEvent(state, "removed", key.username, DescribeKeyLine(key.public_key));
+                writes.Commit();
+                state->form_error.clear();
+                state->status_message = "Removed.";
+            }
+        }
+        Database::ReadTransaction reads(state->db);
+        RefreshMyKeys(state);
+        LoadMyKeyComment(state);
+    }
+
+    void ToggleSelfServiceKeys(AppState* state)
+    {
+        if (RefuseViewOnly(state, "manage users") || !state->is_console_session)
+        {
+            return;
+        }
+        bool on = !state->db->ServerOptionOn(kOptionSelfServiceKeys);
+        {
+            Database::WriteTransaction writes(state->db);
+            state->db->SetServerOption(kOptionSelfServiceKeys, on);
+            RecordKeyEvent(state, on ? "self-service on" : "self-service off", "", "");
+            writes.Commit();
+        }
+        state->manage_self_service_on = on;
+        state->form_error.clear();
+        state->status_message = on ? "Self-service on: users add and remove their own keys in My Keys."
+                                   : "Self-service off: only you add and remove keys.";
+    }
+
+    void ToggleSelectedUserKeyDisabled(AppState* state)
+    {
+        if (RefuseViewOnly(state, "manage users") || state->user_keys.empty())
+        {
+            return;
+        }
+        User key = state->user_keys[state->selected_user_key_index];
+        {
+            Database::WriteTransaction writes(state->db);
+            state->db->SetUserKeyDisabled(key.id, !key.disabled);
+            RecordKeyEvent(state, key.disabled ? "enabled" : "disabled", key.username, DescribeKeyLine(key.public_key));
+            writes.Commit();
+        }
+        RefreshUsers(state);
+        state->form_error.clear();
+        state->status_message = key.disabled ? "Turned a key of \"" + key.username + "\" back on."
+                                             : "Turned off a key of \"" + key.username + "\"; it can't log in.";
+    }
+
+    void ToggleAllUserKeysDisabled(AppState* state)
+    {
+        if (RefuseViewOnly(state, "manage users") || state->user_keys.empty())
+        {
+            return;
+        }
+        bool any_enabled = false;
+        for (const User& key : state->user_keys)
+        {
+            any_enabled = any_enabled || !key.disabled;
+        }
+        std::string username = state->user_keys_username;
+        {
+            Database::WriteTransaction writes(state->db);
+            state->db->SetUserKeysDisabled(username, any_enabled);
+            RecordKeyEvent(state, any_enabled ? "disabled" : "enabled", username, "all keys");
+            writes.Commit();
+        }
+        RefreshUsers(state);
+        state->form_error.clear();
+        state->status_message = any_enabled ? "Turned off every key of \"" + username + "\"; they can't log in."
+                                            : "Turned every key of \"" + username + "\" back on.";
+    }
+
+    std::string UserKeyDetail(const AppState* state)
+    {
+        int index = state->selected_user_key_index;
+        if (index < 0 || index >= static_cast<int>(state->user_keys.size()) ||
+            index >= static_cast<int>(state->user_keys_cells.size()))
+        {
+            return std::string();
+        }
+        const User& key = state->user_keys[index];
+        // Cell 3 is "2026-10-06 user" (see DescribeKeyAdded).
+        return "Highlighted key added: " + state->user_keys_cells[index][3] + (key.disabled ? ". Turned off." : ".");
+    }
+
+    std::string UserKeyOffLabel(const AppState* state)
+    {
+        int index = state->selected_user_key_index;
+        bool disabled =
+            index >= 0 && index < static_cast<int>(state->user_keys.size()) && state->user_keys[index].disabled;
+        return disabled ? "Turn On" : "Turn Off";
+    }
+
+    std::string UserKeysOffLabel(const AppState* state)
+    {
+        for (const User& key : state->user_keys)
+        {
+            if (!key.disabled)
+            {
+                return "All Off";
+            }
+        }
+        return "All On";
+    }
+
+    void OpenKeyLog(AppState* state)
+    {
+        Database::ReadTransaction reads(state->db);
+        state->key_log_events = state->db->RecentKeyEvents(100);
+        ListLayout layout = KeyLogLayout(state->list_width);
+        state->key_log_labels.clear();
+        state->key_log_labels.reserve(state->key_log_events.size());
+        for (const KeyEvent& event : state->key_log_events)
+        {
+            std::string what = event.action;
+            if (!event.username.empty())
+            {
+                what += " " + event.username;
+            }
+            if (!event.detail.empty())
+            {
+                what += ": " + event.detail;
+            }
+            state->key_log_labels.push_back(
+                FormatListRow({FormatLocalDateTime(event.at), event.actor, std::move(what)}, layout));
+        }
+        state->selected_key_log_index = 0;
+        state->status_message.clear();
+        state->show_key_log_window = true;
+    }
+
+    // `text` as one CSV field: quoted if it has a comma, quote or newline.
+    static std::string CsvField(const std::string& text)
+    {
+        if (text.find_first_of(",\"\r\n") == std::string::npos)
+        {
+            return text;
+        }
+        std::string quoted = "\"";
+        for (char c : text)
+        {
+            quoted += c == '"' ? "\"\"" : std::string(1, c);
+        }
+        return quoted + "\"";
+    }
+
+    void ExportKeyLog(AppState* state)
+    {
+        if (!state->show_key_log_window)
+        {
+            return;
+        }
+        // The whole log (the window shows the newest 100), oldest first, one
+        // line a change, for a spreadsheet.
+        std::vector<KeyEvent> events;
+        {
+            Database::ReadTransaction reads(state->db);
+            events = state->db->RecentKeyEvents(1000);
+        }
+        std::vector<std::string> lines;
+        lines.emplace_back("When,By,Action,User,Detail");
+        for (auto event = events.rbegin(); event != events.rend(); ++event)
+        {
+            lines.push_back(CsvField(FormatLocalDateTime(event->at)) + "," + CsvField(event->actor) + "," +
+                            CsvField(event->action) + "," + CsvField(event->username) + "," + CsvField(event->detail));
+        }
+        std::string path =
+            SessionExportsDir(state->db_path, state->ssh_username) + "/key_log_" + CurrentDateIso8601() + ".csv";
+        state->form_error.clear();
+        ExportLinesToFile(state, path, std::move(lines));
+    }
+
+    void CloseKeyLog(AppState* state)
+    {
+        state->show_key_log_window = false;
+        state->key_log_events.clear();
+        state->key_log_labels.clear();
     }
 
     void OpenUserKeys(AppState* state, int index)
@@ -4224,6 +4605,10 @@ namespace ql
         key.public_key = public_key;
         key.created_at = static_cast<std::int64_t>(std::time(nullptr));
         bool added = state->db->CreateUser(key);
+        if (added)
+        {
+            RecordKeyEvent(state, "added", key.username, DescribeKeyLine(public_key));
+        }
         state->new_key_text.clear();
         RefreshUsers(state);
         state->form_error.clear();
@@ -4240,6 +4625,7 @@ namespace ql
         User key = state->user_keys[state->selected_user_key_index];
         bool last_key = state->user_keys.size() == 1;
         state->db->DeleteUserKey(key.id);
+        RecordKeyEvent(state, "removed", key.username, DescribeKeyLine(key.public_key));
         if (last_key)
         {
             CloseUserKeys(state);
@@ -4333,6 +4719,10 @@ namespace ql
         user.gmrs_callsign = state->new_user_gmrs_callsign;
         bool had_keys = existing;
         bool added = state->db->CreateUser(user);
+        if (added)
+        {
+            RecordKeyEvent(state, "added", user.username, DescribeKeyLine(public_key));
+        }
 
         state->new_user_username.clear();
         state->new_user_public_key.clear();
@@ -4364,7 +4754,9 @@ namespace ql
             return;
         }
         std::string username = state->manage_user_names[state->selected_user_index];
+        int keys = CountUserKeys(state, username);
         state->db->DeleteUser(username);
+        RecordKeyEvent(state, "user removed", username, std::to_string(keys) + (keys == 1 ? " key" : " keys"));
         RefreshUsers(state);
         state->form_error.clear();
         state->status_message = "Removed \"" + username + "\".";
@@ -7298,7 +7690,10 @@ namespace ql
                 }
                 if (CanEditOwnKeys(state))
                 {
-                    lines.push_back({"F4", "My Keys: your SSH keys and their comments.", false});
+                    lines.push_back({"F4",
+                                     "My Keys: your SSH keys, their comments and Transfer method; add or remove keys "
+                                     "if the admin allows.",
+                                     false});
                 }
                 if (state->is_console_session)
                 {
@@ -7374,6 +7769,8 @@ namespace ql
                         {"F2", "Save the username and access; close the window.", false},
                         {"F3", "Remove one of this user's keys (by number).", false},
                         {"F4/Enter", "Add the key pasted in, for this user.", false},
+                        {"F5", "Turn the highlighted key off or on; an off key can't log in.", false},
+                        {"F6", "Turn all this user's keys off, or all back on.", false},
                         {"Esc", "Close without saving the username or access.", false},
                         {"Left/Right", "Change the access.", false},
                     };
@@ -7382,6 +7779,9 @@ namespace ql
                     {"F2", "Add the SSH user entered (or another key for them).", false},
                     {"F3", "Remove an SSH user and all their keys (by number).", false},
                     {"F4/Enter", "Edit a user: username, access and keys (by number).", false},
+                    {"F5", "Own Keys: let users add and remove their own keys in My Keys, or not.", false},
+                    {"F6", "Key Log: who added, removed or turned off keys, and when; F7 there saves it as a .csv.",
+                     false},
                     {"Esc", "Back to Settings.", false},
                 };
             default:

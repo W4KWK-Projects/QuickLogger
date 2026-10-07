@@ -116,6 +116,24 @@ namespace ql
 
     // ---- Logging -------------------------------------------------------------------
 
+    QL_TEST(PublicKeyFieldTrimsAPasteButKeepsATypedSpace)
+    {
+        std::string field = "  \tssh-ed25519 AAAA test@x \r\n";
+        PublicKeyFieldHandler handler(&field);
+        handler();
+        CHECK_EQ(field, std::string("ssh-ed25519 AAAA test@x"));
+
+        // A paste ending in one space is trimmed too.
+        field = "ssh-ed25519 AAAA ";
+        handler();
+        CHECK_EQ(field, std::string("ssh-ed25519 AAAA"));
+
+        // Typing a space after the key keeps it, so a comment can follow.
+        field += " ";
+        handler();
+        CHECK_EQ(field, std::string("ssh-ed25519 AAAA "));
+    }
+
     QL_TEST(LoginHighlightsTheNetLastLogged)
     {
         Fixture f;
@@ -1170,6 +1188,242 @@ namespace ql
         CHECK(!f.state.form_error.empty());
         CloseMyKeys(&f.state);
         CHECK(!f.state.show_my_keys_window);
+    }
+
+    static const char* const kKeyOne =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINM3eCDBCkdxto9OIGli2KKnorIhCylrEpYHnMPxdkAI one";
+    static const char* const kKeyTwo =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFUHsZO/+u4kfoE3i1544d/i3b2/yRjC/jRGb1uodi4F two";
+    static const char* const kKeyThree =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFPf8a3SEqIIAzElc+Vk8Bce31h9CKJEM+eBRYDAWPaL three";
+    // Throwaway keys made for this test, enough to fill an account.
+    static const char* const kSpareKeys[] = {
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJPBxQNgiOdaxMpXFo16yK0LuqkDIW0Wnx+EMi/NHY8s k1",
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP0rUT5C1MYCkK9xa36rYK8rjo4rl5QFqo1YPAWkSwHo k2",
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIj0nuWJC7Dg1EC3Tr0vPtkvUXhYJlFJqm2Qgw/hyriZ k3",
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII0rFzy3VBuqmy0x8lQyinELeXD5jG4cPfxM1CFy1oIv k4",
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILtHrd4L/LjdPZ6kVXa22GoOJDgk/bPs7ezCelWug+Q+ k5",
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMoPbp+pyViGdwxruf6Ek75xNPoI2SZon282xFCwBhHj k6",
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILVFjtymuFMj2I5U4L1W+LC7jozM9cP2hbVfsrYMBU3N k7",
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICARnpETnMRCs4gL4ip1Ze2rcxnpDDrUF2lY7iZCFxAL k8",
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFyoIYAZc3P3Uo8jkccbdi5Y2NjXmPbkC9BzHirKEOpd k9"};
+
+    // An SSH user K4WES with one key, logged in with it, My Keys open.
+    static void LogInWithOneKey(Fixture* f)
+    {
+        User user;
+        user.username = "K4WES";
+        user.public_key = kKeyOne;
+        user.amateur_callsign = "K4WES";
+        f->db()->CreateUser(user);
+        f->state.is_console_session = false;
+        f->state.ssh_username = "K4WES";
+        f->state.ssh_key_id = f->db()->GetUserKeys("K4WES")[0].id;
+        OpenMyKeys(&f->state);
+    }
+
+    QL_TEST(SelfServiceKeysAreOffUntilTheAdminTurnsThemOn)
+    {
+        Fixture f;
+        LogInWithOneKey(&f);
+        CHECK(!f.state.my_keys_self_service);
+        f.state.my_key_new_text = kKeyTwo;
+        AddMyKey(&f.state);
+        CHECK(!f.state.form_error.empty());
+        CHECK_EQ(f.db()->GetUserKeys("K4WES").size(), std::size_t{1});
+
+        // The admin's F5 at the console.
+        f.state.is_console_session = true;
+        ToggleSelfServiceKeys(&f.state);
+        CHECK(f.db()->ServerOptionOn(kOptionSelfServiceKeys));
+        CHECK(f.state.manage_self_service_on);
+        CHECK_EQ(f.db()->RecentKeyEvents(5)[0].action, std::string("self-service on"));
+        ToggleSelfServiceKeys(&f.state);
+        CHECK(!f.db()->ServerOptionOn(kOptionSelfServiceKeys));
+        // An SSH session can't flip it.
+        f.state.is_console_session = false;
+        ToggleSelfServiceKeys(&f.state);
+        CHECK(!f.db()->ServerOptionOn(kOptionSelfServiceKeys));
+    }
+
+    QL_TEST(AUserAddsAndRemovesTheirOwnKeysWithGuardrails)
+    {
+        Fixture f;
+        f.db()->SetServerOption(kOptionSelfServiceKeys, true);
+        LogInWithOneKey(&f);
+        CHECK(f.state.my_keys_self_service);
+
+        f.state.my_key_new_text = "not a key";
+        AddMyKey(&f.state);
+        CHECK(!f.state.form_error.empty());
+        f.state.my_key_new_text = kKeyOne;
+        AddMyKey(&f.state);
+        CHECK_EQ(f.state.form_error, std::string("You already have that key."));
+
+        f.state.my_key_new_text = kKeyTwo;
+        AddMyKey(&f.state);
+        CHECK(f.state.form_error.empty());
+        CHECK(f.state.my_key_new_text.empty());
+        std::vector<User> keys = f.db()->GetUserKeys("K4WES");
+        REQUIRE(keys.size() == 2);
+        CHECK(keys[1].added_by_user);
+        CHECK(!keys[0].added_by_user);
+        CHECK_EQ(keys[1].amateur_callsign, std::string("K4WES"));
+        CHECK_EQ(f.state.my_keys.size(), std::size_t{2});
+        CHECK_EQ(f.db()->RecentKeyEvents(5)[0].actor, std::string("K4WES"));
+        CHECK_EQ(f.db()->RecentKeyEvents(5)[0].action, std::string("added"));
+
+        // Another user's key can't be claimed.
+        User other;
+        other.username = "W1OTH";
+        other.public_key = kKeyThree;
+        other.amateur_callsign = "W1OTH";
+        f.db()->CreateUser(other);
+        f.state.my_key_new_text = kKeyThree;
+        AddMyKey(&f.state);
+        CHECK_EQ(f.state.form_error, std::string("That key belongs to another user."));
+
+        // Never the key in use.
+        f.state.selected_my_key_index = 0;
+        RemoveMyKey(&f.state);
+        CHECK(!f.state.form_error.empty());
+        CHECK_EQ(f.db()->GetUserKeys("K4WES").size(), std::size_t{2});
+        // The other: the first F3 asks, any other key cancels, the second removes.
+        f.state.selected_my_key_index = 1;
+        f.state.form_error.clear();
+        RemoveMyKey(&f.state);
+        CHECK(f.state.form_error.empty());
+        CHECK_EQ(f.db()->GetUserKeys("K4WES").size(), std::size_t{2});
+        CHECK(f.state.my_key_remove_armed_id != 0);
+        RemoveMyKey(&f.state);
+        CHECK_EQ(f.db()->GetUserKeys("K4WES").size(), std::size_t{1});
+        CHECK_EQ(f.db()->RecentKeyEvents(5)[0].action, std::string("removed"));
+        // Never the last.
+        f.state.selected_my_key_index = 0;
+        RemoveMyKey(&f.state);
+        RemoveMyKey(&f.state);
+        CHECK_EQ(f.db()->GetUserKeys("K4WES").size(), std::size_t{1});
+    }
+
+    QL_TEST(AUserCannotHaveMoreThanTenKeys)
+    {
+        Fixture f;
+        f.db()->SetServerOption(kOptionSelfServiceKeys, true);
+        LogInWithOneKey(&f);
+        for (const char* spare : kSpareKeys)
+        {
+            f.state.my_key_new_text = spare;
+            AddMyKey(&f.state);
+            CHECK(f.state.form_error.empty());
+        }
+        CHECK_EQ(f.db()->GetUserKeys("K4WES").size(), static_cast<std::size_t>(kMaxKeysPerUser));
+        f.state.my_key_new_text = kKeyThree;
+        AddMyKey(&f.state);
+        CHECK(!f.state.form_error.empty());
+        CHECK_EQ(f.db()->GetUserKeys("K4WES").size(), static_cast<std::size_t>(kMaxKeysPerUser));
+    }
+
+    QL_TEST(AnAdminTurnsKeysOffAndOnAndTheLogShowsIt)
+    {
+        Fixture f;
+        for (const char* key : {kKeyOne, kKeyTwo})
+        {
+            User user;
+            user.username = "K4WES";
+            user.public_key = key;
+            user.amateur_callsign = "K4WES";
+            f.db()->CreateUser(user);
+        }
+        f.state.is_console_session = true;
+        RefreshUsers(&f.state);
+        OpenUserKeys(&f.state, 0);
+        f.state.selected_user_key_index = 1;
+        CHECK_EQ(UserKeyOffLabel(&f.state), std::string("Turn Off"));
+        ToggleSelectedUserKeyDisabled(&f.state);
+        CHECK(f.db()->GetUserKeys("K4WES")[1].disabled);
+        CHECK(!f.db()->GetUserKeys("K4WES")[0].disabled);
+        CHECK_EQ(UserKeyOffLabel(&f.state), std::string("Turn On"));
+        CHECK(f.state.user_keys_labels[1].find("[off]") != std::string::npos);
+        // One of two off: the list says how many work.
+        CHECK(f.state.manage_users_labels[0].find("1/2") != std::string::npos);
+        ToggleAllUserKeysDisabled(&f.state);
+        CHECK(f.db()->GetUserKeys("K4WES")[0].disabled);
+        CHECK(f.state.manage_users_labels[0].find("Disabled") != std::string::npos);
+        CHECK_EQ(UserKeysOffLabel(&f.state), std::string("All On"));
+        ToggleAllUserKeysDisabled(&f.state);
+        CHECK(!f.db()->GetUserKeys("K4WES")[0].disabled);
+        CHECK(!f.db()->GetUserKeys("K4WES")[1].disabled);
+
+        // A user can't remove a key the admin turned off.
+        f.db()->SetServerOption(kOptionSelfServiceKeys, true);
+        f.db()->SetUserKeyDisabled(f.db()->GetUserKeys("K4WES")[1].id, true);
+        CloseUserKeys(&f.state);
+        f.state.is_console_session = false;
+        f.state.ssh_username = "K4WES";
+        f.state.ssh_key_id = f.db()->GetUserKeys("K4WES")[0].id;
+        OpenMyKeys(&f.state);
+        f.state.selected_my_key_index = 1;
+        RemoveMyKey(&f.state);
+        CHECK(!f.state.form_error.empty());
+        CHECK_EQ(f.db()->GetUserKeys("K4WES").size(), std::size_t{2});
+
+        f.state.is_console_session = true;
+        OpenKeyLog(&f.state);
+        CHECK(f.state.show_key_log_window);
+        CHECK(!f.state.key_log_labels.empty());
+        CHECK(f.state.key_log_labels[0].find("enabled") != std::string::npos);
+        CloseKeyLog(&f.state);
+    }
+
+    QL_TEST(TheKeyLogExportsAsACsvOldestFirst)
+    {
+        Fixture f;
+        f.state.is_console_session = true;
+        for (int i = 0; i < 3; ++i)
+        {
+            KeyEvent event;
+            event.at = 1790000000 + i;
+            event.actor = "console";
+            event.action = "added";
+            event.username = "K4WES";
+            event.detail = i == 1 ? "has, a comma" : "laptop " + std::to_string(i);
+            f.db()->LogKeyEvent(event);
+        }
+        ExportKeyLog(&f.state);
+        CHECK(!f.state.show_key_log_window);
+        OpenKeyLog(&f.state);
+        ExportKeyLog(&f.state);
+        CHECK(f.state.form_error.empty());
+        std::vector<std::string> files = ListFilesWithExtension(ExportsDir(f.state.db_path), ".csv");
+        REQUIRE(files.size() == 1);
+        std::ifstream in(ExportsDir(f.state.db_path) + "/" + files[0]);
+        std::vector<std::string> lines;
+        for (std::string line; std::getline(in, line);)
+        {
+            lines.push_back(line);
+        }
+        REQUIRE(lines.size() == 4);
+        CHECK_EQ(lines[0], std::string("When,By,Action,User,Detail"));
+        CHECK(lines[1].find("laptop 0") != std::string::npos);
+        CHECK(lines[2].find("\"has, a comma\"") != std::string::npos);
+        CHECK(lines[3].find("laptop 2") != std::string::npos);
+    }
+
+    QL_TEST(KeyLogKeepsOnlyTheNewestLines)
+    {
+        Fixture f;
+        for (int i = 0; i < 520; ++i)
+        {
+            KeyEvent event;
+            event.at = 1000 + i;
+            event.actor = "console";
+            event.action = "added";
+            event.detail = std::to_string(i);
+            f.db()->LogKeyEvent(event);
+        }
+        std::vector<KeyEvent> events = f.db()->RecentKeyEvents(1000);
+        CHECK_EQ(events.size(), std::size_t{500});
+        CHECK_EQ(events[0].detail, std::string("519"));
     }
 
     QL_TEST(AKeysTransferMethodIsSavedAndSftpKeysAreNotOfferedZmodem)

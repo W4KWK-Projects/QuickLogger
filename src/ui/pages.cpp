@@ -344,6 +344,14 @@ namespace ql
         return option;
     }
 
+    // A pasted public key's options (see PublicKeyFieldHandler).
+    static ftxui::InputOption PublicKeyInputOption(std::string* field)
+    {
+        ftxui::InputOption option = SingleLineInputOption();
+        option.on_change = PublicKeyFieldHandler(field);
+        return option;
+    }
+
     // A repeater offset field's options (see OffsetFieldHandler).
     static ftxui::InputOption OffsetInputOption(std::string* field)
     {
@@ -1807,11 +1815,12 @@ namespace ql
     {
     public:
         MyKeysWindowRenderer(AppState* state, ftxui::Component key_menu, ftxui::Component input_comment,
-                             ftxui::Component transfer_toggle)
+                             ftxui::Component transfer_toggle, ftxui::Component input_new_key)
             : state_(state),
               key_menu_(std::move(key_menu)),
               input_comment_(std::move(input_comment)),
-              transfer_toggle_(std::move(transfer_toggle))
+              transfer_toggle_(std::move(transfer_toggle)),
+              input_new_key_(std::move(input_new_key))
         {
         }
 
@@ -1827,13 +1836,24 @@ namespace ql
             })));
             rows.push_back(ftxui::hbox({FieldLabel("Comment:  "), input_comment_->Render()}));
             rows.push_back(ftxui::hbox({FieldLabel("Transfer: "), transfer_toggle_->Render()}));
+            if (state_->my_keys_self_service)
+            {
+                rows.push_back(ftxui::hbox({FieldLabel("Add key:  "), input_new_key_->Render()}));
+            }
             rows.push_back(DialogSeparator());
             rows.push_back(
                 HintParagraph("Up/Down picks a key, Tab moves between fields. Transfer: ZMODEM waits for your "
                               "terminal to receive, SFTP shows scp commands, Ask tries ZMODEM and remembers "
                               "what worked."));
             rows.push_back(DialogSeparator());
-            rows.push_back(KeyHintRow({{"F2", "Save"}, {"Esc", "Close"}}));
+            if (state_->my_keys_self_service)
+            {
+                rows.push_back(KeyHintRow({{"F2", "Save"}, {"F3", "Remove Key"}, {"F4", "Add Key"}, {"Esc", "Close"}}));
+            }
+            else
+            {
+                rows.push_back(KeyHintRow({{"F2", "Save"}, {"Esc", "Close"}}));
+            }
             rows.push_back(StatusLine(state_->status_message));
             rows.push_back(ErrorLine(state_->form_error));
             return CheckInWindow(state_, ftxui::vbox(std::move(rows)));
@@ -1844,6 +1864,7 @@ namespace ql
         ftxui::Component key_menu_;
         ftxui::Component input_comment_;
         ftxui::Component transfer_toggle_;
+        ftxui::Component input_new_key_;
     };
 
     static ftxui::Component BuildMyKeysWindow(AppState* state)
@@ -1866,9 +1887,14 @@ namespace ql
         transfer_option.focused_entry = &state->my_key_transfer_index;
         ftxui::Component transfer_toggle = std::make_shared<IgnoreTab>(
             ftxui::Menu(&state->my_key_transfer_labels, &state->my_key_transfer_index, transfer_option));
-        return ftxui::Renderer(
-            ftxui::Container::Vertical({key_menu, input_comment, transfer_toggle}, &state->my_keys_focus),
-            MyKeysWindowRenderer(state, key_menu, input_comment, transfer_toggle));
+        // Only while the admin allows it (see AppState::my_keys_self_service).
+        ftxui::Component input_new_key =
+            ftxui::Maybe(ftxui::Input(&state->my_key_new_text, "ssh-ed25519 AAAA... comment",
+                                      PublicKeyInputOption(&state->my_key_new_text)),
+                         &state->my_keys_self_service);
+        return ftxui::Renderer(ftxui::Container::Vertical({key_menu, input_comment, transfer_toggle, input_new_key},
+                                                          &state->my_keys_focus),
+                               MyKeysWindowRenderer(state, key_menu, input_comment, transfer_toggle, input_new_key));
     }
 
     static ftxui::Component BuildUpstreamWindow(AppState* state)
@@ -3046,7 +3072,12 @@ namespace ql
                 return PageChrome("Manage Users", content, PickKeyHints(state_));
             }
             return PageChrome("Manage Users", content,
-                              {{"F2", "Add"}, {"F3", "Remove"}, {"F4", "Edit"}, {"Esc", "Back"}});
+                              {{"F2", "Add"},
+                               {"F3", "Remove"},
+                               {"F4", "Edit"},
+                               {"F5", state_->manage_self_service_on ? "Own Keys: On" : "Own Keys: Off"},
+                               {"F6", "Key Log"},
+                               {"Esc", "Back"}});
         }
 
     private:
@@ -3099,6 +3130,14 @@ namespace ql
                     ftxui::yframe | ftxui::vscroll_indicator | ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, 8),
             })));
             rows.push_back(PickPrompt(state_, PickList::kUserKeys));
+            if (IsPicking(state_, PickList::kUserKeys) || state_->user_keys.empty())
+            {
+                // The picking prompt has the row.
+            }
+            else
+            {
+                rows.push_back(HintText(UserKeyDetail(state_)));
+            }
             rows.push_back(ftxui::hbox({FieldLabel("Add a key:  "), input_key_->Render()}));
             rows.push_back(DialogSeparator());
             if (IsPicking(state_, PickList::kUserKeys))
@@ -3107,8 +3146,12 @@ namespace ql
             }
             else
             {
-                rows.push_back(
-                    KeyHintRow({{"F2", "Save"}, {"F3", "Remove Key"}, {"F4", "Add Key"}, {"Esc", "Cancel"}}));
+                rows.push_back(KeyHintRow({{"F2", "Save"},
+                                           {"F3", "Remove"},
+                                           {"F4", "Add"},
+                                           {"F5", UserKeyOffLabel(state_)},
+                                           {"F6", UserKeysOffLabel(state_)},
+                                           {"Esc", "Cancel"}}));
             }
             rows.push_back(StatusLine(state_->status_message));
             rows.push_back(ErrorLine(state_->form_error));
@@ -3123,6 +3166,43 @@ namespace ql
         ftxui::Component access_toggle_;
         ftxui::Component key_menu_;
         ftxui::Component input_key_;
+    };
+
+    // The key log over Manage Users (F6): the last changes to who can log in.
+    class KeyLogWindowRenderer
+    {
+    public:
+        KeyLogWindowRenderer(AppState* state, ftxui::Component log_menu) : state_(state), log_menu_(std::move(log_menu))
+        {
+        }
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Elements rows;
+            rows.push_back(Heading("Key Log"));
+            rows.push_back(DialogSeparator());
+            if (state_->key_log_labels.empty())
+            {
+                rows.push_back(HintText("Nothing yet."));
+            }
+            else
+            {
+                rows.push_back(Framed(ftxui::vbox({
+                    ColumnHeader(KeyLogListHeader(state_->list_width)),
+                    log_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator |
+                        ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, 12),
+                })));
+            }
+            rows.push_back(DialogSeparator());
+            rows.push_back(KeyHintRow({{"F7", "Export"}, {"Up/Down", "Scroll"}, {"Esc", "Close"}}));
+            rows.push_back(StatusLine(state_->status_message));
+            rows.push_back(ErrorLine(state_->form_error));
+            return CheckInWindow(state_, ftxui::vbox(std::move(rows)));
+        }
+
+    private:
+        AppState* state_;
+        ftxui::Component log_menu_;
     };
 
     ftxui::Component BuildManageUsersPage(AppState* state)
@@ -3142,8 +3222,8 @@ namespace ql
         gmrs_option.on_change = UppercaseFieldHandler(&state->new_user_gmrs_callsign);
         ftxui::Component input_gmrs =
             ftxui::Input(&state->new_user_gmrs_callsign, "e.g. WSIP663 (optional)", gmrs_option);
-        ftxui::Component input_public_key =
-            ftxui::Input(&state->new_user_public_key, "ssh-ed25519 AAAA... comment", SingleLineInputOption());
+        ftxui::Component input_public_key = ftxui::Input(&state->new_user_public_key, "ssh-ed25519 AAAA... comment",
+                                                         PublicKeyInputOption(&state->new_user_public_key));
 
         ftxui::MenuOption access_option = ftxui::MenuOption::Toggle();
         access_option.entries_option.transform = ToggleEntryTransform;
@@ -3178,7 +3258,7 @@ namespace ql
         key_menu_option.entries_option.transform = AlignedMenuEntryTransform;
         ftxui::Component key_menu = ClickableList(
             state, ftxui::Menu(&state->user_keys_labels, &state->selected_user_key_index, key_menu_option));
-        ftxui::InputOption key_option = SingleLineInputOption();
+        ftxui::InputOption key_option = PublicKeyInputOption(&state->new_key_text);
         key_option.on_enter = AddUserKeyHandler(state);
         ftxui::Component input_key = ftxui::Input(&state->new_key_text, "ssh-ed25519 AAAA... comment", key_option);
         ftxui::Component keys_modal =
@@ -3187,7 +3267,15 @@ namespace ql
                             UserKeysModalRenderer(state, input_rename, input_edit_amateur, input_edit_gmrs,
                                                   edit_access_toggle, key_menu, input_key));
 
-        return WithRowDeleteConfirm(state, LayeredModal(main_view, keys_modal, &state->show_user_keys_modal));
+        ftxui::MenuOption log_menu_option;
+        log_menu_option.entries_option.transform = AlignedMenuEntryTransform;
+        ftxui::Component log_menu =
+            ftxui::Menu(&state->key_log_labels, &state->selected_key_log_index, log_menu_option);
+        ftxui::Component log_modal = ftxui::Renderer(log_menu, KeyLogWindowRenderer(state, log_menu));
+
+        return WithRowDeleteConfirm(
+            state, LayeredModal(LayeredModal(main_view, keys_modal, &state->show_user_keys_modal), log_modal,
+                                &state->show_key_log_window));
     }
 
     // ---- Help and the seldom-used windows (see InfoWindow) -------------------

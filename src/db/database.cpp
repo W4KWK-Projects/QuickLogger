@@ -186,13 +186,29 @@ CREATE TABLE IF NOT EXISTS users (
     view_only INTEGER NOT NULL DEFAULT 0,
     amateur_callsign TEXT NOT NULL DEFAULT '',
     gmrs_callsign TEXT NOT NULL DEFAULT '',
-    transfer_method INTEGER NOT NULL DEFAULT 0
+    transfer_method INTEGER NOT NULL DEFAULT 0,
+    added_by_user INTEGER NOT NULL DEFAULT 0,
+    disabled INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS key_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at INTEGER NOT NULL,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    username TEXT NOT NULL DEFAULT '',
+    detail TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS server_options (
+    name TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 )sql";
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 18;
+    static constexpr int kSchemaVersion = 19;
 
     // How SQLite waits for another connection's lock: 1 ms pauses for the
     // first 20 tries, then 5 ms ones, giving up after 5 seconds by the clock.
@@ -639,6 +655,8 @@ CREATE TABLE IF NOT EXISTS users (
         EnsureColumnExists(db_, "users", "amateur_callsign", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(db_, "users", "gmrs_callsign", "TEXT NOT NULL DEFAULT ''");
         EnsureColumnExists(db_, "users", "transfer_method", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(db_, "users", "added_by_user", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(db_, "users", "disabled", "INTEGER NOT NULL DEFAULT 0");
         {
             Statement copy(&statements_,
                            "UPDATE users SET amateur_callsign = upper(username) "
@@ -2982,6 +3000,8 @@ COMMIT;
         user.amateur_callsign = row.ColumnText(6);
         user.gmrs_callsign = row.ColumnText(7);
         user.transfer_method = static_cast<int>(row.ColumnInt64(8));
+        user.added_by_user = row.ColumnInt64(9) != 0;
+        user.disabled = row.ColumnInt64(10) != 0;
         return user;
     }
 
@@ -3005,10 +3025,10 @@ COMMIT;
         // access and call signs, whatever `user` says.
         Statement statement(&statements_, R"sql(
         INSERT INTO users (username, public_key, created_at, last_login_at, view_only, amateur_callsign,
-                           gmrs_callsign)
+                           gmrs_callsign, added_by_user)
         VALUES (?,?,?,0, COALESCE((SELECT view_only FROM users WHERE username = ? LIMIT 1), ?),
                 COALESCE((SELECT amateur_callsign FROM users WHERE username = ? LIMIT 1), ?),
-                COALESCE((SELECT gmrs_callsign FROM users WHERE username = ? LIMIT 1), ?));
+                COALESCE((SELECT gmrs_callsign FROM users WHERE username = ? LIMIT 1), ?), ?);
     )sql");
         statement.BindText(0, username);
         statement.BindText(1, user.public_key);
@@ -3019,6 +3039,7 @@ COMMIT;
         statement.BindText(6, ToUpperAscii(user.amateur_callsign));
         statement.BindText(7, username);
         statement.BindText(8, ToUpperAscii(user.gmrs_callsign));
+        statement.BindInt64(9, user.added_by_user ? 1 : 0);
         statement.Step();
         return true;
     }
@@ -3057,7 +3078,7 @@ COMMIT;
     {
         Statement statement(&statements_, R"sql(
         SELECT id, username, public_key, created_at, last_login_at, view_only, amateur_callsign, gmrs_callsign,
-               transfer_method
+               transfer_method, added_by_user, disabled
         FROM users WHERE username = ? COLLATE NOCASE ORDER BY id;
     )sql");
         statement.BindText(0, username);
@@ -3073,7 +3094,7 @@ COMMIT;
     {
         Statement statement(&statements_, R"sql(
         SELECT id, username, public_key, created_at, last_login_at, view_only, amateur_callsign, gmrs_callsign,
-               transfer_method
+               transfer_method, added_by_user, disabled
         FROM users ORDER BY username COLLATE NOCASE, username, id;
     )sql");
         std::vector<User> users;
@@ -3112,6 +3133,84 @@ COMMIT;
         statement.BindText(1, old_username);
         statement.Step();
         return true;
+    }
+
+    void Database::SetUserKeyDisabled(std::int64_t id, bool disabled)
+    {
+        Statement statement(&statements_, "UPDATE users SET disabled = ? WHERE id = ?;");
+        statement.BindInt64(0, disabled ? 1 : 0);
+        statement.BindInt64(1, id);
+        statement.Step();
+    }
+
+    void Database::SetUserKeysDisabled(const std::string& username, bool disabled)
+    {
+        Statement statement(&statements_, "UPDATE users SET disabled = ? WHERE username = ? COLLATE NOCASE;");
+        statement.BindInt64(0, disabled ? 1 : 0);
+        statement.BindText(1, username);
+        statement.Step();
+    }
+
+    std::string Database::UserOfKey(const std::string& public_key)
+    {
+        Statement statement(&statements_, "SELECT username, public_key FROM users;");
+        while (statement.Step())
+        {
+            if (SamePublicKey(statement.ColumnText(1), public_key))
+            {
+                return statement.ColumnText(0);
+            }
+        }
+        return std::string();
+    }
+
+    bool Database::ServerOptionOn(const std::string& name)
+    {
+        Statement statement(&statements_, "SELECT value FROM server_options WHERE name = ?;");
+        statement.BindText(0, name);
+        return statement.Step() && statement.ColumnText(0) == "1";
+    }
+
+    void Database::SetServerOption(const std::string& name, bool on)
+    {
+        Statement statement(&statements_, "INSERT OR REPLACE INTO server_options (name, value) VALUES (?, ?);");
+        statement.BindText(0, name);
+        statement.BindText(1, on ? "1" : "0");
+        statement.Step();
+    }
+
+    void Database::LogKeyEvent(const KeyEvent& event)
+    {
+        Statement statement(&statements_,
+                            "INSERT INTO key_log (at, actor, action, username, detail) VALUES (?,?,?,?,?);");
+        statement.BindInt64(0, event.at);
+        statement.BindText(1, event.actor);
+        statement.BindText(2, event.action);
+        statement.BindText(3, event.username);
+        statement.BindText(4, event.detail);
+        statement.Step();
+        // A small log: the newest few hundred lines are plenty.
+        Statement trim(&statements_, "DELETE FROM key_log WHERE id <= (SELECT MAX(id) FROM key_log) - 500;");
+        trim.Step();
+    }
+
+    std::vector<KeyEvent> Database::RecentKeyEvents(int limit)
+    {
+        Statement statement(&statements_,
+                            "SELECT at, actor, action, username, detail FROM key_log ORDER BY id DESC LIMIT ?;");
+        statement.BindInt64(0, limit);
+        std::vector<KeyEvent> events;
+        while (statement.Step())
+        {
+            KeyEvent event;
+            event.at = statement.ColumnInt64(0);
+            event.actor = statement.ColumnText(1);
+            event.action = statement.ColumnText(2);
+            event.username = statement.ColumnText(3);
+            event.detail = statement.ColumnText(4);
+            events.push_back(std::move(event));
+        }
+        return events;
     }
 
     void Database::UpdateUserLastLogin(std::int64_t id, std::int64_t last_login_at)

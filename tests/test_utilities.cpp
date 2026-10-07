@@ -501,7 +501,7 @@ namespace ql
 
     QL_TEST(BadPublicKeysAreExplained)
     {
-        CHECK(KeyError("").find("Paste the user's public key") != std::string::npos);
+        CHECK(KeyError("").find("Paste a public key") != std::string::npos);
         CHECK(KeyError("-----BEGIN OPENSSH PRIVATE KEY----- b3BlbnNzaC1rZXktdjE=").find("private key") !=
               std::string::npos);
         CHECK(KeyError("---- BEGIN SSH2 PUBLIC KEY ---- AAAAB3Nza").find("ssh-keygen -i") != std::string::npos);
@@ -522,6 +522,15 @@ namespace ql
         CHECK(KeyError("ssh-rsa " + key_data).find("isn't valid") != std::string::npos);
         // Every error shows what a key should look like.
         CHECK(KeyError("ssh-rsa " + key_data).find("like: ssh-ed25519") != std::string::npos);
+    }
+
+    QL_TEST(PastedPublicKeysAreTrimmed)
+    {
+        // Whitespace before and after a pasted key, including a trailing newline, is dropped.
+        std::string normalized;
+        std::string error;
+        CHECK(ValidatePublicKey(std::string("  \t\n") + kEd25519Key + " \r\n\n", &normalized, &error));
+        CHECK_EQ(normalized, std::string(kEd25519Key));
     }
 
     // ---- geo_utils -------------------------------------------------------------

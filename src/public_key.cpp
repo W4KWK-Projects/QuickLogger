@@ -10,7 +10,7 @@ namespace ql
 
     // What a correct key line looks like, appended to every error.
     static const char* kExample =
-        " It should be the single line from your .pub file, like: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5"
+        " It should be the single line from a .pub file, like: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5"
         "AAAA... you@laptop";
 
     // The key types OpenSSH writes to a .pub file.
@@ -141,7 +141,7 @@ namespace ql
 
         if (words.empty())
         {
-            *error = std::string("Paste the user's public key.") + kExample;
+            *error = std::string("Paste a public key.") + kExample;
             return false;
         }
         if (text.find("PRIVATE KEY") != std::string::npos)

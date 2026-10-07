@@ -5,10 +5,14 @@
 // without QL_PUSH_E2E_DIR they do nothing.
 
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <vector>
 
+#include "../src/db/database.hpp"
+#include "../src/public_key.hpp"
 #include "../src/run_program.hpp"
+#include "../src/ui/app_state.hpp"
 #include "test_framework.hpp"
 #include "test_helpers.hpp"
 
@@ -121,6 +125,115 @@ namespace ql
         CHECK_EQ(result.exit_status, 1);
         CHECK(!Contains(result, "settings.txt"));
         CHECK(!FileExists(made));
+    }
+
+    // The real ssh with one key and nothing else: no config, no agent, no
+    // other identity that could log in in its place.
+    static ProgramResult SshWithKey(const std::string& user, const std::string& key_file, const std::string& command)
+    {
+        std::string dir = std::getenv("QL_PUSH_E2E_DIR");
+        std::vector<std::string> arguments = {"-F",
+                                              "/dev/null",
+                                              "-T",
+                                              "-o",
+                                              "BatchMode=yes",
+                                              "-o",
+                                              "IdentitiesOnly=yes",
+                                              "-o",
+                                              "IdentityAgent=none",
+                                              "-o",
+                                              "IdentityFile=" + key_file,
+                                              "-o",
+                                              "UserKnownHostsFile=" + dir + "/ssh/known_hosts",
+                                              "-o",
+                                              "GlobalKnownHostsFile=/dev/null",
+                                              "-o",
+                                              "StrictHostKeyChecking=yes",
+                                              "-p",
+                                              std::getenv("QL_PUSH_E2E_PORT"),
+                                              user + "@127.0.0.1",
+                                              command};
+        return RunProgram("/usr/bin/ssh", arguments, 60, nullptr);
+    }
+
+    // A key made here, with its public line as the .pub file has it.
+    static std::string MakeKey(const std::string& file, const std::string& comment)
+    {
+        ProgramResult made = RunProgram(FindProgramOnPath("ssh-keygen"),
+                                        {"-q", "-t", "ed25519", "-N", "", "-C", comment, "-f", file}, 60, nullptr);
+        REQUIRE(made.started);
+        REQUIRE(made.exit_status == 0);
+        return ReadTextFile(file + ".pub");
+    }
+
+    // A key added in My Keys is a key the real server lets in; one never
+    // added, or removed again, isn't. Goes through the same AddMyKey and
+    // RemoveMyKey the screen uses, on the server's own database.
+    QL_TEST(KeysAddedInMyKeysWorkOverSsh)
+    {
+        const char* dir_text = std::getenv("QL_PUSH_E2E_DIR");
+        if (dir_text == nullptr)
+        {
+            return;
+        }
+        REQUIRE(std::getenv("QL_PUSH_E2E_PORT") != nullptr);
+        REQUIRE(!FindProgramOnPath("ssh-keygen").empty());
+        REQUIRE(FileExists("/usr/bin/ssh"));
+        std::string dir = dir_text;
+        std::string key_dir = dir + "/added-keys";
+        std::filesystem::create_directories(key_dir);
+        std::string added_file = key_dir + "/added";
+        std::string other_file = key_dir + "/never-added";
+        std::string added_line = MakeKey(added_file, "laptop key");
+        MakeKey(other_file, "stranger");
+
+        Database db(dir + "/up/quicklogger.db");
+        db.SetServerOption(kOptionSelfServiceKeys, true);
+        AppState state;
+        state.db = &db;
+        state.db_path = dir + "/up/quicklogger.db";
+        state.is_console_session = false;
+        state.ssh_username = "W4KWK";
+        state.ssh_key_id = db.GetUserKeys("W4KWK")[0].id;
+        OpenMyKeys(&state);
+        REQUIRE(state.my_keys_self_service);
+
+        // Neither key is in yet.
+        ProgramResult result = SshWithKey("W4KWK", added_file, "version");
+        CHECK_EQ(result.exit_status, 255);
+
+        // Pasted the way a terminal may hand it over: blank space around it.
+        state.my_key_new_text = "  \n" + added_line + "  \r\n";
+        AddMyKey(&state);
+        CHECK(state.form_error.empty());
+        CHECK_EQ(db.GetUserKeys("W4KWK").size(), std::size_t{2});
+
+        // The new key logs in, as its owner and nobody else.
+        result = SshWithKey("W4KWK", added_file, "version");
+        REQUIRE(result.started);
+        CHECK_EQ(result.exit_status, 0);
+        CHECK(Contains(result, "status: ok\n"));
+        CHECK_EQ(SshWithKey("K4VIEW", added_file, "version").exit_status, 255);
+        // A key that wasn't added still doesn't.
+        CHECK_EQ(SshWithKey("W4KWK", other_file, "version").exit_status, 255);
+
+        // Removed with F3 twice, it stops working; the first key still does.
+        for (std::size_t i = 0; i < state.my_keys.size(); ++i)
+        {
+            if (SamePublicKey(state.my_keys[i].public_key, added_line))
+            {
+                state.selected_my_key_index = static_cast<int>(i);
+            }
+        }
+        RemoveMyKey(&state);
+        RemoveMyKey(&state);
+        CHECK(state.form_error.empty());
+        CHECK_EQ(db.GetUserKeys("W4KWK").size(), std::size_t{1});
+        CHECK_EQ(SshWithKey("W4KWK", added_file, "version").exit_status, 255);
+        result = SshCommand("W4KWK", "version");
+        CHECK_EQ(result.exit_status, 0);
+
+        db.SetServerOption(kOptionSelfServiceKeys, false);
     }
 
 }  // namespace ql

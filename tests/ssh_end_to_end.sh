@@ -4,7 +4,8 @@
 # Federated Logging pushes and pulls (tests/test_push_end_to_end.cpp), and SFTP and
 # SCP file transfers (tests/test_files_end_to_end.cpp), over SFTP and
 # legacy SCP; and which commands the server will run
-# (tests/test_ssh_exec_end_to_end.cpp). Last, tests/push_screens.py drives the real program's push
+# (tests/test_ssh_exec_end_to_end.cpp), and that a key added in My Keys really
+# logs in and a removed one stops. Last, tests/push_screens.py drives the real program's push
 # screens (Close & Push, History's F3, the look-alike prompt) in a
 # pseudo-terminal against the same server; it needs Python's pyte and is
 # skipped without it. With mosh installed (and pyte), tests/mosh_screens.py
@@ -84,6 +85,7 @@ PATH="$dir/bin:$PATH" "$build/quicklogger_tests" PushNetEndToEnd
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" PullEndToEnd
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" PushConcurrentEndToEnd
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" SshExecEndToEnd
+PATH="$dir/bin:$PATH" "$build/quicklogger_tests" KeysAddedInMyKeysWorkOverSsh
 PATH="$dir/bin:$PATH" "$build/quicklogger_tests" SftpLibsshEndToEnd
 
 if python3 -c "import pyte" 2>/dev/null; then

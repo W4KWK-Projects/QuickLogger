@@ -181,7 +181,9 @@ Edit and delete keys ask which row you mean: every row gets a number, you type i
 | Edit Net | F3 / F4 | Edit / remove a saved station |
 | History | F5 / F4 | Delete a check-in / a closed session |
 | Manage Users | F3 | Remove an SSH user and all their keys |
-| Manage Users | F4 | Edit a user: username, access and keys (then F3 removes a key) |
+| Manage Users | F4 | Edit a user: username, access and keys (then F3 removes a key, F5 turns one off or on, F6 turns all off or on) |
+| Manage Users | F5 | Own Keys: let users add and remove their own keys, or not |
+| Manage Users | F6 | Key Log: who added, removed or turned off keys |
 
 **A station's details are kept while anything uses them:** a net it's saved to, or a check-in in any log. When the last of those goes, its details go too, and it stops coming up in autocomplete; that's how a mistyped callsign gets cleaned up. The delete confirmation says which will happen.
 
@@ -278,6 +280,8 @@ QuickLogger shows the exact command for you after an export when ZMODEM isn't of
 **WinSCP:** choose **New Session**, set File protocol to **SFTP**, and fill in the host name, port and user name. Under **Advanced > SSH > Authentication**, pick your private key (WinSCP offers to convert it to `.ppk`), then **Login**. You'll see `/exports` and `/imports`: drag files out of the first and into the second.
 
 **My Keys:** press **F4** on Settings over SSH to see your keys, name them (a comment such as "My Mac") and choose, for each, how its device gets files. **Transfer** is **Ask**, **ZMODEM** or **SFTP**. **Ask** (the default) tries ZMODEM by itself after an export: if your terminal answers, the file is sent and the key switches to **ZMODEM**; if it doesn't, you are shown the `scp` command and the key switches to **SFTP**. A ZMODEM transfer you start from the Import page on an Ask key also makes it ZMODEM. **ZMODEM** shows a window and waits for you to open your terminal's receive window, for terminals that don't start by themselves. **SFTP** shows the `scp` command without trying ZMODEM, and has no F3 receive on the Import page. Each key keeps what it learned, so a laptop terminal that speaks ZMODEM and a phone app that only does SFTP each end up right; change a key's Transfer here whenever you like. The key you're logged in with is marked. Over Mosh the key is marked too, and files are copied with scp or sftp whatever Transfer says.
+
+If the server's admin has turned on **Own Keys**, My Keys also has **Add key** (paste a public key, then **F4**) and **F3 Remove Key** (press **F3** twice to remove the highlighted key). You can't remove the key you're logged in with, your last working key or a key the admin turned off, a key another user has can't be added, and you can have up to 10 keys. A key you add works from your next login.
 
 **Pushing sessions to this server:** another QuickLogger, or an app, can send a closed session here over SSH: it uploads the `.qlsession` to its user's `/imports`, then runs `import-session`. The session goes into the net with the same name, as **F6** in History would put it; when only a similar name matches, nothing is imported until the sender confirms that net. A session from an ad hoc net becomes a new ad hoc net. The sender has to be an SSH user who isn't view-only.
 

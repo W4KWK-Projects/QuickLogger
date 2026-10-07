@@ -54,7 +54,7 @@ namespace ql
                                std::string("SELECT COUNT(*) FROM sqlite_schema WHERE name='") + table + "'"),
                      std::int64_t{1});
         }
-        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{18});
+        CHECK_EQ(CountRows(dir.File("q.db"), "PRAGMA user_version"), std::int64_t{19});
         CHECK_EQ(CountRows(dir.File("q.db"),
                            "SELECT COUNT(*) FROM pragma_table_info('import_runs') WHERE name IN "
                            "('phase','percent','heartbeat_at','requested_at')"),
@@ -115,7 +115,7 @@ namespace ql
         )sql");
 
         Database db(path);
-        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{18});
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{19});
         std::vector<Net> nets = db.GetAllNets();
         REQUIRE(nets.size() == 3);
         // Sorted by name: Fusion Net, Mystery Net, Old Net. Known spellings
@@ -246,7 +246,7 @@ namespace ql
         keys = db.GetUserKeys("W4KWK");
         CHECK_EQ(keys[0].transfer_method, kTransferAsk);
         CHECK_EQ(keys[1].transfer_method, kTransferSftp);
-        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{18});
+        CHECK_EQ(CountRows(path, "PRAGMA user_version"), std::int64_t{19});
     }
 
     QL_TEST(OldNetFrequenciesMoveToComments)

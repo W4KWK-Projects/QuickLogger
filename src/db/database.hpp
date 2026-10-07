@@ -522,6 +522,21 @@ namespace ql
         void UpdateUserKeyLine(std::int64_t id, const std::string& public_key);
         // Sets how key `id` fetches files (User::transfer_method).
         void UpdateUserKeyTransfer(std::int64_t id, int transfer_method);
+        // Turns key `id`, or every key of `username`, off or on (see
+        // User::disabled).
+        void SetUserKeyDisabled(std::int64_t id, bool disabled);
+        void SetUserKeysDisabled(const std::string& username, bool disabled);
+        // The username that has this key (same type and data, whatever the
+        // comment), or blank if no one does.
+        std::string UserOfKey(const std::string& public_key);
+        // Server-wide yes/no options, off until set. kOptionSelfServiceKeys
+        // lets users add and remove their own keys in My Keys.
+        bool ServerOptionOn(const std::string& name);
+        void SetServerOption(const std::string& name, bool on);
+        // The key log: one line per change to who can log in, newest first
+        // when read, trimmed to the last 500.
+        void LogKeyEvent(const KeyEvent& event);
+        std::vector<KeyEvent> RecentKeyEvents(int limit);
 
     private:
         // Rolls back the open transaction, never throwing (see the

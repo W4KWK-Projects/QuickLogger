@@ -62,6 +62,21 @@ namespace ql
         std::string* field_;
     };
 
+    // An Input's on_change for a public key field: drops whitespace before
+    // the key and after it (newlines, tabs, spaces from a paste) as it
+    // arrives. A single space typed after the key stays, so a comment can follow.
+    class PublicKeyFieldHandler
+    {
+    public:
+        explicit PublicKeyFieldHandler(std::string* field) : field_(field) {}
+
+        void operator()() const;
+
+    private:
+        std::string* field_;
+        mutable std::size_t last_size_ = 0;
+    };
+
     // An Input's on_change for a repeater offset field: keeps only a
     // leading + or -, digits and one decimal point as the operator types.
     // Checked on save (see OffsetProblem in frequency_rules.hpp).
