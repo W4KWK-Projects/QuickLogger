@@ -412,6 +412,21 @@ namespace ql
         bool (*zmodem_send)(ftxui::ScreenInteractive*, const std::vector<std::string>&, std::string*, int) = nullptr;
         bool (*zmodem_receive)(ftxui::ScreenInteractive*, const std::string&, std::string*) = nullptr;
         int my_keys_focus = 0;
+        // Self-service (kOptionSelfServiceKeys), read from the database when
+        // My Keys opens and on each F3/F4 there: a pasted public key to add
+        // (F4), and the key F3 has asked to remove (a second F3 removes it).
+        bool my_keys_self_service = false;
+        std::string my_key_new_text;
+        std::int64_t my_key_remove_armed_id = 0;
+        // Manage Users' key log window (F6): lines newest first, laid out
+        // for the terminal, and the highlighted one.
+        // The Manage Users key legend's "Self-Service" state, read when the
+        // page loads and when F5 flips it (not per frame).
+        bool manage_self_service_on = false;
+        bool show_key_log_window = false;
+        std::vector<KeyEvent> key_log_events;
+        std::vector<std::string> key_log_labels;
+        int selected_key_log_index = 0;
         std::string rename_username;
         int edit_user_access_index = 0;
         // The user's call signs in the Edit User window (see
@@ -1356,6 +1371,45 @@ namespace ql
     // Puts the highlighted key's comment in the edit field; for when the
     // highlight moves.
     void LoadMyKeyComment(AppState* state);
+
+    // True if the admin has turned on self-service keys (see
+    // kOptionSelfServiceKeys): an SSH user may then add and remove their own
+    // keys in My Keys. Reads the database.
+    bool SelfServiceKeysOn(AppState* state);
+
+    // F4 in My Keys: adds the public key pasted in AppState::my_key_new_text
+    // to the user's keys. Refused, with form_error, when self-service is off,
+    // the key isn't valid, belongs to another user, or the user already has
+    // kMaxKeysPerUser keys.
+    void AddMyKey(AppState* state);
+
+    // F3 in My Keys: the first press asks to remove the highlighted key (a
+    // status line says which), the second removes it. Never the key this
+    // login used, nor the user's last working one, nor a key the admin
+    // disabled.
+    void RemoveMyKey(AppState* state);
+
+    // Manage Users, console only (each is logged): F5 turns self-service on
+    // or off for everyone.
+    void ToggleSelfServiceKeys(AppState* state);
+    // Edit User window F5: disables or enables the highlighted key.
+    void ToggleSelectedUserKeyDisabled(AppState* state);
+    // Edit User window F6: disables every key of the user, or enables them
+    // all again when none is enabled.
+    void ToggleAllUserKeysDisabled(AppState* state);
+    // Manage Users F6: the key log, newest first.
+    void OpenKeyLog(AppState* state);
+    void CloseKeyLog(AppState* state);
+    // F7 in the key log: writes the whole log to exports/key_log_DATE.csv (oldest
+    // first, for a spreadsheet) and offers it as any export is.
+    void ExportKeyLog(AppState* state);
+    // The Edit User window's highlighted-key line ("Added 2026-10-06 by the
+    // user ..."), and the labels of its F5 and F6 keys.
+    std::string UserKeyDetail(const AppState* state);
+    std::string UserKeyOffLabel(const AppState* state);
+    std::string UserKeysOffLabel(const AppState* state);
+    // The key log's heading line for a `terminal_width`-column terminal.
+    const std::string& KeyLogListHeader(int terminal_width);
 
     // F2 in My Keys: saves the edit field as the highlighted key's comment.
     // Sets AppState::form_error instead if it isn't a good comment.

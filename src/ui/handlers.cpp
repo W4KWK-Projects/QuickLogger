@@ -90,6 +90,26 @@ namespace ql
         *field_ = kept;
     }
 
+    void PublicKeyFieldHandler::operator()() const
+    {
+        std::size_t first = 0;
+        while (first < field_->size() && std::isspace(static_cast<unsigned char>((*field_)[first])) != 0)
+        {
+            ++first;
+        }
+        std::size_t end = field_->size();
+        while (end > first && std::isspace(static_cast<unsigned char>((*field_)[end - 1])) != 0)
+        {
+            --end;
+        }
+        // A space typed after the key starts the comment; a paste's trailing space is junk.
+        bool typed_space =
+            field_->size() == last_size_ + 1 && end > first && end + 1 == field_->size() && (*field_)[end] == ' ';
+        field_->erase(end + (typed_space ? 1 : 0));
+        field_->erase(0, first);
+        last_size_ = field_->size();
+    }
+
     void OffsetFieldHandler::operator()() const
     {
         std::string kept;
@@ -1288,6 +1308,39 @@ namespace ql
 
     bool ManageUsersKeyHandler::operator()(const ftxui::Event& event) const
     {
+        if (state_->show_zmodem_confirm_modal)
+        {
+            // After F7 in the key log: the saved file's folder to open, or ZMODEM to send it.
+            if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
+            {
+                ConfirmZmodemActionHandler confirm(state_);
+                confirm();
+                return true;
+            }
+            if (event == ftxui::Event::Escape)
+            {
+                CancelZmodemActionHandler cancel(state_);
+                cancel();
+                return true;
+            }
+            return true;
+        }
+        if (state_->show_key_log_window)
+        {
+            if (event == ftxui::Event::Escape)
+            {
+                CloseKeyLog(state_);
+                return true;
+            }
+            if (event == ftxui::Event::F7)
+            {
+                ExportKeyLog(state_);
+                return true;
+            }
+            // Up and Down scroll the list; other function keys do nothing.
+            return event == ftxui::Event::F1 || event == ftxui::Event::F2 || event == ftxui::Event::F3 ||
+                   event == ftxui::Event::F4 || event == ftxui::Event::F5 || event == ftxui::Event::F6;
+        }
         if (state_->show_user_keys_modal)
         {
             if (event == ftxui::Event::F2)
@@ -1304,6 +1357,16 @@ namespace ql
             {
                 AddUserKeyHandler add_key(state_);
                 add_key();
+                return true;
+            }
+            if (event == ftxui::Event::F5)
+            {
+                ToggleSelectedUserKeyDisabled(state_);
+                return true;
+            }
+            if (event == ftxui::Event::F6)
+            {
+                ToggleAllUserKeysDisabled(state_);
                 return true;
             }
             if (event == ftxui::Event::Escape)
@@ -1328,6 +1391,16 @@ namespace ql
         if (event == ftxui::Event::F4)
         {
             StartRowPick(state_, RowPickAction::kEditUser);
+            return true;
+        }
+        if (event == ftxui::Event::F5)
+        {
+            ToggleSelfServiceKeys(state_);
+            return true;
+        }
+        if (event == ftxui::Event::F6)
+        {
+            OpenKeyLog(state_);
             return true;
         }
         if (event == ftxui::Event::Escape)
@@ -1362,9 +1435,32 @@ namespace ql
         }
         if (state_->show_my_keys_window)
         {
+            // F3 asks twice before it removes a key: any other key cancels.
+            bool was_armed = state_->my_key_remove_armed_id != 0;
+            if (event != ftxui::Event::F3)
+            {
+                state_->my_key_remove_armed_id = 0;
+            }
+            // Esc first dismisses a pending removal or an error; only then does it close.
+            if (event == ftxui::Event::Escape && (was_armed || !state_->form_error.empty()))
+            {
+                state_->form_error.clear();
+                state_->status_message.clear();
+                return true;
+            }
             if (event == ftxui::Event::F2)
             {
                 SaveMyKeyComment(state_);
+                return true;
+            }
+            if (event == ftxui::Event::F3 && state_->my_keys_self_service)
+            {
+                RemoveMyKey(state_);
+                return true;
+            }
+            if (event == ftxui::Event::F4 && state_->my_keys_self_service)
+            {
+                AddMyKey(state_);
                 return true;
             }
             if (event == ftxui::Event::Escape)
@@ -1416,6 +1512,7 @@ namespace ql
 
     void MyKeySelectionHandler::operator()() const
     {
+        state_->my_key_remove_armed_id = 0;
         LoadMyKeyComment(state_);
     }
 

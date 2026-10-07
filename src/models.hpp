@@ -343,11 +343,39 @@ namespace ql
         // of the kTransfer* values. Belongs to the key (a laptop may have
         // ZMODEM, a phone only SFTP), not the username.
         int transfer_method = 0;
+        // Who put this key on the account: false the console admin (every
+        // key before 2.3), true the user themself in My Keys.
+        bool added_by_user = false;
+        // A disabled key stays on file but can't log in; only an admin
+        // turns it on or off.
+        bool disabled = false;
+    };
+
+    // One line of the key log: who did what to which user's keys, and when.
+    // The log is written by the actions themselves (see Database::LogKeyEvent).
+    struct KeyEvent
+    {
+        std::int64_t at = 0;
+        // "console" or the SSH username.
+        std::string actor;
+        // "added", "removed", "disabled", "enabled", "user removed",
+        // "self-service on", "self-service off".
+        std::string action;
+        // The user whose keys changed (blank for the switch).
+        std::string username;
+        // The key's type, fingerprint and comment, or a short note.
+        std::string detail;
     };
 
     // User::transfer_method. Ask offers ZMODEM and tells the SFTP command.
     constexpr int kTransferAsk = 0;
     constexpr int kTransferZmodem = 1;
     constexpr int kTransferSftp = 2;
+
+    // The Database::ServerOptionOn name that lets users add and remove their
+    // own keys in My Keys (off until the admin turns it on in Manage Users).
+    constexpr const char* kOptionSelfServiceKeys = "self_service_keys";
+    // Most keys one username may have.
+    constexpr int kMaxKeysPerUser = 10;
 
 }  // namespace ql

@@ -198,6 +198,10 @@ namespace ql
         bool matched_view_only = false;
         for (const User& key : state->db->GetUserKeys(user))
         {
+            if (key.disabled)
+            {
+                continue;
+            }
             ssh_key stored_key = ParsePublicKeyLine(key.public_key);
             if (stored_key == nullptr)
             {
