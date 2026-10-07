@@ -1308,6 +1308,23 @@ namespace ql
 
     bool ManageUsersKeyHandler::operator()(const ftxui::Event& event) const
     {
+        if (state_->show_zmodem_confirm_modal)
+        {
+            // After F7 in the key log: the saved file's folder to open, or ZMODEM to send it.
+            if (event == ftxui::Event::F2 || event == ftxui::Event::Return)
+            {
+                ConfirmZmodemActionHandler confirm(state_);
+                confirm();
+                return true;
+            }
+            if (event == ftxui::Event::Escape)
+            {
+                CancelZmodemActionHandler cancel(state_);
+                cancel();
+                return true;
+            }
+            return true;
+        }
         if (state_->show_key_log_window)
         {
             if (event == ftxui::Event::Escape)

@@ -3273,9 +3273,11 @@ namespace ql
             ftxui::Menu(&state->key_log_labels, &state->selected_key_log_index, log_menu_option);
         ftxui::Component log_modal = ftxui::Renderer(log_menu, KeyLogWindowRenderer(state, log_menu));
 
+        // The key log's F7 export ends in the same "Saved to ... open the folder" window as the other exports.
+        ftxui::Component with_log = LayeredModal(LayeredModal(main_view, keys_modal, &state->show_user_keys_modal),
+                                                 log_modal, &state->show_key_log_window);
         return WithRowDeleteConfirm(
-            state, LayeredModal(LayeredModal(main_view, keys_modal, &state->show_user_keys_modal), log_modal,
-                                &state->show_key_log_window));
+            state, LayeredModal(with_log, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal));
     }
 
     // ---- Help and the seldom-used windows (see InfoWindow) -------------------

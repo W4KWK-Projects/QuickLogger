@@ -1409,6 +1409,26 @@ namespace ql
         CHECK(lines[3].find("laptop 2") != std::string::npos);
     }
 
+    QL_TEST(KeyLogExportPromptTakesTheKeysOnManageUsers)
+    {
+        // The export's "Saved to ... open the folder" window sits over the
+        // key log; Esc closes only it.
+        Fixture f;
+        f.state.is_console_session = true;
+        f.state.page = kPageManageUsers;
+        OpenKeyLog(&f.state);
+        ExportKeyLog(&f.state);
+        CHECK(f.state.status_message.find("Saved to ") == 0);
+        f.state.show_zmodem_confirm_modal = true;
+        f.state.zmodem_action = ZmodemAction::kPushOnly;
+        ManageUsersKeyHandler handler(&f.state);
+        CHECK(handler(ftxui::Event::F6));
+        CHECK(f.state.show_zmodem_confirm_modal);
+        CHECK(handler(ftxui::Event::Escape));
+        CHECK(!f.state.show_zmodem_confirm_modal);
+        CHECK(f.state.show_key_log_window);
+    }
+
     QL_TEST(KeyLogKeepsOnlyTheNewestLines)
     {
         Fixture f;
