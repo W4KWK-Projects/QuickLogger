@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 # The version shown in the app (see src/version.hpp). A release is tagged
 # "v" + this version, e.g. v1.0.1.
-project(QuickLogger VERSION 2.2.0 LANGUAGES CXX)
+project(QuickLogger VERSION 2.3.0 LANGUAGES CXX)
 
 # The code needs nothing newer than C++17 (checked by compiling every source
 # file as C++17), so that's what it asks for -- a higher standard would only
@@ -271,6 +271,7 @@ if(QUICKLOGGER_BUILD_TESTS)
         tests/test_upgrade_from_1_8.cpp
         tests/test_upgrade_from_2_0.cpp
         tests/test_upgrade_from_2_1.cpp
+        tests/test_upgrade_from_2_2.cpp
         tests/test_shared_database.cpp
         tests/test_gmrs.cpp
         tests/test_app_state.cpp
