@@ -93,7 +93,7 @@ jobs:
           set -x
           mosh --version | head -1
           out=$(LANG=C.UTF-8 LC_ALL=C.UTF-8 TERM=xterm-256color timeout 30 script -qec \
-            "mosh --ssh='ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i $HOME/.ssh/ql_test -p 22' \
+            "stty rows 24 cols 80; mosh --ssh='ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i $HOME/.ssh/ql_test -p 22' \
             W4KWK@127.0.0.1" /dev/null < /dev/null || true)
           printf '%s' "$out" | tr -d '\033' | grep -q "QuickLogger"
           sudo pkill -f 'mosh-server' || true
