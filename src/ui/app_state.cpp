@@ -1443,7 +1443,7 @@ namespace ql
     {
         if (!CanPushUpstream(state))
         {
-            state->form_error = "Set up an upstream server in Settings (F5) first.";
+            state->form_error = "Set up an upstream server in Settings (F6) first.";
             return false;
         }
         if (state->push_running)
@@ -5998,7 +5998,7 @@ namespace ql
         if (!CanPullUpstream(state))
         {
             state->status_message.clear();
-            state->form_error = "Set up an upstream server in Settings (F5) first.";
+            state->form_error = "Set up an upstream server in Settings (F6) first.";
             return;
         }
         if (state->import_session && state->import_session_ad_hoc)
@@ -8234,21 +8234,21 @@ namespace ql
                 {
                     lines.push_back({"F3", "Refresh the station data now.", false});
                 }
+                if (CanEditOwnKeys(state))
+                {
+                    lines.push_back({"F4", kMyKeysHelp, false});
+                }
                 if (CanManageUsers(state))
                 {
-                    lines.push_back({state->is_console_session ? "F4" : "F5", "Manage SSH users.", false});
+                    lines.push_back({"F5", "Manage SSH users.", false});
                 }
                 else if (!state->is_console_session && state->access.level == kAccessNetAdmin)
                 {
                     lines.push_back({"F5", "Net Access: give full users the nets you look after.", false});
                 }
-                if (CanEditOwnKeys(state))
-                {
-                    lines.push_back({"F4", kMyKeysHelp, false});
-                }
                 if (state->is_console_session)
                 {
-                    lines.push_back({"F5", "Upstream Server: where closed sessions are pushed.", false});
+                    lines.push_back({"F6", "Upstream Server: where closed sessions are pushed.", false});
                 }
                 lines.push_back(
                     {"Left/Right",

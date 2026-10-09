@@ -1552,12 +1552,19 @@ namespace ql
             OpenMyKeys(state_);
             return true;
         }
-        if (event == ftxui::Event::F5 && state_->is_console_session)
+        if (event == ftxui::Event::F6 && state_->is_console_session)
         {
             OpenUpstreamWindow(state_);
             return true;
         }
-        // A Net Admin's F5 (an Admin's is Manage Users, which has Net Access).
+        // F5 is other people: Manage Users for the console and Admins, Net
+        // Access for a Net Admin (an Admin's is inside Manage Users).
+        if (event == ftxui::Event::F5 && CanManageUsers(state_))
+        {
+            ShowManageUsersPageHandler show_manage_users(state_);
+            show_manage_users();
+            return true;
+        }
         if (event == ftxui::Event::F5 && !state_->is_console_session && !CanManageUsers(state_) &&
             state_->access.level == kAccessNetAdmin)
         {
@@ -1574,13 +1581,6 @@ namespace ql
         {
             RequestStationDataRefreshHandler request_refresh(state_);
             request_refresh();
-            return true;
-        }
-        // The console has F4 for it; an SSH admin's F4 is My Keys, so F5.
-        if (event == (state_->is_console_session ? ftxui::Event::F4 : ftxui::Event::F5) && CanManageUsers(state_))
-        {
-            ShowManageUsersPageHandler show_manage_users(state_);
-            show_manage_users();
             return true;
         }
         if (event == ftxui::Event::Escape)

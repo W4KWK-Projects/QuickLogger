@@ -21,7 +21,7 @@ These files set up a FreeBSD 15 server (amd64 or arm64, 1 GB of RAM or more) to 
 
 ## Adding users
 
-Manage Users only works from the console, and a server's console is the admin SSH: `ssh -p 2200 root@<host>`, then run `quicklogger-admin`, go to Settings (F4) and Manage Users (F4). It runs alongside the server, on the same database; nothing needs stopping.
+Manage Users opens from the console, and a server's console is the admin SSH: `ssh -p 2200 root@<host>`, then run `quicklogger-admin`, go to Settings (F4) and Manage Users (F5). Users you make Admins can also open it from their own logins. It runs alongside the server, on the same database; nothing needs stopping.
 
 ## Rolling back
 

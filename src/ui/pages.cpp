@@ -1755,25 +1755,24 @@ namespace ql
             {
                 hints.push_back({"F3", "Refresh Data"});
             }
-            if (CanManageUsers(state_) && state_->is_console_session)
-            {
-                hints.push_back({"F4", "Manage Users"});
-            }
+            // One meaning per key, whoever is logged in: F4 your own keys,
+            // F5 other people (as far as your level reaches), F6 the
+            // console's upstream.
             if (CanEditOwnKeys(state_))
             {
                 hints.push_back({"F4", "My Keys"});
             }
-            if (CanManageUsers(state_) && !state_->is_console_session)
+            if (CanManageUsers(state_))
             {
                 hints.push_back({"F5", "Manage Users"});
             }
-            else if (!state_->is_console_session && !CanManageUsers(state_) && state_->access.level == kAccessNetAdmin)
+            else if (!state_->is_console_session && state_->access.level == kAccessNetAdmin)
             {
                 hints.push_back({"F5", "Net Access"});
             }
             if (state_->is_console_session)
             {
-                hints.push_back({"F5", "Upstream"});
+                hints.push_back({"F6", "Upstream"});
             }
             hints.push_back({"Esc", "Cancel"});
             return PageChrome("Settings", content, hints);
@@ -1796,7 +1795,7 @@ namespace ql
         ftxui::Component update_check_toggle_;
     };
 
-    // The Upstream Server window over Settings (F5, console only).
+    // The Upstream Server window over Settings (F6, console only).
     class UpstreamWindowRenderer
     {
     public:

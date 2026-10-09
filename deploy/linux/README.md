@@ -21,7 +21,7 @@ These files set up a Debian (12 or 13) or Ubuntu (22.04 or 24.04) server, amd64 
 
 ## Adding users
 
-Manage Users only works from the console, and a server's console is the admin SSH: `ssh -p 2200 root@<host>`, then run `quicklogger-admin`, go to Settings (F4) and Manage Users (F4). It runs alongside the server, on the same database; nothing needs stopping.
+Manage Users opens from the console, and a server's console is the admin SSH: `ssh -p 2200 root@<host>`, then run `quicklogger-admin`, go to Settings (F4) and Manage Users (F5). Users you make Admins can also open it from their own logins. It runs alongside the server, on the same database; nothing needs stopping.
 
 ## Rolling back
 

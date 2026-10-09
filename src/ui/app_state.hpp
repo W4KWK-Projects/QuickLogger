@@ -517,7 +517,7 @@ namespace ql
         std::string settings_server_text;
         std::string settings_server_placeholder;
 
-        // The Upstream Server window over Settings (F5, console only): the
+        // The Upstream Server window over Settings (F6, console only): the
         // upstream QuickLogger sessions are pushed to (Federated Logging,
         // see upstream_push.hpp). Its fields, saved into `settings` (and
         // settings_form) with its own F2.
@@ -1553,10 +1553,10 @@ namespace ql
 
     // Whether this session can push sessions upstream: only the local
     // console (the push runs as the account QuickLogger runs under, with
-    // its ~/.ssh), and only once an upstream is set (Settings, F5).
+    // its ~/.ssh), and only once an upstream is set (Settings, F6).
     bool CanPushUpstream(const AppState* state);
 
-    // F5 on Settings, at the console: opens the Upstream Server window with
+    // F6 on Settings, at the console: opens the Upstream Server window with
     // the saved upstream.
     void OpenUpstreamWindow(AppState* state);
     // F2 in it: checks and saves the upstream (a blank host is none) and
@@ -1597,7 +1597,7 @@ namespace ql
     bool CanPullUpstream(const AppState* state);
 
     // F4 on the import page: opens the Pull window and asks the upstream
-    // (Settings, F5) for its nets. Says why not instead if it can't (no
+    // (Settings, F6) for its nets. Says why not instead if it can't (no
     // ssh, view-only).
     void OpenPullWindow(AppState* state);
 

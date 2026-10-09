@@ -4696,7 +4696,11 @@ namespace ql
         Fixture f;
         f.state.page = kPageSettings;
         SettingsKeyHandler settings_keys(&f.state);
+        // F5, as for an SSH Admin; the console's F4 is nothing (My Keys
+        // is SSH only).
         settings_keys(ftxui::Event::F4);
+        CHECK_EQ(f.state.page, kPageSettings);
+        settings_keys(ftxui::Event::F5);
 #if defined(QUICKLOGGER_WITH_SSH)
         CHECK(CanManageUsers(&f.state));
         CHECK_EQ(f.state.page, kPageManageUsers);
@@ -4709,8 +4713,23 @@ namespace ql
         f.state.page = kPageSettings;
         f.state.is_console_session = false;
         CHECK(!CanManageUsers(&f.state));
-        settings_keys(ftxui::Event::F4);
+        settings_keys(ftxui::Event::F5);
         CHECK_EQ(f.state.page, kPageSettings);
+    }
+
+    QL_TEST(TheConsoleOpensUpstreamWithF6)
+    {
+        Fixture f;
+        f.state.page = kPageSettings;
+        SettingsKeyHandler settings_keys(&f.state);
+        CHECK(settings_keys(ftxui::Event::F6));
+        CHECK(f.state.show_upstream_window);
+        f.state.show_upstream_window = false;
+
+        // Not over SSH.
+        f.state.is_console_session = false;
+        settings_keys(ftxui::Event::F6);
+        CHECK(!f.state.show_upstream_window);
     }
 
 }  // namespace ql

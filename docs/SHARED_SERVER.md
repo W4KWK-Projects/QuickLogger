@@ -8,7 +8,7 @@ There's no OS user account involved. Instead, QuickLogger keeps its own small ro
 
 1. Run `./QuickLogger` directly at the machine's own console.
 2. Go to **Settings** (F4 from the Recurring Nets list).
-3. Press **F4 (Manage Users)**.
+3. Press **F5 (Manage Users)**.
 4. Fill in the fields at the bottom of the page — **Username** (what they type in `ssh <username>@host`, in either case: 1 to 32 letters, digits, dots, hyphens and underscores, starting with a letter or digit), **Amateur Call** and **GMRS Call** (that person's call signs, at least one of them; an amateur one is US or Canadian, without /M, /P or the like), **Public Key** (that person's whole public-key line, e.g. `ssh-ed25519 AAAA... their-comment`) and **Access** (see [View-only users](#view-only-users)). Then press **F2 (Add)**. Their call signs are the ones they log under: their Settings page shows them, and they can't change them. Without a GMRS call sign they can only watch GMRS nets, and likewise for amateur nets. If they don't have a key yet, see [Creating your SSH key](CONNECTING.md#creating-your-ssh-key) below.
 
 The key is checked when you add it. A private key, a PuTTY-format key, a line missing its `ssh-ed25519` (or other type) at the start, or one cut short while copying is refused with a message saying what's wrong and what the line should look like. Extra spaces or a trailing line break from the paste are tidied up. If someone still can't log in, check they're offering the key you added (see *If you have more than one key* below).
@@ -36,7 +36,7 @@ A user can be **view-only**: they can watch open net sessions, look at and expor
 
 ## Admins
 
-Manage Users is open to the local console and to SSH users whose **Access** is **Admin**. Choose Admin when adding a user, or in their Edit User window. An Admin can do everything a full user can, and opens Manage Users with **F5** on their Settings page (F4 there is My Keys). From it they add, edit and remove users and keys, turn keys off and on, switch Own Keys and read the Key Log, just as at the console. Every change they make is in the Key Log under their name.
+Manage Users is open to the local console and to SSH users whose **Access** is **Admin**. Choose Admin when adding a user, or in their Edit User window. Admins can do everything full users can, and open Manage Users with **F5** on Settings, as at the console. From it they add, edit and remove users and keys, turn keys off and on, switch Own Keys and read the Key Log, just as at the console. Every change they make is in the Key Log under their name.
 
 An Admin can't remove, rename or demote themself, remove or turn off the key they are logged in with, or turn off all their own keys. A change to someone's Access applies from their next login, but an Admin who has been demoted is refused at once.
 

@@ -916,8 +916,9 @@ namespace ql
         AppState* state_;
     };
 
-    // Global key handling for the settings page: F2 Save, F3 Import ULS
-    // database, F4 Manage Users (console sessions only), Escape Cancel.
+    // Global key handling for the settings page: F2 Save, F3 Refresh Data
+    // (console), F4 My Keys (SSH), F5 Manage Users (console and Admins) or
+    // Net Access (Net Admins), F6 Upstream (console), Escape Cancel.
     class SettingsKeyHandler
     {
     public:
