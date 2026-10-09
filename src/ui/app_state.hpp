@@ -460,6 +460,8 @@ namespace ql
         int selected_net_access_user = 0;
         // "Looked after by: ..." for the chosen net.
         std::string net_access_custodians;
+        // "Who has Tuesday Net:", made with the list rather than each frame.
+        std::string net_access_heading;
         bool show_key_log_window = false;
         std::vector<KeyEvent> key_log_events;
         std::vector<std::string> key_log_labels;

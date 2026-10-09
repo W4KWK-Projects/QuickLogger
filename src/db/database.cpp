@@ -3242,6 +3242,17 @@ COMMIT;
         return usernames;
     }
 
+    std::vector<std::pair<std::int64_t, int>> Database::CountNetGrantees()
+    {
+        Statement statement(&statements_, "SELECT net_id, COUNT(*) FROM net_grants GROUP BY net_id ORDER BY net_id;");
+        std::vector<std::pair<std::int64_t, int>> counts;
+        while (statement.Step())
+        {
+            counts.emplace_back(statement.ColumnInt64(0), static_cast<int>(statement.ColumnInt64(1)));
+        }
+        return counts;
+    }
+
     bool Database::RenameUser(const std::string& old_username, const std::string& new_username)
     {
         for (const User& key : GetUserKeys(new_username))

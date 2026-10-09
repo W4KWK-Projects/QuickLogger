@@ -446,10 +446,23 @@ namespace ql
         CHECK(f.db()->GetNetGrants("N4TWO").empty());
         CHECK(!f.state.form_error.empty());
 
-        // An Admin hands out any net, to full users and Net Admins.
+        // An Admin hands out any net, to full users and Net Admins. Each
+        // net says how many have it.
+        f.db()->GrantNet("N4FUL", f.friday, "console");
+        f.db()->GrantNet("N4FUL", f.tuesday, "console");
+        f.db()->GrantNet("N4TWO", f.tuesday, "console");
         f.LogInAs("N4ADM");
         OpenNetAccess(&f.state, kPageManageUsers);
-        CHECK_EQ(f.state.net_access_nets.size(), std::size_t{2});
+        REQUIRE(f.state.net_access_nets.size() == 2);
+        for (std::size_t i = 0; i < f.state.net_access_nets.size(); ++i)
+        {
+            const std::string& label = f.state.net_access_net_labels[i];
+            CHECK(f.state.net_access_nets[i].id == f.friday ? label.find("1 person") != std::string::npos
+                                                            : label.find("2 people") != std::string::npos);
+        }
+        f.db()->RevokeNet("N4FUL", f.friday);
+        OpenNetAccess(&f.state, kPageManageUsers);
+        CHECK(f.state.net_access_net_labels[0].find("0 people") != std::string::npos);
         ChooseNetAccessNet(&f.state);
         CHECK_EQ(f.state.net_access_users.size(), std::size_t{3});
     }

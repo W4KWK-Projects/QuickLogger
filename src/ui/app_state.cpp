@@ -5052,11 +5052,18 @@ namespace ql
             name_width = std::max(name_width, TextWidth(net.name));
             state->net_access_nets.push_back(std::move(net));
         }
+        // Every net's count in one query, sorted by net id for the lookup.
+        std::vector<std::pair<std::int64_t, int>> counts = state->db->CountNetGrantees();
+        state->net_access_net_labels.reserve(state->net_access_nets.size());
         for (const Net& net : state->net_access_nets)
         {
-            int people = static_cast<int>(state->db->GetNetGrantees(net.id).size());
-            state->net_access_net_labels.push_back(PadTo(net.name, name_width + 3) + std::to_string(people) +
-                                                   (people == 1 ? " person" : " people"));
+            std::vector<std::pair<std::int64_t, int>>::const_iterator found =
+                std::lower_bound(counts.begin(), counts.end(), std::pair<std::int64_t, int>(net.id, 0));
+            int people = found != counts.end() && found->first == net.id ? found->second : 0;
+            std::string label = PadTo(net.name, name_width + 3);
+            label += std::to_string(people);
+            label += people == 1 ? " person" : " people";
+            state->net_access_net_labels.push_back(std::move(label));
         }
         if (state->selected_net_access_net >= static_cast<int>(state->net_access_nets.size()))
         {
@@ -5073,9 +5080,10 @@ namespace ql
         state->net_access_users.clear();
         state->net_access_user_labels.clear();
         state->net_access_custodians.clear();
+        state->net_access_heading = "Who has " + net.name + ":";
         int name_width = 0;
         std::vector<User> keys = state->db->ListUsers();
-        for (const User& key : keys)
+        for (User& key : keys)
         {
             if (!state->net_access_users.empty() && state->net_access_users.back().username == key.username)
             {
@@ -5097,13 +5105,15 @@ namespace ql
                 continue;
             }
             name_width = std::max(name_width, TextWidth(key.username));
-            state->net_access_users.push_back(key);
+            state->net_access_users.push_back(std::move(key));
         }
+        state->net_access_user_labels.reserve(state->net_access_users.size());
         for (const User& user : state->net_access_users)
         {
-            state->net_access_user_labels.push_back(std::string(UsernameIn(holders, user.username) ? "[x] " : "[ ] ") +
-                                                    PadTo(user.username, name_width + 3) +
-                                                    (user.access_level == kAccessNetAdmin ? "Net Admin" : "Full user"));
+            std::string label = UsernameIn(holders, user.username) ? "[x] " : "[ ] ";
+            label += PadTo(user.username, name_width + 3);
+            label += user.access_level == kAccessNetAdmin ? "Net Admin" : "Full user";
+            state->net_access_user_labels.push_back(std::move(label));
         }
         if (state->selected_net_access_user >= static_cast<int>(state->net_access_users.size()))
         {
@@ -5161,38 +5171,46 @@ namespace ql
         {
             return;
         }
-        const Net net = state->net_access_nets[state->selected_net_access_net];
-        const User user = state->net_access_users[state->selected_net_access_user];
-        // Fresh: they may have been changed, or lost the net, since this
-        // list was made.
-        std::optional<Net> current = state->db->GetNetById(net.id);
-        int level = state->db->GetUserAccessLevel(user.username);
-        if (!current.has_value() || !state->access.CanGrant(*current, level) ||
-            state->db->IsUserViewOnly(user.username))
+        // Kept apart from the lists, which are made again below.
+        const std::int64_t net_id = state->net_access_nets[state->selected_net_access_net].id;
+        const std::string net_name = state->net_access_nets[state->selected_net_access_net].name;
+        const std::string username = state->net_access_users[state->selected_net_access_user].username;
+        bool allowed = false;
+        bool has_it = false;
         {
-            state->form_error = "You can't change who has " + net.name + ".";
+            // Checked and changed under one lock: they may have been
+            // changed, or lost the net, since this list was made.
+            Database::WriteTransaction writes(state->db);
+            std::optional<Net> current = state->db->GetNetById(net_id);
+            allowed = current.has_value() &&
+                      state->access.CanGrant(*current, state->db->GetUserAccessLevel(username)) &&
+                      !state->db->IsUserViewOnly(username);
+            if (allowed)
+            {
+                has_it = UsernameIn(state->db->GetNetGrantees(net_id), username);
+                if (has_it)
+                {
+                    state->db->RevokeNet(username, net_id);
+                }
+                else
+                {
+                    state->db->GrantNet(username, net_id, state->is_console_session ? "console" : state->ssh_username);
+                }
+                RecordKeyEvent(state, has_it ? "net taken" : "net given", username, net_name);
+                writes.Commit();
+            }
+        }
+        if (!allowed)
+        {
+            state->form_error = "You can't change who has " + net_name + ".";
             RefreshNetAccessNets(state);
             state->net_access_stage = 0;
             return;
         }
-        bool has_it = UsernameIn(state->db->GetNetGrantees(net.id), user.username);
-        {
-            Database::WriteTransaction writes(state->db);
-            if (has_it)
-            {
-                state->db->RevokeNet(user.username, net.id);
-            }
-            else
-            {
-                state->db->GrantNet(user.username, net.id, state->is_console_session ? "console" : state->ssh_username);
-            }
-            RecordKeyEvent(state, has_it ? "net taken" : "net given", user.username, net.name);
-            writes.Commit();
-        }
         state->form_error.clear();
         RefreshNetAccessUsers(state);
-        state->status_message = has_it ? user.username + " no longer has " + net.name + "."
-                                       : user.username + " has " + net.name + ", from their next action.";
+        state->status_message = has_it ? username + " no longer has " + net_name + "."
+                                       : username + " has " + net_name + ", from their next action.";
     }
 
     void BackOutOfNetAccess(AppState* state)

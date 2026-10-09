@@ -3378,8 +3378,7 @@ namespace ql
             ftxui::Elements rows;
             if (state_->net_access_stage == 1)
             {
-                const Net& net = state_->net_access_nets[state_->selected_net_access_net];
-                rows.push_back(Heading("Who has " + net.name + ":"));
+                rows.push_back(Heading(state_->net_access_heading));
                 rows.push_back(state_->net_access_users.empty()
                                    ? HintText("No full users yet. Add them in Manage Users.")
                                    : Framed(user_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator) |

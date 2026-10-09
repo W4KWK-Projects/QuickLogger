@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "../models.hpp"
@@ -520,6 +521,9 @@ namespace ql
         void RevokeNet(const std::string& username, std::int64_t net_id);
         std::vector<std::int64_t> GetNetGrants(const std::string& username);
         std::vector<std::string> GetNetGrantees(std::int64_t net_id);
+        // How many users have each net that anyone has, in one query: pairs
+        // of net id and count, by net id.
+        std::vector<std::pair<std::int64_t, int>> CountNetGrantees();
         // How many usernames are Admins.
         int CountAdmins();
         // True if `username` is view-only (false for an unknown username).
