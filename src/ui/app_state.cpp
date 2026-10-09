@@ -8062,6 +8062,10 @@ namespace ql
         bool extra;
     };
 
+    // F4 on Settings over SSH, for full and view-only users alike.
+    static const char* const kMyKeysHelp =
+        "My Keys: your SSH keys, their comments and Transfer method; add or remove keys if the admin allows.";
+
     static std::vector<HelpLine> HelpFor(const AppState* state)
     {
         // A view-only user's pages, with only the keys they have (see
@@ -8103,11 +8107,18 @@ namespace ql
                     return lines;
                 }
                 case kPageSettings:
-                    return {
+                {
+                    std::vector<HelpLine> lines = {
                         {"F2", "Save your settings.", false},
                         {"Esc", "Cancel.", false},
-                        {"Left/Right", "Change the time format.", false},
                     };
+                    if (CanEditOwnKeys(state))
+                    {
+                        lines.push_back({"F4", kMyKeysHelp, false});
+                    }
+                    lines.push_back({"Left/Right", "Change the time format.", false});
+                    return lines;
+                }
                 default:
                     break;
             }
@@ -8131,12 +8142,25 @@ namespace ql
                                  false});
                 lines.push_back({"F4", "Settings: your call signs, home ZIP and time format.", false});
                 lines.push_back({"F5", "Ad hoc nets: log one, resume one, or see their history.", false});
-                lines.push_back({"F6", "History of the highlighted net: view, export, delete.", false});
-                lines.push_back({"F7",
-                                 restricted ? "Edit a net (by number): a Net Admin changes its details; you add and "
-                                              "edit its saved stations."
-                                            : "Edit a net (by number): its details and saved stations.",
+                bool net_admin = state->access.IsNetAdmin();
+                lines.push_back({"F6",
+                                 !restricted ? "History of the highlighted net: view, export, delete."
+                                 : net_admin ? "History of the highlighted net: view and export; on your nets, import "
+                                               "and delete."
+                                             : "History of the highlighted net: view and export; on your nets, import "
+                                               "also.",
                                  false});
+                // With no nets of their own, there's nothing for F7 to open.
+                if (!restricted || state->access.HasAnyGrant())
+                {
+                    lines.push_back({"F7",
+                                     !restricted || net_admin
+                                         ? (restricted ? "Edit one of your nets (by number): its details and saved "
+                                                         "stations."
+                                                       : "Edit a net (by number): its details and saved stations.")
+                                         : "Edit one of your nets' saved stations (by number).",
+                                     false});
+                }
                 lines.push_back({"F8", "Export the highlighted net to a file to share.", false});
                 if (CanCreateNets(state) || state->access.HasAnyGrant())
                 {
@@ -8220,10 +8244,7 @@ namespace ql
                 }
                 if (CanEditOwnKeys(state))
                 {
-                    lines.push_back({"F4",
-                                     "My Keys: your SSH keys, their comments and Transfer method; add or remove keys "
-                                     "if the admin allows.",
-                                     false});
+                    lines.push_back({"F4", kMyKeysHelp, false});
                 }
                 if (state->is_console_session)
                 {

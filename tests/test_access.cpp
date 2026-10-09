@@ -2,7 +2,10 @@
 // Net Admin and an Admin may do on a net (src/access.hpp), and that the
 // actions behind the keys enforce it.
 
+#include <algorithm>
+#include <cctype>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -63,6 +66,17 @@ namespace ql
             state.is_console_session = false;
             state.ssh_username = username;
             state.view_only_user = db_.IsUserViewOnly(username);
+            state.is_admin_user = db_.GetUserAccessLevel(username) >= kAccessAdmin;
+            RefreshNets(&state);
+        }
+
+        // At the local console.
+        void LogInAtConsole()
+        {
+            state.is_console_session = true;
+            state.ssh_username.clear();
+            state.view_only_user = false;
+            state.is_admin_user = false;
             RefreshNets(&state);
         }
 
@@ -1139,6 +1153,187 @@ namespace ql
         OpenHelp(&f.state);
         CHECK(HelpShows(f.state, "F7"));
         CHECK(HelpShows(f.state, "F8"));
+    }
+
+    // The keys the drawn key bar shows: each yellow run below the top bar
+    // (whose yellow F1 is Help itself), at a size that fits every
+    // seldom-used key too.
+    static std::vector<std::string> KeyBarKeys(AppState* state, const ftxui::Component& page)
+    {
+        const int width = 220;
+        const int height = 50;
+        SetFrameTerminalSize(ftxui::Dimensions{width, height});
+        UpdateListWidths(state, width);
+        state->screen_height = height;
+        ftxui::Screen drawn(width, height);
+        ftxui::Render(drawn, page->Render());
+        const ftxui::Color key_color(ftxui::Color::YellowLight);
+        std::vector<std::string> keys;
+        for (int y = 1; y < height; ++y)
+        {
+            std::string key;
+            for (int x = 0; x <= width; ++x)
+            {
+                if (x < width && drawn.PixelAt(x, y).background_color == key_color)
+                {
+                    key += drawn.PixelAt(x, y).character;
+                }
+                else if (!key.empty())
+                {
+                    keys.push_back(key);
+                    key.clear();
+                }
+            }
+        }
+        return keys;
+    }
+
+    // The function keys among `keys` ("F3/Enter" is F3), in order, as one
+    // string: "F2 F3 F4".
+    static std::string FunctionKeys(const std::vector<std::string>& keys)
+    {
+        std::vector<int> numbers;
+        for (const std::string& key : keys)
+        {
+            std::size_t at = key.find('F');
+            if (at != std::string::npos && at + 1 < key.size() &&
+                std::isdigit(static_cast<unsigned char>(key[at + 1])) != 0)
+            {
+                numbers.push_back(std::atoi(key.c_str() + at + 1));
+            }
+        }
+        std::sort(numbers.begin(), numbers.end());
+        numbers.erase(std::unique(numbers.begin(), numbers.end()), numbers.end());
+        std::string text;
+        for (int number : numbers)
+        {
+            text += (text.empty() ? "F" : " F") + std::to_string(number);
+        }
+        return text;
+    }
+
+    // F1 Help on `page_id` lists the same function keys its key bar shows;
+    // `who` names the case in a failure.
+    static void CheckHelpMatchesKeyBar(AppState* state, const ftxui::Component& page, int page_id,
+                                       const std::string& who)
+    {
+        state->page = page_id;
+        std::string bar = FunctionKeys(KeyBarKeys(state, page));
+        OpenHelp(state);
+        std::vector<std::string> help;
+        for (const std::vector<std::string>& row : state->info_cells)
+        {
+            help.push_back(row[0]);
+        }
+        CloseInfoWindow(state);
+        CHECK_EQ(who + ": " + bar, who + ": " + FunctionKeys(help));
+    }
+
+    QL_TEST(HelpMatchesTheKeyBarForEveryLevel)
+    {
+        // Every kind of user, with Restricted off and on: Net List with
+        // their own net highlighted (F7 is for their nets), Settings,
+        // History of a net they have and one they don't, and Edit Net for
+        // each net they may open it on.
+        const char* const users[] = {"", "N4ADM", "N4NET", "N4FUL", "N4NON", "N4VUE"};
+        for (int restricted = 0; restricted < 2; ++restricted)
+        {
+            for (const char* username : users)
+            {
+                AccessFixture f;
+                AddTuesdaySession(&f);
+                f.AddUser("N4NON", kAccessUser);
+                f.AddUser("N4VUE", kAccessUser);
+                f.db()->SetUserViewOnly("N4VUE", true);
+                f.db()->GrantNet("N4FUL", f.tuesday, "console");
+                f.db()->GrantNet("N4NET", f.tuesday, "console");
+                f.db()->SetServerOption(kOptionRestrictedNets, restricted != 0);
+                if (std::string(username).empty())
+                {
+                    f.LogInAtConsole();
+                }
+                else
+                {
+                    f.LogInAs(username);
+                }
+                std::string who = std::string(username).empty() ? std::string("console") : std::string(username);
+                who += restricted != 0 ? ", restricted" : ", open";
+
+                ftxui::Component net_list = BuildNetListPage(&f.state);
+                SelectNet(&f.state, f.tuesday);
+                CheckHelpMatchesKeyBar(&f.state, net_list, kPageNetList, who + ", net list");
+
+                ftxui::Component settings = BuildSettingsPage(&f.state);
+                CheckHelpMatchesKeyBar(&f.state, settings, kPageSettings, who + ", settings");
+
+                ftxui::Component history = BuildNetHistoryPage(&f.state);
+                ftxui::Component edit_net = BuildEditNetPage(&f.state);
+                const std::int64_t nets[] = {f.tuesday, f.friday};
+                for (std::int64_t net_id : nets)
+                {
+                    std::string which = net_id == f.tuesday ? " (Tuesday)" : " (Friday)";
+                    SelectNet(&f.state, net_id);
+                    f.state.history_ad_hoc = false;
+                    RefreshNetHistory(&f.state);
+                    CheckHelpMatchesKeyBar(&f.state, history, kPageNetHistory, who + ", history" + which);
+
+                    if (!f.state.view_only_user && f.state.access.PowerOn(f.NetById(net_id)) != NetPower::kWatch)
+                    {
+                        OpenEditNetForm(&f.state, f.NetById(net_id));
+                        CheckHelpMatchesKeyBar(&f.state, edit_net, kPageEditNet, who + ", edit net" + which);
+                    }
+                }
+            }
+        }
+    }
+
+    // What F1 Help (already opened) says `key` does, or "" if it isn't listed.
+    static std::string HelpTextFor(const AppState& state, const std::string& key)
+    {
+        for (const std::vector<std::string>& row : state.info_cells)
+        {
+            if (row[0] == key)
+            {
+                return row[1];
+            }
+        }
+        return std::string();
+    }
+
+    QL_TEST(NetListHelpDescribesHistoryAndEditByLevel)
+    {
+        AccessFixture f;
+        f.db()->GrantNet("N4FUL", f.tuesday, "console");
+        f.db()->GrantNet("N4NET", f.tuesday, "console");
+        f.state.page = kPageNetList;
+
+        // Restricted off: the whole net, for everyone.
+        f.LogInAs("N4FUL");
+        OpenHelp(&f.state);
+        CHECK_EQ(HelpTextFor(f.state, "F6"), std::string("History of the highlighted net: view, export, delete."));
+        CHECK_EQ(HelpTextFor(f.state, "F7"), std::string("Edit a net (by number): its details and saved stations."));
+        CloseInfoWindow(&f.state);
+
+        f.Restrict();
+        f.LogInAs("N4FUL");
+        OpenHelp(&f.state);
+        CHECK_EQ(HelpTextFor(f.state, "F6"),
+                 std::string("History of the highlighted net: view and export; on your nets, import also."));
+        CHECK_EQ(HelpTextFor(f.state, "F7"), std::string("Edit one of your nets' saved stations (by number)."));
+        CloseInfoWindow(&f.state);
+
+        f.LogInAs("N4NET");
+        OpenHelp(&f.state);
+        CHECK_EQ(HelpTextFor(f.state, "F6"),
+                 std::string("History of the highlighted net: view and export; on your nets, import and delete."));
+        CHECK_EQ(HelpTextFor(f.state, "F7"),
+                 std::string("Edit one of your nets (by number): its details and saved stations."));
+        CloseInfoWindow(&f.state);
+
+        // An Admin isn't held to Restricted.
+        f.LogInAs("N4ADM");
+        OpenHelp(&f.state);
+        CHECK_EQ(HelpTextFor(f.state, "F6"), std::string("History of the highlighted net: view, export, delete."));
     }
 
     QL_TEST(AUserWithTwoKeysIsListedOnceInNetAccess)
