@@ -149,6 +149,35 @@ namespace ql
         CHECK_EQ(dest.GetNetInstancesForNet(existing).size(), std::size_t{1});
     }
 
+    QL_TEST(ASessionFileCarriesItsStationsMemberIds)
+    {
+        TempDir dir;
+        Database source(dir.File("source.db"));
+        std::int64_t source_net = BuildSourceNet(&source);
+        // Saved to the net, but not in the session exported: not carried.
+        Station absent = MakeStation("K4ABS", "Al Absent");
+        absent.member_id = "SP-99";
+        source.SaveNetStation(source_net, absent, "", 1);
+        std::int64_t session = source.GetNetInstancesForNet(source_net)[1].id;
+        REQUIRE(source.GetNetInstanceById(session)->instance_date == "2026-01-06");
+
+        std::string error;
+        REQUIRE(WriteNetSliceFile(dir.File("session.qlsession"), GatherSessionSlice(&source, session), &error));
+        std::optional<NetSlice> slice = ReadSessionSliceFile(dir.File("session.qlsession"), &error);
+        REQUIRE(slice.has_value());
+        REQUIRE(slice->saved_stations.size() == 1);
+        CHECK_EQ(slice->saved_stations[0].station.callsign, std::string("K4SAV"));
+        CHECK_EQ(slice->saved_stations[0].station.member_id, std::string("SP-12"));
+
+        // Imported into the net here: the member ID arrives with it.
+        Database dest(dir.File("dest.db"));
+        std::int64_t dest_net = AddTestNet(&dest, "Skywarn");
+        REQUIRE(ApplySessionSlice(&dest, *slice, dest_net, &error) != 0);
+        CHECK_EQ(dest.GetNetMemberId(dest_net, "K4SAV"), std::string("SP-12"));
+        CHECK_EQ(dest.GetNetMemberId(dest_net, "K4UNS"), std::string());
+        CHECK(dest.GetSavedNetEntries(dest_net).size() == 2);
+    }
+
     QL_TEST(ReExportingOverwritesTheOldFile)
     {
         TempDir dir;

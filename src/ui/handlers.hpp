@@ -800,11 +800,9 @@ namespace ql
         AppState* state_;
     };
 
-    // F4 on the settings page, console sessions only (see
-    // AppState::is_console_session -- Manage Users is never reachable over
-    // SSH, deliberately, to avoid needing an admin/permission concept), and
-    // only in builds with the SSH server (see CanManageUsers): loads the
-    // user roster and switches to the Manage Users page.
+    // F4 on the console's settings page, F5 on an SSH Admin's (see
+    // CanManageUsers), only in builds with the SSH server: loads the user
+    // roster and switches to the Manage Users page.
     class ShowManageUsersPageHandler
     {
     public:
@@ -867,6 +865,44 @@ namespace ql
         AppState* state_;
     };
 
+    // Enter on a net in the Net Access page: lists who may be given it.
+    class NetAccessChooseNetHandler
+    {
+    public:
+        explicit NetAccessChooseNetHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // Enter, or F2, on a user in the Net Access page: gives them the net or
+    // takes it back.
+    class NetAccessToggleUserHandler
+    {
+    public:
+        explicit NetAccessToggleUserHandler(AppState* state) : state_(state) {}
+
+        void operator()() const;
+
+    private:
+        AppState* state_;
+    };
+
+    // Global key handling for the Net Access page: F2 like Enter, Escape
+    // Back (a step, or out of the page).
+    class NetAccessKeyHandler
+    {
+    public:
+        explicit NetAccessKeyHandler(AppState* state) : state_(state) {}
+
+        bool operator()(const ftxui::Event& event) const;
+
+    private:
+        AppState* state_;
+    };
+
     // Global key handling for the Manage Users page: F2 Add, F3 Remove,
     // Escape Back.
     class ManageUsersKeyHandler
@@ -880,8 +916,9 @@ namespace ql
         AppState* state_;
     };
 
-    // Global key handling for the settings page: F2 Save, F3 Import ULS
-    // database, F4 Manage Users (console sessions only), Escape Cancel.
+    // Global key handling for the settings page: F2 Save, F3 Refresh Data
+    // (console), F4 My Keys (SSH), F5 Manage Users (console and Admins) or
+    // Net Access (Net Admins), F6 Upstream (console), Escape Cancel.
     class SettingsKeyHandler
     {
     public:

@@ -5,7 +5,10 @@
 # SCP file transfers (tests/test_files_end_to_end.cpp), over SFTP and
 # legacy SCP; and which commands the server will run
 # (tests/test_ssh_exec_end_to_end.cpp), and that a key added in My Keys really
-# logs in and a removed one stops. Last, tests/push_screens.py drives the real program's push
+# logs in and a removed one stops. A second server with Restricted on
+# (tests/test_restricted_end_to_end.cpp, tests/restricted_screens.py) is pushed
+# to and logged into as a full user, a Net Admin and an Admin. Last,
+# tests/push_screens.py drives the real program's push
 # screens (Close & Push, History's F3, the look-alike prompt) in a
 # pseudo-terminal against the same server; it needs Python's pyte and is
 # skipped without it. With mosh installed (and pyte), tests/mosh_screens.py
@@ -24,12 +27,15 @@ build=$(cd "${1:?usage: $0 <build-dir> [port]}" && pwd)
 port=${2:-2391}
 dir=$(mktemp -d "${TMPDIR:-/tmp}/quicklogger-ssh-e2e.XXXXXX")
 server_pid=""
+restricted_pid=""
 
 finish() {
-    if [ -n "$server_pid" ]; then
-        kill "$server_pid" 2>/dev/null || true
-        wait "$server_pid" 2>/dev/null || true
-    fi
+    for pid in "$server_pid" "$restricted_pid"; do
+        if [ -n "$pid" ]; then
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+        fi
+    done
     rm -rf "$dir"
 }
 trap finish EXIT INT TERM
@@ -95,6 +101,39 @@ elif [ -n "${QL_EXPECT_PYTE:-}" ]; then
     exit 1
 else
     echo "Skipping the push screens: Python's pyte isn't installed."
+fi
+
+# A second server with Restricted on (its own database, on the next port):
+# full user, Net Admin and Admin pushing over ssh and scp, then the same three
+# logged in on screen. Last of the server tests, since it changes nothing the
+# others use.
+rport=$((port + 1))
+mkdir -p "$dir/restricted"
+export QL_RESTRICTED_E2E_PORT="$rport"
+"$build/quicklogger_tests" RestrictedSeed
+(cd "$dir/restricted" && exec "$build/QuickLogger" --headless --ssh-port="$rport") > "$dir/restricted.log" 2>&1 &
+restricted_pid=$!
+tries=0
+until ssh-keyscan -p "$rport" -t ed25519 127.0.0.1 > "$dir/ssh/restricted_host" 2>/dev/null && [ -s "$dir/ssh/restricted_host" ]; do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 30 ]; then
+        echo "The restricted server didn't start:" >&2
+        cat "$dir/restricted.log" >&2
+        exit 1
+    fi
+    sleep 1
+done
+cat "$dir/ssh/restricted_host" >> "$dir/ssh/known_hosts"
+
+PATH="$dir/bin:$PATH" "$build/quicklogger_tests" RestrictedExecEndToEnd
+
+if python3 -c "import pyte" 2>/dev/null; then
+    PATH="$dir/bin:$PATH" python3 -u "$(dirname "$0")/restricted_screens.py" "$dir" "$rport"
+elif [ -n "${QL_EXPECT_PYTE:-}" ]; then
+    echo "QL_EXPECT_PYTE is set but Python's pyte isn't installed." >&2
+    exit 1
+else
+    echo "Skipping the restricted screens: Python's pyte isn't installed."
 fi
 
 if command -v mosh >/dev/null 2>&1 && command -v mosh-server >/dev/null 2>&1 && python3 -c "import pyte" 2>/dev/null; then

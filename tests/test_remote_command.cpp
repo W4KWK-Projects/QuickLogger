@@ -284,6 +284,86 @@ namespace ql
         CHECK(!fixture.Uploaded("Sky.qlsession"));
     }
 
+    // The push user W4KWK on a server in restricted-nets mode, at `level`.
+    static void RestrictedServerWithPushUser(ImportFixture* fixture, int level)
+    {
+        User user;
+        user.username = "W4KWK";
+        user.public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIpush";
+        user.amateur_callsign = "W4KWK";
+        user.access_level = level;
+        fixture->db()->CreateUser(user);
+        fixture->db()->SetServerOption(kOptionRestrictedNets, true);
+    }
+
+    QL_TEST(ARestrictedServerTakesSessionsOnlyIntoGrantedNets)
+    {
+        ImportFixture fixture;
+        std::int64_t net_id = AddTestNet(fixture.db(), "TAG Skywarn");
+        RestrictedServerWithPushUser(&fixture, kAccessUser);
+        fixture.WriteSession("Sky.qlsession", "TAG Skywarn");
+
+        RemoteCommandResult result = fixture.Run("import-session Sky.qlsession");
+        CHECK_EQ(result.exit_status, kRemoteExitRefused);
+        CHECK(result.output.find("TAG Skywarn isn't one of your nets.") != std::string::npos);
+        CHECK(fixture.db()->GetNetInstancesForNet(net_id).empty());
+        CHECK(!fixture.Uploaded("Sky.qlsession"));
+
+        // A look-alike they don't have is not even suggested.
+        fixture.WriteSession("Sky.qlsession", "TAG Skywarn Net");
+        result = fixture.Run("import-session Sky.qlsession");
+        CHECK_EQ(result.exit_status, kRemoteExitNoMatch);
+
+        fixture.db()->GrantNet("W4KWK", net_id, "console");
+        fixture.WriteSession("Sky.qlsession", "TAG Skywarn");
+        result = fixture.Run("import-session Sky.qlsession");
+        CHECK_EQ(result.exit_status, kRemoteExitOk);
+        CHECK_EQ(fixture.db()->GetNetInstancesForNet(net_id).size(), std::size_t(1));
+    }
+
+    QL_TEST(ARestrictedServerAddsANewNetOnlyForANetAdmin)
+    {
+        ImportFixture fixture;
+        RestrictedServerWithPushUser(&fixture, kAccessUser);
+        fixture.WriteNet("Sky.qlnet", "TAG Skywarn", {"2026-09-14"});
+
+        RemoteCommandResult result = fixture.Run("import-net Sky.qlnet");
+        CHECK_EQ(result.exit_status, kRemoteExitRefused);
+        CHECK(result.output.find("Only Net Admins can add a new net.") != std::string::npos);
+        CHECK(fixture.db()->GetAllNets().empty());
+
+        fixture.db()->SetUserAccessLevel("W4KWK", kAccessNetAdmin);
+        fixture.WriteNet("Sky.qlnet", "TAG Skywarn", {"2026-09-14"});
+        result = fixture.Run("import-net Sky.qlnet");
+        CHECK_EQ(result.exit_status, kRemoteExitOk);
+        std::vector<Net> nets = fixture.db()->GetAllNets();
+        REQUIRE(nets.size() == 1);
+        // The Net Admin who adds it looks after it.
+        CHECK_EQ(fixture.db()->GetNetGrants("W4KWK").size(), std::size_t(1));
+        CHECK_EQ(fixture.db()->GetNetGrants("W4KWK")[0], nets[0].id);
+    }
+
+    QL_TEST(ARestrictedServerMergesOnlyIntoGrantedNets)
+    {
+        ImportFixture fixture;
+        std::int64_t net_id = AddTestNet(fixture.db(), "TAG Skywarn");
+        RestrictedServerWithPushUser(&fixture, kAccessUser);
+        fixture.WriteNet("Sky.qlnet", "TAG Skywarn", {"2026-09-14"});
+
+        RemoteCommandResult result = fixture.Run("import-net Sky.qlnet");
+        CHECK_EQ(result.exit_status, kRemoteExitRefused);
+        CHECK(fixture.db()->GetNetInstancesForNet(net_id).empty());
+        result = fixture.Run("import-net --confirm-net \"TAG Skywarn\" Sky.qlnet");
+        CHECK_EQ(result.exit_status, kRemoteExitRefused);
+        CHECK(fixture.db()->GetNetInstancesForNet(net_id).empty());
+
+        fixture.db()->GrantNet("W4KWK", net_id, "console");
+        fixture.WriteNet("Sky.qlnet", "TAG Skywarn", {"2026-09-14"});
+        result = fixture.Run("import-net --confirm-net \"TAG Skywarn\" Sky.qlnet");
+        CHECK_EQ(result.exit_status, kRemoteExitOk);
+        CHECK_EQ(fixture.db()->GetNetInstancesForNet(net_id).size(), std::size_t(1));
+    }
+
     QL_TEST(ImportSessionFindsNoMatch)
     {
         ImportFixture fixture;

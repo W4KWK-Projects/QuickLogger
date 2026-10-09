@@ -1246,6 +1246,141 @@ namespace ql
         CHECK(!f.db()->ServerOptionOn(kOptionSelfServiceKeys));
     }
 
+    QL_TEST(AnAdminLevelBelongsToTheUsernameAndEveryKey)
+    {
+        Fixture f;
+        User admin;
+        admin.username = "K4WES";
+        admin.public_key = kKeyOne;
+        admin.amateur_callsign = "K4WES";
+        admin.access_level = kAccessAdmin;
+        f.db()->CreateUser(admin);
+        // Another key takes the username's level, whatever the new key says.
+        User other = admin;
+        other.public_key = kKeyTwo;
+        other.access_level = kAccessUser;
+        f.db()->CreateUser(other);
+        CHECK_EQ(f.db()->GetUserAccessLevel("k4wes"), kAccessAdmin);
+        for (const User& key : f.db()->GetUserKeys("K4WES"))
+        {
+            CHECK_EQ(key.access_level, kAccessAdmin);
+        }
+        CHECK_EQ(f.db()->CountAdmins(), 1);
+        f.db()->SetUserAccessLevel("K4WES", kAccessUser);
+        CHECK_EQ(f.db()->CountAdmins(), 0);
+        CHECK_EQ(f.db()->GetUserAccessLevel("nobody"), kAccessUser);
+    }
+
+    QL_TEST(OnlyAnSshAdminManagesUsersAndTheDatabaseDecides)
+    {
+        Fixture f;
+        LogInWithOneKey(&f);
+        ToggleSelfServiceKeys(&f.state);
+        CHECK(!f.db()->ServerOptionOn(kOptionSelfServiceKeys));
+        CHECK_EQ(f.state.form_error, std::string("Only admins can manage users."));
+
+        f.db()->SetUserAccessLevel("K4WES", kAccessAdmin);
+        f.state.form_error.clear();
+        ToggleSelfServiceKeys(&f.state);
+        CHECK(f.db()->ServerOptionOn(kOptionSelfServiceKeys));
+        CHECK(f.state.is_admin_user);
+        CHECK_EQ(f.db()->RecentKeyEvents(5)[0].actor, std::string("K4WES"));
+
+        // Demoted since login: the next action is refused.
+        f.db()->SetUserAccessLevel("K4WES", kAccessUser);
+        ToggleSelfServiceKeys(&f.state);
+        CHECK(f.db()->ServerOptionOn(kOptionSelfServiceKeys));
+        CHECK(!f.state.is_admin_user);
+        CHECK(!CanManageUsers(&f.state));
+    }
+
+    QL_TEST(AnSshAdminOpensManageUsersWithF5)
+    {
+        Fixture f;
+        LogInWithOneKey(&f);
+        CloseMyKeys(&f.state);
+        f.state.page = kPageSettings;
+        SettingsKeyHandler settings_keys(&f.state);
+        settings_keys(ftxui::Event::F5);
+        CHECK_EQ(f.state.page, kPageSettings);
+        f.db()->SetUserAccessLevel("K4WES", kAccessAdmin);
+        f.state.is_admin_user = true;
+        settings_keys(ftxui::Event::F5);
+#if defined(QUICKLOGGER_WITH_SSH)
+        CHECK_EQ(f.state.page, kPageManageUsers);
+#endif
+    }
+
+    QL_TEST(AnAdminCantLockThemselfOut)
+    {
+        Fixture f;
+        LogInWithOneKey(&f);
+        f.db()->SetUserAccessLevel("K4WES", kAccessAdmin);
+        User other;
+        other.username = "K4WES";
+        other.public_key = kKeyTwo;
+        f.db()->CreateUser(other);
+        f.state.is_admin_user = true;
+        CloseMyKeys(&f.state);
+        RefreshUsers(&f.state);
+        OpenUserKeys(&f.state, 0);
+        CHECK(f.state.show_user_keys_modal);
+
+        // Not the key in use; not all keys.
+        f.state.selected_user_key_index = 0;
+        CHECK_EQ(f.state.user_keys[0].id, f.state.ssh_key_id);
+        ToggleSelectedUserKeyDisabled(&f.state);
+        CHECK(!f.state.form_error.empty());
+        CHECK(!f.db()->GetUserKeys("K4WES")[0].disabled);
+        ToggleAllUserKeysDisabled(&f.state);
+        CHECK(!f.db()->GetUserKeys("K4WES")[1].disabled);
+        RemoveSelectedUserKey(&f.state);
+        CHECK_EQ(f.db()->GetUserKeys("K4WES").size(), std::size_t{2});
+
+        // Their other key can go.
+        f.state.selected_user_key_index = 1;
+        RemoveSelectedUserKey(&f.state);
+        CHECK_EQ(f.db()->GetUserKeys("K4WES").size(), std::size_t{1});
+
+        // Not a demotion, not a rename, not a removal.
+        OpenUserKeys(&f.state, 0);
+        f.state.edit_user_access_index = 0;
+        SaveEditedUser(&f.state);
+        CHECK_EQ(f.db()->GetUserAccessLevel("K4WES"), kAccessAdmin);
+        f.state.edit_user_access_index = 3;
+        f.state.rename_username = "K4NEW";
+        SaveEditedUser(&f.state);
+        CHECK_EQ(f.db()->GetUserKeys("K4WES").size(), std::size_t{1});
+        CloseUserKeys(&f.state);
+        f.state.selected_user_index = 0;
+        RemoveSelectedUser(&f.state);
+        CHECK_EQ(f.db()->GetUserKeys("K4WES").size(), std::size_t{1});
+    }
+
+    QL_TEST(AnAdminMakesAnotherUserAnAdmin)
+    {
+        Fixture f;
+        f.state.new_user_username = "N4ABC";
+        f.state.new_user_amateur_callsign = "N4ABC";
+        f.state.new_user_public_key = kKeyOne;
+        f.state.new_user_access_index = 3;
+        AddUserFromForm(&f.state);
+        CHECK_EQ(f.db()->GetUserAccessLevel("N4ABC"), kAccessAdmin);
+        CHECK(!f.db()->IsUserViewOnly("N4ABC"));
+        OpenUserKeys(&f.state, 0);
+        CHECK_EQ(f.state.edit_user_access_index, 3);
+        f.state.edit_user_access_index = 2;
+        SaveEditedUser(&f.state);
+        CHECK_EQ(f.db()->GetUserAccessLevel("N4ABC"), kAccessNetAdmin);
+        CHECK(!f.db()->IsUserViewOnly("N4ABC"));
+        OpenUserKeys(&f.state, 0);
+        CHECK_EQ(f.state.edit_user_access_index, 2);
+        f.state.edit_user_access_index = 1;
+        SaveEditedUser(&f.state);
+        CHECK_EQ(f.db()->GetUserAccessLevel("N4ABC"), kAccessUser);
+        CHECK(f.db()->IsUserViewOnly("N4ABC"));
+    }
+
     QL_TEST(AUserAddsAndRemovesTheirOwnKeysWithGuardrails)
     {
         Fixture f;
@@ -1432,7 +1567,7 @@ namespace ql
     QL_TEST(KeyLogKeepsOnlyTheNewestLines)
     {
         Fixture f;
-        for (int i = 0; i < 520; ++i)
+        for (int i = 0; i < kKeyLogKept + 20; ++i)
         {
             KeyEvent event;
             event.at = 1000 + i;
@@ -1441,9 +1576,9 @@ namespace ql
             event.detail = std::to_string(i);
             f.db()->LogKeyEvent(event);
         }
-        std::vector<KeyEvent> events = f.db()->RecentKeyEvents(1000);
-        CHECK_EQ(events.size(), std::size_t{500});
-        CHECK_EQ(events[0].detail, std::string("519"));
+        std::vector<KeyEvent> events = f.db()->RecentKeyEvents(kKeyLogKept + 100);
+        CHECK_EQ(events.size(), static_cast<std::size_t>(kKeyLogKept));
+        CHECK_EQ(events[0].detail, std::to_string(kKeyLogKept + 19));
     }
 
     QL_TEST(AKeysTransferMethodIsSavedAndSftpKeysAreNotOfferedZmodem)
@@ -3836,6 +3971,7 @@ namespace ql
         Station ann = MakeStation("K4AAA", "Ann Able", "37415", "Chattanooga");
         ann.street_address = "1 Main St";
         ann.grid_square = "EM75";
+        ann.member_id = "SP-7";
         f.state.modal_station = ann;
         f.state.modal_remarks = "mobile";
         REQUIRE(LogStationCheckIn(&f.state));
@@ -3853,11 +3989,14 @@ namespace ql
         REQUIRE(slice->instances.size() == 1);
         CHECK_EQ(slice->instances[0].started_at, std::int64_t{1000});
         CHECK_EQ(slice->check_ins.size(), std::size_t{2});
+        // Saved to the net when logged, so it travels as the net's saved
+        // entry, member ID and all.
         bool has_ann = false;
-        for (const Station& station : slice->other_stations)
+        for (const NetSliceSavedStation& saved : slice->saved_stations)
         {
+            const Station& station = saved.station;
             has_ann = has_ann || (station.callsign == "K4AAA" && station.street_address == "1 Main St" &&
-                                  station.grid_square == "EM75");
+                                  station.grid_square == "EM75" && station.member_id == "SP-7");
         }
         CHECK(has_ann);
     }
@@ -4561,7 +4700,11 @@ namespace ql
         Fixture f;
         f.state.page = kPageSettings;
         SettingsKeyHandler settings_keys(&f.state);
+        // F5, as for an SSH Admin; the console's F4 is nothing (My Keys
+        // is SSH only).
         settings_keys(ftxui::Event::F4);
+        CHECK_EQ(f.state.page, kPageSettings);
+        settings_keys(ftxui::Event::F5);
 #if defined(QUICKLOGGER_WITH_SSH)
         CHECK(CanManageUsers(&f.state));
         CHECK_EQ(f.state.page, kPageManageUsers);
@@ -4574,8 +4717,23 @@ namespace ql
         f.state.page = kPageSettings;
         f.state.is_console_session = false;
         CHECK(!CanManageUsers(&f.state));
-        settings_keys(ftxui::Event::F4);
+        settings_keys(ftxui::Event::F5);
         CHECK_EQ(f.state.page, kPageSettings);
+    }
+
+    QL_TEST(TheConsoleOpensUpstreamWithF6)
+    {
+        Fixture f;
+        f.state.page = kPageSettings;
+        SettingsKeyHandler settings_keys(&f.state);
+        CHECK(settings_keys(ftxui::Event::F6));
+        CHECK(f.state.show_upstream_window);
+        f.state.show_upstream_window = false;
+
+        // Not over SSH.
+        f.state.is_console_session = false;
+        settings_keys(ftxui::Event::F6);
+        CHECK(!f.state.show_upstream_window);
     }
 
 }  // namespace ql

@@ -1,6 +1,6 @@
-// A real QuickLogger 2.0.0 database, upgraded on its first open by this
-// version. tests/fixtures/quicklogger-2.0.0.sql was written by 2.0.0's own
-// code (tests/fixtures/make_database_2_0_0.cpp); an upgrade is one-way, so
+// A real QuickLogger 2.3.0 database, upgraded on its first open by this
+// version. tests/fixtures/quicklogger-2.3.0.sql was written by 2.3.0's own
+// code (tests/fixtures/make_database_2_3_0.cpp); an upgrade is one-way, so
 // nothing in it may be lost or changed except where listed below.
 
 #include <cstdint>
@@ -12,6 +12,7 @@
 
 #include <sqlite3.h>
 
+#include "../src/access.hpp"
 #include "../src/db/database.hpp"
 #include "../src/net_slice.hpp"
 #include "../src/uls_import.hpp"
@@ -80,16 +81,16 @@ namespace ql
 
     static std::string FixturePath()
     {
-        return std::string(QL_TEST_FIXTURES_DIR) + "/quicklogger-2.0.0.sql";
+        return std::string(QL_TEST_FIXTURES_DIR) + "/quicklogger-2.3.0.sql";
     }
 
-    // The 2.0.0 database before (`old`, as 2.0.0 left it) and after this
+    // The 2.3.0 database before (`old`, as 2.3.0 left it) and after this
     // version opened it, as one connection to the upgraded one with the
     // other attached.
-    class UpgradedFixture20
+    class UpgradedFixture23
     {
     public:
-        UpgradedFixture20()
+        UpgradedFixture23()
         {
             LoadSqlFile(FixturePath(), dir_.File("before.db"));
             LoadSqlFile(FixturePath(), dir_.File("quicklogger.db"));
@@ -99,12 +100,12 @@ namespace ql
             sqlite3_open(dir_.File("quicklogger.db").c_str(), &db_);
             QueryRows(db_, "ATTACH DATABASE '" + dir_.File("before.db") + "' AS old");
         }
-        ~UpgradedFixture20()
+        ~UpgradedFixture23()
         {
             sqlite3_close(db_);
         }
-        UpgradedFixture20(const UpgradedFixture20&) = delete;
-        UpgradedFixture20& operator=(const UpgradedFixture20&) = delete;
+        UpgradedFixture23(const UpgradedFixture23&) = delete;
+        UpgradedFixture23& operator=(const UpgradedFixture23&) = delete;
 
         sqlite3* db() const
         {
@@ -120,10 +121,10 @@ namespace ql
         sqlite3* db_ = nullptr;
     };
 
-    QL_TEST(Upgrade20KeepsEveryRowAndColumn)
+    QL_TEST(Upgrade23KeepsEveryRowAndColumn)
     {
-        UpgradedFixture20 f;
-        CHECK_EQ(QueryRows(f.db(), "PRAGMA old.user_version")[0], std::string("16"));
+        UpgradedFixture23 f;
+        CHECK_EQ(QueryRows(f.db(), "PRAGMA old.user_version")[0], std::string("19"));
         CHECK_EQ(QueryRows(f.db(), "PRAGMA user_version")[0], std::string("20"));
 
         std::vector<std::string> tables =
@@ -131,19 +132,13 @@ namespace ql
         REQUIRE(tables.size() >= 12);
         for (const std::string& table : tables)
         {
-            // Every 2.0.0 column, still there, holding the same values in
+            // Every 2.3.0 column, still there, holding the same values in
             // every row: nothing lost, nothing added, nothing changed.
             std::vector<std::string> columns =
                 QueryRows(f.db(), "SELECT name FROM pragma_table_info('" + table + "', 'old')");
             std::string list;
             for (const std::string& column : columns)
             {
-                // Since 2.2.0 a member ID is kept per net, so the station's own
-                // is cleared (see Database::MoveMemberIdsToNets).
-                if (table == "stations" && column == "member_id")
-                {
-                    continue;
-                }
                 list += (list.empty() ? "" : ", ") + std::string("\"") + column + "\"";
             }
             std::vector<std::string> lost =
@@ -164,7 +159,7 @@ namespace ql
                      QueryRows(f.db(), "SELECT COUNT(*) FROM main.\"" + table + "\"")[0]);
         }
 
-        // Every 2.0.0 index is still there.
+        // Every 2.3.0 index is still there.
         for (const std::string& index :
              QueryRows(f.db(),
                        "SELECT name FROM old.sqlite_schema WHERE type = 'index' AND sql IS NOT NULL "
@@ -174,21 +169,110 @@ namespace ql
         }
     }
 
-    QL_TEST(Upgrade20FillsTheNewColumns)
+    QL_TEST(Upgrade23KeepsEachNetsMemberId)
     {
-        UpgradedFixture20 f;
-        // Every key is on Ask: the way 2.0.0 sent files, ZMODEM offered.
-        CHECK_EQ(Lines(QueryRows(f.db(), "SELECT DISTINCT transfer_method FROM users")), std::string("0\n"));
-        CHECK_EQ(QueryRows(f.db(), "SELECT COUNT(*) FROM users")[0], std::string("5"));
-        // Nothing else about the users moved.
+        UpgradedFixture23 f;
+        // Each net's own ID, one station with a different ID on each of two
+        // nets, and a station with none.
         CHECK_EQ(Lines(QueryRows(f.db(),
-                                 "SELECT username, amateur_callsign, gmrs_callsign, view_only FROM users "
-                                 "ORDER BY id")),
-                 std::string(
-                     "KX0TST|KX0TST||0\nKX0TST|KX0TST||0\nKX0ZZA|KX0ZZA||1\nkd4zzb|KD4ZZB||0\nWQXX000||WQXX000|0\n"));
+                                 "SELECT n.name, ns.callsign, ns.member_id FROM net_saved_stations ns "
+                                 "JOIN nets n ON n.id = ns.net_id ORDER BY n.name, ns.callsign, ns.name")),
+                 std::string("Bare Net|KX0TST|10001\n"
+                             "Cross-Border HF Net|VE3ZZD|VE-77\n"
+                             "Family GMRS Net|WZZZ123|\n"
+                             "Family GMRS Net|WZZZ123|\n"
+                             "Fusion Net|KX0ZZA|CLUB-7\n"
+                             "Test County Skywarn|AB4ZZE|\n"
+                             "Test County Skywarn|KX0ZZA|SW-2002\n"));
+        Database db(f.path());
+        std::int64_t skywarn = 0;
+        std::int64_t fusion = 0;
+        for (const Net& net : db.GetAllNets())
+        {
+            skywarn = net.name == "Test County Skywarn" ? net.id : skywarn;
+            fusion = net.name == "Fusion Net" ? net.id : fusion;
+        }
+        CHECK_EQ(db.GetNetMemberId(skywarn, "KX0ZZA"), std::string("SW-2002"));
+        CHECK_EQ(db.GetNetMemberId(fusion, "KX0ZZA"), std::string("CLUB-7"));
     }
 
-    QL_TEST(Upgrade20DatabaseWorks)
+    QL_TEST(Upgrade23KeepsEveryKeyAndTheKeyLog)
+    {
+        UpgradedFixture23 f;
+        // The admin's keys, the user's own and the one turned off keep their
+        // marks; the Own Keys switch and the key log are as 2.3.0 left them.
+        CHECK_EQ(Lines(QueryRows(f.db(), "SELECT added_by_user, disabled FROM users ORDER BY id")),
+                 std::string("0|0\n0|1\n0|0\n0|0\n0|0\n1|0\n"));
+        CHECK_EQ(QueryRows(f.db(), "SELECT COUNT(*) FROM key_log")[0], std::string("3"));
+        Database db(f.path());
+        CHECK(db.ServerOptionOn(kOptionSelfServiceKeys));
+        std::vector<KeyEvent> events = db.RecentKeyEvents(10);
+        REQUIRE(events.size() == 3);
+        CHECK_EQ(events[0].action, std::string("disabled"));
+        CHECK_EQ(events[1].actor, std::string("KX0TST"));
+        // An old key can still be turned off and on, and a line logged.
+        std::vector<User> keys = db.GetUserKeys("KX0TST");
+        REQUIRE(keys.size() == 3);
+        CHECK(keys[1].disabled);
+        db.SetUserKeyDisabled(keys[1].id, false);
+        CHECK(!db.GetUserKeys("KX0TST")[1].disabled);
+    }
+
+    QL_TEST(Upgrade23StartsOpenToEveryFullUserWithNobodyAnAdmin)
+    {
+        UpgradedFixture23 f;
+        // Nobody is an Admin or a Net Admin, no net is given to anyone and
+        // Restricted is off: the server behaves as 2.3.0 did.
+        CHECK_EQ(Lines(QueryRows(f.db(), "SELECT DISTINCT access_level FROM users")), std::string("0\n"));
+        CHECK_EQ(QueryRows(f.db(), "SELECT COUNT(*) FROM net_grants")[0], std::string("0"));
+        CHECK_EQ(QueryRows(f.db(), "SELECT COUNT(*) FROM server_options WHERE name = 'restricted_nets'")[0],
+                 std::string("0"));
+        Database db(f.path());
+        CHECK_EQ(db.CountAdmins(), 0);
+        CHECK(!db.ServerOptionOn(kOptionRestrictedNets));
+        UserAccess full = LoadUserAccess(&db, "KD4ZZB");
+        CHECK(!full.restricted);
+        CHECK(!full.view_only);
+        for (const Net& net : db.GetAllNets())
+        {
+            CHECK(full.PowerOn(net) == NetPower::kManage);
+        }
+        CHECK(LoadUserAccess(&db, "KX0ZZA").view_only);
+
+        // The new things work on the upgraded database: an Admin, a Net
+        // Admin, a net given to someone, Restricted on.
+        std::int64_t net_id = db.GetAllNets()[0].id;
+        db.SetUserAccessLevel("KX0TST", kAccessAdmin);
+        db.SetUserAccessLevel("kd4zzb", kAccessNetAdmin);
+        CHECK_EQ(db.CountAdmins(), 1);
+        db.GrantNet("WQXX000", net_id, "console");
+        db.SetServerOption(kOptionRestrictedNets, true);
+        UserAccess given = LoadUserAccess(&db, "WQXX000");
+        REQUIRE(given.grants.size() == 1);
+        CHECK(given.PowerOn(*db.GetNetById(net_id)) == NetPower::kLog);
+        UserAccess net_admin = LoadUserAccess(&db, "KD4ZZB");
+        CHECK(net_admin.level == kAccessNetAdmin);
+        CHECK(net_admin.PowerOn(*db.GetNetById(net_id)) == NetPower::kWatch);
+        // Deleting the net takes its grants with it.
+        db.DeleteNetCompletely(net_id);
+        CHECK(db.GetNetGrants("WQXX000").empty());
+    }
+
+    QL_TEST(Upgrade23KeepsTheKeysTransferMethods)
+    {
+        UpgradedFixture23 f;
+        CHECK_EQ(QueryRows(f.db(), "SELECT COUNT(*) FROM users")[0], std::string("6"));
+        CHECK_EQ(Lines(QueryRows(f.db(), "SELECT transfer_method FROM users ORDER BY id")),
+                 std::string("1\n2\n0\n0\n0\n0\n"));
+        CHECK_EQ(
+            Lines(QueryRows(f.db(),
+                            "SELECT username, amateur_callsign, gmrs_callsign, view_only FROM users "
+                            "ORDER BY id")),
+            std::string("KX0TST|KX0TST||0\nKX0TST|KX0TST||0\nKX0ZZA|KX0ZZA||1\nkd4zzb|KD4ZZB||0\nWQXX000||WQXX000|0\n"
+                        "KX0TST|KX0TST||0\n"));
+    }
+
+    QL_TEST(Upgrade23DatabaseWorks)
     {
         TempDir dir;
         std::string path = dir.File("quicklogger.db");
@@ -261,18 +345,19 @@ namespace ql
         CHECK_EQ(error, std::string());
 
         // Users, their keys and their access; a key's Transfer method is
-        // Ask, and can be changed.
+        // kept, and can be changed.
         std::vector<User> keys = db.GetUserKeys("KX0TST");
-        REQUIRE(keys.size() == 2);
-        CHECK_EQ(keys[0].transfer_method, kTransferAsk);
-        db.UpdateUserKeyTransfer(keys[0].id, kTransferSftp);
-        CHECK_EQ(db.GetUserKeys("KX0TST")[0].transfer_method, kTransferSftp);
-        CHECK_EQ(db.GetUserKeys("KX0TST")[1].transfer_method, kTransferAsk);
+        REQUIRE(keys.size() == 3);
+        CHECK_EQ(keys[0].transfer_method, kTransferZmodem);
+        CHECK_EQ(keys[1].transfer_method, kTransferSftp);
+        db.UpdateUserKeyTransfer(keys[0].id, kTransferAsk);
+        CHECK_EQ(db.GetUserKeys("KX0TST")[0].transfer_method, kTransferAsk);
+        CHECK_EQ(db.GetUserKeys("KX0TST")[1].transfer_method, kTransferSftp);
         CHECK(db.IsUserViewOnly("KX0ZZA"));
         CHECK(!db.IsUserViewOnly("KD4ZZB"));
         CHECK_EQ(db.GetUserKeys("WQXX000")[0].gmrs_callsign, std::string("WQXX000"));
 
-        // The station data 2.0.0 downloaded still counts as current.
+        // The station data 2.3.0 downloaded still counts as current.
         DataRefreshPlan plan = PlanDataRefresh(&db, 1790000000);
         CHECK(!plan.uls);
         CHECK(!plan.ised);
@@ -284,7 +369,7 @@ namespace ql
         CHECK(db.FindUlsStationByCallsign("WZZZ123", LicenseTable::kGmrs).has_value());
     }
 
-    QL_TEST(Upgrade20HappensOnce)
+    QL_TEST(Upgrade23HappensOnce)
     {
         TempDir dir;
         std::string path = dir.File("quicklogger.db");

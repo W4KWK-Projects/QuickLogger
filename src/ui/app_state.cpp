@@ -452,6 +452,8 @@ namespace ql
     static std::vector<std::string> UserCells(const std::string& username, const std::vector<User>& keys)
     {
         bool view_only = false;
+        bool admin = false;
+        bool net_admin = false;
         int count = 0;
         int disabled = 0;
         std::int64_t last_login_at = 0;
@@ -464,6 +466,8 @@ namespace ql
             }
             first = first == nullptr ? &key : first;
             view_only = view_only || key.view_only;
+            admin = admin || key.access_level >= kAccessAdmin;
+            net_admin = net_admin || key.access_level == kAccessNetAdmin;
             ++count;
             disabled += key.disabled ? 1 : 0;
             last_login_at = std::max(last_login_at, key.last_login_at);
@@ -474,7 +478,11 @@ namespace ql
         cells.push_back(first != nullptr ? first->amateur_callsign : std::string());
         cells.push_back(first != nullptr ? first->gmrs_callsign : std::string());
         // Every key off: no login at all. Some off: "working/total".
-        cells.emplace_back(disabled == count && count > 0 ? "Disabled" : view_only ? "View-Only" : "Full");
+        cells.emplace_back(disabled == count && count > 0 ? "Disabled"
+                           : admin                        ? "Admin"
+                           : net_admin                    ? "Net Admin"
+                           : view_only                    ? "View-Only"
+                                                          : "Full");
         cells.push_back(disabled > 0 && disabled < count
                             ? std::to_string(count - disabled) + "/" + std::to_string(count)
                             : std::to_string(count));
@@ -1015,6 +1023,7 @@ namespace ql
     {
         // Its reads share one snapshot and one lock.
         Database::ReadTransaction reads(state->db);
+        RefreshAccess(state);
         std::vector<Net> all_nets = state->db->GetAllNets();
         state->nets.clear();
         state->nets.reserve(all_nets.size());
@@ -1165,11 +1174,156 @@ namespace ql
     bool CanManageUsers(const AppState* state)
     {
 #if defined(QUICKLOGGER_WITH_SSH)
-        return state->is_console_session;
+        return state->is_console_session || state->is_admin_user;
 #else
         (void)state;
         return false;
 #endif
+    }
+
+    bool RefuseNonAdmin(AppState* state)
+    {
+        if (state->is_console_session)
+        {
+            return false;
+        }
+        bool admin = state->db != nullptr && !state->ssh_username.empty() &&
+                     state->db->GetUserAccessLevel(state->ssh_username) >= kAccessAdmin;
+        state->is_admin_user = admin;
+        if (admin)
+        {
+            return false;
+        }
+        state->status_message.clear();
+        state->form_error = "Only admins can manage users.";
+        return true;
+    }
+
+    void RefreshAccess(AppState* state)
+    {
+        if (state->db == nullptr)
+        {
+            return;
+        }
+        if (!state->is_console_session && state->ssh_username.empty())
+        {
+            // Nobody to look up: a plain full user.
+            state->access = UserAccess();
+            state->access.restricted = state->db->ServerOptionOn(kOptionRestrictedNets);
+            return;
+        }
+        state->access = LoadUserAccess(state->db, state->is_console_session ? std::string() : state->ssh_username);
+    }
+
+    NetPower PowerOnNet(const AppState* state, const Net& net)
+    {
+        if (state->view_only_user)
+        {
+            return NetPower::kWatch;
+        }
+        return state->access.PowerOn(net);
+    }
+
+    bool RefuseNetPower(AppState* state, std::int64_t net_id, NetPower needed, const std::string& what)
+    {
+        if (RefuseViewOnly(state, what))
+        {
+            return true;
+        }
+        if (state->db == nullptr)
+        {
+            return false;
+        }
+        RefreshAccess(state);
+        std::optional<Net> net = state->db->GetNetById(net_id);
+        if (!net.has_value() || static_cast<int>(state->access.PowerOn(*net)) >= static_cast<int>(needed))
+        {
+            return false;
+        }
+        state->status_message.clear();
+        state->form_error = NetPowerRefusal(needed, net->name, what);
+        return true;
+    }
+
+    NetPower HistoryPower(const AppState* state)
+    {
+        if (state->view_only_user)
+        {
+            return NetPower::kWatch;
+        }
+        if (state->history_ad_hoc)
+        {
+            return NetPower::kManage;
+        }
+        if (state->selected_net_index < 0 || state->selected_net_index >= static_cast<int>(state->nets.size()))
+        {
+            return NetPower::kWatch;
+        }
+        return PowerOnNet(state, state->nets[state->selected_net_index]);
+    }
+
+    bool CanCreateNets(const AppState* state)
+    {
+        return !state->view_only_user && state->access.CanCreateNets();
+    }
+
+    void GiveNewNetToCreator(AppState* state, std::int64_t net_id)
+    {
+        if (state->is_console_session || state->ssh_username.empty() || net_id == 0)
+        {
+            return;
+        }
+        if (state->db->GetUserAccessLevel(state->ssh_username) == kAccessNetAdmin)
+        {
+            state->db->GrantNet(state->ssh_username, net_id, state->ssh_username);
+            RefreshAccess(state);
+        }
+    }
+
+    // The Access toggle's choices in Add User and Edit User, in the order
+    // AppState::new_user_access_labels lists them.
+    constexpr int kAccessChoiceFull = 0;
+    constexpr int kAccessChoiceViewOnly = 1;
+    constexpr int kAccessChoiceNetAdmin = 2;
+    constexpr int kAccessChoiceAdmin = 3;
+
+    static int AccessChoiceOf(const User& key)
+    {
+        return key.access_level >= kAccessAdmin      ? kAccessChoiceAdmin
+               : key.access_level == kAccessNetAdmin ? kAccessChoiceNetAdmin
+               : key.view_only                       ? kAccessChoiceViewOnly
+                                                     : kAccessChoiceFull;
+    }
+
+    static int AccessLevelOfChoice(int choice)
+    {
+        return choice == kAccessChoiceAdmin      ? kAccessAdmin
+               : choice == kAccessChoiceNetAdmin ? kAccessNetAdmin
+                                                 : kAccessUser;
+    }
+
+    // "an Admin", "view-only": the choice in words, for a status line.
+    static std::string AccessWords(int choice, bool article = false)
+    {
+        switch (choice)
+        {
+            case kAccessChoiceAdmin:
+                return article ? "an Admin" : "Admin";
+            case kAccessChoiceNetAdmin:
+                return article ? "a Net Admin" : "Net Admin";
+            case kAccessChoiceViewOnly:
+                return "view-only";
+            default:
+                return article ? "a full user" : "full access";
+        }
+    }
+
+    // True if `username` is the SSH user running this session: an admin may
+    // not lock themself out or demote themself from here.
+    static bool IsSessionUser(const AppState* state, const std::string& username)
+    {
+        return !state->is_console_session && !state->ssh_username.empty() &&
+               ToUpperAscii(state->ssh_username) == ToUpperAscii(username);
     }
 
     bool CanPushUpstream(const AppState* state)
@@ -1289,7 +1443,7 @@ namespace ql
     {
         if (!CanPushUpstream(state))
         {
-            state->form_error = "Set up an upstream server in Settings (F5) first.";
+            state->form_error = "Set up an upstream server in Settings (F6) first.";
             return false;
         }
         if (state->push_running)
@@ -1534,12 +1688,18 @@ namespace ql
             return;
         }
         state->start_net = state->nets[state->selected_net_index];
-        // Without a call sign for its service, as for a view-only user,
-        // only watching.
-        if (state->view_only_user || OwnCallsign(state, state->start_net.service).empty())
+        RefreshAccess(state);
+        // On a net that isn't theirs (restricted-nets mode), or without a
+        // call sign for its service, as for a view-only user, only watching.
+        bool may_log = state->access.PowerOn(state->start_net) != NetPower::kWatch;
+        if (state->view_only_user || !may_log || OwnCallsign(state, state->start_net.service).empty())
         {
             std::string why;
-            if (!state->view_only_user)
+            if (!state->view_only_user && !may_log)
+            {
+                why = NetPowerRefusal(NetPower::kLog, state->start_net.name, "");
+            }
+            else if (!state->view_only_user)
             {
                 RefuseWithoutCallsign(state, state->start_net.service);
                 why = state->form_error;
@@ -1720,7 +1880,7 @@ namespace ql
 
     void CloseOpenNetAndStartNew(AppState* state)
     {
-        if (RefuseViewOnly(state, "close or start net sessions"))
+        if (RefuseNetPower(state, state->resume_instance.net_id, NetPower::kLog, "close or start net sessions"))
         {
             CancelConfirmPrompt(state);
             return;
@@ -1752,7 +1912,7 @@ namespace ql
 
     void RequestCloseActiveNet(AppState* state)
     {
-        if (RefuseViewOnly(state, "close net sessions"))
+        if (RefuseNetPower(state, state->active_instance.net_id, NetPower::kLog, "close net sessions"))
         {
             return;
         }
@@ -1782,7 +1942,7 @@ namespace ql
     bool CloseActiveNet(AppState* state)
     {
         CancelConfirmPrompt(state);
-        if (RefuseViewOnly(state, "close net sessions"))
+        if (RefuseNetPower(state, state->active_instance.net_id, NetPower::kLog, "close net sessions"))
         {
             return false;
         }
@@ -2267,7 +2427,7 @@ namespace ql
 
     void LogOperatorCheckIn(AppState* state)
     {
-        if (RefuseViewOnly(state, "log check-ins"))
+        if (RefuseNetPower(state, state->active_instance.net_id, NetPower::kLog, "log check-ins"))
         {
             return;
         }
@@ -2322,7 +2482,7 @@ namespace ql
 
     void RemoveSelectedCheckIn(AppState* state)
     {
-        if (RefuseViewOnly(state, "delete check-ins"))
+        if (RefuseNetPower(state, state->active_instance.net_id, NetPower::kLog, "delete check-ins"))
         {
             return;
         }
@@ -2541,7 +2701,7 @@ namespace ql
 
     bool LogStationCheckIn(AppState* state)
     {
-        if (RefuseViewOnly(state, "log check-ins"))
+        if (RefuseNetPower(state, state->active_instance.net_id, NetPower::kLog, "log check-ins"))
         {
             return false;
         }
@@ -2627,7 +2787,7 @@ namespace ql
 
     void OpenEditCheckInForm(AppState* state, const CheckIn& check_in)
     {
-        if (RefuseViewOnly(state, "edit check-ins"))
+        if (RefuseNetPower(state, state->active_instance.net_id, NetPower::kLog, "edit check-ins"))
         {
             return;
         }
@@ -2658,7 +2818,7 @@ namespace ql
 
     bool SaveEditCheckInForm(AppState* state)
     {
-        if (RefuseViewOnly(state, "edit check-ins"))
+        if (RefuseNetPower(state, state->active_instance.net_id, NetPower::kLog, "edit check-ins"))
         {
             return false;
         }
@@ -2856,6 +3016,10 @@ namespace ql
         }
 
         const NetInstance& selected = state->history_instances[state->selected_history_index];
+        if (RefuseNetPower(state, selected.net_id, NetPower::kManage, "delete net sessions"))
+        {
+            return;
+        }
         if (selected.status == NetInstanceStatus::kOpen)
         {
             state->form_error =
@@ -3344,7 +3508,7 @@ namespace ql
 
     void RequestDeleteNet(AppState* state)
     {
-        if (RefuseViewOnly(state, "delete nets"))
+        if (RefuseNetPower(state, state->edit_net_id, NetPower::kManage, "delete nets"))
         {
             return;
         }
@@ -3354,7 +3518,7 @@ namespace ql
     void ConfirmDeleteNet(AppState* state)
     {
         state->show_delete_net_confirm_modal = false;
-        if (RefuseViewOnly(state, "delete nets"))
+        if (RefuseNetPower(state, state->edit_net_id, NetPower::kManage, "delete nets"))
         {
             return;
         }
@@ -3544,10 +3708,37 @@ namespace ql
         return "Delete";
     }
 
+    // Refuses (see RefuseNetPower) a pick that will end in a change this
+    // user may not make on the net it is about, so they are told before
+    // they choose a row, not after.
+    static bool RowPickRefusedOnNet(AppState* state, RowPickAction action)
+    {
+        switch (action)
+        {
+            case RowPickAction::kRemoveSavedStation:
+                return RefuseNetPower(state, state->edit_net_id, NetPower::kManage, "remove saved stations");
+            case RowPickAction::kDeleteNetInstance:
+            case RowPickAction::kDeleteHistoryCheckIn:
+                if (state->selected_history_index < 0 ||
+                    state->selected_history_index >= static_cast<int>(state->history_instances.size()))
+                {
+                    return false;
+                }
+                return RefuseNetPower(state, state->history_instances[state->selected_history_index].net_id,
+                                      NetPower::kManage, "delete history");
+            default:
+                return false;
+        }
+    }
+
     void StartRowPick(AppState* state, RowPickAction action)
     {
         if (state->view_only_user && RowPickChangesSomething(action) &&
             RefuseViewOnly(state, "change anything but their own settings"))
+        {
+            return;
+        }
+        if (RowPickRefusedOnNet(state, action))
         {
             return;
         }
@@ -4017,6 +4208,7 @@ namespace ql
     {
         state->manage_users = state->db->ListUsers();
         state->manage_self_service_on = state->db->ServerOptionOn(kOptionSelfServiceKeys);
+        state->manage_restricted_on = state->db->ServerOptionOn(kOptionRestrictedNets);
         state->manage_user_names.clear();
         state->manage_users_cells.clear();
         for (const User& user : state->manage_users)
@@ -4305,7 +4497,7 @@ namespace ql
 
     void ToggleSelfServiceKeys(AppState* state)
     {
-        if (RefuseViewOnly(state, "manage users") || !state->is_console_session)
+        if (RefuseNonAdmin(state))
         {
             return;
         }
@@ -4324,11 +4516,17 @@ namespace ql
 
     void ToggleSelectedUserKeyDisabled(AppState* state)
     {
-        if (RefuseViewOnly(state, "manage users") || state->user_keys.empty())
+        if (RefuseNonAdmin(state) || state->user_keys.empty())
         {
             return;
         }
         User key = state->user_keys[state->selected_user_key_index];
+        if (!key.disabled && IsSessionUser(state, key.username) && key.id == state->ssh_key_id)
+        {
+            state->status_message.clear();
+            state->form_error = "That's the key you're logged in with.";
+            return;
+        }
         {
             Database::WriteTransaction writes(state->db);
             state->db->SetUserKeyDisabled(key.id, !key.disabled);
@@ -4343,7 +4541,7 @@ namespace ql
 
     void ToggleAllUserKeysDisabled(AppState* state)
     {
-        if (RefuseViewOnly(state, "manage users") || state->user_keys.empty())
+        if (RefuseNonAdmin(state) || state->user_keys.empty())
         {
             return;
         }
@@ -4353,6 +4551,12 @@ namespace ql
             any_enabled = any_enabled || !key.disabled;
         }
         std::string username = state->user_keys_username;
+        if (any_enabled && IsSessionUser(state, username))
+        {
+            state->status_message.clear();
+            state->form_error = "You can't turn off all your own keys.";
+            return;
+        }
         {
             Database::WriteTransaction writes(state->db);
             state->db->SetUserKeysDisabled(username, any_enabled);
@@ -4400,6 +4604,10 @@ namespace ql
 
     void OpenKeyLog(AppState* state)
     {
+        if (RefuseNonAdmin(state))
+        {
+            return;
+        }
         Database::ReadTransaction reads(state->db);
         state->key_log_events = state->db->RecentKeyEvents(100);
         ListLayout layout = KeyLogLayout(state->list_width);
@@ -4441,7 +4649,7 @@ namespace ql
 
     void ExportKeyLog(AppState* state)
     {
-        if (!state->show_key_log_window)
+        if (!state->show_key_log_window || RefuseNonAdmin(state))
         {
             return;
         }
@@ -4450,7 +4658,7 @@ namespace ql
         std::vector<KeyEvent> events;
         {
             Database::ReadTransaction reads(state->db);
-            events = state->db->RecentKeyEvents(1000);
+            events = state->db->RecentKeyEvents(kKeyLogKept);
         }
         std::vector<std::string> lines;
         lines.emplace_back("When,By,Action,User,Detail");
@@ -4484,7 +4692,7 @@ namespace ql
         // Its reads share one snapshot and one lock; access comes with the keys.
         Database::ReadTransaction reads(state->db);
         std::vector<User> keys = state->db->GetUserKeys(state->user_keys_username);
-        state->edit_user_access_index = !keys.empty() && keys[0].view_only ? 1 : 0;
+        state->edit_user_access_index = keys.empty() ? kAccessChoiceFull : AccessChoiceOf(keys[0]);
         state->edit_user_amateur_callsign = keys.empty() ? std::string() : keys[0].amateur_callsign;
         state->edit_user_gmrs_callsign = keys.empty() ? std::string() : keys[0].gmrs_callsign;
         state->selected_user_key_index = 0;
@@ -4509,7 +4717,7 @@ namespace ql
 
     void SaveEditedUser(AppState* state)
     {
-        if (RefuseViewOnly(state, "manage users") || !state->show_user_keys_modal)
+        if (RefuseNonAdmin(state) || !state->show_user_keys_modal)
         {
             return;
         }
@@ -4518,6 +4726,19 @@ namespace ql
         state->rename_username = new_username;
         state->status_message.clear();
         bool renaming = new_username != old_username;
+        if (IsSessionUser(state, old_username))
+        {
+            if (renaming)
+            {
+                state->form_error = "You can't rename yourself here.";
+                return;
+            }
+            if (state->edit_user_access_index != kAccessChoiceAdmin)
+            {
+                state->form_error = "You can't make yourself less than an Admin.";
+                return;
+            }
+        }
         if (renaming && !IsValidUsername(new_username))
         {
             state->form_error = kUsernameRule;
@@ -4540,11 +4761,15 @@ namespace ql
             // Their settings, exports and received files follow them.
             MoveSshUserFiles(state->db_path, old_username, new_username, &error);
         }
-        bool view_only = state->edit_user_access_index == 1;
-        bool access_changed = state->db->IsUserViewOnly(new_username) != view_only;
+        bool view_only = state->edit_user_access_index == kAccessChoiceViewOnly;
+        int access_level = AccessLevelOfChoice(state->edit_user_access_index);
+        bool access_changed = state->db->IsUserViewOnly(new_username) != view_only ||
+                              state->db->GetUserAccessLevel(new_username) != access_level;
         if (access_changed)
         {
             state->db->SetUserViewOnly(new_username, view_only);
+            state->db->SetUserAccessLevel(new_username, access_level);
+            RecordKeyEvent(state, "access", new_username, AccessWords(state->edit_user_access_index));
         }
         std::vector<User> keys = state->db->GetUserKeys(new_username);
         bool callsigns_changed =
@@ -4566,7 +4791,7 @@ namespace ql
             }
         }
         state->form_error = error;
-        std::string access = view_only ? "view-only" : "a full user";
+        std::string access = AccessWords(state->edit_user_access_index, /*article=*/true);
         if (renaming && access_changed)
         {
             state->status_message =
@@ -4588,7 +4813,7 @@ namespace ql
 
     void AddKeyToShownUser(AppState* state)
     {
-        if (RefuseViewOnly(state, "manage users") || !state->show_user_keys_modal)
+        if (RefuseNonAdmin(state) || !state->show_user_keys_modal)
         {
             return;
         }
@@ -4618,12 +4843,18 @@ namespace ql
 
     void RemoveSelectedUserKey(AppState* state)
     {
-        if (RefuseViewOnly(state, "manage users") || state->user_keys.empty())
+        if (RefuseNonAdmin(state) || state->user_keys.empty())
         {
             return;
         }
         User key = state->user_keys[state->selected_user_key_index];
         bool last_key = state->user_keys.size() == 1;
+        if (IsSessionUser(state, key.username) && (key.id == state->ssh_key_id || last_key))
+        {
+            state->status_message.clear();
+            state->form_error = last_key ? "That's your last key." : "That's the key you're logged in with.";
+            return;
+        }
         state->db->DeleteUserKey(key.id);
         RecordKeyEvent(state, "removed", key.username, DescribeKeyLine(key.public_key));
         if (last_key)
@@ -4677,7 +4908,7 @@ namespace ql
 
     void AddUserFromForm(AppState* state)
     {
-        if (RefuseViewOnly(state, "manage users"))
+        if (RefuseNonAdmin(state))
         {
             return;
         }
@@ -4714,7 +4945,8 @@ namespace ql
         user.username = state->new_user_username;
         user.public_key = public_key;
         user.created_at = static_cast<std::int64_t>(std::time(nullptr));
-        user.view_only = state->new_user_access_index == 1;
+        user.view_only = state->new_user_access_index == kAccessChoiceViewOnly;
+        user.access_level = AccessLevelOfChoice(state->new_user_access_index);
         user.amateur_callsign = state->new_user_amateur_callsign;
         user.gmrs_callsign = state->new_user_gmrs_callsign;
         bool had_keys = existing;
@@ -4732,7 +4964,9 @@ namespace ql
         RefreshUsers(state);
         state->form_error.clear();
         // Another key keeps the username's access, whatever the form said.
-        std::string access = state->db->IsUserViewOnly(user.username) ? " (view-only)" : " (full access)";
+        std::vector<User> added_keys = state->db->GetUserKeys(user.username);
+        std::string access =
+            added_keys.empty() ? std::string() : " (" + AccessWords(AccessChoiceOf(added_keys[0])) + ")";
         if (!added)
         {
             state->status_message = "\"" + user.username + "\" already has that key.";
@@ -4749,17 +4983,266 @@ namespace ql
 
     void RemoveSelectedUser(AppState* state)
     {
-        if (RefuseViewOnly(state, "manage users") || state->manage_user_names.empty())
+        if (RefuseNonAdmin(state) || state->manage_user_names.empty())
         {
             return;
         }
         std::string username = state->manage_user_names[state->selected_user_index];
+        if (IsSessionUser(state, username))
+        {
+            state->status_message.clear();
+            state->form_error = "You can't remove yourself.";
+            return;
+        }
         int keys = CountUserKeys(state, username);
         state->db->DeleteUser(username);
         RecordKeyEvent(state, "user removed", username, std::to_string(keys) + (keys == 1 ? " key" : " keys"));
         RefreshUsers(state);
         state->form_error.clear();
         state->status_message = "Removed \"" + username + "\".";
+    }
+
+    // ---- Net Access: who has which nets ---------------------------------------
+
+    bool CanOpenNetAccess(const AppState* state)
+    {
+        return !state->view_only_user && state->access.IsNetAdmin();
+    }
+
+    // `text` cut or padded to `width` columns.
+    static std::string PadTo(const std::string& text, int width)
+    {
+        std::string padded = text;
+        for (int used = TextWidth(padded); used < width; ++used)
+        {
+            padded.push_back(' ');
+        }
+        return padded;
+    }
+
+    // Whether `username` is one of `usernames`, ignoring case.
+    static bool UsernameIn(const std::vector<std::string>& usernames, const std::string& username)
+    {
+        for (const std::string& other : usernames)
+        {
+            if (ToUpperAscii(other) == ToUpperAscii(username))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // The nets list: a net and how many full users have it.
+    static void RefreshNetAccessNets(AppState* state)
+    {
+        RefreshAccess(state);
+        Database::ReadTransaction reads(state->db);
+        state->net_access_nets.clear();
+        state->net_access_net_labels.clear();
+        int name_width = 0;
+        std::vector<Net> all_nets = state->db->GetAllNets();
+        for (Net& net : all_nets)
+        {
+            // A Net Admin hands out only the nets they look after.
+            if (net.is_ad_hoc || (!state->access.IsAdmin() && !state->access.IsGranted(net.id)))
+            {
+                continue;
+            }
+            name_width = std::max(name_width, TextWidth(net.name));
+            state->net_access_nets.push_back(std::move(net));
+        }
+        // Every net's count in one query, sorted by net id for the lookup.
+        std::vector<std::pair<std::int64_t, int>> counts = state->db->CountNetGrantees();
+        state->net_access_net_labels.reserve(state->net_access_nets.size());
+        for (const Net& net : state->net_access_nets)
+        {
+            std::vector<std::pair<std::int64_t, int>>::const_iterator found =
+                std::lower_bound(counts.begin(), counts.end(), std::pair<std::int64_t, int>(net.id, 0));
+            int people = found != counts.end() && found->first == net.id ? found->second : 0;
+            std::string label = PadTo(net.name, name_width + 3);
+            label += std::to_string(people);
+            label += people == 1 ? " person" : " people";
+            state->net_access_net_labels.push_back(std::move(label));
+        }
+        if (state->selected_net_access_net >= static_cast<int>(state->net_access_nets.size()))
+        {
+            state->selected_net_access_net = 0;
+        }
+    }
+
+    // The users list for the chosen net.
+    static void RefreshNetAccessUsers(AppState* state)
+    {
+        const Net& net = state->net_access_nets[state->selected_net_access_net];
+        Database::ReadTransaction reads(state->db);
+        std::vector<std::string> holders = state->db->GetNetGrantees(net.id);
+        state->net_access_users.clear();
+        state->net_access_user_labels.clear();
+        state->net_access_custodians.clear();
+        state->net_access_heading = "Who has " + net.name + ":";
+        int name_width = 0;
+        std::vector<User> keys = state->db->ListUsers();
+        for (User& key : keys)
+        {
+            if (!state->net_access_users.empty() && state->net_access_users.back().username == key.username)
+            {
+                continue;  // Their other keys.
+            }
+            // Admins have every net, and a view-only user can't log one.
+            if (key.view_only || key.access_level >= kAccessAdmin)
+            {
+                continue;
+            }
+            // A Net Admin looks after the net: only an Admin hands that
+            // out, so to anyone else it is only listed.
+            if (!state->access.CanGrant(net, key.access_level))
+            {
+                if (key.access_level == kAccessNetAdmin && UsernameIn(holders, key.username))
+                {
+                    state->net_access_custodians += (state->net_access_custodians.empty() ? "" : ", ") + key.username;
+                }
+                continue;
+            }
+            name_width = std::max(name_width, TextWidth(key.username));
+            state->net_access_users.push_back(std::move(key));
+        }
+        state->net_access_user_labels.reserve(state->net_access_users.size());
+        for (const User& user : state->net_access_users)
+        {
+            std::string label = UsernameIn(holders, user.username) ? "[x] " : "[ ] ";
+            label += PadTo(user.username, name_width + 3);
+            label += user.access_level == kAccessNetAdmin ? "Net Admin" : "Full user";
+            state->net_access_user_labels.push_back(std::move(label));
+        }
+        if (state->selected_net_access_user >= static_cast<int>(state->net_access_users.size()))
+        {
+            state->selected_net_access_user = 0;
+        }
+    }
+
+    void OpenNetAccess(AppState* state, int return_page)
+    {
+        RefreshAccess(state);
+        if (!CanOpenNetAccess(state))
+        {
+            state->status_message.clear();
+            state->form_error = "Only Net Admins and Admins hand out nets.";
+            return;
+        }
+        RefreshNetAccessNets(state);
+        if (state->net_access_nets.empty())
+        {
+            state->status_message.clear();
+            state->form_error = state->access.IsAdmin() ? "There are no recurring nets yet."
+                                                        : "You haven't been given any nets to hand out.";
+            return;
+        }
+        state->net_access_return_page = return_page;
+        state->net_access_stage = 0;
+        state->form_error.clear();
+        state->status_message.clear();
+        state->page = kPageNetAccess;
+    }
+
+    void ChooseNetAccessNet(AppState* state)
+    {
+        RefreshAccess(state);
+        if (!CanOpenNetAccess(state) || state->net_access_nets.empty())
+        {
+            return;
+        }
+        RefreshNetAccessUsers(state);
+        state->selected_net_access_user = 0;
+        state->net_access_stage = 1;
+        state->form_error.clear();
+        state->status_message.clear();
+    }
+
+    void ToggleNetAccessUser(AppState* state)
+    {
+        if (RefuseViewOnly(state, "hand out nets"))
+        {
+            return;
+        }
+        RefreshAccess(state);
+        state->status_message.clear();
+        if (state->net_access_nets.empty() || state->net_access_users.empty())
+        {
+            return;
+        }
+        // Kept apart from the lists, which are made again below.
+        const std::int64_t net_id = state->net_access_nets[state->selected_net_access_net].id;
+        const std::string net_name = state->net_access_nets[state->selected_net_access_net].name;
+        const std::string username = state->net_access_users[state->selected_net_access_user].username;
+        bool allowed = false;
+        bool has_it = false;
+        {
+            // Checked and changed under one lock: they may have been
+            // changed, or lost the net, since this list was made.
+            Database::WriteTransaction writes(state->db);
+            std::optional<Net> current = state->db->GetNetById(net_id);
+            allowed = current.has_value() &&
+                      state->access.CanGrant(*current, state->db->GetUserAccessLevel(username)) &&
+                      !state->db->IsUserViewOnly(username);
+            if (allowed)
+            {
+                has_it = UsernameIn(state->db->GetNetGrantees(net_id), username);
+                if (has_it)
+                {
+                    state->db->RevokeNet(username, net_id);
+                }
+                else
+                {
+                    state->db->GrantNet(username, net_id, state->is_console_session ? "console" : state->ssh_username);
+                }
+                RecordKeyEvent(state, has_it ? "net taken" : "net given", username, net_name);
+                writes.Commit();
+            }
+        }
+        if (!allowed)
+        {
+            state->form_error = "You can't change who has " + net_name + ".";
+            RefreshNetAccessNets(state);
+            state->net_access_stage = 0;
+            return;
+        }
+        state->form_error.clear();
+        RefreshNetAccessUsers(state);
+        state->status_message = has_it ? username + " no longer has " + net_name + "."
+                                       : username + " has " + net_name + ", from their next action.";
+    }
+
+    void BackOutOfNetAccess(AppState* state)
+    {
+        state->form_error.clear();
+        state->status_message.clear();
+        if (state->net_access_stage == 1)
+        {
+            RefreshNetAccessNets(state);
+            state->net_access_stage = 0;
+            return;
+        }
+        state->page = state->net_access_return_page;
+    }
+
+    void ToggleRestrictedNets(AppState* state)
+    {
+        if (RefuseNonAdmin(state))
+        {
+            return;
+        }
+        bool on = !state->db->ServerOptionOn(kOptionRestrictedNets);
+        {
+            Database::WriteTransaction writes(state->db);
+            state->db->SetServerOption(kOptionRestrictedNets, on);
+            RecordKeyEvent(state, on ? "restricted on" : "restricted off", "", "");
+            writes.Commit();
+        }
+        state->manage_restricted_on = on;
+        state->form_error.clear();
+        state->status_message = on ? "Restricted on: users log only the nets they're given. Ad hoc nets stay open."
+                                   : "Restricted off: any full user logs and changes any net.";
     }
 
     // The operator's own callsign on `instance`: the one in the role they
@@ -5158,7 +5641,8 @@ namespace ql
 
     void ConfirmNetMerge(AppState* state)
     {
-        if (state->merge_stage != MergeStage::kSummary || RefuseViewOnly(state, "import nets"))
+        if (state->merge_stage != MergeStage::kSummary ||
+            RefuseNetPower(state, state->merge_plan.target_net_id, NetPower::kLog, "import nets"))
         {
             return;
         }
@@ -5263,14 +5747,22 @@ namespace ql
                 }
             }
         }
+        RefreshAccess(state);
         if (taken || !names_checked)
         {
             std::vector<Net> alike;
+            std::string not_yours;
             for (const Net& net : state->nets)
             {
                 if (net.service == slice->net.service && (NetNamesAreTheSame(slice->net.name, net.name) ||
                                                           NetNamesLookAlike(slice->net.name, net.name, false)))
                 {
+                    // Only the nets they may log can be merged into.
+                    if (state->access.PowerOn(net) == NetPower::kWatch)
+                    {
+                        not_yours = net.name;
+                        continue;
+                    }
                     alike.push_back(net);
                 }
             }
@@ -5279,11 +5771,24 @@ namespace ql
                 OpenNetMergeChoice(state, std::move(*slice), std::move(alike), taken);
                 return;
             }
+            if (taken && !not_yours.empty())
+            {
+                state->status_message.clear();
+                state->form_error = NetPowerRefusal(NetPower::kLog, not_yours, "");
+                return;
+            }
+        }
+        if (!CanCreateNets(state))
+        {
+            state->status_message.clear();
+            state->form_error = "Only Net Admins can add a new net.";
+            return;
         }
 
         try
         {
-            ApplyNetSlice(state->db, *slice, static_cast<std::int64_t>(std::time(nullptr)));
+            std::int64_t net_id = ApplyNetSlice(state->db, *slice, static_cast<std::int64_t>(std::time(nullptr)));
+            GiveNewNetToCreator(state, net_id);
         }
         catch (const std::exception& e)
         {
@@ -5315,6 +5820,10 @@ namespace ql
                 return;
             }
             const Net& net = state->nets[state->selected_net_index];
+            if (RefuseNetPower(state, net.id, NetPower::kLog, "import sessions"))
+            {
+                return;
+            }
             state->import_session_net_id = net.id;
             state->import_session_net_name = net.name;
         }
@@ -5354,7 +5863,9 @@ namespace ql
 
     static void ImportSession(AppState* state, bool name_checked)
     {
-        if (RefuseViewOnly(state, "import sessions"))
+        if (state->import_session_ad_hoc
+                ? RefuseViewOnly(state, "import sessions")
+                : RefuseNetPower(state, state->import_session_net_id, NetPower::kLog, "import sessions"))
         {
             return;
         }
@@ -5505,7 +6016,7 @@ namespace ql
         if (!CanPullUpstream(state))
         {
             state->status_message.clear();
-            state->form_error = "Set up an upstream server in Settings (F5) first.";
+            state->form_error = "Set up an upstream server in Settings (F6) first.";
             return;
         }
         if (state->import_session && state->import_session_ad_hoc)
@@ -6036,10 +6547,13 @@ namespace ql
 
     void OpenEditNetForm(AppState* state, const Net& net)
     {
-        if (RefuseViewOnly(state, "edit nets"))
+        if (RefuseNetPower(state, net.id, NetPower::kLog, "edit nets"))
         {
             return;
         }
+        // A net they may only log shows its details but changes none.
+        state->edit_net_editable = state->access.PowerOn(net) == NetPower::kManage;
+        state->edit_net_radio_summary = DescribeNetRadio(net);
         state->edit_net_id = net.id;
         state->edit_net_name = net.name;
         int mode_index = NetModeIndex(net.mode);
@@ -6066,7 +6580,7 @@ namespace ql
 
     bool SaveEditNetForm(AppState* state)
     {
-        if (RefuseViewOnly(state, "edit nets"))
+        if (RefuseNetPower(state, state->edit_net_id, NetPower::kManage, "edit nets"))
         {
             return false;
         }
@@ -6138,7 +6652,7 @@ namespace ql
 
     bool SaveNetStationForm(AppState* state)
     {
-        if (RefuseViewOnly(state, "save stations to nets"))
+        if (RefuseNetPower(state, state->edit_net_id, NetPower::kLog, "save stations to nets"))
         {
             return false;
         }
@@ -6257,7 +6771,7 @@ namespace ql
 
     void OpenNewSavedStationForm(AppState* state)
     {
-        if (RefuseViewOnly(state, "save stations to nets"))
+        if (RefuseNetPower(state, state->edit_net_id, NetPower::kLog, "save stations to nets"))
         {
             return;
         }
@@ -6285,7 +6799,7 @@ namespace ql
 
     void RemoveSelectedSavedNetStation(AppState* state)
     {
-        if (RefuseViewOnly(state, "remove saved stations"))
+        if (RefuseNetPower(state, state->edit_net_id, NetPower::kManage, "remove saved stations"))
         {
             return;
         }
@@ -6317,6 +6831,11 @@ namespace ql
             state->selected_history_index >= static_cast<int>(state->history_instances.size()))
         {
             state->form_error = "No check-in to delete.";
+            return;
+        }
+        if (RefuseNetPower(state, state->history_instances[state->selected_history_index].net_id, NetPower::kManage,
+                           "delete check-ins"))
+        {
             return;
         }
 
@@ -7561,6 +8080,10 @@ namespace ql
         bool extra;
     };
 
+    // F4 on Settings over SSH, for full and view-only users alike.
+    static const char* const kMyKeysHelp =
+        "My Keys: your SSH keys, their comments and Transfer method; add or remove keys if the admin allows.";
+
     static std::vector<HelpLine> HelpFor(const AppState* state)
     {
         // A view-only user's pages, with only the keys they have (see
@@ -7602,11 +8125,18 @@ namespace ql
                     return lines;
                 }
                 case kPageSettings:
-                    return {
+                {
+                    std::vector<HelpLine> lines = {
                         {"F2", "Save your settings.", false},
                         {"Esc", "Cancel.", false},
-                        {"Left/Right", "Change the time format.", false},
                     };
+                    if (CanEditOwnKeys(state))
+                    {
+                        lines.push_back({"F4", kMyKeysHelp, false});
+                    }
+                    lines.push_back({"Left/Right", "Change the time format.", false});
+                    return lines;
+                }
                 default:
                     break;
             }
@@ -7614,16 +8144,55 @@ namespace ql
         switch (state->page)
         {
             case kPageNetList:
+            {
+                // On a server in restricted-nets mode a user logs only the
+                // nets they were given.
+                bool restricted = state->access.restricted && !state->access.IsAdmin();
+                std::vector<HelpLine> lines;
+                if (CanCreateNets(state))
+                {
+                    lines.push_back({"F2", "Create a new recurring net.", false});
+                }
+                lines.push_back({"F3/Enter",
+                                 restricted ? "Log the highlighted net, or join or view its open session; a net "
+                                              "that isn't yours you can only view."
+                                            : "Log the highlighted net, or join or view its open session.",
+                                 false});
+                lines.push_back({"F4", "Settings: your call signs, home ZIP and time format.", false});
+                lines.push_back({"F5", "Ad hoc nets: log one, resume one, or see their history.", false});
+                bool net_admin = state->access.IsNetAdmin();
+                lines.push_back({"F6",
+                                 !restricted ? "History of the highlighted net: view, export, delete."
+                                 : net_admin ? "History of the highlighted net: view and export; on your nets, import "
+                                               "and delete."
+                                             : "History of the highlighted net: view and export; on your nets, import "
+                                               "also.",
+                                 false});
+                // With no nets of their own, there's nothing for F7 to open.
+                if (!restricted || state->access.HasAnyGrant())
+                {
+                    lines.push_back({"F7",
+                                     !restricted || net_admin
+                                         ? (restricted ? "Edit one of your nets (by number): its details and saved "
+                                                         "stations."
+                                                       : "Edit a net (by number): its details and saved stations.")
+                                         : "Edit one of your nets' saved stations (by number).",
+                                     false});
+                }
+                lines.push_back({"F8", "Export the highlighted net to a file to share.", false});
+                if (CanCreateNets(state) || state->access.HasAnyGrant())
+                {
+                    lines.push_back({"F9", "Import a net from a file.", false});
+                }
+                lines.push_back({"F10", "Quit.", false});
+                lines.push_back({"Up/Down", "Move the highlight.", false});
+                return lines;
+            }
+            case kPageNetAccess:
                 return {
-                    {"F2", "Create a new recurring net.", false},
-                    {"F3/Enter", "Log the highlighted net, or join or view its open session.", false},
-                    {"F4", "Settings: your call signs, home ZIP and time format.", false},
-                    {"F5", "Ad hoc nets: log one, resume one, or see their history.", false},
-                    {"F6", "History of the highlighted net: view, export, delete.", false},
-                    {"F7", "Edit a net (by number): its details and saved stations.", false},
-                    {"F8", "Export the highlighted net to a file to share.", false},
-                    {"F9", "Import a net from a file.", false},
-                    {"F10", "Quit.", false},
+                    {"F2/Enter", "Choose the highlighted net; then give a user the net or take it back.", false},
+                    {"Space", "Give the highlighted user the net, or take it back.", false},
+                    {"Esc", "Back a step, then out of Net Access.", false},
                     {"Up/Down", "Move the highlight.", false},
                 };
             case kPageCreateNet:
@@ -7684,20 +8253,21 @@ namespace ql
                 {
                     lines.push_back({"F3", "Refresh the station data now.", false});
                 }
-                if (CanManageUsers(state))
-                {
-                    lines.push_back({"F4", "Manage SSH users.", false});
-                }
                 if (CanEditOwnKeys(state))
                 {
-                    lines.push_back({"F4",
-                                     "My Keys: your SSH keys, their comments and Transfer method; add or remove keys "
-                                     "if the admin allows.",
-                                     false});
+                    lines.push_back({"F4", kMyKeysHelp, false});
+                }
+                if (CanManageUsers(state))
+                {
+                    lines.push_back({"F5", "Manage SSH users.", false});
+                }
+                else if (!state->is_console_session && state->access.level == kAccessNetAdmin)
+                {
+                    lines.push_back({"F5", "Net Access: give full users the nets you look after.", false});
                 }
                 if (state->is_console_session)
                 {
-                    lines.push_back({"F5", "Upstream Server: where closed sessions are pushed.", false});
+                    lines.push_back({"F6", "Upstream Server: where closed sessions are pushed.", false});
                 }
                 lines.push_back(
                     {"Left/Right",
@@ -7715,24 +8285,50 @@ namespace ql
                 };
             case kPageNetHistory:
             {
+                // Deleting is for a net's Net Admins and Admins, importing for
+                // whoever has the net.
+                NetPower power = HistoryPower(state);
                 std::vector<HelpLine> lines = {
                     {"Up/Down", "Choose a session; its check-ins show below.", false},
-                    {"F5", "Delete a check-in from that session (by #).", false},
-                    {"F6", "Import a session exported elsewhere (.qlsession).", false},
-                    {"F7", "Export the highlighted session: log, .qlsession, ADIF (.adi).", false},
-                    {"F4", "Delete a closed session (by number).", true},
                 };
+                if (power == NetPower::kManage)
+                {
+                    lines.push_back({"F5", "Delete a check-in from that session (by #).", false});
+                }
+                if (power != NetPower::kWatch)
+                {
+                    lines.push_back({"F6", "Import a session exported elsewhere (.qlsession).", false});
+                }
+                lines.push_back({"F7", "Export the highlighted session: log, .qlsession, ADIF (.adi).", false});
+                if (power == NetPower::kManage)
+                {
+                    lines.push_back({"F4", "Delete a closed session (by number).", true});
+                }
                 // Statistics are a recurring net's alone.
                 if (!state->history_ad_hoc)
                 {
                     lines.push_back({"F8", "Statistics for this net.", true});
                 }
                 lines.push_back({"F9", "Find a station's check-ins to every net.", true});
-                lines.push_back({"F12", "The highlighted session's notes, to read or edit.", true});
+                lines.push_back({"F12",
+                                 power == NetPower::kWatch ? "Read the highlighted session's notes."
+                                                           : "The highlighted session's notes, to read or edit.",
+                                 true});
                 lines.push_back({"Esc", "Back.", false});
                 return lines;
             }
             case kPageEditNet:
+                if (!state->edit_net_editable)
+                {
+                    // A net they only log: its saved stations, not its details.
+                    return {
+                        {"F3", "Edit a saved station (by number, or Enter).", false},
+                        {"F6", "Add a saved station.", false},
+                        {"F7", "Export this net's saved stations to a file.", false},
+                        {"F5", "Saved stations that haven't checked in lately.", true},
+                        {"Esc", "Back.", false},
+                    };
+                }
                 return {
                     {"F2", "Save the net's details and return to the list.", false},
                     {"F3", "Edit a saved station (by number, or Enter).", false},
@@ -7780,8 +8376,12 @@ namespace ql
                     {"F3", "Remove an SSH user and all their keys (by number).", false},
                     {"F4/Enter", "Edit a user: username, access and keys (by number).", false},
                     {"F5", "Own Keys: let users add and remove their own keys in My Keys, or not.", false},
-                    {"F6", "Key Log: who added, removed or turned off keys, and when; F7 there saves it as a .csv.",
+                    {"F6",
+                     "Key Log: who added, removed or turned off keys or gave nets, and when; F7 there saves it "
+                     "as a .csv.",
                      false},
+                    {"F7", "Net Access: who has which nets (for Restricted).", false},
+                    {"F8", "Restricted: users log only the nets they're given; ad hoc nets stay open.", false},
                     {"Esc", "Back to Settings.", false},
                 };
             default:
@@ -7819,12 +8419,20 @@ namespace ql
             std::clamp(state->selected_history_index, 0, static_cast<int>(state->history_instances.size()) - 1));
         const NetInstance& instance = state->history_instances[index];
         std::optional<Net> net = state->db->GetNetById(instance.net_id);
-        OpenSessionNotes(state, instance, net.has_value() ? net->name : std::string(), state->view_only_user);
+        // Only those who may log the net write its notes.
+        bool read_only = state->view_only_user || (net.has_value() && PowerOnNet(state, *net) == NetPower::kWatch);
+        OpenSessionNotes(state, instance, net.has_value() ? net->name : std::string(), read_only);
     }
 
     void SaveSessionNotes(AppState* state)
     {
         if (state->session_notes_read_only)
+        {
+            CloseSessionNotes(state);
+            return;
+        }
+        std::optional<NetInstance> target = state->db->GetNetInstanceById(state->session_notes_instance_id);
+        if (target.has_value() && RefuseNetPower(state, target->net_id, NetPower::kLog, "edit session notes"))
         {
             CloseSessionNotes(state);
             return;

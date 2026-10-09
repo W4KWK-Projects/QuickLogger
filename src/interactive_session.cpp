@@ -658,6 +658,8 @@ namespace ql
 #endif
         ql::LoadSessionTransferMethod(&state);
         state.view_only_user = !is_console_session && !ssh_username.empty() && db.IsUserViewOnly(ssh_username);
+        state.is_admin_user =
+            !is_console_session && !ssh_username.empty() && db.GetUserAccessLevel(ssh_username) >= ql::kAccessAdmin;
         state.settings_path = settings_path;
         state.settings = ql::LoadSettings(state.settings_path);
         // An SSH user's call signs are set in Manage Users, not theirs to
@@ -703,6 +705,7 @@ namespace ql
         ftxui::Component edit_net_page = ql::BuildEditNetPage(&state);
         ftxui::Component import_net_page = ql::BuildImportNetPage(&state);
         ftxui::Component manage_users_page = ql::BuildManageUsersPage(&state);
+        ftxui::Component net_access_page = ql::BuildNetAccessPage(&state);
 
         ftxui::Component tab = ftxui::Container::Tab(
             {
@@ -717,6 +720,7 @@ namespace ql
                 edit_net_page,
                 import_net_page,
                 manage_users_page,
+                net_access_page,
             },
             &state.page);
 

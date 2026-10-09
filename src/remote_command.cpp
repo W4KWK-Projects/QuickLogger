@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "access.hpp"
 #include "date_utils.hpp"
 #include "file_export.hpp"
 #include "net_slice.hpp"
@@ -343,7 +344,8 @@ namespace ql
     class SessionImport
     {
     public:
-        SessionImport(Database* db, const NetSlice& slice, std::int64_t now) : db_(db), slice_(slice), now_(now)
+        SessionImport(Database* db, const NetSlice& slice, std::int64_t now, const UserAccess* access)
+            : db_(db), slice_(slice), now_(now), access_(access)
         {
             fields_.session = SessionLabel(slice_.instances[0]);
         }
@@ -423,7 +425,8 @@ namespace ql
             std::vector<const Net*> look_alikes;
             for (const Net* net : recurring)
             {
-                if (NetNamesLookAlike(slice_.net.name, net->name, /*alike_if_unsure=*/false))
+                // Not one they may log: no use asking about it.
+                if (MayLog(*net) && NetNamesLookAlike(slice_.net.name, net->name, /*alike_if_unsure=*/false))
                 {
                     look_alikes.emplace_back(net);
                 }
@@ -471,9 +474,18 @@ namespace ql
             return MakeResult(fields_, exit_status);
         }
 
+        bool MayLog(const Net& net) const
+        {
+            return access_ == nullptr || access_->PowerOn(net) != NetPower::kWatch;
+        }
+
         RemoteCommandResult ImportInto(const Net& net)
         {
             SetNet(net);
+            if (!MayLog(net))
+            {
+                return Finish("refused", NetPowerRefusal(NetPower::kLog, net.name, ""), kRemoteExitRefused);
+            }
             const NetInstance& source = slice_.instances[0];
             std::string error;
             // The check and the import under one write lock, so two pushes of
@@ -529,6 +541,7 @@ namespace ql
         Database* db_;
         const NetSlice& slice_;
         std::int64_t now_;
+        const UserAccess* access_;
         RemoteResultFields fields_;
     };
 
@@ -545,7 +558,10 @@ namespace ql
     class NetImport
     {
     public:
-        NetImport(Database* db, const NetSlice& slice, std::int64_t now) : db_(db), slice_(slice), now_(now) {}
+        NetImport(Database* db, const NetSlice& slice, std::int64_t now, const UserAccess* access)
+            : db_(db), slice_(slice), now_(now), access_(access)
+        {
+        }
 
         RemoteCommandResult Run(const RemoteCommand& command)
         {
@@ -610,7 +626,7 @@ namespace ql
             std::vector<const Net*> look_alikes;
             for (const Net* net : recurring)
             {
-                if (NetNamesLookAlike(slice_.net.name, net->name, /*alike_if_unsure=*/false))
+                if (MayLog(*net) && NetNamesLookAlike(slice_.net.name, net->name, /*alike_if_unsure=*/false))
                 {
                     look_alikes.emplace_back(net);
                 }
@@ -676,9 +692,18 @@ namespace ql
             return text;
         }
 
+        bool MayLog(const Net& net) const
+        {
+            return access_ == nullptr || access_->PowerOn(net) != NetPower::kWatch;
+        }
+
         RemoteCommandResult Ask(const Net& net)
         {
             SetNet(net);
+            if (!MayLog(net))
+            {
+                return Finish("refused", NetPowerRefusal(NetPower::kLog, net.name, ""), kRemoteExitRefused);
+            }
             SetCounts(PlanNetMerge(db_, slice_, net.id));
             return Finish("needs-confirmation",
                           "The net was logged as \"" + slice_.net.name + "\"; confirm \"" + net.name +
@@ -689,6 +714,10 @@ namespace ql
         RemoteCommandResult MergeInto(const Net& net)
         {
             SetNet(net);
+            if (!MayLog(net))
+            {
+                return Finish("refused", NetPowerRefusal(NetPower::kLog, net.name, ""), kRemoteExitRefused);
+            }
             // The plan and the merge under one write lock, so two pushes at
             // once can't both add the same session.
             Database::WriteTransaction transaction(db_);
@@ -705,8 +734,17 @@ namespace ql
 
         RemoteCommandResult AddAsNewNet()
         {
+            if (access_ != nullptr && !access_->CanCreateNets())
+            {
+                return Finish("refused", "Only Net Admins can add a new net.", kRemoteExitRefused);
+            }
             Database::WriteTransaction transaction(db_);
             std::int64_t net_id = ApplyNetSlice(db_, slice_, now_);
+            // A Net Admin who adds a net looks after it.
+            if (access_ != nullptr && !access_->console && access_->level == kAccessNetAdmin)
+            {
+                db_->GrantNet(access_->username, net_id, access_->username);
+            }
             transaction.Commit();
             fields_.has_net = true;
             fields_.net = slice_.net.name;
@@ -717,13 +755,15 @@ namespace ql
         Database* db_;
         const NetSlice& slice_;
         std::int64_t now_;
+        const UserAccess* access_;
         RemoteResultFields fields_;
     };
 
     // import-session or import-net (`net`) on an upload in the user's
     // /imports.
     static RemoteCommandResult ImportUpload(const RemoteCommand& command, Database* db, const std::string& db_path,
-                                            const std::string& username, std::int64_t now, bool net)
+                                            const std::string& username, const UserAccess& access, std::int64_t now,
+                                            bool net)
     {
         const std::string extension = net ? ".qlnet" : ".qlsession";
         // A bare name is in /imports, as is the only place one may be.
@@ -768,12 +808,12 @@ namespace ql
         {
             if (net)
             {
-                NetImport import(db, *slice, now);
+                NetImport import(db, *slice, now, &access);
                 result = import.Run(command);
             }
             else
             {
-                SessionImport import(db, *slice, now);
+                SessionImport import(db, *slice, now, &access);
                 result = import.Run(command);
             }
         }
@@ -1026,7 +1066,10 @@ namespace ql
             {
                 return DiscardUpload(command, db_path, username);
             }
-            return ImportUpload(command, db, db_path, username, now, command.kind == RemoteCommandKind::kImportNet);
+            UserAccess access = LoadUserAccess(db, username);
+            access.view_only = access.view_only || view_only;
+            return ImportUpload(command, db, db_path, username, access, now,
+                                command.kind == RemoteCommandKind::kImportNet);
         }
         catch (const std::exception& e)
         {

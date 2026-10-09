@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "../models.hpp"
@@ -199,6 +200,10 @@ namespace ql
         // The same, each with its entry name and default remarks (the
         // station's own name left as on file), in one query.
         std::vector<SavedNetStation> GetSavedNetEntries(std::int64_t net_id);
+        // The same, only the entries that checked in to session
+        // `instance_id` (by call sign and entry name): what a .qlsession
+        // carries, so their member IDs travel with it.
+        std::vector<SavedNetStation> GetSavedNetEntriesInNetInstance(std::int64_t instance_id);
         // The default remarks saved for `callsign` on `net_id`, or an empty
         // string if there's no saved row or no default was set. Used to
         // prefill the New Station modal's Remarks field when autocomplete
@@ -503,6 +508,24 @@ namespace ql
         // every key; a new username's come from CreateUser's `user`.
         void SetUserCallsigns(const std::string& username, const std::string& amateur_callsign,
                               const std::string& gmrs_callsign);
+        // Sets `username`'s access level (kAccessUser or kAccessAdmin) on
+        // every key; a new username's comes from CreateUser's `user`.
+        void SetUserAccessLevel(const std::string& username, int access_level);
+        // `username`'s access level (kAccessUser for an unknown username).
+        int GetUserAccessLevel(const std::string& username);
+        // The nets `username` has been given (a full user may log them, a
+        // Net Admin looks after them), and the other way round. Granting
+        // twice is a no-op; deleting a net or a user, and renaming a user,
+        // carry their grants with them.
+        void GrantNet(const std::string& username, std::int64_t net_id, const std::string& granted_by);
+        void RevokeNet(const std::string& username, std::int64_t net_id);
+        std::vector<std::int64_t> GetNetGrants(const std::string& username);
+        std::vector<std::string> GetNetGrantees(std::int64_t net_id);
+        // How many users have each net that anyone has, in one query: pairs
+        // of net id and count, by net id.
+        std::vector<std::pair<std::int64_t, int>> CountNetGrantees();
+        // How many usernames are Admins.
+        int CountAdmins();
         // True if `username` is view-only (false for an unknown username).
         bool IsUserViewOnly(const std::string& username);
         // Every key `username` may log in with, oldest first.
@@ -534,7 +557,7 @@ namespace ql
         bool ServerOptionOn(const std::string& name);
         void SetServerOption(const std::string& name, bool on);
         // The key log: one line per change to who can log in, newest first
-        // when read, trimmed to the last 500.
+        // when read, trimmed to the last kKeyLogKept.
         void LogKeyEvent(const KeyEvent& event);
         std::vector<KeyEvent> RecentKeyEvents(int limit);
 

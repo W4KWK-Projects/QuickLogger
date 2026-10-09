@@ -83,8 +83,9 @@ namespace ql
     // ---- One session (.qlsession) ------------------------------------------
     //
     // A .qlsession file is a NetSlice holding exactly one session: its net's
-    // definition, the session, its check-ins, and the details of every
-    // station in them (as other_stations). Written by F7 Export next to the
+    // definition, the session, its check-ins, the details of every station
+    // in them (as other_stations), and those stations' saved entries on the
+    // net (as saved_stations, for their member IDs). Written by F7 Export next to the
     // session's text log, so a session logged somewhere else (on a laptop
     // while the server was out of reach) can be added to a net here with
     // History's F6 Import. Same file format as .qlnet (WriteNetSliceFile).

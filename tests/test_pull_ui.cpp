@@ -120,7 +120,7 @@ namespace ql
         f.state.settings.upstream_host.clear();
         OpenPullWindow(&f.state);
         CHECK(f.state.pull_stage == PullStage::kNone);
-        CHECK_EQ(f.state.form_error, std::string("Set up an upstream server in Settings (F5) first."));
+        CHECK_EQ(f.state.form_error, std::string("Set up an upstream server in Settings (F6) first."));
 
         // A view-only user here can't import anything, pulled or not.
         f.state.settings.upstream_host = "upstream.example.org";
