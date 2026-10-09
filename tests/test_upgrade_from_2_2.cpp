@@ -124,7 +124,7 @@ namespace ql
     {
         UpgradedFixture22 f;
         CHECK_EQ(QueryRows(f.db(), "PRAGMA old.user_version")[0], std::string("18"));
-        CHECK_EQ(QueryRows(f.db(), "PRAGMA user_version")[0], std::string("19"));
+        CHECK_EQ(QueryRows(f.db(), "PRAGMA user_version")[0], std::string("20"));
 
         std::vector<std::string> tables =
             QueryRows(f.db(), "SELECT name FROM old.sqlite_schema WHERE type = 'table' ORDER BY name");
@@ -356,7 +356,7 @@ namespace ql
         sqlite3_open(path.c_str(), &db);
         CHECK_EQ(Lines(QueryRows(db, "SELECT * FROM nets ORDER BY id")), once);
         CHECK_EQ(Lines(QueryRows(db, "SELECT * FROM users ORDER BY id")), users_once);
-        CHECK_EQ(QueryRows(db, "PRAGMA user_version")[0], std::string("19"));
+        CHECK_EQ(QueryRows(db, "PRAGMA user_version")[0], std::string("20"));
         sqlite3_close(db);
     }
 

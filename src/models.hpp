@@ -349,6 +349,9 @@ namespace ql
         // A disabled key stays on file but can't log in; only an admin
         // turns it on or off.
         bool disabled = false;
+        // kAccessUser, kAccessNetAdmin or kAccessAdmin. Belongs to the username, like
+        // view_only; a Net Admin or Admin is never view-only.
+        int access_level = 0;
     };
 
     // One line of the key log: who did what to which user's keys, and when.
@@ -367,14 +370,30 @@ namespace ql
         std::string detail;
     };
 
+    // User::access_level. A Net Admin looks after the nets they have been
+    // given (see Database::GrantNet) and hands them to full users; an Admin
+    // does everything, plus Manage Users (also over SSH).
+    constexpr int kAccessUser = 0;
+    constexpr int kAccessNetAdmin = 1;
+    constexpr int kAccessAdmin = 2;
+
     // User::transfer_method. Ask offers ZMODEM and tells the SFTP command.
     constexpr int kTransferAsk = 0;
     constexpr int kTransferZmodem = 1;
     constexpr int kTransferSftp = 2;
 
+    // How many key log lines are kept (the window shows the newest 100; an
+    // export writes them all).
+    constexpr int kKeyLogKept = 20000;
+
     // The Database::ServerOptionOn name that lets users add and remove their
     // own keys in My Keys (off until the admin turns it on in Manage Users).
     constexpr const char* kOptionSelfServiceKeys = "self_service_keys";
+
+    // The Database::ServerOptionOn name for restricted-nets mode: off, any
+    // full user logs and changes any net; on, a full user only the nets
+    // they were given (see access.hpp).
+    constexpr const char* kOptionRestrictedNets = "restricted_nets";
     // Most keys one username may have.
     constexpr int kMaxKeysPerUser = 10;
 

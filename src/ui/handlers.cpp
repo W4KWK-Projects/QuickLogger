@@ -137,6 +137,13 @@ namespace ql
         {
             return;
         }
+        RefreshAccess(state_);
+        if (!CanCreateNets(state_))
+        {
+            state_->status_message.clear();
+            state_->form_error = "Only Net Admins can add a new net.";
+            return;
+        }
         ResetCreateNetForm(state_);
         state_->page = kPageCreateNet;
         if (state_->new_net_name_input)
@@ -147,6 +154,16 @@ namespace ql
 
     void CreateNetSubmitHandler::operator()() const
     {
+        RefreshAccess(state_);
+        if (RefuseViewOnly(state_, "create nets"))
+        {
+            return;
+        }
+        if (!CanCreateNets(state_))
+        {
+            state_->form_error = "Only Net Admins can add a new net.";
+            return;
+        }
         if (state_->new_net_name.empty())
         {
             state_->form_error = "Net name is required.";
@@ -168,7 +185,7 @@ namespace ql
         net.recurrence_description = state_->new_net_recurrence;
         net.comments = state_->new_net_comments;
         net.created_at = static_cast<std::int64_t>(std::time(nullptr));
-        state_->db->CreateNet(net);
+        GiveNewNetToCreator(state_, state_->db->CreateNet(net));
 
         RefreshNets(state_);
         ResetCreateNetForm(state_);
@@ -361,9 +378,12 @@ namespace ql
             return true;
         }
         // Nothing in History can be deleted or imported by a view-only
-        // user.
-        if (state_->view_only_user &&
-            (event == ftxui::Event::F4 || event == ftxui::Event::F5 || event == ftxui::Event::F6))
+        // user, and on a net that isn't theirs, nothing either; a net they
+        // may only log has no deleting.
+        NetPower power = HistoryPower(state_);
+        if ((power == NetPower::kWatch &&
+             (event == ftxui::Event::F4 || event == ftxui::Event::F5 || event == ftxui::Event::F6)) ||
+            (power == NetPower::kLog && (event == ftxui::Event::F4 || event == ftxui::Event::F5)))
         {
             return true;
         }
@@ -628,6 +648,13 @@ namespace ql
         {
             return;
         }
+        RefreshAccess(state_);
+        if (!CanCreateNets(state_) && !state_->access.HasAnyGrant())
+        {
+            state_->status_message.clear();
+            state_->form_error = "You haven't been given any nets to import into.";
+            return;
+        }
         state_->import_session = false;
         RefreshImportNetFiles(state_);
         state_->form_error.clear();
@@ -834,6 +861,10 @@ namespace ql
         }
 
         const Net& net = state_->start_net;
+        if (RefuseNetPower(state_, net.id, NetPower::kLog, "start net sessions"))
+        {
+            return;
+        }
 
         NetInstance instance;
         instance.net_id = net.id;
@@ -1270,7 +1301,7 @@ namespace ql
 
     void ShowManageUsersPageHandler::operator()() const
     {
-        if (!CanManageUsers(state_))
+        if (!CanManageUsers(state_) || RefuseNonAdmin(state_))
         {
             return;
         }
@@ -1306,6 +1337,38 @@ namespace ql
         state_->page = kPageSettings;
     }
 
+    void NetAccessChooseNetHandler::operator()() const
+    {
+        ChooseNetAccessNet(state_);
+    }
+
+    void NetAccessToggleUserHandler::operator()() const
+    {
+        ToggleNetAccessUser(state_);
+    }
+
+    bool NetAccessKeyHandler::operator()(const ftxui::Event& event) const
+    {
+        if (event == ftxui::Event::F2)
+        {
+            if (state_->net_access_stage == 1)
+            {
+                ToggleNetAccessUser(state_);
+            }
+            else
+            {
+                ChooseNetAccessNet(state_);
+            }
+            return true;
+        }
+        if (event == ftxui::Event::Escape)
+        {
+            BackOutOfNetAccess(state_);
+            return true;
+        }
+        return false;
+    }
+
     bool ManageUsersKeyHandler::operator()(const ftxui::Event& event) const
     {
         if (state_->show_zmodem_confirm_modal)
@@ -1339,7 +1402,8 @@ namespace ql
             }
             // Up and Down scroll the list; other function keys do nothing.
             return event == ftxui::Event::F1 || event == ftxui::Event::F2 || event == ftxui::Event::F3 ||
-                   event == ftxui::Event::F4 || event == ftxui::Event::F5 || event == ftxui::Event::F6;
+                   event == ftxui::Event::F4 || event == ftxui::Event::F5 || event == ftxui::Event::F6 ||
+                   event == ftxui::Event::F8;
         }
         if (state_->show_user_keys_modal)
         {
@@ -1401,6 +1465,16 @@ namespace ql
         if (event == ftxui::Event::F6)
         {
             OpenKeyLog(state_);
+            return true;
+        }
+        if (event == ftxui::Event::F7)
+        {
+            OpenNetAccess(state_, kPageManageUsers);
+            return true;
+        }
+        if (event == ftxui::Event::F8)
+        {
+            ToggleRestrictedNets(state_);
             return true;
         }
         if (event == ftxui::Event::Escape)
@@ -1483,6 +1557,13 @@ namespace ql
             OpenUpstreamWindow(state_);
             return true;
         }
+        // A Net Admin's F5 (an Admin's is Manage Users, which has Net Access).
+        if (event == ftxui::Event::F5 && !state_->is_console_session && !CanManageUsers(state_) &&
+            state_->access.level == kAccessNetAdmin)
+        {
+            OpenNetAccess(state_, kPageSettings);
+            return true;
+        }
         if (event == ftxui::Event::F2)
         {
             SaveSettingsHandler save(state_);
@@ -1495,7 +1576,8 @@ namespace ql
             request_refresh();
             return true;
         }
-        if (event == ftxui::Event::F4 && CanManageUsers(state_))
+        // The console has F4 for it; an SSH admin's F4 is My Keys, so F5.
+        if (event == (state_->is_console_session ? ftxui::Event::F4 : ftxui::Event::F5) && CanManageUsers(state_))
         {
             ShowManageUsersPageHandler show_manage_users(state_);
             show_manage_users();
@@ -1867,6 +1949,11 @@ namespace ql
         if (state_->page == kPageManageUsers)
         {
             ManageUsersKeyHandler handler(state_);
+            return handler(event);
+        }
+        if (state_->page == kPageNetAccess)
+        {
+            NetAccessKeyHandler handler(state_);
             return handler(event);
         }
         return false;

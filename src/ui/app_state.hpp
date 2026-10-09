@@ -9,6 +9,7 @@
 
 #include <ftxui/component/screen_interactive.hpp>
 
+#include "../access.hpp"
 #include "../db/database.hpp"
 #include "../mode_rules.hpp"
 #include "../models.hpp"
@@ -36,6 +37,7 @@ namespace ql
     constexpr int kPageEditNet = 8;
     constexpr int kPageImportNet = 9;
     constexpr int kPageManageUsers = 10;
+    constexpr int kPageNetAccess = 11;
 
     // Which ZMODEM operation the confirmation modal (AppState::
     // show_zmodem_confirm_modal) is currently about to run -- see
@@ -182,10 +184,27 @@ namespace ql
         // console; false for a session handed off from an SSH connection
         // (see ssh_server.hpp). The console is a permanently trusted,
         // exempt path -- it's how the very first SSH user gets added on a
-        // fresh install, and it's also the only place Manage Users (see
-        // kPageManageUsers) is reachable at all, deliberately never over
-        // SSH, so there's no admin/permission concept to build or attack.
+        // fresh install, and the way back in if every Admin is locked out.
+        // Manage Users (see kPageManageUsers) is open to it and to SSH
+        // Admins (is_admin_user).
         bool is_console_session = true;
+        // An SSH user who is an Admin (User::access_level), decided at
+        // login: they get Manage Users too. Always rechecked against the
+        // database by the actions themselves (RefuseNonAdmin). The console
+        // is always an admin and does not use this.
+        bool is_admin_user = false;
+        // What this session's user may do on each net (see access.hpp),
+        // as of RefreshAccess: the net list's keys follow it, and the
+        // actions that change anything reread it (RefuseNetPower), so a
+        // change by an Admin bites at once.
+        UserAccess access;
+        // False when Edit Net is open on a net this user may only log: its
+        // details are shown, not editable, and only the saved stations can
+        // be added to or edited.
+        bool edit_net_editable = true;
+        // The net's radio details in one line (DescribeNetRadio), for Edit
+        // Net when it isn't editable.
+        std::string edit_net_radio_summary;
         // An SSH user's session over Mosh (see mosh_bridge.hpp). Mosh keeps
         // the screen in step rather than passing bytes through, so ZMODEM
         // can't work: files are copied with scp or sftp instead.
@@ -380,7 +399,7 @@ namespace ql
         int selected_user_index = 0;
         // The Edit User window over Manage Users (F4, or Enter on a user):
         // `rename_username` and `edit_user_access_index` (0 full access, 1
-        // view-only), saved with F2; the user's keys, a row each; and a
+        // view-only, 2 Net Admin, 3 Admin), saved with F2; the user's keys, a row each; and a
         // field to paste another key into.
         bool show_user_keys_modal = false;
         std::string user_keys_username;
@@ -423,6 +442,24 @@ namespace ql
         // The Manage Users key legend's "Self-Service" state, read when the
         // page loads and when F5 flips it (not per frame).
         bool manage_self_service_on = false;
+        // Restricted-nets mode (kOptionRestrictedNets), as RefreshUsers last read it.
+        bool manage_restricted_on = false;
+        // The Net Access page (kPageNetAccess): first the net, then who has
+        // it. The nets are the ones this user may hand out (an Admin: all
+        // the recurring nets; a Net Admin: their own).
+        int net_access_return_page = kPageSettings;
+        // 0 choosing the net, 1 choosing who has it.
+        int net_access_stage = 0;
+        std::vector<Net> net_access_nets;
+        std::vector<std::string> net_access_net_labels;
+        int selected_net_access_net = 0;
+        // One per username that may be given the net: a full user, or for
+        // an Admin also a Net Admin.
+        std::vector<User> net_access_users;
+        std::vector<std::string> net_access_user_labels;
+        int selected_net_access_user = 0;
+        // "Looked after by: ..." for the chosen net.
+        std::string net_access_custodians;
         bool show_key_log_window = false;
         std::vector<KeyEvent> key_log_events;
         std::vector<std::string> key_log_labels;
@@ -439,7 +476,7 @@ namespace ql
         std::string new_user_gmrs_callsign;
         // The add-user form's Access choice: 0 full access, 1 view-only.
         int new_user_access_index = 0;
-        std::vector<std::string> new_user_access_labels{"Full access", "View-only"};
+        std::vector<std::string> new_user_access_labels{"Full access", "View-only", "Net Admin", "Admin"};
 
         // The operator's saved settings, and where they live on disk. `settings`
         // is the last-saved value (used elsewhere in the app, e.g. to prefill
@@ -1459,9 +1496,59 @@ namespace ql
     // function that changes shared data checks it, whatever key led there.
     bool RefuseViewOnly(AppState* state, const std::string& what);
 
-    // Whether this session can open Manage Users: only the local console,
-    // and only in a build with the SSH server (so never on Windows), since
-    // the users it manages exist only to log in over SSH.
+    // For the Manage Users actions: returns true, with "Only admins can
+    // manage users." in form_error, unless this is the console or an SSH
+    // user who is still an Admin in the database (an Admin demoted since
+    // login loses it here). Every Manage Users action checks it.
+    bool RefuseNonAdmin(AppState* state);
+
+    // Whether this user may hand out nets (Net Access): a Net Admin or an
+    // Admin, and the console.
+    bool CanOpenNetAccess(const AppState* state);
+    // Opens the Net Access page from `return_page`. Refuses (form_error)
+    // when there is no net to hand out.
+    void OpenNetAccess(AppState* state, int return_page);
+    // Enter on a net in Net Access: lists who may be given it.
+    void ChooseNetAccessNet(AppState* state);
+    // Enter on a user in Net Access: gives them the net, or takes it back.
+    void ToggleNetAccessUser(AppState* state);
+    // Esc in Net Access: back to the nets, or out to the page it came from.
+    void BackOutOfNetAccess(AppState* state);
+    // F8 on Manage Users: restricted-nets mode on or off (Admins only).
+    void ToggleRestrictedNets(AppState* state);
+
+    // Rereads AppState::access from the database for this session's user
+    // (the console, or ssh_username).
+    void RefreshAccess(AppState* state);
+
+    // What this user may do on `net`, from the last RefreshAccess. For
+    // deciding which keys to show; never for allowing a change.
+    NetPower PowerOnNet(const AppState* state, const Net& net);
+
+    // For an action that changes `net_id`: refreshes the access, then
+    // returns true, with the reason in form_error, unless this user has at
+    // least `needed` power on the net (a view-only user never does).
+    // `what` is the verb phrase, "delete net sessions". Ad hoc nets, and
+    // every net while restricted-nets mode is off, are open to any full
+    // user.
+    bool RefuseNetPower(AppState* state, std::int64_t net_id, NetPower needed, const std::string& what);
+
+    // What this user may do in the History being shown: the selected net's
+    // power, or everything for ad hoc nets.
+    NetPower HistoryPower(const AppState* state);
+
+    // Whether this user may add a recurring net (New, or importing a net
+    // that is new), from the last RefreshAccess.
+    bool CanCreateNets(const AppState* state);
+
+    // After this user adds a recurring net: a Net Admin is given it, so a
+    // restricted server doesn't lock them out of their own net.
+    void GiveNewNetToCreator(AppState* state, std::int64_t net_id);
+
+    // Whether this session can open Manage Users: the local console, or an
+    // SSH user who is an Admin (AppState::is_admin_user), and only in a
+    // build with the SSH server (so never on Windows), since the users it
+    // manages exist only to log in over SSH.
     bool CanManageUsers(const AppState* state);
 
     // Whether this session can push sessions upstream: only the local

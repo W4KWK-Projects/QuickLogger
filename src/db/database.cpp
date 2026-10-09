@@ -188,8 +188,20 @@ CREATE TABLE IF NOT EXISTS users (
     gmrs_callsign TEXT NOT NULL DEFAULT '',
     transfer_method INTEGER NOT NULL DEFAULT 0,
     added_by_user INTEGER NOT NULL DEFAULT 0,
-    disabled INTEGER NOT NULL DEFAULT 0
+    disabled INTEGER NOT NULL DEFAULT 0,
+    access_level INTEGER NOT NULL DEFAULT 0
 );
+
+-- The nets a user has been given: a full user may log them, a Net Admin
+-- looks after them (see access.hpp). Only matters in restricted-nets mode.
+CREATE TABLE IF NOT EXISTS net_grants (
+    username TEXT NOT NULL COLLATE NOCASE,
+    net_id INTEGER NOT NULL REFERENCES nets(id),
+    granted_by TEXT NOT NULL DEFAULT '',
+    granted_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (username, net_id)
+);
+CREATE INDEX IF NOT EXISTS idx_net_grants_net ON net_grants(net_id);
 
 CREATE TABLE IF NOT EXISTS key_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -208,7 +220,7 @@ CREATE TABLE IF NOT EXISTS server_options (
 
     // The version of the upgrades CreateSchema has applied to this
     // database; see the comment there.
-    static constexpr int kSchemaVersion = 19;
+    static constexpr int kSchemaVersion = 20;
 
     // How SQLite waits for another connection's lock: 1 ms pauses for the
     // first 20 tries, then 5 ms ones, giving up after 5 seconds by the clock.
@@ -657,6 +669,9 @@ CREATE TABLE IF NOT EXISTS server_options (
         EnsureColumnExists(db_, "users", "transfer_method", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(db_, "users", "added_by_user", "INTEGER NOT NULL DEFAULT 0");
         EnsureColumnExists(db_, "users", "disabled", "INTEGER NOT NULL DEFAULT 0");
+        // Since 2.4.0 a user can be an Admin (see kAccessAdmin); everyone
+        // already there stays a full or view-only user.
+        EnsureColumnExists(db_, "users", "access_level", "INTEGER NOT NULL DEFAULT 0");
         {
             Statement copy(&statements_,
                            "UPDATE users SET amateur_callsign = upper(username) "
@@ -1547,6 +1562,10 @@ COMMIT;
         Statement delete_saved(&statements_, "DELETE FROM net_saved_stations WHERE net_id = ?;");
         delete_saved.BindInt64(0, net_id);
         delete_saved.Step();
+
+        Statement delete_grants(&statements_, "DELETE FROM net_grants WHERE net_id = ?;");
+        delete_grants.BindInt64(0, net_id);
+        delete_grants.Step();
 
         Statement delete_net(&statements_, "DELETE FROM nets WHERE id = ?;");
         delete_net.BindInt64(0, net_id);
@@ -3002,6 +3021,7 @@ COMMIT;
         user.transfer_method = static_cast<int>(row.ColumnInt64(8));
         user.added_by_user = row.ColumnInt64(9) != 0;
         user.disabled = row.ColumnInt64(10) != 0;
+        user.access_level = static_cast<int>(row.ColumnInt64(11));
         return user;
     }
 
@@ -3025,10 +3045,11 @@ COMMIT;
         // access and call signs, whatever `user` says.
         Statement statement(&statements_, R"sql(
         INSERT INTO users (username, public_key, created_at, last_login_at, view_only, amateur_callsign,
-                           gmrs_callsign, added_by_user)
+                           gmrs_callsign, added_by_user, access_level)
         VALUES (?,?,?,0, COALESCE((SELECT view_only FROM users WHERE username = ? LIMIT 1), ?),
                 COALESCE((SELECT amateur_callsign FROM users WHERE username = ? LIMIT 1), ?),
-                COALESCE((SELECT gmrs_callsign FROM users WHERE username = ? LIMIT 1), ?), ?);
+                COALESCE((SELECT gmrs_callsign FROM users WHERE username = ? LIMIT 1), ?), ?,
+                COALESCE((SELECT access_level FROM users WHERE username = ? LIMIT 1), ?));
     )sql");
         statement.BindText(0, username);
         statement.BindText(1, user.public_key);
@@ -3040,6 +3061,8 @@ COMMIT;
         statement.BindText(7, username);
         statement.BindText(8, ToUpperAscii(user.gmrs_callsign));
         statement.BindInt64(9, user.added_by_user ? 1 : 0);
+        statement.BindText(10, username);
+        statement.BindInt64(11, user.access_level);
         statement.Step();
         return true;
     }
@@ -3050,6 +3073,32 @@ COMMIT;
         statement.BindInt64(0, view_only ? 1 : 0);
         statement.BindText(1, username);
         statement.Step();
+    }
+
+    void Database::SetUserAccessLevel(const std::string& username, int access_level)
+    {
+        Statement statement(&statements_, "UPDATE users SET access_level = ? WHERE username = ? COLLATE NOCASE;");
+        statement.BindInt64(0, access_level);
+        statement.BindText(1, username);
+        statement.Step();
+    }
+
+    int Database::GetUserAccessLevel(const std::string& username)
+    {
+        Statement statement(&statements_,
+                            "SELECT COALESCE(MAX(access_level), 0) FROM users WHERE username = ? COLLATE NOCASE;");
+        statement.BindText(0, username);
+        statement.Step();
+        return static_cast<int>(statement.ColumnInt64(0));
+    }
+
+    int Database::CountAdmins()
+    {
+        Statement statement(&statements_,
+                            "SELECT COUNT(DISTINCT username COLLATE NOCASE) FROM users WHERE access_level >= ?;");
+        statement.BindInt64(0, kAccessAdmin);
+        statement.Step();
+        return static_cast<int>(statement.ColumnInt64(0));
     }
 
     void Database::SetUserCallsigns(const std::string& username, const std::string& amateur_callsign,
@@ -3078,7 +3127,7 @@ COMMIT;
     {
         Statement statement(&statements_, R"sql(
         SELECT id, username, public_key, created_at, last_login_at, view_only, amateur_callsign, gmrs_callsign,
-               transfer_method, added_by_user, disabled
+               transfer_method, added_by_user, disabled, access_level
         FROM users WHERE username = ? COLLATE NOCASE ORDER BY id;
     )sql");
         statement.BindText(0, username);
@@ -3094,7 +3143,7 @@ COMMIT;
     {
         Statement statement(&statements_, R"sql(
         SELECT id, username, public_key, created_at, last_login_at, view_only, amateur_callsign, gmrs_callsign,
-               transfer_method, added_by_user, disabled
+               transfer_method, added_by_user, disabled, access_level
         FROM users ORDER BY username COLLATE NOCASE, username, id;
     )sql");
         std::vector<User> users;
@@ -3117,6 +3166,55 @@ COMMIT;
         Statement statement(&statements_, "DELETE FROM users WHERE username = ? COLLATE NOCASE;");
         statement.BindText(0, username);
         statement.Step();
+        Statement grants(&statements_, "DELETE FROM net_grants WHERE username = ? COLLATE NOCASE;");
+        grants.BindText(0, username);
+        grants.Step();
+    }
+
+    void Database::GrantNet(const std::string& username, std::int64_t net_id, const std::string& granted_by)
+    {
+        Statement statement(&statements_,
+                            "INSERT OR IGNORE INTO net_grants (username, net_id, granted_by, granted_at) "
+                            "VALUES (?,?,?,?);");
+        statement.BindText(0, username);
+        statement.BindInt64(1, net_id);
+        statement.BindText(2, granted_by);
+        statement.BindInt64(3, static_cast<std::int64_t>(std::time(nullptr)));
+        statement.Step();
+    }
+
+    void Database::RevokeNet(const std::string& username, std::int64_t net_id)
+    {
+        Statement statement(&statements_, "DELETE FROM net_grants WHERE username = ? COLLATE NOCASE AND net_id = ?;");
+        statement.BindText(0, username);
+        statement.BindInt64(1, net_id);
+        statement.Step();
+    }
+
+    std::vector<std::int64_t> Database::GetNetGrants(const std::string& username)
+    {
+        Statement statement(&statements_,
+                            "SELECT net_id FROM net_grants WHERE username = ? COLLATE NOCASE ORDER BY net_id;");
+        statement.BindText(0, username);
+        std::vector<std::int64_t> net_ids;
+        while (statement.Step())
+        {
+            net_ids.push_back(statement.ColumnInt64(0));
+        }
+        return net_ids;
+    }
+
+    std::vector<std::string> Database::GetNetGrantees(std::int64_t net_id)
+    {
+        Statement statement(&statements_,
+                            "SELECT username FROM net_grants WHERE net_id = ? ORDER BY username COLLATE NOCASE;");
+        statement.BindInt64(0, net_id);
+        std::vector<std::string> usernames;
+        while (statement.Step())
+        {
+            usernames.push_back(statement.ColumnText(0));
+        }
+        return usernames;
     }
 
     bool Database::RenameUser(const std::string& old_username, const std::string& new_username)
@@ -3132,6 +3230,10 @@ COMMIT;
         statement.BindText(0, new_username);
         statement.BindText(1, old_username);
         statement.Step();
+        Statement grants(&statements_, "UPDATE net_grants SET username = ? WHERE username = ? COLLATE NOCASE;");
+        grants.BindText(0, new_username);
+        grants.BindText(1, old_username);
+        grants.Step();
         return true;
     }
 
@@ -3189,8 +3291,9 @@ COMMIT;
         statement.BindText(3, event.username);
         statement.BindText(4, event.detail);
         statement.Step();
-        // A small log: the newest few hundred lines are plenty.
-        Statement trim(&statements_, "DELETE FROM key_log WHERE id <= (SELECT MAX(id) FROM key_log) - 500;");
+        // Lines are small; keep a long history, but not forever.
+        Statement trim(&statements_, "DELETE FROM key_log WHERE id <= (SELECT MAX(id) FROM key_log) - ?;");
+        trim.BindInt64(0, kKeyLogKept);
         trim.Step();
     }
 

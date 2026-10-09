@@ -869,8 +869,9 @@ namespace ql
         {
             ftxui::Element net_list_elem =
                 state_->nets.empty()
-                    ? HintText(state_->view_only_user ? "No recurring nets yet."
-                                                      : "No recurring nets yet. Press F2 to create one.")
+                    ? HintText(state_->view_only_user || !CanCreateNets(state_)
+                                   ? "No recurring nets yet."
+                                   : "No recurring nets yet. Press F2 to create one.")
                     // yframe, not frame, on every list: a row can be wider
                     // than the box (the last column isn't cut), and frame
                     // would then scroll the whole list sideways to show all
@@ -892,7 +893,20 @@ namespace ql
                                        ftxui::color(kColorLabel),
                                    ftxui::text(gmrs) | ftxui::bold | ftxui::color(kColorData),
                                    state_->view_only_user ? ftxui::text("  (view-only)") | ftxui::color(kColorLabel)
-                                                          : ftxui::emptyElement()});
+                                   : !state_->is_console_session && state_->access.level == kAccessAdmin
+                                       ? ftxui::text("  (Admin)") | ftxui::color(kColorLabel)
+                                   : !state_->is_console_session && state_->access.level == kAccessNetAdmin
+                                       ? ftxui::text("  (Net Admin)") | ftxui::color(kColorLabel)
+                                       : ftxui::emptyElement()});
+
+            // What this user may do with the highlighted net: on a net
+            // that isn't theirs (restricted-nets mode) they only watch it,
+            // as a view-only user does.
+            bool has_selection =
+                state_->selected_net_index >= 0 && state_->selected_net_index < static_cast<int>(state_->nets.size());
+            NetPower power = has_selection ? PowerOnNet(state_, state_->nets[state_->selected_net_index])
+                                           : (state_->view_only_user ? NetPower::kWatch : NetPower::kManage);
+            bool watch_only = power == NetPower::kWatch;
 
             // What F3/Enter will do with the highlighted net -- by far the
             // most used key, so it's spelled out under the list.
@@ -901,14 +915,14 @@ namespace ql
                 open_session
                     // In the notice color, so it stands out from the usual
                     // hint and messages under the list.
-                    ? (state_->view_only_user
-                           ? NoticeText("Session open: F3/Enter to view it.")
-                           : NoticeText("Session open: F3/Enter to join it, view it, or start a new one."))
-                    : state_->view_only_user || state_->nets.empty()
-                          ? ftxui::emptyElement()
-                          : HintText(
-                                "Choose your net with Up/Down, then press F3 (or Enter) to log "
-                                "it.");
+                    ? (watch_only ? NoticeText("Session open: F3/Enter to view it.")
+                                  : NoticeText("Session open: F3/Enter to join it, view it, or start a new one."))
+                    : state_->nets.empty()     ? ftxui::emptyElement()
+                      : state_->view_only_user ? ftxui::emptyElement()
+                      : watch_only             ? HintText("Not one of your nets: you can watch it when it's open.")
+                                               : HintText(
+                                         "Choose your net with Up/Down, then press F3 (or Enter) to log "
+                                                     "it.");
 
             ftxui::Element content = ftxui::vbox({
                 callsign_hint,
@@ -945,18 +959,31 @@ namespace ql
                                       {"F10", "Quit"},
                                   });
             }
-            return PageChrome("Recurring Nets", content,
-                              {
-                                  {"F2", "New"},
-                                  {"F3/Enter", open_session ? "Join" : "Log Net"},
-                                  {"F4", "Settings"},
-                                  {"F5", "AdHoc"},
-                                  {"F6", "History"},
-                                  {"F7", "Edit"},
-                                  {"F8", "Export"},
-                                  {"F9", "Import"},
-                                  {"F10", "Quit"},
-                              });
+            // Only the keys this user can use on the highlighted net.
+            std::vector<KeyHint> hints;
+            if (CanCreateNets(state_))
+            {
+                hints.push_back({"F2", "New"});
+            }
+            hints.push_back({"F3/Enter", watch_only ? "View" : open_session ? "Join" : "Log Net"});
+            hints.push_back({"F4", "Settings"});
+            hints.push_back({"F5", "AdHoc"});
+            hints.push_back({"F6", "History"});
+            if (power == NetPower::kManage)
+            {
+                hints.push_back({"F7", "Edit"});
+            }
+            else if (power == NetPower::kLog)
+            {
+                hints.push_back({"F7", "Stations"});
+            }
+            hints.push_back({"F8", "Export"});
+            if (CanCreateNets(state_) || state_->access.HasAnyGrant())
+            {
+                hints.push_back({"F9", "Import"});
+            }
+            hints.push_back({"F10", "Quit"});
+            return PageChrome("Recurring Nets", content, hints);
         }
 
     private:
@@ -1728,13 +1755,21 @@ namespace ql
             {
                 hints.push_back({"F3", "Refresh Data"});
             }
-            if (CanManageUsers(state_))
+            if (CanManageUsers(state_) && state_->is_console_session)
             {
                 hints.push_back({"F4", "Manage Users"});
             }
             if (CanEditOwnKeys(state_))
             {
                 hints.push_back({"F4", "My Keys"});
+            }
+            if (CanManageUsers(state_) && !state_->is_console_session)
+            {
+                hints.push_back({"F5", "Manage Users"});
+            }
+            else if (!state_->is_console_session && !CanManageUsers(state_) && state_->access.level == kAccessNetAdmin)
+            {
+                hints.push_back({"F5", "Net Access"});
             }
             if (state_->is_console_session)
             {
@@ -2203,19 +2238,25 @@ namespace ql
             {
                 extras.push_back({"F8", "Stats"});
             }
-            if (!state_->view_only_user)
+            // What this user may do with the net: delete (its Net Admins and
+            // Admins), import (anyone it was given to), or only look.
+            NetPower power = HistoryPower(state_);
+            if (power == NetPower::kManage)
             {
                 extras.push_back({"F4", "Del Session"});
             }
             extras.push_back({"F9", "Find Station"});
             extras.push_back({"F12", "Notes"});
-            if (state_->view_only_user)
+            if (power == NetPower::kWatch)
             {
                 return PageChrome("History: " + net_name, content,
                                   InKeyOrder(AddExtraKeysThatFit({{"F7", "Export"}, {"Esc", "Back"}}, extras, 1)));
             }
             std::vector<KeyHint> hints;
-            hints.push_back({"F5", "Del Check-In"});
+            if (power == NetPower::kManage)
+            {
+                hints.push_back({"F5", "Del Check-In"});
+            }
             hints.push_back({"F6", "Import"});
             hints.push_back({"F7", "Export"});
             hints.push_back({"Esc", "Back"});
@@ -2345,7 +2386,25 @@ namespace ql
                 ftxui::hbox({FieldLabel("Name:             "), input_name_->Render()}),
             };
             ftxui::Elements fields;
-            if (state_->edit_net_gmrs)
+            if (!state_->edit_net_editable)
+            {
+                // A net they may only log: its details, as text.
+                rows = {
+                    ftxui::hbox({FieldLabel("Name:             "),
+                                 ftxui::text(state_->edit_net_name) | ftxui::color(kColorData)}),
+                    ftxui::hbox({FieldLabel("Radio:            "),
+                                 ftxui::text(state_->edit_net_radio_summary) | ftxui::color(kColorData)}),
+                };
+                fields = {
+                    ftxui::hbox({FieldLabel("Postal Code:      "),
+                                 ftxui::text(state_->edit_net_location) | ftxui::color(kColorData)}),
+                    ftxui::hbox({FieldLabel("Recurrence:       "),
+                                 ftxui::text(state_->edit_net_recurrence) | ftxui::color(kColorData)}),
+                    ftxui::hbox({FieldLabel("Comments:         "),
+                                 ftxui::text(state_->edit_net_comments) | ftxui::color(kColorData)}),
+                };
+            }
+            else if (state_->edit_net_gmrs)
             {
                 // A GMRS net: FM, on one of the channels, and the FCC's data.
                 rows.push_back(ftxui::hbox({FieldLabel("Service:          "),
@@ -2378,6 +2437,10 @@ namespace ql
                 };
             }
             AppendFormFields(state_, fields, &rows);
+            if (!state_->edit_net_editable)
+            {
+                rows.push_back(HintText("Only a Net Admin changes these. Saved stations are yours to add and edit."));
+            }
             rows.push_back(Separator());
             rows.push_back(Heading("Saved Stations:"));
             rows.push_back(
@@ -2402,6 +2465,18 @@ namespace ql
             {
                 return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(std::move(rows)),
                                   {{"F2", "Save & Continue"}, {"F3", "Save & Close"}, {"Esc", "Cancel"}});
+            }
+            if (!state_->edit_net_editable)
+            {
+                return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(std::move(rows)),
+                                  AddExtraKeysThatFit(
+                                      {
+                                          {"F3", "Edit Station"},
+                                          {"F6", "Add Station"},
+                                          {"F7", "Export"},
+                                          {"Esc", "Back"},
+                                      },
+                                      {{"F5", "Quiet Stations"}}, 2));
             }
             return PageChrome("Edit Net: " + state_->edit_net_name, ftxui::vbox(std::move(rows)),
                               AddExtraKeysThatFit(
@@ -2513,6 +2588,14 @@ namespace ql
             ClickableList(state, ftxui::Menu(&state->edit_net_saved_station_labels,
                                              &state->selected_saved_station_index, saved_station_menu_option));
 
+        // Not there at all when the user may only log the net (see
+        // AppState::edit_net_editable): nothing to focus or type into.
+        for (ftxui::Component* field :
+             {&input_name, &input_mode, &input_frequency, &input_offset, &channel, &input_tone, &input_location,
+              &input_recurrence, &input_comments, &partial_match})
+        {
+            *field = ftxui::Maybe(*field, &state->edit_net_editable);
+        }
         ftxui::Component root = ftxui::Container::Vertical({
             input_name,
             input_mode,
@@ -3007,12 +3090,10 @@ namespace ql
 
     // ---- Manage users page --------------------------------------------------
 
-    // Console-only (see AppState::is_console_session) -- reached from
-    // Settings' F4, never over SSH. Lists who's allowed to SSH in and lets
-    // the console operator add/remove entries; there's no admin/permission
-    // concept to check here precisely because an SSH session can never
-    // reach this page at all, regardless of whose key it authenticated
-    // with (see ShowManageUsersPageHandler's doc comment).
+    // For the console and SSH Admins (see CanManageUsers) -- reached from
+    // Settings' F4 at the console, F5 over SSH. Lists who's allowed to SSH
+    // in and lets them add/remove entries. Every action rechecks the
+    // Admin level in the database (RefuseNonAdmin).
     class ManageUsersRenderer
     {
     public:
@@ -3055,9 +3136,8 @@ namespace ql
                               "are logged with its own, and watched without one."),
                 HintParagraph("Paste a full authorized_keys-style line, e.g. from "
                               "~/.ssh/id_ed25519.pub -- \"ssh-ed25519 AAAA... comment\"."),
-                HintParagraph("A view-only user can watch open net sessions, look at and "
-                              "export history, and change their own settings -- nothing else. "
-                              "F4 (or Enter) edits a user: their username, call signs, access and keys."),
+                HintParagraph("View-only watches and exports, nothing else. A Net Admin looks after the nets "
+                              "they're given; an Admin also manages users. F4 (or Enter) edits a user."),
                 StatusLine(state_->status_message),
                 ErrorLine(state_->form_error),
             });
@@ -3077,6 +3157,8 @@ namespace ql
                                {"F4", "Edit"},
                                {"F5", state_->manage_self_service_on ? "Own Keys: On" : "Own Keys: Off"},
                                {"F6", "Key Log"},
+                               {"F7", "Net Access"},
+                               {"F8", state_->manage_restricted_on ? "Restricted: On" : "Restricted: Off"},
                                {"Esc", "Back"}});
         }
 
@@ -3278,6 +3360,75 @@ namespace ql
                                                  log_modal, &state->show_key_log_window);
         return WithRowDeleteConfirm(
             state, LayeredModal(with_log, BuildZmodemConfirmModal(state), &state->show_zmodem_confirm_modal));
+    }
+
+    // ---- Net Access page ------------------------------------------------------
+
+    // Who has which nets (F7 on Manage Users, or a Net Admin's F5 on
+    // Settings): first the net, then its people, [x] for those who have it.
+    class NetAccessRenderer
+    {
+    public:
+        NetAccessRenderer(AppState* state, ftxui::Component net_menu, ftxui::Component user_menu)
+            : state_(state), net_menu_(std::move(net_menu)), user_menu_(std::move(user_menu))
+        {
+        }
+
+        ftxui::Element operator()() const
+        {
+            ftxui::Elements rows;
+            if (state_->net_access_stage == 1)
+            {
+                const Net& net = state_->net_access_nets[state_->selected_net_access_net];
+                rows.push_back(Heading("Who has " + net.name + ":"));
+                rows.push_back(state_->net_access_users.empty()
+                                   ? HintText("No full users yet. Add them in Manage Users.")
+                                   : Framed(user_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator) |
+                                         ftxui::flex);
+                if (!state_->net_access_custodians.empty())
+                {
+                    rows.push_back(ftxui::hbox({FieldLabel("Net Admins: "), ftxui::text(state_->net_access_custodians) |
+                                                                                ftxui::color(kColorData)}));
+                }
+                rows.push_back(HintText("Enter gives a user this net or takes it back."));
+            }
+            else
+            {
+                rows.push_back(Heading("Choose a net:"));
+                rows.push_back(Framed(net_menu_->Render() | ftxui::yframe | ftxui::vscroll_indicator) | ftxui::flex);
+                rows.push_back(HintText(state_->manage_restricted_on || state_->access.restricted
+                                            ? "Restricted is on: users log only the nets they have."
+                                            : "Restricted is off: every full user logs every net. "
+                                              "Turn it on in Manage Users."));
+            }
+            rows.push_back(StatusLine(state_->status_message));
+            rows.push_back(ErrorLine(state_->form_error));
+            return PageChrome("Net Access", ftxui::vbox(std::move(rows)),
+                              state_->net_access_stage == 1
+                                  ? std::vector<KeyHint>{{"F2/Enter", "Give/Take"}, {"Esc", "Back"}}
+                                  : std::vector<KeyHint>{{"F2/Enter", "Choose"}, {"Esc", "Back"}});
+        }
+
+    private:
+        AppState* state_;
+        ftxui::Component net_menu_;
+        ftxui::Component user_menu_;
+    };
+
+    ftxui::Component BuildNetAccessPage(AppState* state)
+    {
+        ftxui::MenuOption net_option;
+        net_option.on_enter = NetAccessChooseNetHandler(state);
+        net_option.entries_option.transform = AlignedMenuEntryTransform;
+        ftxui::Component net_menu = ClickableList(
+            state, ftxui::Menu(&state->net_access_net_labels, &state->selected_net_access_net, net_option));
+        ftxui::MenuOption user_option;
+        user_option.on_enter = NetAccessToggleUserHandler(state);
+        user_option.entries_option.transform = AlignedMenuEntryTransform;
+        ftxui::Component user_menu = ClickableList(
+            state, ftxui::Menu(&state->net_access_user_labels, &state->selected_net_access_user, user_option));
+        ftxui::Component root = ftxui::Container::Tab({net_menu, user_menu}, &state->net_access_stage);
+        return ftxui::Renderer(root, NetAccessRenderer(state, net_menu, user_menu));
     }
 
     // ---- Help and the seldom-used windows (see InfoWindow) -------------------
