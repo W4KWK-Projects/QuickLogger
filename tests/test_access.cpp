@@ -686,6 +686,8 @@ namespace ql
 
     QL_TEST(ManageUsersShowsTheNewKeysAndLevelsAt80Columns)
     {
+#if defined(QUICKLOGGER_WITH_SSH)
+        // Without the SSH server (Windows) there is no Manage Users.
         for (const ScreenSize& size : kScreenSizes)
         {
             AccessFixture f;
@@ -711,6 +713,7 @@ namespace ql
             CHECK(keys(ftxui::Event::F8));
             CHECK(!f.db()->ServerOptionOn(kOptionRestrictedNets));
         }
+#endif
     }
 
     QL_TEST(TheEditUserWindowFitsItsFourAccessChoicesAt80Columns)
@@ -809,7 +812,12 @@ namespace ql
         f.state.is_admin_user = true;
         f.state.page = kPageSettings;
         rows = DrawRows(&f.state, page, 80, 24);
+#if defined(QUICKLOGGER_WITH_SSH)
         CHECK(ShowsText(rows, "F5  Manage Users"));
+#else
+        // Without the SSH server (Windows) there is no Manage Users.
+        CHECK(!ShowsText(rows, "Manage Users"));
+#endif
         CHECK(!ShowsText(rows, "Net Access"));
     }
 
