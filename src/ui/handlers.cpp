@@ -1361,6 +1361,12 @@ namespace ql
             }
             return true;
         }
+        // Space ticks the highlighted user's box, as in a checklist.
+        if (event == ftxui::Event::Character(' ') && state_->net_access_stage == 1)
+        {
+            ToggleNetAccessUser(state_);
+            return true;
+        }
         if (event == ftxui::Event::Escape)
         {
             BackOutOfNetAccess(state_);

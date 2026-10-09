@@ -3388,7 +3388,7 @@ namespace ql
                     rows.push_back(ftxui::hbox({FieldLabel("Net Admins: "), ftxui::text(state_->net_access_custodians) |
                                                                                 ftxui::color(kColorData)}));
                 }
-                rows.push_back(HintText("Enter gives a user this net or takes it back."));
+                rows.push_back(HintText("Enter or Space gives a user this net or takes it back."));
             }
             else
             {
@@ -3403,7 +3403,7 @@ namespace ql
             rows.push_back(ErrorLine(state_->form_error));
             return PageChrome("Net Access", ftxui::vbox(std::move(rows)),
                               state_->net_access_stage == 1
-                                  ? std::vector<KeyHint>{{"F2/Enter", "Give/Take"}, {"Esc", "Back"}}
+                                  ? std::vector<KeyHint>{{"F2/Enter/Space", "Give/Take"}, {"Esc", "Back"}}
                                   : std::vector<KeyHint>{{"F2/Enter", "Choose"}, {"Esc", "Back"}});
         }
 

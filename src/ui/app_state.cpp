@@ -8191,6 +8191,7 @@ namespace ql
             case kPageNetAccess:
                 return {
                     {"F2/Enter", "Choose the highlighted net; then give a user the net or take it back.", false},
+                    {"Space", "Give the highlighted user the net, or take it back.", false},
                     {"Esc", "Back a step, then out of Net Access.", false},
                     {"Up/Down", "Move the highlight.", false},
                 };

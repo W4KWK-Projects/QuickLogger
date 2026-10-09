@@ -774,7 +774,8 @@ namespace ql
             rows = DrawRows(&f.state, page, size.width, size.height);
             CHECK(ShowsText(rows, "Who has Tuesday Net"));
             CHECK(ShowsText(rows, "[ ] N4FUL"));
-            CHECK(ShowsText(rows, "F2/Enter  Give/Take"));
+            CHECK(ShowsText(rows, "F2/Enter/Space  Give/Take"));
+            CHECK(ShowsText(rows, "Enter or Space gives a user this net"));
 
             // In the users list, Down moves the highlight and Enter (not
             // the hidden net list) gives the net.
@@ -784,9 +785,14 @@ namespace ql
             CHECK_EQ(f.db()->GetNetGrants(f.state.net_access_users[1].username).size(), std::size_t{1});
             rows = DrawRows(&f.state, page, size.width, size.height);
             CHECK(ShowsText(rows, "[x] " + f.state.net_access_users[1].username));
-            // F2 does the same; Esc goes back a step, then out.
+            // F2 does the same, and so does Space, as in a checklist.
             CHECK(keys(ftxui::Event::F2));
             CHECK(f.db()->GetNetGrants(f.state.net_access_users[1].username).empty());
+            CHECK(keys(ftxui::Event::Character(' ')));
+            CHECK_EQ(f.db()->GetNetGrants(f.state.net_access_users[1].username).size(), std::size_t{1});
+            CHECK(keys(ftxui::Event::Character(' ')));
+            CHECK(f.db()->GetNetGrants(f.state.net_access_users[1].username).empty());
+            // Esc goes back a step, then out.
             CHECK(keys(ftxui::Event::Escape));
             CHECK_EQ(f.state.net_access_stage, 0);
             CHECK(keys(ftxui::Event::Escape));
