@@ -199,6 +199,10 @@ namespace ql
         // The same, each with its entry name and default remarks (the
         // station's own name left as on file), in one query.
         std::vector<SavedNetStation> GetSavedNetEntries(std::int64_t net_id);
+        // The same, only the entries that checked in to session
+        // `instance_id` (by call sign and entry name): what a .qlsession
+        // carries, so their member IDs travel with it.
+        std::vector<SavedNetStation> GetSavedNetEntriesInNetInstance(std::int64_t instance_id);
         // The default remarks saved for `callsign` on `net_id`, or an empty
         // string if there's no saved row or no default was set. Used to
         // prefill the New Station modal's Remarks field when autocomplete

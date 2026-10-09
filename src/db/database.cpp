@@ -1447,6 +1447,31 @@ COMMIT;
         return entries;
     }
 
+    std::vector<SavedNetStation> Database::GetSavedNetEntriesInNetInstance(std::int64_t instance_id)
+    {
+        Statement statement(&statements_, R"sql(
+        SELECT s.callsign, s.name, ns.member_id, s.street_address, s.city, s.county, s.state, s.zip, s.grid_square,
+               s.license_class, s.email, s.data_source, s.last_updated, ns.name, ns.default_remarks
+        FROM stations s
+        JOIN net_saved_stations ns ON ns.callsign = s.callsign
+        WHERE ns.net_id = (SELECT net_id FROM net_instances WHERE id = ?1)
+          AND EXISTS (SELECT 1 FROM check_ins c
+                      WHERE c.net_instance_id = ?1 AND c.callsign = ns.callsign AND c.name = ns.name)
+        ORDER BY s.callsign, ns.name;
+    )sql");
+        statement.BindInt64(0, instance_id);
+        std::vector<SavedNetStation> entries;
+        while (statement.Step())
+        {
+            SavedNetStation entry;
+            entry.station = ReadStationRow(statement);
+            entry.name = statement.ColumnText(13);
+            entry.default_remarks = statement.ColumnText(14);
+            entries.push_back(std::move(entry));
+        }
+        return entries;
+    }
+
     std::string Database::GetSavedNetStationRemarks(std::int64_t net_id, const std::string& callsign,
                                                     const std::string& name)
     {

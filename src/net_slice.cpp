@@ -202,6 +202,11 @@ namespace ql
         slice.instances.push_back(std::move(*instance));
         slice.check_ins = db->GetCheckInsForNetInstance(instance_id);
         slice.other_stations = db->GetStationsInNetInstance(instance_id);
+        // A member ID belongs to the net's saved entry, and the file keeps
+        // it only there (other_stations are written without one), so the
+        // session's entries go too. Importing reads their member IDs; it
+        // still saves only the stations that checked in.
+        slice.saved_stations = db->GetSavedNetEntriesInNetInstance(instance_id);
         return slice;
     }
 

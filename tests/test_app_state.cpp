@@ -3971,6 +3971,7 @@ namespace ql
         Station ann = MakeStation("K4AAA", "Ann Able", "37415", "Chattanooga");
         ann.street_address = "1 Main St";
         ann.grid_square = "EM75";
+        ann.member_id = "SP-7";
         f.state.modal_station = ann;
         f.state.modal_remarks = "mobile";
         REQUIRE(LogStationCheckIn(&f.state));
@@ -3988,11 +3989,14 @@ namespace ql
         REQUIRE(slice->instances.size() == 1);
         CHECK_EQ(slice->instances[0].started_at, std::int64_t{1000});
         CHECK_EQ(slice->check_ins.size(), std::size_t{2});
+        // Saved to the net when logged, so it travels as the net's saved
+        // entry, member ID and all.
         bool has_ann = false;
-        for (const Station& station : slice->other_stations)
+        for (const NetSliceSavedStation& saved : slice->saved_stations)
         {
+            const Station& station = saved.station;
             has_ann = has_ann || (station.callsign == "K4AAA" && station.street_address == "1 Main St" &&
-                                  station.grid_square == "EM75");
+                                  station.grid_square == "EM75" && station.member_id == "SP-7");
         }
         CHECK(has_ann);
     }
