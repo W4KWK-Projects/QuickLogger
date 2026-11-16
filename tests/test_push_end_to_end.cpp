@@ -133,6 +133,11 @@ namespace ql
         MarkAllLoaded(&local, static_cast<std::int64_t>(std::time(nullptr)));
         std::int64_t tag = AddTestNet(&local, "TAG Skywarn");
         AddClosedSession(&local, tag, "2026-10-06", 1791331200, 3);
+        // Never pushed on its own, so the whole-net push has a session to
+        // merge. (The open session below closes when it's pushed; before
+        // 2026-10-13 that was before it started, so it didn't match its
+        // upstream copy and stood in for this one.)
+        AddClosedSession(&local, tag, "2026-09-29", 1790726400, 2);
         AddClosedSession(&local, AddTestNet(&local, "Dixie Traders Net"), "2026-10-07", 1791417600, 2);
         AddClosedSession(&local, AddTestNet(&local, "220 EOR net"), "2026-10-08", 1791504000, 2);
         std::int64_t open = AddTestInstance(&local, tag, "2026-10-13", 1791936000, "W4KWK");
